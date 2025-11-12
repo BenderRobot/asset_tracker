@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio Tracker - Investissements</title>
+	<link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <!-- MODIFIÉ : On force la v10 du CSS -->
+    <link rel="stylesheet" href="style.css?v=10">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation -->
+        <nav class="nav-menu">
+            <a href="index.html">Transactions</a>
+            <a href="investments.html" class="active">Portfolio</a>
+			<a href="dashboard.html">Dashboard</a>
+			<a href="analytics.html">Analytics</a>
+        </nav>
+
+        <!-- En-tête -->
+		<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1>📈 Portfolio Overview</h1>
+            <div id="market-status-container"></div>
+        </div>        
+		
+        <!-- Résumé du Portfolio -->
+        <div class="portfolio-summary-enhanced">
+            <div class="summary-grid">
+                <!-- Valeur Actuelle avec variation jour -->
+                <div class="summary-card summary-card-primary">
+                    <div class="summary-card-label">Total Value</div>
+                    <div id="total-current" class="summary-card-value">€0.00</div>
+                </div>
+                
+                <!-- Gain/Perte Total -->
+                <div class="summary-card">
+                    <div class="summary-card-label">Total Return</div>
+                    <div id="total-gain-loss" class="summary-card-value">€0.00</div>
+                    <div class="summary-card-meta">
+                        <span id="total-gain-pct" class="meta-large">0.00%</span>
+                    </div>
+                </div>
+                
+                <!-- Investissement Total avec prix moyen -->
+                <div class="summary-card">
+                    <div class="summary-card-label">Var Today</div>
+                    <div id="total-invested" class="summary-card-value">€0.00</div>
+                    <div class="summary-card-meta">
+                        <span id="avg-cost-per-share" class="meta-info">Avg: €0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Stats Étendues -->
+            <div class="summary-stats">
+                <div class="stat-item">
+                    <div class="stat-label">Assets</div>
+                    <div id="unique-assets" class="stat-value">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Positions</div>
+                    <div id="total-movements" class="stat-value">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Best Performer</div>
+                    <div id="best-asset" class="stat-value stat-positive">-</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Worst Performer</div>
+                    <div id="worst-asset" class="stat-value stat-negative">-</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Cash Reserve</div>
+                    <div id="cash-reserve" class="stat-value">€0.00</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Graphique Historique -->
+		<div class="historical-chart-container ultra-compact">
+
+		  <!-- Header minimaliste -->
+		  <div class="chart-header-mini">
+			<div class="title-mini">
+			  <h2 id="chart-title" class="chart-title">
+				<span id="chart-title-icon" class="title-icon">Chart</span>
+				<span id="chart-title-text">Portfolio Global</span>
+			  </h2>
+			  <div id="vs-yesterday-big" class="perf-display-main">-0.00 € <span>(0.00%)</span></div>
+			</div>
+
+			<div class="header-controls">
+			  <div class="view-toggle" id="view-toggle" style="display:none;">
+				<button class="toggle-btn active" data-view="global">Global</button>
+				<button class="toggle-btn" data-view="unit">Unite</button>
+			  </div>
+			  <div id="last-update" class="time">00:00</div>
+			</div>
+		  </div>
+
+		  <div id="chart-info" class="chart-info" style="display:none;"></div>
+
+		  <!-- GRAND CHART -->
+		  <div class="chart-wrapper tall">
+			<canvas id="historical-portfolio-chart"></canvas>
+			
+            <!-- ======================================== -->
+			<!-- === NOUVEAU LOADER SVG === -->
+            <!-- ======================================== -->
+			<div id="chart-loading" class="chart-loading"> <!-- Caché par CSS par défaut -->
+			  <div class="svg-loader-container">
+                <svg class="loader-svg" viewBox="0 0 50 50">
+                  <circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
+                </svg>
+                <div class="loader-text">Chargement des données...</div>
+              </div>
+			</div>
+            <!-- ======================================== -->
+            <!-- === FIN DU NOUVEAU LOADER === -->
+            <!-- ======================================== -->
+
+		  </div>
+
+		  <!-- Infos période en une seule ligne -->
+		  <div class="chart-stats-bar">
+            <div class="stat stat-period">
+			  <span class="label">PÉRIODE</span>
+			  <span id="performance-label" class="value neutral">+0.00 €</span>
+			  <span id="performance-percent" class="pct neutral">(0.00%)</span>
+			</div>
+			<div class="stat">
+			  <span class="label">DÉBUT</span>
+			  <span id="price-start" class="value">0.00 €</span>
+			</div>
+			<div class="stat">
+			  <span class="label">FIN</span>
+			  <span id="price-end" class="value">0.00 €</span>
+			</div>
+			<div class="stat">
+			  <span class="label">HAUT</span>
+			  <span id="price-high" class="value positive">0.00 €</span>
+			</div>
+			<div class="stat">
+			  <span class="label">BAS</span>
+			  <span id="price-low" class="value negative">0.00 €</span>
+			</div>
+			<div class="stat" id="unit-price-row" style="display:none;">
+			  <span class="label">UNITE</span>
+			  <span id="unit-price" class="value">0.00 €</span>
+			</div>
+		  </div>
+
+		  <!-- Boutons période -->
+		  <div class="chart-controls">
+			<button class="period-btn active" data-period="1">1D</button>
+			<button class="period-btn" data-period="2">2D</button>
+			<button class="period-btn" data-period="7">1W</button>
+			<button class="period-btn" data-period="30">1M</button>
+			<button class="period-btn" data-period="90">3M</button>
+			<button class="period-btn" data-period="180">6M</button>
+			<button class="period-btn" data-period="365">1Y</button>
+			<button class="period-btn" data-period="all">All</button>
+		  </div>
+		</div>
+
+        <!-- Holdings Table -->
+        
+        <!-- Recherche et Filtres -->
+        <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
+            <input type="text" id="search-input" placeholder="Search ticker, name or date..." style="flex: 1; min-width: 250px;">
+            <div id="ticker-filter-dropdown"></div>
+            
+            <!-- Filtre par Type d'Actif -->
+            <select id="filter-asset-type" style="min-width: 150px;">
+                <option value="">All Asset Types</option>
+                <option value="Stock">Stock</option>
+                <option value="ETF">ETF</option>
+                <option value="Crypto">Crypto</option>
+            </select>
+            
+            <!-- Filtre par Broker -->
+            <select id="filter-broker" style="min-width: 150px;">
+                <option value="">All Brokers</option>
+                <option value="RV-CT">Revolut (RV-CT)</option>
+                <option value="TR-CT">Trade Republic (TR-CT)</option>
+                <option value="BB-PEA">Boursobank PEA (BB-PEA)</option>
+                <option value="Binance">Binance</option>
+                <option value="Bitstack">Bitstack</option>
+            </select>
+			
+            <button id="clear-filters" class="btn-secondary">Clear Filters</button>
+            <button id="refresh-prices">Refresh Prices</button>
+        </div>
+		
+        <table id="investments-table">
+            <thead>
+                <tr>
+                    <th data-sort="ticker">TICKER</th>
+                    <th data-sort="name">NAME</th>
+                    <th data-sort="quantity">QUANTITY</th>
+                    <th data-sort="avgPrice">AVG PRICE</th>
+                    <th data-sort="invested">INVESTED</th>
+                    <th data-sort="currentPrice">CURRENT</th>
+                    <th data-sort="currentValue">VALUE</th>
+                    <th data-sort="gainLoss">P&L</th>
+                    <th data-sort="gainPct">RT %</th>
+                    <th data-sort="dayChange">DAY P&L</th>
+                    <th data-sort="dayPct">DAY %</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <!-- Pagination -->
+        <div class="pagination" id="pagination"></div>
+    </div>
+
+    <!-- On utilise la v7 de app.js (qui charge la v7 du chart) -->
+    <script type="module" src="./app.js?v=7"></script>
+</body>
+</html>

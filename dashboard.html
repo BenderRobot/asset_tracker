@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Portfolio Tracker</title>
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Force grid layout pour le dashboard */
+        .dashboard-kpi-grid {
+            display: grid !important;
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 12px !important;
+            margin-bottom: 24px;
+        }
+        
+        .kpi-card {
+            background: var(--bg-card) !important;
+            padding: 16px !important;
+            border-radius: 10px !important;
+            border: 1px solid var(--border-color) !important;
+            min-height: 110px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+        }
+        
+        .kpi-header {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            margin-bottom: 8px !important;
+        }
+        
+        .kpi-label {
+            font-size: 10px !important;
+            font-weight: 600 !important;
+            color: var(--text-muted) !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.5px !important;
+        }
+        
+        .kpi-icon {
+            font-size: 14px !important;
+            color: var(--accent-blue) !important;
+            opacity: 0.6 !important;
+        }
+        
+        .kpi-value {
+            font-size: 24px !important;
+            font-weight: 700 !important;
+            color: var(--text-primary) !important;
+            letter-spacing: -0.5px !important;
+            line-height: 1.2 !important;
+            margin: 4px 0 !important;
+        }
+        
+        .kpi-value-small {
+            font-size: 22px !important;
+            font-weight: 700 !important;
+            color: var(--text-primary) !important;
+            letter-spacing: -0.5px !important;
+            line-height: 1.2 !important;
+            margin: 8px 0 4px 0 !important;
+        }
+        
+        .kpi-ticker {
+            font-size: 16px !important;
+            font-weight: 600 !important;
+            color: var(--text-primary) !important;
+            letter-spacing: -0.3px !important;
+            margin: 8px 0 4px 0 !important;
+        }
+        
+        .kpi-meta {
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            flex-wrap: wrap !important;
+        }
+        
+        .kpi-change {
+            font-size: 14px !important;
+            font-weight: 600 !important;
+        }
+        
+        .kpi-change-pct {
+            font-size: 12px !important;
+            font-weight: 500 !important;
+            opacity: 0.9 !important;
+        }
+        
+        @media (max-width: 1200px) {
+            .dashboard-kpi-grid {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard-kpi-grid {
+                grid-template-columns: 1fr !important;
+            }
+        }
+        
+        /* Améliorer les sections graphique et news */
+        .dashboard-chart-section,
+        .dashboard-news-section,
+        .dashboard-market-section {
+            background: var(--bg-card) !important;
+            padding: 20px !important;
+            border-radius: 10px !important;
+            border: 1px solid var(--border-color) !important;
+            margin-bottom: 20px !important;
+        }
+        
+        .chart-header,
+        .news-header {
+            margin-bottom: 16px !important;
+        }
+        
+        .chart-header h2,
+        .news-header h2,
+        .dashboard-market-section h2 {
+            font-size: 16px !important;
+            font-weight: 600 !important;
+            margin: 0 0 16px 0 !important;
+        }
+        
+        .chart-container {
+            height: 320px !important;
+        }
+        
+        .chart-legend {
+            padding-top: 12px !important;
+            border-top: 1px solid var(--border-color) !important;
+        }
+        
+        .news-item {
+            padding: 12px !important;
+            margin-bottom: 8px !important;
+            background: var(--bg-secondary) !important;
+            border-radius: 8px !important;
+        }
+        
+        .news-ticker {
+            font-size: 10px !important;
+            padding: 3px 8px !important;
+            margin-bottom: 6px !important;
+        }
+        
+        .news-title {
+            font-size: 13px !important;
+            line-height: 1.4 !important;
+            margin-bottom: 6px !important;
+        }
+        
+        .market-indices {
+            display: grid !important;
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 12px !important;
+        }
+        
+        .market-index-card {
+            padding: 16px !important;
+            border-radius: 8px !important;
+        }
+        
+        .market-index-value {
+            font-size: 20px !important;
+            margin-bottom: 6px !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation -->
+        <nav class="nav-menu">
+            <a href="index.html">Transactions</a>
+            <a href="investments.html">Portfolio</a>
+            <a href="dashboard.html" class="active">Dashboard</a>
+            <a href="analytics.html">Analytics</a>
+            <a href="migration.html">Migration</a>
+        </nav>
+
+        <!-- Header avec statut marché -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+            <h1 style="font-size: 28px; font-weight: 700; margin: 0;">Dashboard</h1>
+            <div id="market-status-container"></div>
+        </div>
+
+        <!-- KPI Cards Grid -->
+        <div class="dashboard-kpi-grid">
+            <!-- Card: Portfolio Value -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Valeur Totale</span>
+                    <i class="fas fa-wallet kpi-icon"></i>
+                </div>
+                <div class="kpi-value" id="dashboard-total-value">€0.00</div>
+                <div class="kpi-meta">
+                    <span id="dashboard-total-return" class="kpi-change">€0.00</span>
+                    <span id="dashboard-total-return-pct" class="kpi-change-pct">(0.00%)</span>
+                </div>
+            </div>
+
+            <!-- Card: Variation Journée -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Variation du Jour</span>
+                    <i class="fas fa-chart-line kpi-icon"></i>
+                </div>
+                <div class="kpi-value" id="dashboard-day-change">€0.00</div>
+                <div class="kpi-meta">
+                    <span id="dashboard-day-change-pct" class="kpi-change-pct">(0.00%)</span>
+                </div>
+            </div>
+
+            <!-- Card: Top Gainer -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Top Gainer</span>
+                    <i class="fas fa-arrow-trend-up kpi-icon" style="color: var(--accent-green);"></i>
+                </div>
+                <div class="kpi-ticker" id="dashboard-top-gainer-ticker">-</div>
+                <div class="kpi-meta">
+                    <span id="dashboard-top-gainer-pct" class="kpi-change-pct stat-positive">-</span>
+                </div>
+            </div>
+
+            <!-- Card: Top Loser -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Top Loser</span>
+                    <i class="fas fa-arrow-trend-down kpi-icon" style="color: var(--accent-red);"></i>
+                </div>
+                <div class="kpi-ticker" id="dashboard-top-loser-ticker">-</div>
+                <div class="kpi-meta">
+                    <span id="dashboard-top-loser-pct" class="kpi-change-pct stat-negative">-</span>
+                </div>
+            </div>
+
+            <!-- Card: Assets Count -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Actifs</span>
+                    <i class="fas fa-layer-group kpi-icon"></i>
+                </div>
+                <div class="kpi-value-small" id="dashboard-assets-count">0</div>
+            </div>
+
+            <!-- Card: Invested Capital -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Capital Investi</span>
+                    <i class="fas fa-coins kpi-icon"></i>
+                </div>
+                <div class="kpi-value-small" id="dashboard-invested">€0.00</div>
+            </div>
+
+            <!-- Card: Secteur dominant -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Secteur Dominant</span>
+                    <i class="fas fa-industry kpi-icon"></i>
+                </div>
+                <div class="kpi-ticker" id="dashboard-top-sector">-</div>
+            </div>
+
+            <!-- Card: Allocation Actions vs Crypto -->
+            <div class="kpi-card">
+                <div class="kpi-header">
+                    <span class="kpi-label">Actions / Crypto</span>
+                    <i class="fas fa-balance-scale kpi-icon"></i>
+                </div>
+                <div class="kpi-ticker" id="dashboard-allocation">-</div>
+            </div>
+        </div>
+
+        <!-- Performance Chart -->
+        <div class="dashboard-chart-section">
+            <div class="chart-header">
+                <h2>Performance Intraday</h2>
+                <div class="chart-controls">
+                    <button class="chart-period-btn active" data-period="1D">1J</button>
+                    <button class="chart-period-btn" data-period="5D">5J</button>
+                    <button class="chart-period-btn" data-period="1M">1M</button>
+                    <button class="chart-period-btn" data-period="3M">3M</button>
+                    <button id="refresh-chart-btn" class="btn-icon" title="Actualiser">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="performance-chart"></canvas>
+            </div>
+            <div class="chart-legend">
+                <div class="legend-item">
+                    <span class="legend-dot" style="background: var(--accent-blue);"></span>
+                    <span>Valeur du Portfolio</span>
+                </div>
+                <div class="legend-item">
+                    <span id="chart-current-value">€0.00</span>
+                    <span id="chart-change" class="chart-change">€0.00 (0.00%)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- News Feed Section -->
+        <div class="dashboard-news-section">
+            <div class="news-header">
+                <h2>Actualités du Portfolio</h2>
+                <div class="news-filters">
+                    <button class="news-filter-btn active" data-filter="all">Toutes</button>
+                    <button class="news-filter-btn" data-filter="stocks">Actions</button>
+                    <button class="news-filter-btn" data-filter="crypto">Crypto</button>
+                    <button id="refresh-news-btn" class="btn-icon" title="Actualiser">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="news-container" id="news-container">
+                <div class="news-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Chargement des actualités...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Market Overview -->
+        <div class="dashboard-market-section">
+            <h2>Aperçu des Marchés</h2>
+            <div class="market-indices">
+                <div class="market-index-card">
+                    <div class="market-index-name">S&P 500</div>
+                    <div class="market-index-value" id="index-sp500">-</div>
+                    <div class="market-index-change" id="index-sp500-change">-</div>
+                </div>
+                <div class="market-index-card">
+                    <div class="market-index-name">CAC 40</div>
+                    <div class="market-index-value" id="index-cac40">-</div>
+                    <div class="market-index-change" id="index-cac40-change">-</div>
+                </div>
+                <div class="market-index-card">
+                    <div class="market-index-name">Bitcoin</div>
+                    <div class="market-index-value" id="index-btc">-</div>
+                    <div class="market-index-change" id="index-btc-change">-</div>
+                </div>
+                <div class="market-index-card">
+                    <div class="market-index-name">Ethereum</div>
+                    <div class="market-index-value" id="index-eth">-</div>
+                    <div class="market-index-change" id="index-eth-change">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./dashboardApp.js"></script>
+</body>
+</html>
