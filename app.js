@@ -8,9 +8,10 @@ import { FilterManager } from './filters.js';
 
 // === CORRECTION : Mise à jour des versions ===
 import { AchatsPage } from './achatsPage.js?v=6';
-import { InvestmentsPage } from './investmentsPage.js?v=6';
-import { HistoricalChart } from './historicalChart.js?v=6';
-import { DataManager } from './dataManager.js?v=6';
+// On passe tout ce qui est lié au graphique en v9
+import { InvestmentsPage } from './investmentsPage.js?v=9';
+import { HistoricalChart } from './historicalChart.js?v=9';
+import { DataManager } from './dataManager.js?v=7'; // v7 est OK
 // ===========================================
 
 import { initMarketStatus } from './marketStatus.js';

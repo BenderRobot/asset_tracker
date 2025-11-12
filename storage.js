@@ -1,8 +1,15 @@
 // ========================================
-// storage.js - Stockage optimisé (Cache Corrigé)
+// storage.js - Stockage optimisé (Cache INTELLIGENT)
 // ========================================
 
-import { CACHE_EXPIRY_STOCKS_MARKET_OPEN, CACHE_EXPIRY_STOCKS_MARKET_CLOSED, CACHE_EXPIRY_CRYPTO } from './config.js';
+// MODIFICATION: Import des configs de mapping
+import { 
+    CACHE_EXPIRY_STOCKS_MARKET_OPEN, 
+    CACHE_EXPIRY_STOCKS_MARKET_CLOSED, 
+    CACHE_EXPIRY_CRYPTO,
+    YAHOO_MAP,
+    USD_TICKERS
+} from './config.js';
 
 export class Storage {
     constructor() {
@@ -172,7 +179,10 @@ export class Storage {
         }
     }
 
-    // Cache valide selon le type d'actif ET l'état du marché
+    // ==========================================================
+    // === MODIFICATION : isCacheValid (Logique "Smart")
+    // ==========================================================
+    // (Conserve la signature `assetType` pour la compatibilité avec api.js)
     isCacheValid(ticker, assetType = 'Stock') {
         const upperTicker = ticker.toUpperCase();
         const ts = this.priceTimestamps[upperTicker];
@@ -181,22 +191,23 @@ export class Storage {
         
         const age = Date.now() - ts;
         
-        // Cryptos : cache court (5 min) car marché 24/7
         if (assetType === 'Crypto') {
-            return age < CACHE_EXPIRY_CRYPTO;
+            return age < CACHE_EXPIRY_CRYPTO; // 5 min
         }
         
-        // Actions/ETF : cache dépend de l'état du marché
-        const marketOpen = this.isMarketOpen();
-        
-        if (marketOpen) {
-            // Marché ouvert : cache court (10 min) pour prix à jour
+        // Actions/ETF : on vérifie le marché spécifique
+        const category = this.getAssetCategory(upperTicker, assetType);
+        const marketIsOpen = this.isMarketOpen(category); // Appel de la fonction modifiée
+
+        if (marketIsOpen) {
+            // Marché ouvert : cache court (10 min)
             return age < CACHE_EXPIRY_STOCKS_MARKET_OPEN;
         } else {
-            // Marché fermé/weekend : cache long (7 jours) pour éviter appels inutiles
+            // Marché fermé/weekend : cache long (7 jours)
             return age < CACHE_EXPIRY_STOCKS_MARKET_CLOSED;
         }
     }
+
 
     // === NETTOYAGE INTELLIGENT ===
     cleanExpiredCache() {
@@ -208,20 +219,15 @@ export class Storage {
             
             if (!ts) return;
             
-            const age = now - ts;
+            // On utilise la nouvelle logique de validation
+            // (on récupère le type d'asset depuis l'objet prix, ou on devine)
+            const assetType = this.currentData[ticker]?.source === 'CoinGecko' ? 'Crypto' : 'Stock';
             
-            // Vérifier si c'est une crypto
-            const isCrypto = (this.currentData[ticker]?.source === 'CoinGecko') || ticker === 'BTC' || ticker === 'ETH';
-            
-            if (isCrypto && age > CACHE_EXPIRY_CRYPTO) {
-                delete this.currentData[ticker];
-                delete this.priceTimestamps[ticker];
-                cleaned++;
-            } else if (!isCrypto && age > CACHE_EXPIRY_STOCKS_MARKET_CLOSED) {
-                // Pour actions, ne supprimer que si > 7 jours
-                delete this.currentData[ticker];
-                delete this.priceTimestamps[ticker];
-                cleaned++;
+            if (!this.isCacheValid(ticker, assetType)) {
+                 // Si le cache n'est PAS valide (selon la nouvelle logique), on supprime
+                 delete this.currentData[ticker];
+                 delete this.priceTimestamps[ticker];
+                 cleaned++;
             }
         });
         
@@ -363,32 +369,80 @@ export class Storage {
     }
 
     // ==========================================================
-    // === MODIFICATION : CORRECTION DE LA LOGIQUE DE CACHE ===
+    // === MODIFICATION : isMarketOpen (Logique "Smart")
     // ==========================================================
-    isMarketOpen() {
-        const now = new Date();
+    // Prend une catégorie ('EUR', 'USA', 'CRYPTO')
+    isMarketOpen(category = 'EUR') {
+        const now = new Date(); // Heure locale (CET, car l'utilisateur est en France)
         const day = now.getDay(); // 0 = Dimanche, 6 = Samedi
         const hours = now.getHours();
         const minutes = now.getMinutes();
-        
+        const currentTime = hours * 60 + minutes;
+
         // Weekend
         if (day === 0 || day === 6) {
             return false;
         }
         
-        // Horaires de bourse (approximatif) : 9h30 - 20h00 (heure locale)
-        // On étend la fermeture à 20h00 (au lieu de 16h00) pour
-        // forcer l'utilisation du cache court (10 min) pendant
-        // la période volatile "post-marché".
-        const currentTime = hours * 60 + minutes;
-        const marketOpen = 9 * 60 + 30; // 9h30
-        const marketClose = 20 * 60; // 20h00 (au lieu de 16:00)
+        if (category === 'CRYPTO') {
+            return true; // Crypto est toujours ouvert
+        }
+
+        if (category === 'EUR') {
+            const marketOpen = 9 * 60; // 9:00 CET
+            const marketClose = 17 * 60 + 30; // 17:30 CET
+            return (currentTime >= marketOpen && currentTime <= marketClose);
+        }
+
+        if (category === 'USA') {
+            // Heures de NYC (9:30-16:00 ET) converties en CET
+            // Prise en compte de l'heure d'été/hiver (simple)
+            // CET = ET + 6 (Hiver) / CET = ET + 5 (Été)
+            // On prend 15:30 - 22:00 CET
+            const marketOpen = 15 * 60 + 30; // 15:30 CET
+            const marketClose = 22 * 60; // 22:00 CET
+            return (currentTime >= marketOpen && currentTime <= marketClose);
+        }
         
-        return currentTime >= marketOpen && currentTime <= marketClose;
+        // Catégorie inconnue, on suppose fermé par sécurité
+        return false;
     }
+
     // ==========================================================
-    // === FIN DE LA MODIFICATION ===
+    // === NOUVELLE FONCTION : getAssetCategory
     // ==========================================================
+    // Détermine la catégorie de marché (EUR, USA, CRYPTO) d'un ticker
+    getAssetCategory(ticker, assetType) {
+        const upperTicker = ticker.toUpperCase();
+
+        if (assetType === 'Crypto') {
+            return 'CRYPTO';
+        }
+        
+        // Si 'assetType' n'est pas fourni, on le cherche
+        if (!assetType) {
+             const purchase = this.purchases.find(p => p.ticker.toUpperCase() === upperTicker);
+             if (purchase?.assetType === 'Crypto') return 'CRYPTO';
+        }
+
+        // Si c'est un Stock/ETF, on devine le marché
+        const yahooSymbol = YAHOO_MAP[upperTicker] || upperTicker;
+        
+        if (USD_TICKERS.has(upperTicker)) {
+             return 'USA';
+        }
+
+        // Tickers US (ex: AAPL, GOOG) n'ont pas d'extension
+        if (!yahooSymbol.includes('.') && 
+             !yahooSymbol.endsWith('-EUR') &&
+             yahooSymbol !== 'BTC' // Exclure BTC au cas où
+            ) {
+            return 'USA';
+        }
+        
+        // Tout le reste (.PA, .F, .AS, etc.) est EUR
+        return 'EUR';
+    }
 
 
     // === OBTENIR L'ÂGE DU PRIX ===

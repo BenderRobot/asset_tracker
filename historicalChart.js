@@ -23,13 +23,11 @@ export class HistoricalChart {
     this.lastRefreshTime = null;
     this.lastYesterdayClose = null; 
     
-    // (Note: liveSummary n'est plus nécessaire car le graphique calcule son propre résumé)
-    
+    // Appel de la fonction de style (qui est maintenant définie)
     this.injectChartStyles();
   }
   
-  // (injectChartStyles, hexToRgba, setupPeriodButtons, start/stopAutoRefresh... INCHANGÉS)
-  // ...
+  // === CORRECTION : Fonction de style simplifiée (pour titre à gauche) ===
   injectChartStyles() {
     const styleId = 'historical-chart-styles';
     if (document.getElementById(styleId)) return;
@@ -37,40 +35,43 @@ export class HistoricalChart {
     const style = document.createElement('style');
     style.id = styleId;
     style.innerHTML = `
-      /* Amélioration des boutons Global/Unité */
+      /* === AMÉLIORATION BOUTONS GLOBAL/UNITÉ === */
       .view-toggle {
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        overflow: hidden;
+        display: flex;
+        gap: 8px; /* Espacer les boutons */
       }
       
       .view-toggle .toggle-btn {
-        background-color: transparent;
-        color: #777;
-        border: none;
-        padding: 6px 14px;
+        background-color: #1a2238; /* var(--bg-card) */
+        color: #9fa6bc; /* var(--text-secondary) */
+        border: 1px solid #2d3548; /* var(--border-color) */
+        padding: 6px 16px;
         font-size: 0.85rem;
         font-weight: 600;
         cursor: pointer;
         transition: all 0.2s ease-in-out;
+        border-radius: 8px; /* Mettre la bordure sur le bouton */
       }
       
       .view-toggle .toggle-btn.active {
-        background-color: #3498db;
+        background-color: #3b82f6; /* var(--accent-blue) */
         color: white;
-        box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+        border-color: #3b82f6; /* var(--accent-blue) */
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        transform: translateY(-1px); /* Petit effet "pop" */
       }
       
-      .view-toggle .toggle-btn:first-of-type {
-        border-right: 1px solid #e0e0e0;
+      .view-toggle .toggle-btn:not(.active):hover {
+          background-color: #22294a; /* var(--bg-hover) */
+          border-color: #3b82f6; /* var(--accent-blue) */
       }
       
-      /* Nouveaux styles pour le header du graphique */
+      /* === HEADER GRAPHIQUE === */
       .chart-header-mini {
         display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 12px;
+        justify-content: space-between; /* Aligne le titre à gauche et les contrôles à droite */
+        align-items: center; 
+        margin-bottom: 8px;
       }
       
       .chart-header-mini .title-mini {
@@ -78,40 +79,12 @@ export class HistoricalChart {
         align-items: center;
         flex-wrap: wrap;
       }
-      
-      .chart-header-mini .chart-title {
-        margin-right: 16px;
-      }
 
-      /* Style pour la performance principale (ex: +50.00 €) */
-      .chart-header-mini .perf-display-main {
-        font-size: 1.4rem;
-        font-weight: 700;
-        line-height: 1.2;
-      }
-      
-      .chart-header-mini .perf-display-main.positive { color: #2ecc71; }
-      .chart-header-mini .perf-display-main.negative { color: #e74c3c; }
-      .chart-header-mini .perf-display-main.neutral { color: #555; }
-
-      .chart-header-mini .perf-display-main span {
-        font-size: 1rem;
-        font-weight: 600;
-        margin-left: 6px;
-      }
-
-      /* Style pour le sous-titre "vs clôture hier" */
+      /* Styles pour la performance (déplacés) */
+      .chart-header-mini .perf-display-main,
       .chart-header-mini .perf-subtitle-detail {
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: #888;
-        margin-top: 4px;
-        margin-left: 2px;
-        width: 100%; /* Force le passage à la ligne */
-        line-height: 1;
+        display: none;
       }
-      .chart-header-mini .perf-subtitle-detail.positive { color: #2ecc71; }
-      .chart-header-mini .perf-subtitle-detail.negative { color: #e74c3c; }
 
       /* Cache la stat "PERIODE" redondante en bas */
       .chart-stats-bar .stat.stat-period {
@@ -120,6 +93,7 @@ export class HistoricalChart {
     `;
     document.head.appendChild(style);
   }
+
 
   // Convertit Hex en RGBA
   hexToRgba(hex, alpha) {
@@ -178,7 +152,8 @@ export class HistoricalChart {
     console.log('Rafraîchissement silencieux du graphique...');
     this.lastRefreshTime = now;
     try {
-      await this.updateChart(false, false); // false = showLoading, false = forceApi
+      // Le refresh silencieux n'affiche pas le loader, mais force l'API
+      await this.update(false, true); 
     } catch (error) {
       console.warn('Erreur refresh silencieux:', error);
     }
@@ -235,15 +210,130 @@ export class HistoricalChart {
   }
 
   // ==========================================================
-  // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
-  // updateChart est maintenant le "PATRON" de la page
+  // === NOUVELLE FONCTION "Cache-First" (chargement initial)
   // ==========================================================
+  async loadPageWithCacheFirst() {
+    if (this.isLoading) return;
+    this.isLoading = true;
+    console.log('--- Chargement Cache-First (Étape 1/3) : Rendu instantané Cartes & Tableau ---');
 
-  async update(showLoading = true, forceApi = false) {
-    return this.updateChart(showLoading, forceApi);
+    let holdings, summary, purchases, tickers;
+    const canvas = document.getElementById('historical-portfolio-chart');
+    const graphLoader = document.getElementById('chart-loading');
+
+    try {
+      // --- ÉTAPE 1: Rendu instantané (Cartes & Tableau) depuis le cache ---
+      
+      // (Logique de filtrage copiée de 'update()')
+      const searchQuery = this.investmentsPage.currentSearchQuery;
+      purchases = this.storage.getPurchases(); // Get all
+
+      if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          purchases = purchases.filter(p => p.ticker.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
+      }
+      const selectedTickers = this.investmentsPage.filterManager.getSelectedTickers();
+      if (selectedTickers.size > 0) {
+          purchases = purchases.filter(p => selectedTickers.has(p.ticker.toUpperCase()));
+      }
+
+      if (purchases.length === 0) {
+          this.showMessage('Aucun achat correspondant aux filtres');
+          this.investmentsPage.renderData([], { totalInvestedEUR: 0, totalCurrentEUR: 0, totalDayChangeEUR: 0, gainTotal: 0, gainPct: 0, dayChangePct: 0, assetsCount: 0, movementsCount: 0 });
+          this.isLoading = false;
+          return;
+      }
+      
+      tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+      
+      // Calculs SYNC (utilise le cache live de storage)
+      holdings = this.dataManager.calculateHoldings(purchases);
+      summary = this.dataManager.calculateSummary(holdings);
+      
+      // Rendu SYNC (le tableau et les cartes apparaissent)
+      this.investmentsPage.renderData(holdings, summary);
+      
+    } catch (e) {
+      console.error('Erreur Étape 1 (Cache-First)', e);
+      this.showMessage('Erreur au chargement du cache', 'error');
+      this.isLoading = false;
+      return;
+    }
+
+    // --- ÉTAPE 2: Rendu du Graphique (depuis le cache historique) ---
+    console.log('--- Chargement Cache-First (Étape 2/3) : Rendu Graphique (Cache) ---');
+    // CORRECTION CENTRAGE : 'block' devient 'flex'
+    if (graphLoader) graphLoader.style.display = 'flex'; 
+    
+    try {
+      // (Cette fonction est async, mais rapide si le cache historique est plein)
+      const graphData = await this.dataManager.calculateHistory(purchases, this.currentPeriod);
+      if (!graphData || graphData.labels.length === 0) {
+           this.showMessage('Pas de données graphiques en cache. Cliquez sur "Refresh Prices"');
+      } else {
+           this.renderChart(canvas, graphData, summary);
+      }
+    } catch (e) {
+      console.error('Erreur Étape 2 (Graph Cache)', e);
+      this.showMessage('Erreur au chargement du graphique', 'error');
+    } finally {
+      if (graphLoader) graphLoader.style.display = 'none';
+    }
+
+    // --- ÉTAPE 3: Refresh API en arrière-plan (si nécessaire) ---
+    console.log('--- Chargement Cache-First (Étape 3/3) : Vérification refresh API ---');
+    // On libère le thread, puis on vérifie après un court délai
+    setTimeout(async () => {
+        try {
+            await this.refreshDataFromAPIIfNeeded(purchases, tickers);
+            this.isLoading = false; // Le chargement est terminé
+        } catch (e) {
+            console.error('Erreur Étape 3 (Refresh API)', e);
+            // On ne met pas de message d'erreur, car la page est déjà affichée.
+            this.isLoading = false;
+        }
+    }, 500); // 500ms delay
   }
 
-  async updateChart(showLoading = true, forceApi = false) {
+  // ==========================================================
+  // === NOUVELLE FONCTION (Refresh en arrière-plan)
+  // ==========================================================
+  async refreshDataFromAPIIfNeeded(purchases, tickers) {
+      // Vérifier si le cache 'live' (5min/10min) est périmé
+      const isStale = tickers.some(t => {
+          const assetType = this.storage.getAssetType(t);
+          return !this.storage.isCacheValid(t, assetType);
+      });
+
+      if (!isStale) {
+          console.log('Cache-First: Données "live" à jour. Pas de refresh API.');
+          return;
+      }
+      
+      console.log('Cache-First: Données périmées. Refresh API en arrière-plan...');
+      this.lastRefreshTime = Date.now();
+
+      // 1. Fetch API
+      await this.dataManager.api.fetchBatchPrices(tickers);
+      
+      // 2. Re-calculer cartes & tableau
+      const newHoldings = this.dataManager.calculateHoldings(purchases);
+      const newSummary = this.dataManager.calculateSummary(newHoldings);
+      
+      // 3. Re-rendre cartes & tableau
+      this.investmentsPage.renderData(newHoldings, newSummary);
+      
+      // 4. Re-calculer & re-rendre le graphique
+      const newGraphData = await this.dataManager.calculateHistory(purchases, this.currentPeriod);
+      this.renderChart(document.getElementById('historical-portfolio-chart'), newGraphData, newSummary);
+      
+      console.log('Cache-First: Refresh API en arrière-plan terminé.');
+  }
+
+  // ==========================================================
+  // === ANCIENNE FONCTION "update" (pour le bouton Refresh)
+  // ==========================================================
+  async update(showLoading = true, forceApi = true) {
     if (this.isLoading) return;
     const canvas = document.getElementById('historical-portfolio-chart');
     if (!canvas) return;
@@ -253,14 +343,13 @@ export class HistoricalChart {
     const info = document.getElementById('chart-info');
 
     if (showLoading) {
-      if (loading) loading.style.display = 'block';
+      // CORRECTION CENTRAGE : 'block' devient 'flex'
+      if (loading) loading.style.display = 'flex'; 
       if (info) info.style.display = 'none';
     }
 
     try {
-      // =======================================================
-      // === ÉTAPE 1 : RÉCUPÉRATION DES DONNÉES (filtres)
-      // =======================================================
+      // (Logique de filtrage copiée)
       const searchQuery = this.investmentsPage.currentSearchQuery;
       let purchases;
       
@@ -275,13 +364,10 @@ export class HistoricalChart {
          purchases = this.storage.getPurchases();
       }
       
-      // Appliquer le filtre de recherche (siège dans investmentsPage)
       if (searchQuery) {
           const q = searchQuery.toLowerCase();
           purchases = purchases.filter(p => p.ticker.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
       }
-      
-      // Appliquer les filtres de ticker (select)
       const selectedTickers = this.investmentsPage.filterManager.getSelectedTickers();
       if (selectedTickers.size > 0) {
           purchases = purchases.filter(p => selectedTickers.has(p.ticker.toUpperCase()));
@@ -289,32 +375,25 @@ export class HistoricalChart {
 
       if (purchases.length === 0) {
         this.showMessage('Aucun achat correspondant aux filtres');
-        // On passe des données vides à la page
         this.investmentsPage.renderData([], { totalInvestedEUR: 0, totalCurrentEUR: 0, totalDayChangeEUR: 0, gainTotal: 0, gainPct: 0, dayChangePct: 0, assetsCount: 0, movementsCount: 0 });
         return;
       }
       
-      // =======================================================
       // === ÉTAPE 2 : FETCH API (centralisé)
-      // =======================================================
-      
-      // 2a. Fetch des données "live" (pour les cartes et le tableau)
-      // C'est la source 'api.fetchBatchPrices' (qui utilise v2/5m)
       const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+      
       if (forceApi) {
-          // Si 'Refresh' est cliqué, on vide le cache avant de fetch
+          this.lastRefreshTime = Date.now();
           tickers.forEach(t => {
               if (this.storage.priceTimestamps[t]) {
                   this.storage.priceTimestamps[t] = 0; // Force l'expiration
               }
           });
-          this.storage.savePricesCache(); // Sauvegarde les timestamps expirés
+          this.storage.savePricesCache();
           console.log('Cache forcé expiré pour le rafraîchissement.');
       }
       await this.dataManager.api.fetchBatchPrices(tickers);
       
-      // 2b. Fetch des données "historiques" (pour le graphique)
-      // C'est la source 'api.getHistoricalPricesWithRetry'
       let graphData;
       if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
          graphData = await this.dataManager.calculateAssetHistory(this.selectedAssets[0], this.currentPeriod);
@@ -327,30 +406,16 @@ export class HistoricalChart {
         return;
       }
 
-      // =======================================================
       // === ÉTAPE 3 : CALCUL DES DONNÉES UNIFIÉES
-      // =======================================================
-      
-      // 3a. Calculer les holdings (pour le tableau)
-      // (Utilise les données "live" de l'étape 2a mises en cache)
       const holdings = this.dataManager.calculateHoldings(purchases);
-
-      // 3b. Calculer le résumé (pour les cartes)
-      // (Utilise les données "live" de l'étape 2a mises en cache)
       const summary = this.dataManager.calculateSummary(holdings);
 
-      // =======================================================
       // === ÉTAPE 4 : DISTRIBUTION DES DONNÉES
-      // =======================================================
-
-      // 4a. Rendre le graphique (avec les données historiques ET le résumé "live")
       this.renderChart(canvas, graphData, summary);
-      
-      // 4b. Rendre le tableau et les cartes (avec les données "live" unifiées)
       this.investmentsPage.renderData(holdings, summary);
 
     } catch (error) {
-      console.error('Erreur graphique:', error);
+      console.error('Erreur graphique (update):', error);
       this.showMessage('Erreur lors du calcul', 'error');
     } finally {
       if (showLoading && loading) loading.style.display = 'none';
@@ -366,6 +431,10 @@ export class HistoricalChart {
   // MODIFICATION : Accepte 'summary' pour l'alignement
   renderChart(canvas, data, summary) {
     if (this.chart) this.chart.destroy();
+    if (!canvas) {
+        console.error("Canvas non trouvé pour le rendu du graphique");
+        return;
+    }
     const ctx = canvas.getContext('2d');
     const info = document.getElementById('chart-info');
     if (info) info.style.display = 'none';
@@ -381,6 +450,7 @@ export class HistoricalChart {
       if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
         const ticker = this.selectedAssets[0];
         const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
+        // CORRECTION: '`' (backtick) non échappé
         title = `${ticker} • ${name}`;
         icon = this.dataManager.isCryptoTicker(ticker) ? '₿' : '📊'; 
         color = this.dataManager.isCryptoTicker(ticker) ? '#f1c40f' : '#2ecc71';
@@ -415,8 +485,6 @@ export class HistoricalChart {
     
     // =======================================================
     // === MODIFICATION "ZÉRO INCOHÉRENCE" (RESTAURÉE) ===
-    // On force l'alignement du graphique 1D sur les données
-    // "live" (maintenant fiables) calculées pour les cartes.
     // =======================================================
     if (summary && !isUnitView && displayValues.length > 0 && this.currentPeriod === 1) {
         console.log("Alignement des données Histo (1D) avec le Live Summary.");
@@ -488,48 +556,61 @@ export class HistoricalChart {
       perfClass = 'negative';
     }
     
-    // --- AFFICHAGE TITRE ---
-    const mainDisplayValue = useTodayVar ? vsYesterdayAbs : perfAbs;
-    const mainDisplayPct = useTodayVar ? vsYesterdayPct : perfPct;
-    
-    const perfDisplayMain = document.getElementById('vs-yesterday-big');
-    if (perfDisplayMain) {
-      const sign = mainDisplayValue > 0 ? '+' : '';
-      const signPct = mainDisplayPct > 0 ? '+' : '';
-      perfDisplayMain.innerHTML = `${sign}${mainDisplayValue.toFixed(decimals)} € <span>(${signPct}${mainDisplayPct.toFixed(2)}%)</span>`;
-      perfDisplayMain.className = `perf-display-main ${perfClass}`;
-    }
+    // --- (SUPPRIMÉ) AFFICHAGE TITRE ---
+    // --- (SUPPRIMÉ) AFFICHAGE SOUS-TITRE ---
 
-    // --- AFFICHAGE SOUS-TITRE ---
-    const perfSubtitle = document.querySelector('.perf-subtitle'); // Cible la CLASSE
-    if (perfSubtitle) {
-      if (useTodayVar) {
-        perfSubtitle.innerHTML = `vs clôture hier`;
-        perfSubtitle.className = `perf-subtitle-detail`; // Couleur neutre
-      } else {
-        perfSubtitle.innerHTML = ''; 
-        perfSubtitle.className = 'perf-subtitle-detail';
-      }
-    }
-
-    // --- STATS EN BAS ---
+    // --- STATS EN BAS (PÉRIODE) ---
     const perfLabel = document.getElementById('performance-label');
     const perfPercent = document.getElementById('performance-percent');
     if(perfLabel) {
       const sign = perfAbs > 0 ? '+' : '';
       const periodPerfClass = perfAbs > 0 ? 'positive' : (perfAbs < 0 ? 'negative' : 'neutral');
+      // CORRECTION: '`' non échappé
       perfLabel.textContent = `${sign}${perfAbs.toFixed(decimals)} €`;
       perfLabel.className = 'value ' + periodPerfClass;
     }
     if (perfPercent) {
       const sign = perfPct > 0 ? '+' : '';
       const periodPerfClass = perfPct > 0 ? 'positive' : (perfPct < 0 ? 'negative' : 'neutral');
+      // CORRECTION: '`' non échappé
       perfPercent.textContent = `(${sign}${perfPct.toFixed(2)}%)`;
       perfPercent.className = 'pct ' + periodPerfClass;
     }
+
     // ==========================================================
-    // === FIN DE LA CORRECTION ===
+    // === MODIFICATION 3 : Remplir les nouvelles stats (Jour + Clôture) ===
     // ==========================================================
+    const statDayVar = document.getElementById('stat-day-var');
+    const statYesterdayClose = document.getElementById('stat-yesterday-close');
+
+    if (useTodayVar && statDayVar) { // useTodayVar vient du calcul vsYesterdayAbs
+        const dayVarLabel = document.getElementById('day-var-label');
+        const dayVarPct = document.getElementById('day-var-percent');
+        const sign = vsYesterdayAbs > 0 ? '+' : '';
+        const signPct = vsYesterdayPct > 0 ? '+' : '';
+        
+        // CORRECTION: '`' non échappé
+        dayVarLabel.innerHTML = `${sign}${vsYesterdayAbs.toFixed(decimals)} €`;
+        dayVarPct.innerHTML = `(${signPct}${vsYesterdayPct.toFixed(2)}%)`;
+        dayVarLabel.className = `value ${perfClass}`;
+        dayVarPct.className = `pct ${perfClass}`;
+        statDayVar.style.display = 'flex';
+    } else if (statDayVar) {
+        statDayVar.style.display = 'none';
+    }
+
+    if (yesterdayCloseDisplay !== null && statYesterdayClose) {
+        const closeValue = document.getElementById('yesterday-close-value');
+        // CORRECTION: '`' non échappé
+        closeValue.textContent = `${yesterdayCloseDisplay.toFixed(decimals)} €`;
+        statYesterdayClose.style.display = 'flex';
+    } else if (statYesterdayClose) {
+        statYesterdayClose.style.display = 'none';
+    }
+    // ==========================================================
+    // === FIN DE LA MODIFICATION 3 ===
+    // ==========================================================
+
 
     ['price-start', 'price-end', 'price-high', 'price-low'].forEach(id => {
       const el = document.getElementById(id);
@@ -537,6 +618,7 @@ export class HistoricalChart {
         const val = id === 'price-start' ? priceStart :
                         id === 'price-end' ? priceEnd :
                         id === 'price-high' ? priceHigh : priceLow;
+        // CORRECTION: '`' non échappé
         el.textContent = val !== -Infinity && val !== Infinity && val !== null
           ? `${val.toFixed(decimals)} €`
           : 'N/A';
@@ -545,6 +627,7 @@ export class HistoricalChart {
 
     const unitPriceEl = document.getElementById('unit-price');
     if (unitPriceEl && isUnitView && priceEnd !== null) {
+      // CORRECTION: '`' non échappé
       unitPriceEl.textContent = `${priceEnd.toFixed(4)} €`;
     }
 
@@ -593,11 +676,11 @@ export class HistoricalChart {
     // === Toggle visibilité ===
     const unitPriceRow = document.getElementById('unit-price-row');
     if (isSingleAsset && totalQty > 0) {
-      viewToggle.style.display = 'flex';
-      unitPriceRow.style.display = isUnitView ? 'flex' : 'none'; 
+      if(viewToggle) viewToggle.style.display = 'flex';
+      if(unitPriceRow) unitPriceRow.style.display = isUnitView ? 'flex' : 'none'; 
     } else {
-      viewToggle.style.display = 'none';
-      unitPriceRow.style.display = 'none';
+      if(viewToggle) viewToggle.style.display = 'none';
+      if(unitPriceRow) unitPriceRow.style.display = 'none';
     }
 
     // === Toggle clic ===
@@ -630,6 +713,7 @@ export class HistoricalChart {
             padding: 12,
             titleFont: { weight: 'bold' },
             callbacks: {
+              // CORRECTION: '`' non échappé
               label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(isUnitView ? 4 : 2)} €`
             }
           }
@@ -650,6 +734,7 @@ export class HistoricalChart {
           y: { 
             title: { display: false },
             ticks: { 
+              // CORRECTION: '`' non échappé
               callback: (value) => `${value.toLocaleString('fr-FR')} €`,
               color: '#888'
             },
@@ -665,6 +750,7 @@ export class HistoricalChart {
   showMessage(message, type = 'info') {
     const info = document.getElementById('chart-info');
     if (!info) return;
+    // CORRECTION: '`' non échappé
     info.innerHTML = `${type === 'error' ? '⚠️' : 'ℹ️'} ${message}`;
     info.style.display = 'block';
     info.style.color = type === 'error' ? '#dc3545' : '#666';

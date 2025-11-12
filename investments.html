@@ -7,7 +7,6 @@
 	<link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    <!-- MODIFIÉ : On force la v10 du CSS -->
     <link rel="stylesheet" href="style.css?v=10">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,7 +15,6 @@
 </head>
 <body>
     <div class="container">
-        <!-- Navigation -->
         <nav class="nav-menu">
             <a href="index.html">Transactions</a>
             <a href="investments.html" class="active">Portfolio</a>
@@ -24,22 +22,18 @@
 			<a href="analytics.html">Analytics</a>
         </nav>
 
-        <!-- En-tête -->
-		<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h1>📈 Portfolio Overview</h1>
             <div id="market-status-container"></div>
         </div>        
 		
-        <!-- Résumé du Portfolio -->
         <div class="portfolio-summary-enhanced">
             <div class="summary-grid">
-                <!-- Valeur Actuelle avec variation jour -->
                 <div class="summary-card summary-card-primary">
                     <div class="summary-card-label">Total Value</div>
                     <div id="total-current" class="summary-card-value">€0.00</div>
                 </div>
                 
-                <!-- Gain/Perte Total -->
                 <div class="summary-card">
                     <div class="summary-card-label">Total Return</div>
                     <div id="total-gain-loss" class="summary-card-value">€0.00</div>
@@ -48,7 +42,6 @@
                     </div>
                 </div>
                 
-                <!-- Investissement Total avec prix moyen -->
                 <div class="summary-card">
                     <div class="summary-card-label">Var Today</div>
                     <div id="total-invested" class="summary-card-value">€0.00</div>
@@ -58,7 +51,6 @@
                 </div>
             </div>
             
-            <!-- Stats Étendues -->
             <div class="summary-stats">
                 <div class="stat-item">
                     <div class="stat-label">Assets</div>
@@ -83,18 +75,15 @@
             </div>
         </div>
 
-        <!-- Graphique Historique -->
-		<div class="historical-chart-container ultra-compact">
+        <div class="historical-chart-container ultra-compact">
 
-		  <!-- Header minimaliste -->
 		  <div class="chart-header-mini">
 			<div class="title-mini">
-			  <h2 id="chart-title" class="chart-title">
+			  <h3 id="chart-title" class="chart-title">
 				<span id="chart-title-icon" class="title-icon">Chart</span>
 				<span id="chart-title-text">Portfolio Global</span>
-			  </h2>
-			  <div id="vs-yesterday-big" class="perf-display-main">-0.00 € <span>(0.00%)</span></div>
-			</div>
+			  </h3>
+			  </div>
 
 			<div class="header-controls">
 			  <div class="view-toggle" id="view-toggle" style="display:none;">
@@ -104,37 +93,38 @@
 			  <div id="last-update" class="time">00:00</div>
 			</div>
 		  </div>
-
 		  <div id="chart-info" class="chart-info" style="display:none;"></div>
 
-		  <!-- GRAND CHART -->
 		  <div class="chart-wrapper tall">
 			<canvas id="historical-portfolio-chart"></canvas>
 			
-            <!-- ======================================== -->
-			<!-- === NOUVEAU LOADER SVG === -->
-            <!-- ======================================== -->
-			<div id="chart-loading" class="chart-loading"> <!-- Caché par CSS par défaut -->
-			  <div class="svg-loader-container">
+            <div id="chart-loading" class="chart-loading"> <div class="svg-loader-container">
                 <svg class="loader-svg" viewBox="0 0 50 50">
                   <circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
                 </svg>
                 <div class="loader-text">Chargement des données...</div>
               </div>
 			</div>
-            <!-- ======================================== -->
-            <!-- === FIN DU NOUVEAU LOADER === -->
-            <!-- ======================================== -->
+            </div>
 
-		  </div>
-
-		  <!-- Infos période en une seule ligne -->
 		  <div class="chart-stats-bar">
             <div class="stat stat-period">
 			  <span class="label">PÉRIODE</span>
 			  <span id="performance-label" class="value neutral">+0.00 €</span>
 			  <span id="performance-percent" class="pct neutral">(0.00%)</span>
 			</div>
+			
+			<div class="stat" id="stat-day-var" style="display: none;">
+			  <span class="label">VAR. JOUR</span>
+			  <span id="day-var-label" class="value neutral">+0.00 €</span>
+			  <span id="day-var-percent" class="pct neutral">(0.00%)</span>
+			</div>
+			
+			<div class="stat" id="stat-yesterday-close" style="display: none;">
+			  <span class="label">CLÔTURE HIER</span>
+			  <span id="yesterday-close-value" class="value">0.00 €</span>
+			</div>
+			
 			<div class="stat">
 			  <span class="label">DÉBUT</span>
 			  <span id="price-start" class="value">0.00 €</span>
@@ -156,11 +146,9 @@
 			  <span id="unit-price" class="value">0.00 €</span>
 			</div>
 		  </div>
-
-		  <!-- Boutons période -->
 		  <div class="chart-controls">
-			<button class="period-btn active" data-period="1">1D</button>
-			<button class="period-btn" data-period="2">2D</button>
+			<button class="period-btn active" data-period="1">1J</button>
+			<button class="period-btn" data-period="2">2J</button>
 			<button class="period-btn" data-period="7">1W</button>
 			<button class="period-btn" data-period="30">1M</button>
 			<button class="period-btn" data-period="90">3M</button>
@@ -170,14 +158,10 @@
 		  </div>
 		</div>
 
-        <!-- Holdings Table -->
-        
-        <!-- Recherche et Filtres -->
         <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
             <input type="text" id="search-input" placeholder="Search ticker, name or date..." style="flex: 1; min-width: 250px;">
             <div id="ticker-filter-dropdown"></div>
             
-            <!-- Filtre par Type d'Actif -->
             <select id="filter-asset-type" style="min-width: 150px;">
                 <option value="">All Asset Types</option>
                 <option value="Stock">Stock</option>
@@ -185,7 +169,6 @@
                 <option value="Crypto">Crypto</option>
             </select>
             
-            <!-- Filtre par Broker -->
             <select id="filter-broker" style="min-width: 150px;">
                 <option value="">All Brokers</option>
                 <option value="RV-CT">Revolut (RV-CT)</option>
@@ -218,11 +201,9 @@
             <tbody></tbody>
         </table>
 
-        <!-- Pagination -->
         <div class="pagination" id="pagination"></div>
     </div>
 
-    <!-- On utilise la v7 de app.js (qui charge la v7 du chart) -->
-    <script type="module" src="./app.js?v=7"></script>
+    <script type="module" src="./app.js?v=9"></script>
 </body>
 </html>

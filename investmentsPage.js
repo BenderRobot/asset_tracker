@@ -25,8 +25,8 @@ export class InvestmentsPage {
 
   /**
    * ========================================================
-   * === MODIFICATION "ZÉRO INCOHÉRENCE" ===
-   * 'render' ne fait plus de fetch. Il délègue tout au graphique.
+   * === MODIFICATION "Cache-First" ===
+   * 'render' appelle maintenant 'loadPageWithCacheFirst'
    * ========================================================
    */
   async render(searchQuery = '') {
@@ -35,14 +35,12 @@ export class InvestmentsPage {
     
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Chargement...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Chargement du cache...</td></tr>';
     
-    // On ne fait RIEN d'autre que d'appeler le graphique.
-    // 'window.app.historicalChart' (défini dans app.js)
-    // appellera 'renderData' et 'updateChart' quand il sera prêt.
+    // On appelle la nouvelle fonction de chargement "Cache-First"
     if (window.app && window.app.historicalChart) {
-      // true = showLoading, false = forceApi (on attend le refresh)
-      await window.app.historicalChart.update(true, false); 
+      // (Cette fonction gérera le rendu et le refresh API en arrière-plan)
+      await window.app.historicalChart.loadPageWithCacheFirst(); 
     } else {
         console.error("Erreur: historicalChart n'est pas initialisé.");
     }
@@ -50,7 +48,7 @@ export class InvestmentsPage {
 
   /**
    * ========================================================
-   * === NOUVELLE FONCTION "ZÉRO INCOHÉRENCE" ===
+   * === "ZÉRO INCOHÉRENCE" ===
    * Appelée par historicalChart.js lorsque les données
    * (holdings et summary) sont prêtes et unifiées.
    * ========================================================

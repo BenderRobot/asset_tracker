@@ -627,17 +627,14 @@ tbody tr:hover {
     color: var(--text-secondary);
 }
 
-.chart-title-container {
-    text-align: center;
-    margin: 20px 0 10px;
-    padding: 0 16px;
-}
-
+/* REMPLACEZ L'ANCIEN .chart-title PAR CECI : */
 .chart-title {
-    font-size: 1.8rem;
-    font-weight: 800;
+    font-size: 1.25rem;  /* Réduit (avant: 1.8rem) */
+    font-weight: 600;    /* Moins gras (avant: 800) */
+    display: flex;       /* Aligné à gauche (avant: inline-flex) */
+    
+    /* Le reste est inchangé */
     color: #ecf0f1;
-    display: inline-flex;
     align-items: center;
     gap: 12px;
     background: rgba(255, 255, 255, 0.08);
