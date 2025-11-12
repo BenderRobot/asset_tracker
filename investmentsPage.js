@@ -1,5 +1,5 @@
 // ========================================
-// investmentsPage.js - Page Mes Investissements (Version Complète)
+// investmentsPage.js - Page Mes Investissements (Architecture "Zéro Incohérence")
 // ========================================
 
 import { PAGE_SIZE, USD_TO_EUR_RATE } from './config.js';
@@ -20,52 +20,79 @@ export class InvestmentsPage {
     
     // Stocke les holdings actuellement affichés pour le clic
     this.currentHoldings = []; 
+    this.currentSearchQuery = ''; // Stocke la query pour le graphique
   }
 
+  /**
+   * ========================================================
+   * === MODIFICATION "ZÉRO INCOHÉRENCE" ===
+   * 'render' ne fait plus de fetch. Il délègue tout au graphique.
+   * ========================================================
+   */
   async render(searchQuery = '') {
+    console.log('InvestmentsPage.render() appelé. Délégation au graphique...');
+    this.currentSearchQuery = searchQuery;
+    
+    const tbody = document.querySelector('#investments-table tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Chargement...</td></tr>';
+    
+    // On ne fait RIEN d'autre que d'appeler le graphique.
+    // 'window.app.historicalChart' (défini dans app.js)
+    // appellera 'renderData' et 'updateChart' quand il sera prêt.
+    if (window.app && window.app.historicalChart) {
+      // true = showLoading, false = forceApi (on attend le refresh)
+      await window.app.historicalChart.update(true, false); 
+    } else {
+        console.error("Erreur: historicalChart n'est pas initialisé.");
+    }
+  }
+
+  /**
+   * ========================================================
+   * === NOUVELLE FONCTION "ZÉRO INCOHÉRENCE" ===
+   * Appelée par historicalChart.js lorsque les données
+   * (holdings et summary) sont prêtes et unifiées.
+   * ========================================================
+   */
+  renderData(holdings, summary) {
+    console.log('InvestmentsPage.renderData() appelé par le graphique.');
+    
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Chargement...</td></tr>';
+    // 1. Appliquer les filtres de la page (non-graphique)
+    let filteredHoldings = holdings.filter(h => {
+      // Utilise les données du premier achat pour les filtres
+      const assetType = h.purchases[0]?.assetType || 'Stock';
+      const broker = h.purchases[0]?.broker || 'RV-CT';
 
-    // 1. Obtenir les achats filtrés
-    let filteredPurchases = this.filterManager.filterPurchases(this.storage.getPurchases(), searchQuery);
-    
-    // Appliquer les filtres asset type et broker
-    if (this.currentAssetTypeFilter) {
-      filteredPurchases = filteredPurchases.filter(p => (p.assetType || 'Stock') === this.currentAssetTypeFilter);
-    }
-    if (this.currentBrokerFilter) {
-      filteredPurchases = filteredPurchases.filter(p => (p.broker || 'RV-CT') === this.currentBrokerFilter);
-    }
+      if (this.currentAssetTypeFilter) {
+        if (assetType !== this.currentAssetTypeFilter) return false;
+      }
+      if (this.currentBrokerFilter) {
+        if (broker !== this.currentBrokerFilter) return false;
+      }
+      return true;
+    });
 
-    // 2. Rafraîchir les prix
-    const tickers = [...new Set(filteredPurchases.map(p => p.ticker.toUpperCase()))];
-    await this.api.fetchBatchPrices(tickers);
-
-    // 3. Calculer les holdings
-    const holdings = this.dataManager.calculateHoldings(filteredPurchases);
-    
     // Mettre à jour la liste des holdings
-    this.currentHoldings = holdings;
+    this.currentHoldings = filteredHoldings;
 
-    // 4. Calculer le résumé (pour les cartes)
-    const summary = this.dataManager.calculateSummary(holdings);
-
-    // 5. Trier
-    holdings.sort((a, b) => {
+    // 2. Trier
+    filteredHoldings.sort((a, b) => {
       const valA = a[this.sortColumn] ?? -Infinity;
       const valB = b[this.sortColumn] ?? -Infinity;
       const order = valA < valB ? -1 : valA > valB ? 1 : 0;
       return order * (this.sortDirection === 'asc' ? 1 : -1);
     });
 
-    // 6. Pagination
-    const totalPages = Math.max(1, Math.ceil(holdings.length / PAGE_SIZE));
+    // 3. Pagination
+    const totalPages = Math.max(1, Math.ceil(filteredHoldings.length / PAGE_SIZE));
     if (this.currentPage > totalPages) this.currentPage = totalPages;
-    const pageItems = holdings.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
+    const pageItems = filteredHoldings.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
 
-    // 7. Affichage du tableau
+    // 4. Affichage du tableau
     tbody.innerHTML = pageItems.map(p => `
       <tr class="asset-row" data-ticker="${p.ticker}" data-avgprice="${p.avgPrice}">
         <td><strong>${p.ticker}</strong></td>
@@ -82,42 +109,22 @@ export class InvestmentsPage {
       </tr>
     `).join('') || '<tr><td colspan="11">Aucun investissement.</td></tr>';
 
-    // 8. Mettre à jour l'UI avec le résumé
-    this.ui.updatePortfolioSummary(summary, filteredPurchases.length);
+    // 5. Mettre à jour l'UI avec le résumé (les cartes)
+    // IMPORTANT: 'summary' vient directement du graphique
+    this.ui.updatePortfolioSummary(summary, summary.movementsCount);
 
-    // 9. Reste
+    // 6. Reste
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
-      this.render(searchQuery);
+      this.renderData(holdings, summary); // Re-render SANS fetch
     });
+    
     this.ui.populateTickerSelect(this.storage.getPurchases());
-    
     this.attachRowClickListeners();
-    
-    await this.updateChart(filteredPurchases, searchQuery, summary);
   }
 
-  async updateChart(filtered, searchQuery, summary) {
-    const selectedTickers = this.filterManager.getSelectedTickers();
-    const selectedTickersArray = Array.from(selectedTickers);
-    
-    if (window.app && window.app.historicalChart) {
-      if (selectedTickers.size > 0) {
-        const tickerFilteredPurchases = filtered.filter(p => selectedTickers.has(p.ticker.toUpperCase()));
-        window.app.historicalChart.showMultipleAssetsChart(tickerFilteredPurchases, selectedTickersArray, summary);
-      } else {
-        const hasOtherFilters = this.currentAssetTypeFilter || this.currentBrokerFilter || searchQuery;
-        
-        if (hasOtherFilters) {
-          console.log('📈 Affichage du portfolio filtré');
-          window.app.historicalChart.showFilteredPortfolioChart(filtered, summary);
-        } else {
-          console.log('📈 Affichage du portfolio global');
-          window.app.historicalChart.showPortfolioChart(summary);
-        }
-      }
-    }
-  }
+  // (Cette fonction n'est plus utilisée, le graphique gère son propre update)
+  // async updateChart(filtered, searchQuery, summary) { ... }
 
   attachRowClickListeners() {
     document.querySelectorAll('.asset-row').forEach(row => {
@@ -125,7 +132,7 @@ export class InvestmentsPage {
       row.addEventListener('click', () => {
         const ticker = row.dataset.ticker;
         
-        // Logique pour mettre à jour les cartes
+        // Logique pour mettre à jour les cartes (inchangée)
         if (!this.currentHoldings) return;
         const assetHolding = this.currentHoldings.find(h => h.ticker === ticker);
         if (!assetHolding) return;
@@ -135,11 +142,8 @@ export class InvestmentsPage {
         console.log(`📊 Clic sur ${ticker} - Affichage du graphique`);
         
         if (window.app && window.app.historicalChart) {
-          
-          // On passe le 'assetSummary' pour la synchro
           window.app.historicalChart.showAssetChart(ticker, assetSummary);
           
-          // Scroll vers les cartes
           const summaryContainer = document.querySelector('.portfolio-summary-enhanced');
           if (summaryContainer) {
             summaryContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -147,7 +151,6 @@ export class InvestmentsPage {
         }
       });
       
-      // Effet hover
       row.addEventListener('mouseenter', () => {
         row.style.backgroundColor = '#f8f9fa';
       });
@@ -163,7 +166,7 @@ export class InvestmentsPage {
       assetTypeFilter.addEventListener('change', (e) => {
         this.currentAssetTypeFilter = e.target.value;
         this.currentPage = 1;
-        this.render();
+        this.render(this.currentSearchQuery); // Relance le cycle de render
       });
     }
     
@@ -172,7 +175,7 @@ export class InvestmentsPage {
       brokerFilter.addEventListener('change', (e) => {
         this.currentBrokerFilter = e.target.value;
         this.currentPage = 1;
-        this.render();
+        this.render(this.currentSearchQuery); // Relance le cycle de render
       });
     }
     
@@ -192,16 +195,15 @@ export class InvestmentsPage {
         
         if (window.app) {
           window.app.searchQuery = '';
+          this.currentSearchQuery = '';
         }
         
         if (this.filterManager) {
           this.filterManager.clearAllFilters();
         }
         
-        // L'appel prématuré au graphique a été supprimé (correct).
-        
         this.currentPage = 1;
-        this.render(''); 
+        this.render(''); // Relance le cycle de render
         
         console.log('✅ Filtres réinitialisés');
       });
@@ -219,7 +221,7 @@ export class InvestmentsPage {
           this.sortDirection = 'asc';
         }
         this.currentPage = 1;
-        this.render();
+        this.render(this.currentSearchQuery); // Relance le cycle de render
       });
     });
   }

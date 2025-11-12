@@ -1,5 +1,5 @@
 // ========================================
-// app.js - Application principale (Câblage Corrigé)
+// app.js - Application principale (Câblage "Zéro Incohérence")
 // ========================================
 import { Storage } from './storage.js';
 import { PriceAPI } from './api.js?v=4'; // v4 (inchangé)
@@ -37,7 +37,16 @@ class App {
     this.investmentsPage = new InvestmentsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager); 
 
     if (this.isInvestmentsPage()) { 
-      this.historicalChart = new HistoricalChart(this.storage, this.dataManager); 
+      // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
+      // Le graphique a besoin de 'ui' pour mettre à jour les cartes
+      // et de 'investmentsPage' pour mettre à jour le tableau.
+      this.historicalChart = new HistoricalChart(
+          this.storage, 
+          this.dataManager, 
+          this.ui, 
+          this.investmentsPage
+      ); 
+      // ==========================================
     }
     // === FIN CÂBLAGE ===
 
@@ -131,6 +140,8 @@ class App {
     if (this.isAchatsPage()) {
       await this.achatsPage.render(this.searchQuery);
     } else if (this.isInvestmentsPage()) {
+      // MODIFICATION : On passe la query au 'render' de investmentsPage
+      // C'est lui qui la passera au graphique.
       await this.investmentsPage.render(this.searchQuery); 
     }
   }
@@ -200,6 +211,7 @@ class App {
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         this.searchQuery = e.target.value;
+        // MODIFICATION : On relance le render global
         this.investmentsPage.render(this.searchQuery);
       });
     }
@@ -263,30 +275,25 @@ class App {
     }
 
     try {
-      const purchases = this.storage.getPurchases();
-      const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
-
-      if (tickers.length === 0) {
-        this.showNotification('Aucune transaction à rafraîchir', 'warning');
-        return;
-      }
-
-      if (forceWeekend) {
-        this.showNotification('Récupération des prix de clôture du vendredi (lent)', 'info');
-      } else if (isWeekend) {
-        this.showNotification('Weekend - Prix de clôture affichés', 'info');
-      }
-
-      // 1. Rafraîchir les PRIX ACTUELS
-      await this.api.fetchBatchPrices(tickers, forceWeekend); 
+      // ==========================================================
+      // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
+      // On ne rafraîchit PAS l'API ici. On se contente de
+      // forcer le graphique à se mettre à jour.
+      // Le graphique rafraîchira l'API ET le reste de la page.
       
-      // 2. Re-rendre la page (met à jour le tableau et les cartes)
-      await this.renderCurrentPage();
-      
-      // 3. Mettre à jour le graphique (qui utilise maintenant dataManager)
-      if (this.historicalChart) {
-          await this.historicalChart.update(); 
+      if (this.isInvestmentsPage() && this.historicalChart) {
+          console.log('Rafraîchissement déclenché... Le graphique prend la main.');
+          await this.historicalChart.update(true, true); // (showLoading = true, forceApi = true)
+      } else {
+          // Comportement normal pour les autres pages
+          const purchases = this.storage.getPurchases();
+          const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+          if (tickers.length > 0) {
+             await this.api.fetchBatchPrices(tickers, forceWeekend); 
+          }
+          await this.renderCurrentPage();
       }
+      // ==========================================================
       
       this.updateMarketStatus();
 
@@ -498,18 +505,17 @@ class App {
     if (this.isRefreshing) return;
     console.log('Rafraîchissement auto...');
     try {
-      const tickers = [...new Set(this.storage.getPurchases().map(p => p.ticker.toUpperCase()))];
-      
-      // 1. Rafraîchir les PRIX ACTUELS
-      await this.api.fetchBatchPrices(tickers);
-      
-      // 2. Re-rendre la page (tableau, cartes)
-      await this.renderCurrentPage();
-
-      // 3. Mettre à jour le graphique (uniquement s'il est visible)
-      if (this.historicalChart) {
-          await this.historicalChart.silentUpdate(); // Utilise la mise à jour silencieuse
+      // ==========================================================
+      // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
+      if (this.isInvestmentsPage() && this.historicalChart) {
+          await this.historicalChart.silentUpdate(); // Le graphique gère tout
+      } else {
+          // Comportement normal pour les autres pages
+          const tickers = [...new Set(this.storage.getPurchases().map(p => p.ticker.toUpperCase()))];
+          await this.api.fetchBatchPrices(tickers);
+          await this.renderCurrentPage();
       }
+      // ==========================================================
 
     } catch (error) {
       console.error('Erreur auto-refresh:', error);

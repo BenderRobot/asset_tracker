@@ -1,5 +1,5 @@
 // ========================================
-// storage.js - Stockage optimisÃ© avec cache intelligent
+// storage.js - Stockage optimisé (Cache Corrigé)
 // ========================================
 
 import { CACHE_EXPIRY_STOCKS_MARKET_OPEN, CACHE_EXPIRY_STOCKS_MARKET_CLOSED, CACHE_EXPIRY_CRYPTO } from './config.js';
@@ -14,7 +14,7 @@ export class Storage {
         this.purchaseIndex = this.buildIndex();
     }
 
-    // === CHARGEMENT OPTIMISÃ‰ ===
+    // === CHARGEMENT OPTIMISÉ ===
     loadPurchases() {
         try {
             const data = localStorage.getItem('purchases');
@@ -68,7 +68,7 @@ export class Storage {
         // Validation
         if (!purchase.ticker || !purchase.name || !purchase.price || 
             !purchase.date || !purchase.quantity) {
-            throw new Error('DonnÃ©es incomplÃ¨tes');
+            throw new Error('Données incomplètes');
         }
 
         this.purchases.push({
@@ -86,7 +86,7 @@ export class Storage {
     updatePurchase(key, updates) {
         const idx = this.purchaseIndex.get(key);
         if (idx === undefined) {
-            console.warn('Achat non trouvÃ©:', key);
+            console.warn('Achat non trouvé:', key);
             return false;
         }
 
@@ -147,9 +147,12 @@ export class Storage {
     setCurrentPrice(ticker, data) {
         const upperTicker = ticker.toUpperCase();
         
-        // Si on a dÃ©jÃ  un prix et que le nouveau est null, on garde l'ancien
+        // Si on a déjà un prix et que le nouveau est null, on garde l'ancien
         if (this.currentData[upperTicker] && (!data || !data.price)) {
-            console.log(`ðŸ”„ Conservation du prix en cache pour ${upperTicker}`);
+            console.log(` conserving... Conservation du prix en cache pour ${upperTicker}`);
+            // MAIS on met à jour le timestamp pour qu'il ne soit pas "périmé"
+            this.priceTimestamps[upperTicker] = Date.now();
+            this.savePricesCache();
             return;
         }
         
@@ -178,19 +181,19 @@ export class Storage {
         
         const age = Date.now() - ts;
         
-        // Cryptos : cache court (5 min) car marchÃ© 24/7
+        // Cryptos : cache court (5 min) car marché 24/7
         if (assetType === 'Crypto') {
             return age < CACHE_EXPIRY_CRYPTO;
         }
         
-        // Actions/ETF : cache dÃ©pend de l'Ã©tat du marchÃ©
+        // Actions/ETF : cache dépend de l'état du marché
         const marketOpen = this.isMarketOpen();
         
         if (marketOpen) {
-            // MarchÃ© ouvert : cache court (10 min) pour prix Ã  jour
+            // Marché ouvert : cache court (10 min) pour prix à jour
             return age < CACHE_EXPIRY_STOCKS_MARKET_OPEN;
         } else {
-            // MarchÃ© fermÃ©/weekend : cache long (7 jours) pour Ã©viter appels inutiles
+            // Marché fermé/weekend : cache long (7 jours) pour éviter appels inutiles
             return age < CACHE_EXPIRY_STOCKS_MARKET_CLOSED;
         }
     }
@@ -207,8 +210,8 @@ export class Storage {
             
             const age = now - ts;
             
-            // VÃ©rifier si c'est une crypto
-            const isCrypto = ticker === 'BTC' || ticker === 'ETH';
+            // Vérifier si c'est une crypto
+            const isCrypto = (this.currentData[ticker]?.source === 'CoinGecko') || ticker === 'BTC' || ticker === 'ETH';
             
             if (isCrypto && age > CACHE_EXPIRY_CRYPTO) {
                 delete this.currentData[ticker];
@@ -223,13 +226,13 @@ export class Storage {
         });
         
         if (cleaned > 0) {
-            console.log(`ðŸ§¹ ${cleaned} prix expirÃ©s nettoyÃ©s`);
+            console.log(`... ${cleaned} prix expirés nettoyés`);
             this.savePricesCache();
         }
     }
 
     cleanOldPrices() {
-        // Garder seulement les 100 prix les plus rÃ©cents
+        // Garder seulement les 100 prix les plus récents
         const sorted = Object.entries(this.priceTimestamps)
             .sort(([,a], [,b]) => b - a)
             .slice(0, 100);
@@ -248,7 +251,7 @@ export class Storage {
         this.priceTimestamps = newTimestamps;
         
         this.savePricesCache();
-        console.log('ðŸ§¹ Cache des prix nettoyÃ© (gardÃ© top 100)');
+        console.log('... Cache des prix nettoyé (gardé top 100)');
     }
 
     cleanOldData() {
@@ -261,7 +264,7 @@ export class Storage {
             return date.getTime() > twoYearsAgo;
         });
         
-        console.log(`ðŸ§¹ ${oldCount - this.purchases.length} vieux achats supprimÃ©s`);
+        console.log(`... ${oldCount - this.purchases.length} vieux achats supprimés`);
     }
 
     // === STATISTIQUES ===
@@ -310,7 +313,7 @@ export class Storage {
         );
 
         if (!valid) {
-            throw new Error('DonnÃ©es invalides dÃ©tectÃ©es');
+            throw new Error('Données invalides détectées');
         }
 
         this.purchases = data.purchases;
@@ -320,7 +323,7 @@ export class Storage {
 
     // === UTILITAIRES ===
     getRowKey(purchase) {
-        // ClÃ© unique basÃ©e sur ticker, date et prix
+        // Clé unique basée sur ticker, date et prix
         return `${purchase.ticker.toUpperCase()}|${purchase.date}|${purchase.price}|${purchase.quantity}`;
     }
 
@@ -333,7 +336,7 @@ export class Storage {
         };
         
         localStorage.setItem('backup_purchases', JSON.stringify(backup));
-        console.log('ðŸ’¾ Backup crÃ©Ã©');
+        console.log('... Backup créé');
     }
 
     restoreBackup() {
@@ -351,7 +354,7 @@ export class Storage {
         return false;
     }
 
-    // === DÃ‰TECTION DU TYPE D'ACTIF ===
+    // === DÉTECTION DU TYPE D'ACTIF ===
     getAssetType(ticker) {
         const purchase = this.purchases.find(p => 
             p.ticker.toUpperCase() === ticker.toUpperCase()
@@ -359,7 +362,9 @@ export class Storage {
         return purchase?.assetType || 'Stock';
     }
 
-    // === VÃ‰RIFIER SI LE MARCHÃ‰ EST OUVERT ===
+    // ==========================================================
+    // === MODIFICATION : CORRECTION DE LA LOGIQUE DE CACHE ===
+    // ==========================================================
     isMarketOpen() {
         const now = new Date();
         const day = now.getDay(); // 0 = Dimanche, 6 = Samedi
@@ -371,15 +376,22 @@ export class Storage {
             return false;
         }
         
-        // Horaires de bourse (approximatif) : 9h30 - 16h00 (heure locale)
+        // Horaires de bourse (approximatif) : 9h30 - 20h00 (heure locale)
+        // On étend la fermeture à 20h00 (au lieu de 16h00) pour
+        // forcer l'utilisation du cache court (10 min) pendant
+        // la période volatile "post-marché".
         const currentTime = hours * 60 + minutes;
         const marketOpen = 9 * 60 + 30; // 9h30
-        const marketClose = 16 * 60; // 16h00
+        const marketClose = 20 * 60; // 20h00 (au lieu de 16:00)
         
         return currentTime >= marketOpen && currentTime <= marketClose;
     }
+    // ==========================================================
+    // === FIN DE LA MODIFICATION ===
+    // ==========================================================
 
-    // === OBTENIR L'Ã‚GE DU PRIX ===
+
+    // === OBTENIR L'ÂGE DU PRIX ===
     getPriceAge(ticker) {
         const ts = this.priceTimestamps[ticker.toUpperCase()];
         if (!ts) return null;

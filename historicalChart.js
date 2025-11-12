@@ -1,12 +1,17 @@
 // ========================================
-// historicalChart.js - (Améliorations Visuelles v3)
+// historicalChart.js - (Architecture "Zéro Incohérence")
 // ========================================
 
 export class HistoricalChart {
-  // Constructeur simplifié
-  constructor(storage, dataManager) {
+  // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
+  // Accepte UI et InvestmentsPage pour les callbacks
+  constructor(storage, dataManager, ui, investmentsPage) {
     this.storage = storage;
     this.dataManager = dataManager;
+    this.ui = ui; // Pour mettre à jour les cartes
+    this.investmentsPage = investmentsPage; // Pour mettre à jour le tableau
+    // ==========================================
+    
     this.chart = null;
     this.currentPeriod = 1;
     this.isLoading = false;
@@ -17,12 +22,14 @@ export class HistoricalChart {
     this.autoRefreshInterval = null;
     this.lastRefreshTime = null;
     this.lastYesterdayClose = null; 
-    this.liveSummary = null;
+    
+    // (Note: liveSummary n'est plus nécessaire car le graphique calcule son propre résumé)
     
     this.injectChartStyles();
   }
   
-  // Ajoute le CSS pour les améliorations visuelles
+  // (injectChartStyles, hexToRgba, setupPeriodButtons, start/stopAutoRefresh... INCHANGÉS)
+  // ...
   injectChartStyles() {
     const styleId = 'historical-chart-styles';
     if (document.getElementById(styleId)) return;
@@ -129,12 +136,6 @@ export class HistoricalChart {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
-  async init() {
-    this.setupPeriodButtons();
-    await this.update();
-    this.startAutoRefresh();
-  }
-
   setupPeriodButtons() {
     document.querySelectorAll('.period-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -177,7 +178,7 @@ export class HistoricalChart {
     console.log('Rafraîchissement silencieux du graphique...');
     this.lastRefreshTime = now;
     try {
-      await this.updateChart(false); 
+      await this.updateChart(false, false); // false = showLoading, false = forceApi
     } catch (error) {
       console.warn('Erreur refresh silencieux:', error);
     }
@@ -197,8 +198,7 @@ export class HistoricalChart {
     this.selectedAssets = tickers;
     this.filteredPurchases = purchases;
     this.isCryptoOrGlobal = true; 
-    this.liveSummary = summary; 
-    await this.update();
+    await this.update(false, false); // (showLoading = false, forceApi = false)
   }
 
   async showAssetChart(ticker, summary = null) {
@@ -206,8 +206,7 @@ export class HistoricalChart {
     this.currentMode = 'asset';
     this.selectedAssets = [ticker];
     this.isCryptoOrGlobal = this.dataManager.isCryptoTicker(ticker); 
-    this.liveSummary = summary; 
-    await this.update();
+    await this.update(true, false); // (showLoading = true, forceApi = false)
   }
 
   async showPortfolioChart(summary = null) {
@@ -216,15 +215,14 @@ export class HistoricalChart {
     this.selectedAssets = [];
     this.filteredPurchases = null;
     this.isCryptoOrGlobal = true;
-    this.liveSummary = summary; 
-    await this.update();
+    await this.update(false, false); // (showLoading = false, forceApi = false)
   }
 
   async changePeriod(days) {
     if (this.isLoading) return;
     this.currentPeriod = days;
     this.stopAutoRefresh(); 
-    await this.update();
+    await this.update(true, true); // (showLoading = true, forceApi = true)
     this.startAutoRefresh(); 
   }
 
@@ -233,19 +231,19 @@ export class HistoricalChart {
     this.currentMode = 'filtered';
     this.filteredPurchases = filteredPurchases;
     this.isCryptoOrGlobal = true;
-    this.liveSummary = summary;
-    await this.update();
+    await this.update(false, false); // (showLoading = false, forceApi = false)
   }
 
   // ==========================================================
-  // Logique de mise à jour (Simplifiée)
+  // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
+  // updateChart est maintenant le "PATRON" de la page
   // ==========================================================
 
-  async update() {
-    return this.updateChart(true);
+  async update(showLoading = true, forceApi = false) {
+    return this.updateChart(showLoading, forceApi);
   }
 
-  async updateChart(showLoading = true) {
+  async updateChart(showLoading = true, forceApi = false) {
     if (this.isLoading) return;
     const canvas = document.getElementById('historical-portfolio-chart');
     if (!canvas) return;
@@ -260,33 +258,97 @@ export class HistoricalChart {
     }
 
     try {
-      let data;
+      // =======================================================
+      // === ÉTAPE 1 : RÉCUPÉRATION DES DONNÉES (filtres)
+      // =======================================================
+      const searchQuery = this.investmentsPage.currentSearchQuery;
+      let purchases;
       
       if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
-        data = await this.dataManager.calculateAssetHistory(this.selectedAssets[0], this.currentPeriod);
+        purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === this.selectedAssets[0].toUpperCase());
       } else if (this.currentMode === 'multiple' && this.selectedAssets.length > 1) {
-        data = await this.dataManager.calculateMultipleAssetsHistory(this.filteredPurchases, this.currentPeriod);
+         purchases = this.filteredPurchases;
       } else if (this.currentMode === 'filtered' && this.filteredPurchases) {
-        if (this.filteredPurchases.length === 0) {
-          this.showMessage('Aucun achat correspondant aux filtres');
-          return;
-        }
-        data = await this.dataManager.calculateHistory(this.filteredPurchases, this.currentPeriod);
+         purchases = this.filteredPurchases;
       } else {
-        const purchases = this.storage.getPurchases();
-        if (purchases.length === 0) {
-          this.showMessage('Aucun achat enregistré');
-          return;
-        }
-        data = await this.dataManager.calculateHistory(purchases, this.currentPeriod);
+         // Mode 'portfolio'
+         purchases = this.storage.getPurchases();
+      }
+      
+      // Appliquer le filtre de recherche (siège dans investmentsPage)
+      if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          purchases = purchases.filter(p => p.ticker.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
+      }
+      
+      // Appliquer les filtres de ticker (select)
+      const selectedTickers = this.investmentsPage.filterManager.getSelectedTickers();
+      if (selectedTickers.size > 0) {
+          purchases = purchases.filter(p => selectedTickers.has(p.ticker.toUpperCase()));
       }
 
-      if (!data || data.labels.length === 0) {
+      if (purchases.length === 0) {
+        this.showMessage('Aucun achat correspondant aux filtres');
+        // On passe des données vides à la page
+        this.investmentsPage.renderData([], { totalInvestedEUR: 0, totalCurrentEUR: 0, totalDayChangeEUR: 0, gainTotal: 0, gainPct: 0, dayChangePct: 0, assetsCount: 0, movementsCount: 0 });
+        return;
+      }
+      
+      // =======================================================
+      // === ÉTAPE 2 : FETCH API (centralisé)
+      // =======================================================
+      
+      // 2a. Fetch des données "live" (pour les cartes et le tableau)
+      // C'est la source 'api.fetchBatchPrices' (qui utilise v2/5m)
+      const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+      if (forceApi) {
+          // Si 'Refresh' est cliqué, on vide le cache avant de fetch
+          tickers.forEach(t => {
+              if (this.storage.priceTimestamps[t]) {
+                  this.storage.priceTimestamps[t] = 0; // Force l'expiration
+              }
+          });
+          this.storage.savePricesCache(); // Sauvegarde les timestamps expirés
+          console.log('Cache forcé expiré pour le rafraîchissement.');
+      }
+      await this.dataManager.api.fetchBatchPrices(tickers);
+      
+      // 2b. Fetch des données "historiques" (pour le graphique)
+      // C'est la source 'api.getHistoricalPricesWithRetry'
+      let graphData;
+      if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
+         graphData = await this.dataManager.calculateAssetHistory(this.selectedAssets[0], this.currentPeriod);
+      } else {
+         graphData = await this.dataManager.calculateHistory(purchases, this.currentPeriod);
+      }
+
+      if (!graphData || graphData.labels.length === 0) {
         this.showMessage('Pas de données disponibles pour cette période');
         return;
       }
 
-      this.renderChart(canvas, data);
+      // =======================================================
+      // === ÉTAPE 3 : CALCUL DES DONNÉES UNIFIÉES
+      // =======================================================
+      
+      // 3a. Calculer les holdings (pour le tableau)
+      // (Utilise les données "live" de l'étape 2a mises en cache)
+      const holdings = this.dataManager.calculateHoldings(purchases);
+
+      // 3b. Calculer le résumé (pour les cartes)
+      // (Utilise les données "live" de l'étape 2a mises en cache)
+      const summary = this.dataManager.calculateSummary(holdings);
+
+      // =======================================================
+      // === ÉTAPE 4 : DISTRIBUTION DES DONNÉES
+      // =======================================================
+
+      // 4a. Rendre le graphique (avec les données historiques ET le résumé "live")
+      this.renderChart(canvas, graphData, summary);
+      
+      // 4b. Rendre le tableau et les cartes (avec les données "live" unifiées)
+      this.investmentsPage.renderData(holdings, summary);
+
     } catch (error) {
       console.error('Erreur graphique:', error);
       this.showMessage('Erreur lors du calcul', 'error');
@@ -296,11 +358,13 @@ export class HistoricalChart {
     }
   }
 
+
   // ==========================================================
   // Logique de rendu (Vue)
   // ==========================================================
 
-  renderChart(canvas, data) {
+  // MODIFICATION : Accepte 'summary' pour l'alignement
+  renderChart(canvas, data, summary) {
     if (this.chart) this.chart.destroy();
     const ctx = canvas.getContext('2d');
     const info = document.getElementById('chart-info');
@@ -349,15 +413,19 @@ export class HistoricalChart {
     // === Clôture hier affichée ===
     let yesterdayCloseTotal = data.yesterdayClose;
     
-    // === Alignement Live vs Histo ===
-    if (this.liveSummary && !isUnitView && displayValues.length > 0 && this.currentPeriod === 1) {
+    // =======================================================
+    // === MODIFICATION "ZÉRO INCOHÉRENCE" (RESTAURÉE) ===
+    // On force l'alignement du graphique 1D sur les données
+    // "live" (maintenant fiables) calculées pour les cartes.
+    // =======================================================
+    if (summary && !isUnitView && displayValues.length > 0 && this.currentPeriod === 1) {
         console.log("Alignement des données Histo (1D) avec le Live Summary.");
 
-        const livePriceEnd = this.liveSummary.totalCurrentEUR;
+        const livePriceEnd = summary.totalCurrentEUR;
         displayValues[displayValues.length - 1] = livePriceEnd;
         data.labels[data.labels.length - 1] = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-        const liveYesterdayClose = this.liveSummary.totalCurrentEUR - this.liveSummary.totalDayChangeEUR;
+        const liveYesterdayClose = summary.totalCurrentEUR - summary.totalDayChangeEUR;
         yesterdayCloseTotal = liveYesterdayClose;
         this.lastYesterdayClose = liveYesterdayClose;
     
@@ -409,8 +477,6 @@ export class HistoricalChart {
     let mainChartColor = '#3498db'; // Bleu par défaut
     let perfClass = 'neutral';
     
-    // Détermine la couleur et la classe en se basant sur la VAR TODAY (vsYesterdayAbs)
-    // si elle est disponible (en 1D), sinon se rabat sur la PERF PERIODE (perfAbs).
     const useTodayVar = vsYesterdayAbs !== null;
     const comparisonValue = useTodayVar ? vsYesterdayAbs : perfAbs;
 
@@ -423,8 +489,6 @@ export class HistoricalChart {
     }
     
     // --- AFFICHAGE TITRE ---
-    // Affiche la VAR TODAY (vsYesterdayAbs) si on est en 1D,
-    // sinon affiche la PERF PERIODE (perfAbs).
     const mainDisplayValue = useTodayVar ? vsYesterdayAbs : perfAbs;
     const mainDisplayPct = useTodayVar ? vsYesterdayPct : perfPct;
     
@@ -437,25 +501,18 @@ export class HistoricalChart {
     }
 
     // --- AFFICHAGE SOUS-TITRE ---
-    // S'affiche SEULEMENT si on est PAS en 1D (pour éviter la redondance)
-    // Affiche "vs clôture hier" en 1D.
     const perfSubtitle = document.querySelector('.perf-subtitle'); // Cible la CLASSE
     if (perfSubtitle) {
       if (useTodayVar) {
-        // En 1D, on affiche "vs clôture hier"
         perfSubtitle.innerHTML = `vs clôture hier`;
         perfSubtitle.className = `perf-subtitle-detail`; // Couleur neutre
       } else {
-        // En 2D, 1M, etc., on affiche la performance de la période
-        // (puisque le titre principal montre déjà la perf période, on pourrait le cacher)
-        // Pour l'instant, on le cache pour éviter la confusion.
         perfSubtitle.innerHTML = ''; 
         perfSubtitle.className = 'perf-subtitle-detail';
       }
     }
 
     // --- STATS EN BAS ---
-    // Affiche TOUJOURS la performance de la PÉRIODE (perfAbs)
     const perfLabel = document.getElementById('performance-label');
     const perfPercent = document.getElementById('performance-percent');
     if(perfLabel) {
@@ -478,8 +535,8 @@ export class HistoricalChart {
       const el = document.getElementById(id);
       if (el) {
         const val = id === 'price-start' ? priceStart :
-                    id === 'price-end' ? priceEnd :
-                    id === 'price-high' ? priceHigh : priceLow;
+                        id === 'price-end' ? priceEnd :
+                        id === 'price-high' ? priceHigh : priceLow;
         el.textContent = val !== -Infinity && val !== Infinity && val !== null
           ? `${val.toFixed(decimals)} €`
           : 'N/A';
@@ -549,7 +606,7 @@ export class HistoricalChart {
         if (btn.classList.contains('active')) return;
         viewToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        this.renderChart(canvas, data); // Re-render sans refetch
+        this.renderChart(canvas, data, summary); // Re-render sans refetch
       };
     });
 

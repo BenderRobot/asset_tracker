@@ -1,20 +1,17 @@
 // ========================================
-// dataManager.js - Le cerveau des calculs (Corrigé v2)
+// dataManager.js - Le cerveau des calculs (Unifié v3)
 // ========================================
 
-// Ajout de YAHOO_MAP pour les utilitaires
 import { USD_TO_EUR_RATE, YAHOO_MAP } from './config.js'; 
 
 export class DataManager {
-    // Le constructeur a maintenant besoin de 'api'
     constructor(storage, api) {
         this.storage = storage;
         this.api = api;
     }
 
     /**
-     * Calcule la liste agrégée et enrichie des actifs (pour le tableau)
-     * à partir d'une liste d'achats (potentiellement filtrée).
+     * Calcule la liste agrégée et enrichie des actifs (pour la page Investissements)
      */
     calculateHoldings(filteredPurchases) {
         const aggregated = {};
@@ -25,6 +22,7 @@ export class DataManager {
             if (!aggregated[t]) {
                 aggregated[t] = {
                     name: p.name,
+                    assetType: p.assetType || 'Stock', // Ajout pour l'analyse
                     quantity: 0,
                     invested: 0, // Investi dans la devise d'origine
                     purchases: []
@@ -44,20 +42,16 @@ export class DataManager {
 
             const rate = currency === 'USD' ? USD_TO_EUR_RATE : 1;
 
-            // Investi en EUR
             const investedEUR = data.invested * rate;
-            const avgPrice = data.invested / data.quantity;
+            const avgPrice = (data.quantity > 0) ? data.invested / data.quantity : 0;
             const avgPriceEUR = avgPrice * rate;
 
-            // Valeur actuelle en EUR
             const currentValue = currentPrice ? currentPrice * data.quantity : null;
             const currentValueEUR = currentValue ? currentValue * rate : null;
 
-            // P&L Total en EUR
             const gainEUR = currentValueEUR ? currentValueEUR - investedEUR : null;
             const gainPct = investedEUR > 0 && gainEUR ? (gainEUR / investedEUR) * 100 : null;
 
-            // P&L du jour en EUR
             let dayChange = null;
             let dayPct = null;
 
@@ -70,15 +64,17 @@ export class DataManager {
             return {
                 ticker,
                 name: data.name,
+                assetType: data.assetType, // Ajout pour l'analyse
                 quantity: data.quantity,
                 avgPrice: avgPriceEUR,
-                invested: investedEUR, // On stocke l'investi en EUR
+                invested: investedEUR,
                 currentPrice: currentPrice ? currentPrice * rate : null,
                 currentValue: currentValueEUR,
                 gainEUR,
                 gainPct,
                 dayChange,
                 dayPct,
+                weight: 0, // Sera calculé dans generateFullReport
                 purchases: data.purchases
             };
         });
@@ -88,7 +84,6 @@ export class DataManager {
 
     /**
      * Calcule le résumé global du portefeuille (pour les cartes)
-     * à partir de la liste des holdings *déjà calculée*.
      */
     calculateSummary(holdings) {
         let totalInvestedEUR = 0;
@@ -114,13 +109,11 @@ export class DataManager {
         const gainTotal = totalCurrentEUR - totalInvestedEUR;
         const gainPct = totalInvestedEUR > 0 ? (gainTotal / totalInvestedEUR) * 100 : 0;
 
-        // Calcul du % de variation du jour
         const totalPreviousCloseEUR = totalCurrentEUR - totalDayChangeEUR;
         const dayChangePct = totalPreviousCloseEUR > 0
             ? (totalDayChangeEUR / totalPreviousCloseEUR) * 100
             : 0;
 
-        // Meilleur et pire performeur
         const sortedAssets = assetPerformances.sort((a, b) => b.gainPct - a.gainPct);
         const bestAsset = sortedAssets.length > 0 ? sortedAssets[0] : null;
         const worstAsset = sortedAssets.length > 0 ? sortedAssets[sortedAssets.length - 1] : null;
@@ -139,13 +132,210 @@ export class DataManager {
         };
     }
 
+    /**
+     * NOUVEAU: Calcule la liste enrichie des transactions (pour la page Transactions)
+     * (Logique déplacée depuis achatsPage.js)
+     */
+    calculateEnrichedPurchases(filteredPurchases) {
+        return filteredPurchases.map(p => {
+            const t = p.ticker.toUpperCase();
+            const d = this.storage.getCurrentPrice(t) || {};
+            const assetCurrency = d.currency || p.currency || 'EUR';
+            const currentPriceOriginal = d.price;
+            const buyPriceOriginal = p.price;
+            
+            const rate = assetCurrency === 'USD' ? USD_TO_EUR_RATE : 1;
+
+            const currentPriceEUR = currentPriceOriginal * rate;
+            const buyPriceEUR = buyPriceOriginal * rate;
+            
+            const investedEUR = buyPriceEUR * p.quantity;
+            const currentValueEUR = currentPriceEUR ? currentPriceEUR * p.quantity : null;
+            const gainEUR = currentValueEUR !== null ? currentValueEUR - investedEUR : null;
+            const gainPct = investedEUR > 0 && gainEUR !== null ? (gainEUR / investedEUR) * 100 : null;
+
+            return {
+                ...p,
+                assetType: p.assetType || 'Stock',
+                broker: p.broker || 'RV-CT',
+                currency: assetCurrency,
+                currentPriceOriginal,
+                buyPriceOriginal,
+                currentPriceEUR, // Note: c'est le prix unitaire en EUR
+                investedEUR,     // Note: c'est l'investi total en EUR
+                currentValueEUR, // Note: c'est la valeur totale en EUR
+                gainEUR,
+                gainPct
+            };
+        });
+    }
+
     // ==========================================================
-    // NOUVELLES FONCTIONS (DÉPLACÉES DE historicalChart.js)
+    // NOUVELLES FONCTIONS (DÉPLACÉES DE analytics.js)
     // ==========================================================
 
     /**
-     * Calcule l'historique pour le graphique
+     * NOUVEAU: Génère le rapport complet pour la page Analytics
      */
+    generateFullReport(purchases) {
+        // 1. Calculer les holdings (actifs agrégés)
+        const holdings = this.calculateHoldings(purchases);
+        
+        // 2. Calculer le résumé global (pour les KPIs)
+        const summary = this.calculateSummary(holdings);
+
+        // 3. Mettre à jour le poids (weight) de chaque actif
+        holdings.forEach(asset => {
+            asset.weight = summary.totalCurrentEUR > 0 
+                ? (asset.currentValue / summary.totalCurrentEUR) * 100 
+                : 0;
+        });
+
+        // 4. Calculer les métriques d'analyse
+        const diversification = this.calculateDiversification(holdings);
+        const performance = this.analyzePerformance(holdings);
+        const risk = this.calculateRisk(holdings);
+
+        return {
+            summary: {
+                totalValue: summary.totalCurrentEUR,
+                totalInvested: summary.totalInvestedEUR,
+                totalGain: summary.gainTotal,
+                totalGainPct: summary.gainPct,
+                dayChange: summary.totalDayChangeEUR,
+                dayChangePct: summary.dayChangePct
+            },
+            diversification,
+            performance,
+            risk,
+            assets: holdings, // holdings enrichis avec 'weight'
+            generatedAt: new Date().toISOString()
+        };
+    }
+
+    /**
+     * NOUVEAU: Logique de 'analytics.js'
+     */
+    calculateDiversification(holdings) {
+        // Indice de Herfindahl (concentration)
+        const herfindahl = holdings.reduce((sum, asset) => 
+            sum + Math.pow(asset.weight / 100, 2), 0
+        );
+
+        const effectiveAssets = herfindahl > 0 ? 1 / herfindahl : 0;
+        const maxDiversity = holdings.length;
+        const diversityScore = maxDiversity > 0
+            ? (effectiveAssets / maxDiversity) * 100
+            : 0;
+
+        return {
+            herfindahl: herfindahl.toFixed(4),
+            effectiveAssets: effectiveAssets.toFixed(2),
+            diversityScore: diversityScore.toFixed(1),
+            totalAssets: holdings.length,
+            recommendation: this.getDiversificationAdvice(diversityScore, holdings.length)
+        };
+    }
+
+    getDiversificationAdvice(score, assetCount) {
+        if (assetCount < 5) return 'Portfolio très concentré. Envisagez plus de diversification.';
+        if (score < 30) return 'Diversification faible. Quelques actifs dominent.';
+        if (score < 60) return 'Diversification moyenne. Peut être améliorée.';
+        if (score < 80) return 'Bonne diversification du portfolio.';
+        return 'Excellente diversification du portfolio.';
+    }
+
+    /**
+     * NOUVEAU: Logique de 'analytics.js'
+     */
+    analyzePerformance(holdings) {
+        const sorted = [...holdings].sort((a, b) => b.gainPct - a.gainPct);
+        
+        const winners = sorted.filter(a => a.gainPct > 0);
+        const losers = sorted.filter(a => a.gainPct < 0);
+        
+        const avgGain = holdings.length > 0
+            ? holdings.reduce((sum, a) => sum + (a.gainPct || 0), 0) / holdings.length
+            : 0;
+
+        const winRate = holdings.length > 0
+            ? (winners.length / holdings.length) * 100
+            : 0;
+
+        return {
+            topPerformers: sorted.slice(0, 3),
+            worstPerformers: sorted.slice(-3).reverse(),
+            winners: winners.length,
+            losers: losers.length,
+            avgGain: avgGain.toFixed(2),
+            winRate: winRate.toFixed(1),
+            summary: this.getPerformanceSummary(avgGain, winRate)
+        };
+    }
+    
+    getPerformanceSummary(avgGain, winRate) {
+        if (avgGain > 10 && winRate > 70) return 'Performance exceptionnelle 🚀';
+        if (avgGain > 5 && winRate > 60) return 'Très bonne performance 📈';
+        if (avgGain > 0 && winRate > 50) return 'Performance positive ✅';
+        if (avgGain > -5) return 'Performance stable ⚖️';
+        return 'Performance en difficulté 📉';
+    }
+
+    /**
+     * NOUVEAU: Logique de 'analytics.js'
+     */
+    calculateRisk(holdings) {
+        if (holdings.length === 0) {
+             return {
+                volatility: '0.00',
+                maxDrawdown: '0.00',
+                sharpeRatio: '0.00',
+                riskLevel: 'N/A',
+                recommendation: 'Aucune donnée pour calculer le risque.'
+            };
+        }
+        
+        const returns = holdings.map(a => a.gainPct || 0);
+        const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+        const variance = returns.reduce((sum, r) => 
+            sum + Math.pow(r - avgReturn, 2), 0
+        ) / returns.length;
+        const volatility = Math.sqrt(variance);
+
+        const maxDrawdown = Math.min(...returns.map(r => Math.min(r, 0)));
+        const sharpeRatio = volatility > 0 ? avgReturn / volatility : 0;
+
+        return {
+            volatility: volatility.toFixed(2),
+            maxDrawdown: maxDrawdown.toFixed(2),
+            sharpeRatio: sharpeRatio.toFixed(2),
+            riskLevel: this.getRiskLevel(volatility),
+            recommendation: this.getRiskAdvice(volatility, maxDrawdown)
+        };
+    }
+
+    getRiskLevel(volatility) {
+        if (volatility < 5) return 'Faible';
+        if (volatility < 15) return 'Modéré';
+        if (volatility < 30) return 'Élevé';
+        return 'Très élevé';
+    }
+
+    getRiskAdvice(volatility, maxDrawdown) {
+        if (volatility > 30) {
+            return 'Volatilité élevée. Considérez des actifs plus stables.';
+        }
+        if (maxDrawdown < -20) {
+            return 'Certains actifs en forte perte. Réévaluez votre stratégie.';
+        }
+        return 'Profil de risque acceptable pour un portfolio diversifié.';
+    }
+
+
+    // ==========================================================
+    // LOGIQUE DU GRAPHIQUE (Déjà présente et conservée)
+    // ==========================================================
+
     async calculateHistory(purchases, days) {
         return this.calculateGenericHistory(purchases, days, false);
     }
@@ -158,10 +348,11 @@ export class DataManager {
         return this.calculateGenericHistory(purchases, days, false);
     }
 
-    /**
-     * Logique de calcul générique (anciennement dans historicalChart.js)
-     */
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
+        // ... (TOUTE LA LOGIQUE EXISTANTE DE calculateGenericHistory RESTE ICI) ...
+        // ... (Elle utilise déjà this.api.getHistoricalPricesWithRetry, c'est parfait)
+        
+        // (Copie de la logique existante pour être complet)
         const assetMap = new Map();
         const ticker = isSingleAsset ? purchases[0].ticker.toUpperCase() : null;
 
@@ -193,9 +384,7 @@ export class DataManager {
         }
         if (!firstPurchase) return { labels: [], invested: [], values: [], yesterdayClose: null };
 
-        // Déterminer si le calcul concerne un crypto ou non
         const isCryptoOrGlobal = isSingleAsset ? this.isCryptoTicker(ticker) : true;
-
         const today = new Date();
         let effectiveDate = new Date(today);
 
@@ -232,13 +421,7 @@ export class DataManager {
         }
 
         let dataStartUTC = new Date(displayStartUTC);
-        
-        // === CORRECTION DU BUG 2D / WEEKEND (LIGNE 183) ===
-        // On remonte 5 jours en arrière au lieu de 1, pour être
-        // sûr de récupérer le dernier prix de clôture (ex: un vendredi)
-        // si le graphique démarre un lundi.
-        dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - 5); // Anciennement -1
-        // === FIN DE LA CORRECTION ===
+        dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - 5); 
         
         const startTs = Math.floor(dataStartUTC.getTime() / 1000);
         const endTs = Math.floor(todayUTC.getTime() / 1000);
@@ -253,7 +436,6 @@ export class DataManager {
             const batch = tickers.slice(i, i + batchSize);
             await Promise.all(batch.map(async (t) => {
                 try {
-                    // ON UTILISE this.api MAINTENANT !
                     const hist = await this.api.getHistoricalPricesWithRetry(t, startTs, endTs, interval);
                     historicalDataMap.set(t, hist);
                 } catch (err) {
@@ -290,7 +472,6 @@ export class DataManager {
         const displayStartTs = displayStartUTC.getTime();
         const displayTimestamps = sortedTimestamps.filter(ts => ts >= displayStartTs);
 
-        // On ne calcule "yesterdayClose" QUE pour la vue 1D.
         if (days === 1 && sortedTimestamps.length > 0) {
             const beforeDisplayTs = sortedTimestamps.filter(ts => ts < displayStartTs);
             if (beforeDisplayTs.length > 0) {
@@ -301,7 +482,6 @@ export class DataManager {
                     const hist = historicalDataMap.get(t);
                     const qty = assetQuantities.get(t);
                     if (qty > 0) {
-                        // Utilisation de la logique "stricte" (v4.9)
                         const price = this.findClosestPrice(hist, lastTsBeforeDisplay, interval); 
                         if (price !== null) {
                             totalYesterday += price * qty;
@@ -313,30 +493,21 @@ export class DataManager {
             }
         }
         
-        // Logique "Hybride" (v4.8)
         const lastKnownPrices = new Map();
-        
-        // On pré-remplit avec la valeur juste avant le début du graphique
         const allTsBefore = sortedTimestamps.filter(ts => ts < displayStartTs);
         const lastTsOverall = allTsBefore.length > 0 ? allTsBefore[allTsBefore.length - 1] : null;
 
         if (lastTsOverall !== null) {
-            // Pre-fill lastKnownPrices with the closing price
             for (const t of tickers) {
                 const hist = historicalDataMap.get(t);
-                
-                // On utilise une recherche "permissive" ('1wk') pour le pré-remplissage
                 let price = this.findClosestPrice(hist, lastTsOverall, '1wk'); 
-                
                 if (price === null) {
-                    // Si cela échoue, on cherche le dernier prix de cet actif
                     const tickerTimestamps = Object.keys(hist).map(Number).filter(ts => ts < displayStartTs);
                     if (tickerTimestamps.length > 0) {
                         const lastTickerTs = tickerTimestamps[tickerTimestamps.length - 1];
                         price = this.findClosestPrice(hist, lastTickerTs, '1wk');
                     }
                 }
-
                 if (price !== null) {
                     lastKnownPrices.set(t, price);
                 }
@@ -347,7 +518,6 @@ export class DataManager {
             let tsChangedInvested = false;
             for (const [t, buyList] of assetMap.entries()) {
                 for (const buy of buyList) {
-                    
                     const currentIndex = displayTimestamps.indexOf(ts);
                     const prevTs = (currentIndex === 0) ? displayStartUTC.getTime() : displayTimestamps[currentIndex - 1];
                     
@@ -359,9 +529,9 @@ export class DataManager {
                 }
             }
 
-            let currentTsTotalValue = 0; // La valeur pour ce point
+            let currentTsTotalValue = 0;
             let totalInvested = 0;
-            let hasAtLeastOnePrice = false; // Flag pour savoir si on a au moins une valeur
+            let hasAtLeastOnePrice = false; 
 
             for (const t of tickers) {
                 const hist = historicalDataMap.get(t);
@@ -370,24 +540,17 @@ export class DataManager {
 
                 if (qty > 0) {
                     totalInvested += inv;
-                    
-                    // On utilise la logique "stricte" (v4.9)
                     const price = this.findClosestPrice(hist, ts, interval);
                     
                     if (price !== null) {
-                        // Prix trouvé ! On met à jour le dernier prix connu et on l'ajoute.
                         lastKnownPrices.set(t, price);
                         currentTsTotalValue += price * qty;
                         hasAtLeastOnePrice = true;
                     } else {
-                        // Prix MANQUANT (périmé). On utilise le dernier prix connu pour CE ticker.
                         const lastPrice = lastKnownPrices.get(t);
                         if (lastPrice !== undefined && lastPrice !== null) { 
-                            // On a un ancien prix, on l'utilise
                             currentTsTotalValue += lastPrice * qty;
                             hasAtLeastOnePrice = true; 
-                        } else {
-                            // Cet actif n'a jamais eu de prix.
                         }
                     }
                 }
@@ -403,8 +566,9 @@ export class DataManager {
         return { labels, invested, values, yesterdayClose };
     }
 
+
     // ==========================================================
-    // NOUVELLES FONCTIONS UTILITAIRES (DÉPLACÉES)
+    // UTILITAIRES (Déjà présents et conservés)
     // ==========================================================
 
     getIntervalForPeriod(days) {
@@ -432,8 +596,8 @@ export class DataManager {
     getLastTradingDay(date) {
         const day = date.getDay();
         const result = new Date(date);
-        if (day === 0) result.setDate(result.getDate() - 2); // Dimanche -> Vendredi
-        else if (day === 6) result.setDate(result.getDate() - 1); // Samedi -> Vendredi
+        if (day === 0) result.setDate(result.getDate() - 2);
+        else if (day === 6) result.setDate(result.getDate() - 1);
         return result;
     }
 
@@ -446,44 +610,26 @@ export class DataManager {
     formatTicker(ticker) {
         ticker = ticker.toUpperCase().trim();
         if (YAHOO_MAP[ticker]) return YAHOO_MAP[ticker];
-        // Logique simplifiée de l'original, peut nécessiter ajustement
         const cryptos = ['ETH','SOL','ADA','DOT','LINK','LTC','XRP','XLM','BNB','AVAX'];
         return cryptos.includes(ticker) ? ticker + '-EUR' : ticker;
     }
 
-    //
-    // C'est la fonction "stricte" de la v4.5, qui est la bonne.
-    //
-    findClosestPrice(hist, targetTs, interval) { // Ajout de 'interval'
+    findClosestPrice(hist, targetTs, interval) {
         if (!hist || Object.keys(hist).length === 0) return null;
-        if (hist[targetTs]) return hist[targetTs]; // Correspondance exacte
+        if (hist[targetTs]) return hist[targetTs];
         
-        // Définition de la tolérance (à quel point un prix peut être "vieux")
         let maxDiff;
-        const threeDays = 3 * 24 * 60 * 60 * 1000; // Tolérance pour survivre au week-end
+        const threeDays = 3 * 24 * 60 * 60 * 1000; 
 
-        // ==========================================================
-        // === CORRECTION APPLIQUÉE (POUR 2D / 1M / ETC.) ===
-        // ==========================================================
-        
-        // Les intervalles intraday DOIVENT avoir une tolérance
-        // suffisante pour survivre à un week-end (au moins 3 jours).
-        
-        if (interval === '5m') maxDiff = threeDays; // Anciennement 10 min
-        else if (interval === '15m') maxDiff = threeDays; // Anciennement 30 min
-        else if (interval === '30m') maxDiff = threeDays; // Anciennement 1 heure
-        else if (interval === '1h') maxDiff = threeDays; // Anciennement 2 heures
-        
-        // ==========================================================
-        // === FIN DE LA CORRECTION ===
-        // ==========================================================
-        
-        else if (interval === '1d') maxDiff = threeDays; // 3 jours (pour les weekends)
-        else maxDiff = 8 * 24 * 60 * 60 * 1000; // 8 jours (pour '1wk' et pré-remplissage)
+        if (interval === '5m') maxDiff = threeDays;
+        else if (interval === '15m') maxDiff = threeDays;
+        else if (interval === '30m') maxDiff = threeDays;
+        else if (interval === '1h') maxDiff = threeDays;
+        else if (interval === '1d') maxDiff = threeDays;
+        else maxDiff = 8 * 24 * 60 * 60 * 1000;
 
         const timestamps = Object.keys(hist).map(Number).sort((a, b) => a - b);
         
-        // Trouver le prix juste avant
         let closestTs = null;
         for (let i = timestamps.length - 1; i >= 0; i--) {
             if (timestamps[i] <= targetTs) {
@@ -493,16 +639,13 @@ export class DataManager {
         }
 
         if (closestTs === null) {
-            // Si pas de prix avant, on ne peut rien faire
             return null;
         }
 
-        // NOUVEAU: Vérifier si ce prix est trop vieux
         if ((targetTs - closestTs) > maxDiff) {
-            return null; // Oui, le prix est "périmé"
+            return null;
         }
 
-        // C'est un prix valide et suffisamment récent
         return hist[closestTs];
     }
 }

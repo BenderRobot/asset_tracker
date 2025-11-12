@@ -1,21 +1,46 @@
 // ========================================
-// analyticsApp.js - Application Analytics
+// analyticsApp.js - Application Analytics (Câblage Corrigé)
 // ========================================
 
 import { Storage } from './storage.js';
 import { PortfolioAnalytics } from './analytics.js';
 import { formatCurrency, formatPercent } from './utils.js';
 
+// === CHANGEMENT 1 : Importer les nouvelles dépendances ===
+import { PriceAPI } from './api.js';
+import { DataManager } from './dataManager.js';
+
 class AnalyticsApp {
     constructor() {
+        // === CHANGEMENT 2 : Construire la chaîne complète ===
         this.storage = new Storage();
-        this.analytics = new PortfolioAnalytics(this.storage);
+        this.api = new PriceAPI(this.storage); // <-- NÉCESSAIRE
+        this.dataManager = new DataManager(this.storage, this.api); // <-- NÉCESSAIRE
+        
+        // On passe le dataManager, pas le storage
+        this.analytics = new PortfolioAnalytics(this.dataManager); 
+        // ===============================================
+        
         this.allocationChart = null;
     }
 
     async init() {
         console.log('📊 Initialisation Analytics...');
         
+        // === CHANGEMENT 3 : Rafraîchir les prix avant de rendre ===
+        // (Optionnel, mais garantit des données à jour à l'ouverture)
+        try {
+            const purchases = this.storage.getPurchases();
+            const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+            if (tickers.length > 0) {
+                console.log('📊 Rafraîchissement des prix pour les analyses...');
+                await this.api.fetchBatchPrices(tickers);
+            }
+        } catch (e) {
+            console.error("Erreur de rafraîchissement initial des prix:", e);
+        }
+        // =======================================================
+
         await this.render();
         this.setupEventListeners();
         
@@ -23,28 +48,24 @@ class AnalyticsApp {
     }
 
     async render() {
+        // Cette fonction n'a pas besoin de changer,
+        // car this.analytics.generateReport() appelle maintenant
+        // le dataManager qui fait tous les calculs.
         const report = this.analytics.generateReport();
         
         console.log('📊 Rapport:', report);
 
         // Résumé
         this.updateSummary(report.summary);
-
-        // Performance
+        // ... (le reste de la fonction est inchangé)
         this.updatePerformance(report.performance);
-
-        // Diversification
         this.updateDiversification(report.diversification);
-
-        // Risque
         this.updateRisk(report.risk);
-
-        // Top/Worst performers
         this.updatePerformers(report.performance);
-
-        // Graphique d'allocation
         this.renderAllocationChart(report.assets);
     }
+
+    // ... (TOUT LE RESTE DU FICHIER : updateSummary, updatePerformance, ... est INCHANGÉ) ...
 
     updateSummary(summary) {
         const setValue = (id, value) => {
@@ -119,7 +140,6 @@ class AnalyticsApp {
     }
 
     updatePerformers(performance) {
-        // Top performers
         const topEl = document.getElementById('top-performers');
         if (topEl && performance.topPerformers.length > 0) {
             topEl.innerHTML = performance.topPerformers.map(asset => `
@@ -137,7 +157,6 @@ class AnalyticsApp {
             topEl.innerHTML = '<p style="color: var(--text-muted); text-align: center;">Aucune donnée</p>';
         }
 
-        // Worst performers
         const worstEl = document.getElementById('worst-performers');
         if (worstEl && performance.worstPerformers.length > 0) {
             worstEl.innerHTML = performance.worstPerformers.map(asset => `
@@ -160,24 +179,19 @@ class AnalyticsApp {
         const canvas = document.getElementById('allocation-chart');
         if (!canvas) return;
 
-        // Nettoyer ancien graphique
         if (this.allocationChart) {
             this.allocationChart.destroy();
         }
 
-        // Trier par valeur
-        const sorted = [...assets].sort((a, b) => b.currentValueEUR - a.currentValueEUR);
-        
-        // Top 10
+        const sorted = [...assets].sort((a, b) => b.currentValue - a.currentValue);
         const top10 = sorted.slice(0, 10);
         const others = sorted.slice(10);
         
         const labels = top10.map(a => a.ticker);
-        const data = top10.map(a => a.currentValueEUR);
+        const data = top10.map(a => a.currentValue);
         
-        // Ajouter "Autres" si nécessaire
         if (others.length > 0) {
-            const othersTotal = others.reduce((sum, a) => sum + a.currentValueEUR, 0);
+            const othersTotal = others.reduce((sum, a) => sum + a.currentValue, 0);
             labels.push('Autres');
             data.push(othersTotal);
         }
@@ -233,7 +247,6 @@ class AnalyticsApp {
     }
 
     setupEventListeners() {
-        // Export report
         const exportBtn = document.getElementById('export-report');
         if (exportBtn) {
             exportBtn.addEventListener('click', () => {
@@ -242,7 +255,6 @@ class AnalyticsApp {
             });
         }
 
-        // Refresh
         const refreshBtn = document.getElementById('refresh-analytics');
         if (refreshBtn) {
             refreshBtn.addEventListener('click', async () => {
@@ -250,6 +262,14 @@ class AnalyticsApp {
                 refreshBtn.textContent = '🔄 Rafraîchissement...';
                 
                 try {
+                    // === CHANGEMENT 4 : Rafraîchir les prix avant de rendre ===
+                    const purchases = this.storage.getPurchases();
+                    const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+                    if (tickers.length > 0) {
+                        await this.api.fetchBatchPrices(tickers);
+                    }
+                    // =======================================================
+
                     await this.render();
                     this.showNotification('✅ Analytics mis à jour', 'success');
                 } catch (error) {
@@ -263,7 +283,6 @@ class AnalyticsApp {
         }
     }
 
-    // Formatage
     formatEUR(value) {
         if (value === null || isNaN(value)) return '-';
         return value.toLocaleString('fr-FR', {
@@ -278,7 +297,6 @@ class AnalyticsApp {
         return sign + value.toFixed(2) + '%';
     }
 
-    // Notifications
     showNotification(message, type = 'info') {
         const notification = document.createElement('div');
         notification.className = `notification notification-${type}`;
@@ -305,7 +323,6 @@ class AnalyticsApp {
     }
 }
 
-// Initialisation
 (async () => {
     const app = new AnalyticsApp();
     window.analyticsApp = app;

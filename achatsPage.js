@@ -32,34 +32,14 @@ export class AchatsPage {
     const tickers = [...new Set(filtered.map(p => p.ticker.toUpperCase()))];
     await this.api.fetchBatchPrices(tickers);
 
-    const enriched = filtered.map(p => {
-      const t = p.ticker.toUpperCase();
-      const d = this.storage.getCurrentPrice(t) || {};
-      const assetCurrency = d.currency || p.currency || 'EUR';
-      const currentPriceOriginal = d.price;
-      const buyPriceOriginal = p.price;
-      
-      const currentPriceEUR = assetCurrency === 'USD' ? (currentPriceOriginal * USD_TO_EUR_RATE) : currentPriceOriginal;
-      const buyPriceEUR = assetCurrency === 'USD' ? (buyPriceOriginal * USD_TO_EUR_RATE) : buyPriceOriginal;
-      const investedEUR = buyPriceEUR * p.quantity;
-      const currentValueEUR = currentPriceEUR ? currentPriceEUR * p.quantity : null;
-      const gainEUR = currentValueEUR !== null ? currentValueEUR - investedEUR : null;
-      const gainPct = investedEUR > 0 && gainEUR !== null ? (gainEUR / investedEUR) * 100 : null;
+    // ==========================================================
+    // === CHANGEMENT 2 : Utiliser le DataManager pour l'enrichissement ===
+    // ==========================================================
+    // Toute la logique de calcul (lignes 40-66 de l'original) 
+    // est remplacée par cet appel unique :
+    const enriched = this.dataManager.calculateEnrichedPurchases(filtered);
+    // ==========================================================
 
-      return {
-        ...p,
-        assetType: p.assetType || 'Stock',
-        broker: p.broker || 'RV-CT',
-        currency: assetCurrency,
-        currentPriceOriginal,
-        buyPriceOriginal,
-        currentPriceEUR,
-        investedEUR,
-        currentValueEUR,
-        gainEUR,
-        gainPct
-      };
-    });
 
     enriched.sort((a, b) => {
       const valA = a[this.sortColumn] ?? -Infinity;
@@ -89,6 +69,7 @@ export class AchatsPage {
       const assetTypeBadge = `<span class="asset-type-badge asset-type-${p.assetType.toLowerCase().replace(/\s/g, '-')}">${p.assetType}</span>`;
       const brokerBadge = `<span class="broker-badge">${p.broker}</span>`;
       
+      // Les données 'p' sont maintenant directement enrichies
       return `
         <tr data-row-key="${key}">
           <td><input type="checkbox" class="row-select" data-key="${key}"></td>
@@ -127,12 +108,10 @@ export class AchatsPage {
     }).join('') || '<tr><td colspan="16">Aucune transaction.</td></tr>';
 
     
-    // === CHANGEMENT 2 : Utiliser le DataManager pour le résumé ===
-    // 1. Calculer les holdings (nécessaire pour le résumé)
+    // === CHANGEMENT 3 : Logique de résumé (inchangée, mais correcte) ===
+    // (Cette partie utilisait déjà le dataManager, on la conserve)
     const holdings = this.dataManager.calculateHoldings(filtered);
-    // 2. Calculer le résumé à partir des holdings
     const summary = this.dataManager.calculateSummary(holdings);
-    // 3. Passer le résumé PRÉ-CALCULÉ à l'UI (au lieu de 'filtered')
     this.ui.updatePortfolioSummary(summary, filtered.length); 
     // ==========================================================
     
@@ -144,9 +123,9 @@ export class AchatsPage {
     this.attachEventListeners();
   }
 
-  // ... (Le reste du fichier : attachEventListeners, setupModalHandlers, openEditModal, etc. ne change pas) ...
-  // ... (Il suffit de copier-coller la version ci-dessus qui contient déjà tout) ...
-
+  // ... (TOUT LE RESTE DU FICHIER : attachEventListeners, setupModalHandlers, openEditModal, etc. ne change pas) ...
+  // ... (Copiez simplement le reste de votre fichier original ici) ...
+  
   attachEventListeners() {
     const table = document.getElementById('purchases-table');
 
@@ -242,7 +221,6 @@ export class AchatsPage {
       return;
     }
 
-    // Peupler le select broker avec les bonnes options
     const brokerSelect = document.getElementById('edit-broker');
     if (brokerSelect) {
       brokerSelect.innerHTML = BROKERS.map(broker => 
@@ -250,7 +228,6 @@ export class AchatsPage {
       ).join('');
     }
 
-    // Remplir les champs
     const fields = {
       'edit-ticker': purchase.ticker,
       'edit-name': purchase.name,
@@ -280,7 +257,7 @@ export class AchatsPage {
     };
     form.removeEventListener('submit', this.submitHandler);
     this.submitHandler = submitHandler;
-    form.addEventListener('submit', submitHandler);
+    form.addEventListener('submit', this.submitHandler);
   }
 
   saveEdit() {
@@ -297,7 +274,6 @@ export class AchatsPage {
       currency: document.getElementById('edit-currency').value
     };
 
-    // Validation
     if (!updates.ticker || !updates.name || !updates.price || 
         !updates.quantity || !updates.date || !updates.assetType || 
         !updates.broker || !updates.currency) {
