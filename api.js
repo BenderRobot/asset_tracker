@@ -340,15 +340,16 @@ export class PriceAPI {
   }
   
   // ==========================================================
-  // FONCTIONS HISTORIQUES (INCHANGÉES)
-  // (Elles utilisent déjà la bonne source YahooV2)
+  // FONCTIONS HISTORIQUES (CORRIGÉES POUR LE BUG "PAS DE DONNÉES")
   // ==========================================================
 
   async getHistoricalPricesWithRetry(ticker, startTs, endTs, interval, retries = 3) {
     const formatted = this.formatTicker(ticker); 
     let cacheKey = `${formatted}_${startTs}_${endTs}_${interval}`;
     
-    if (['5m', '15m', '30m', '1h'].includes(interval)) {
+    // Logique de cache intraday
+    const shortIntervals = ['5m', '15m', '30m', '1h'];
+    if (shortIntervals.includes(interval)) {
         const now = Date.now();
         const rounded = Math.floor(now / (5 * 60 * 1000)) * (5 * 60 * 1000);
         cacheKey = `${formatted}_${startTs}_${endTs}_${interval}_${rounded}`;
@@ -359,7 +360,26 @@ export class PriceAPI {
         return this.historicalPriceCache[cacheKey];
     }
 
-    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?period1=${startTs}&period2=${endTs}&interval=${interval}`;
+    // === CORRECTION LOGIQUE URL ===
+    // Au lieu d'utiliser period1/period2 pour les courtes durées,
+    // on utilise 'range', qui gère mieux les jours fermés.
+    
+    let yahooUrl;
+    
+    if (interval === '5m') {
+        // Demande 2 jours de données à 5min (gère le week-end)
+        yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=2d&interval=5m`;
+    } else if (interval === '15m' || interval === '30m') {
+        // Demande 5 jours
+        yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=5d&interval=${interval}`;
+    } else if (interval === '1h') {
+        // Demande 1 mois
+        yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=1mo&interval=1h`;
+    } else {
+        // Comportement normal pour 1J, 1S, etc. (les `startTs` et `endTs` sont déjà larges)
+        yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?period1=${startTs}&period2=${endTs}&interval=${interval}`;
+    }
+    // === FIN CORRECTION ===
 
     for (let attempt = 0; attempt < retries; attempt++) {
         try {
@@ -387,7 +407,7 @@ export class PriceAPI {
 
             this.historicalPriceCache[cacheKey] = prices;
             this.saveHistoricalCache();
-            console.log(`Prix historiques récupérés pour ${ticker}: ${Object.keys(prices).length} points`);
+            console.log(`Prix historiques (Corrigé) récupérés pour ${ticker}: ${Object.keys(prices).length} points`);
             return prices;
         } catch (error) {
             console.warn(`Tentative historique ${attempt + 1} échouée pour ${ticker}:`, error.message);

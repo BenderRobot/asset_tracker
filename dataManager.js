@@ -333,7 +333,7 @@ export class DataManager {
 
 
     // ==========================================================
-    // LOGIQUE DU GRAPHIQUE (Déjà présente et conservée)
+    // LOGIQUE DU GRAPHIQUE (CORRIGÉE POUR SOURCE DE VÉRITÉ UNIQUE)
     // ==========================================================
 
     async calculateHistory(purchases, days) {
@@ -349,10 +349,7 @@ export class DataManager {
     }
 
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
-        // ... (TOUTE LA LOGIQUE EXISTANTE DE calculateGenericHistory RESTE ICI) ...
-        // ... (Elle utilise déjà this.api.getHistoricalPricesWithRetry, c'est parfait)
-        
-        // (Copie de la logique existante pour être complet)
+        // ... (Toute la logique de setup (assetMap, firstPurchase) reste identique) ...
         const assetMap = new Map();
         const ticker = isSingleAsset ? purchases[0].ticker.toUpperCase() : null;
 
@@ -463,35 +460,66 @@ export class DataManager {
         const labels = [];
         const invested = [];
         const values = [];
-        let yesterdayClose = null;
+        
         const allTimestamps = new Set();
         historicalDataMap.forEach(hist => {
             Object.keys(hist).forEach(ts => allTimestamps.add(parseInt(ts)));
         });
         const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
-        const displayStartTs = displayStartUTC.getTime();
-        const displayTimestamps = sortedTimestamps.filter(ts => ts >= displayStartTs);
+        
+        
+        // === DÉBUT DE LA CORRECTION : SOURCE DE VÉRITÉ UNIQUE ===
+        
+        let yesterdayClose = null; 
+        
+        // On trouve le VRAI dernier point de données avant aujourd'hui 00:00
+        const todayTsForClose = new Date(todayUTC);
+        todayTsForClose.setUTCHours(0, 0, 0, 0);
+        const todayStartTsValue = todayTsForClose.getTime();
 
-        if (days === 1 && sortedTimestamps.length > 0) {
-            const beforeDisplayTs = sortedTimestamps.filter(ts => ts < displayStartTs);
-            if (beforeDisplayTs.length > 0) {
-                const lastTsBeforeDisplay = beforeDisplayTs[beforeDisplayTs.length - 1];
-                let totalYesterday = 0;
-                let assetsFound = 0;
-                for (const t of tickers) {
-                    const hist = historicalDataMap.get(t);
-                    const qty = assetQuantities.get(t);
-                    if (qty > 0) {
-                        const price = this.findClosestPrice(hist, lastTsBeforeDisplay, interval); 
-                        if (price !== null) {
-                            totalYesterday += price * qty;
-                            assetsFound++;
-                        }
+        const allTimestampsBeforeToday = sortedTimestamps.filter(ts => ts < todayStartTsValue);
+
+        if (allTimestampsBeforeToday.length > 0) {
+            const lastTsBeforeToday = allTimestampsBeforeToday[allTimestampsBeforeToday.length - 1];
+            let totalYesterdayValue = 0;
+            let assetsFound = 0;
+            
+            // Recalculer les quantités exactes à ce moment-là
+            const lastDayQuantities = new Map();
+            for (const t of tickers) lastDayQuantities.set(t, 0);
+            
+            for (const [t, buyList] of assetMap.entries()) {
+                for (const buy of buyList) {
+                    if (buy.date.getTime() <= lastTsBeforeToday) { // <=
+                        lastDayQuantities.set(t, lastDayQuantities.get(t) + buy.quantity);
                     }
                 }
-                if (assetsFound > 0) yesterdayClose = totalYesterday;
+            }
+            
+            // Calculer la valeur
+            for (const t of tickers) {
+                const hist = historicalDataMap.get(t);
+                const qty = lastDayQuantities.get(t);
+                if (qty > 0) {
+                    // Utiliser '1wk' comme intervalle de sécurité pour findClosestPrice
+                    const price = this.findClosestPrice(hist, lastTsBeforeToday, '1wk'); 
+                    if (price !== null) {
+                        totalYesterdayValue += price * qty;
+                        assetsFound++;
+                    }
+                }
+            }
+            if (assetsFound > 0) {
+                yesterdayClose = totalYesterdayValue;
             }
         }
+        // === FIN DE LA CORRECTION ===
+        
+        
+        const displayStartTs = displayStartUTC.getTime();
+        const displayTimestamps = sortedTimestamps.filter(ts => ts >= displayStartTs);
+        
+        // (L'ancien bloc "if (days === 1)" a été supprimé car remplacé par la logique ci-dessus)
         
         const lastKnownPrices = new Map();
         const allTsBefore = sortedTimestamps.filter(ts => ts < displayStartTs);

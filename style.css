@@ -1958,7 +1958,7 @@ th[data-sort]:hover::after {
 /* === HEADER MINI RELOOKÉ === */
 .chart-header-mini {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     background: linear-gradient(135deg, var(--bg-secondary), var(--bg-card));
     padding: 14px 18px;
