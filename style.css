@@ -1701,7 +1701,7 @@ th[data-sort]:hover::after {
 
 .title-mini {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   flex-wrap: wrap;
   flex: 1;
@@ -2643,4 +2643,39 @@ th[data-sort]:hover::after {
 .modern-loader-container, 
 .loader-container-new {
     display: none !important; 
+
+/* 1. Cible le conteneur du header (le parent) */
+.chart-header-mini {
+    display: flex !important;
+    justify-content: flex-start !important; /* FORCE l'alignement à gauche */
+    align-items: center !important;
+    padding: 14px 18px !important;
+    gap: 12px !important;
+}
+
+/* 2. Cible le conteneur du titre (l'enfant de gauche) */
+.chart-header-mini .title-mini {
+    flex: 1 1 auto !important; /* Le titre prend toute la place disponible */
+    margin-right: auto !important; /* POUSSE le reste à droite */
+    display: flex !important;
+    flex-direction: row !important; /* Assure que l'icône et le texte sont en ligne */
+    align-items: center !important;
+    gap: 10px !important;
+}
+
+/* 3. Cible le titre lui-même (la boîte) */
+.chart-title {
+    margin: 0 !important; /* Annule tout margin qui pourrait le centrer */
+    display: inline-flex !important; 
+}
+
+/* 4. Cible les contrôles (l'enfant de droite) */
+.header-controls {
+    flex-shrink: 0 !important; /* Empêche l'heure de passer à la ligne */
+    margin-left: auto !important; /* Sécurité supplémentaire */
+}
+
+/* 5. Annule l'ancienne règle de centrage */
+.chart-header {
+    text-align: left !important;
 }
