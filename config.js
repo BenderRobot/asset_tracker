@@ -38,9 +38,9 @@ export const ASSET_TYPES = [
 
 // Brokers disponibles (SIMPLIFIÃ‰)
 export const BROKERS = [
-  { value: 'RV-CT', label: 'Revolut (RV-CT)' },
-  { value: 'TR-CT', label: 'Trade Republic (TR-CT)' },
-  { value: 'BB-PEA', label: 'Boursobank PEA (BB-PEA)' },
+  { value: 'RV-CT', label: 'Revolut' },
+  { value: 'TR-CT', label: 'Trade Republic' },
+  { value: 'BB-PEA', label: 'Boursobank PEA' },
   { value: 'Binance', label: 'Binance' },
   { value: 'Bitstack', label: 'Bitstack' }
 ];

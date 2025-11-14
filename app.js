@@ -22,7 +22,7 @@ class App {
   constructor() {
     this.storage = new Storage();
     this.api = new PriceAPI(this.storage); 
-
+	this.brokersList = BROKERS; // <-- AJOUTÉ POUR ACCÈS GLOBAL
     // === LE BON CÂBLAGE ===
     this.dataManager = new DataManager(this.storage, this.api); 
     this.ui = new UIComponents(this.storage);

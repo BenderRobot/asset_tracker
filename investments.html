@@ -108,44 +108,50 @@
             </div>
 
 		  <div class="chart-stats-bar">
-            <div class="stat stat-period">
-			  <span class="label">PÉRIODE</span>
-			  <span id="performance-label" class="value neutral">+0.00 €</span>
-			  <span id="performance-percent" class="pct neutral">(0.00%)</span>
+    
+			<div class="stat-group stat-group-1">
+				<div class="stat stat-period">
+					<span class="label">PÉRIODE</span>
+					<span id="performance-label" class="value neutral">+0.00 €</span>
+					<span id="performance-percent" class="pct neutral">(0.00%)</span>
+				</div>
 			</div>
 			
-			<div class="stat" id="stat-day-var" style="display: none;">
-			  <span class="label">VAR. JOUR</span>
-			  <span id="day-var-label" class="value neutral">+0.00 €</span>
-			  <span id="day-var-percent" class="pct neutral">(0.00%)</span>
+			<div class="stat-group stat-group-2">
+				<div class="stat" id="stat-day-var" style="display: none;">
+					<span class="label">VAR. JOUR</span>
+					<span id="day-var-label" class="value neutral">+0.00 €</span>
+					<span id="day-var-percent" class="pct neutral">(0.00%)</span>
+				</div>
+				<div class="stat" id="stat-yesterday-close" style="display: none;">
+					<span class="label">CLÔTURE HIER</span>
+					<span id="yesterday-close-value" class="value">0.00 €</span>
+				</div>
 			</div>
-			
-			<div class="stat" id="stat-yesterday-close" style="display: none;">
-			  <span class="label">CLÔTURE HIER</span>
-			  <span id="yesterday-close-value" class="value">0.00 €</span>
+
+			<div class="stat-group stat-group-3">
+				<div class="stat">
+					<span class="label">DÉBUT</span>
+					<span id="price-start" class="value">0.00 €</span>
+				</div>
+				<div class="stat">
+					<span class="label">FIN</span>
+					<span id="price-end" class="value">0.00 €</span>
+				</div>
+				<div class="stat">
+					<span class="label">HAUT</span>
+					<span id="price-high" class="value positive">0.00 €</span>
+				</div>
+				<div class="stat">
+					<span class="label">BAS</span>
+					<span id="price-low" class="value negative">0.00 €</span>
+				</div>
+				<div class="stat" id="unit-price-row" style="display:none;">
+					<span class="label">UNITE</span>
+					<span id="unit-price" class="value">0.00 €</span>
+				</div>
 			</div>
-			
-			<div class="stat">
-			  <span class="label">DÉBUT</span>
-			  <span id="price-start" class="value">0.00 €</span>
-			</div>
-			<div class="stat">
-			  <span class="label">FIN</span>
-			  <span id="price-end" class="value">0.00 €</span>
-			</div>
-			<div class="stat">
-			  <span class="label">HAUT</span>
-			  <span id="price-high" class="value positive">0.00 €</span>
-			</div>
-			<div class="stat">
-			  <span class="label">BAS</span>
-			  <span id="price-low" class="value negative">0.00 €</span>
-			</div>
-			<div class="stat" id="unit-price-row" style="display:none;">
-			  <span class="label">UNITE</span>
-			  <span id="unit-price" class="value">0.00 €</span>
-			</div>
-		  </div>
+		</div>
 		  <div class="chart-controls">
 			<button class="period-btn active" data-period="1">1J</button>
 			<button class="period-btn" data-period="2">2J</button>
@@ -171,9 +177,9 @@
             
             <select id="filter-broker" style="min-width: 150px;">
                 <option value="">All Brokers</option>
-                <option value="RV-CT">Revolut (RV-CT)</option>
-                <option value="TR-CT">Trade Republic (TR-CT)</option>
-                <option value="BB-PEA">Boursobank PEA (BB-PEA)</option>
+                <option value="RV-CT">Revolut</option>
+                <option value="TR-CT">Trade Republic</option>
+                <option value="BB-PEA">Boursobank PEA</option>
                 <option value="Binance">Binance</option>
                 <option value="Bitstack">Bitstack</option>
             </select>

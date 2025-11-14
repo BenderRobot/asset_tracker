@@ -1,6 +1,5 @@
 // ========================================
-// api.js - RÉCUPÉRATION DES PRIX (UNIFIÉE v4)
-// (Suppression du fallback 'meta.regularMarketPrice')
+// api.js - RÉCUPÉRATION DES PRIX (v9 - STABLE)
 // ========================================
 import { RAPIDAPI_KEY, YAHOO_MAP, USD_TO_EUR_RATE } from './config.js';
 import { sleep } from './utils.js';
@@ -43,8 +42,8 @@ export class PriceAPI {
     return false;
   }
 
-  // NOUVEAU: Vérifier si c'est un ticker VRAIMENT américain
   isUSTickerOnly(ticker) {
+    // ... (code inchangé) ...
     const yahooSymbol = YAHOO_MAP[ticker] || ticker;
     return USD_TICKERS.has(ticker.toUpperCase()) ||
            (!yahooSymbol.includes('.F') &&
@@ -52,8 +51,8 @@ export class PriceAPI {
             !yahooSymbol.includes('.AS'));
   }
 
-  // Convertir USD en EUR si nécessaire
   convertToEUR(price, ticker) {
+    // ... (code inchangé) ...
     if (USD_TICKERS.has(ticker.toUpperCase())) {
       return { price, currency: 'USD' };
     }
@@ -64,18 +63,17 @@ export class PriceAPI {
   }
 
   // ==========================================================
-  // RÉCUPÉRATION PRIX ACTUELS (SIMPLIFIÉE)
+  // RÉCUPÉRATION PRIX ACTUELS
   // ==========================================================
 
   async fetchBatchPrices(tickers, forceWeekend = false) {
+    // ... (code inchangé) ...
     const tickersToFetch = [];
-
     tickers.forEach(ticker => {
       const cached = this.storage.getCurrentPrice(ticker);
       const assetType = this.storage.getAssetType(ticker);
       const isWeekend = this.isWeekend();
       const cacheAge = this.storage.getPriceAge(ticker);
-
       if (isWeekend && cached && cached.price) {
         const ageMs = Date.now() - (this.storage.priceTimestamps[ticker.toUpperCase()] || 0);
         const ageDays = ageMs / (24 * 60 * 60 * 1000);
@@ -84,62 +82,45 @@ export class PriceAPI {
           return;
         }
       }
-
       const shouldRefresh = !cached ||
                            !cached.price ||
                            !this.storage.isCacheValid(ticker, assetType) ||
                            (assetType === 'Crypto' && !isWeekend);
-
       if (shouldRefresh) {
         tickersToFetch.push(ticker);
       } else {
         console.log(`Cache OK pour ${ticker}: ${cached.price} ${cached.currency} (${cacheAge})`);
       }
     });
-
     if (tickersToFetch.length === 0) {
       console.log('Tous les prix sont en cache');
       return;
     }
-
     console.log(`Récupération de ${tickersToFetch.length} prix...`);
-    
     const batchSize = forceWeekend ? 1 : 8;
     const pauseTime = forceWeekend ? 3000 : 1000; 
-
     for (let i = 0; i < tickersToFetch.length; i += batchSize) {
       const batch = tickersToFetch.slice(i, i + batchSize);
-
       if (i > 0) {
         console.log(`Pause ${pauseTime/1000}s pour éviter rate limit...`);
         await sleep(pauseTime);
       }
-
       const cryptos = batch.filter(t => this.storage.getAssetType(t) === 'Crypto');
       const others = batch.filter(t => this.storage.getAssetType(t) !== 'Crypto');
-
       for (const crypto of cryptos) {
         await this.fetchCryptoPrice(crypto);
       }
-
       if (others.length > 0) {
         await this.fetchPricesWithFallback(others);
       }
     }
-
     console.log('Récupération terminée');
     this.logProviderStats();
   }
 
-  /**
-   * ========================================================
-   * === MODIFICATION MAJEURE : FALLBACK SIMPLIFIÉ ===
-   * Ne va appeler QUE YahooV2 (la source du graphique)
-   * ========================================================
-   */
   async fetchPricesWithFallback(tickers) {
+    // ... (code inchangé) ...
     console.log(`[Source Unifiée] Récupération de ${tickers.length} tickers (Actions/ETF) via YahooV2...`);
-    
     let success = false;
     try {
       success = await this.fetchYahooV2Prices(tickers);
@@ -153,59 +134,36 @@ export class PriceAPI {
       providerStats['YAHOO_V2'].lastError = err.message;
       console.warn(`[Source Unifiée] Yahoo V2 échoué: ${err.message}`);
     }
-
     if (!success) {
       console.error(`[Source Unifiée] Échec de la récupération pour ${tickers.join(', ')}`);
     }
-
     return success;
   }
 
-
-  // ==========================================================
-  // === API "LIVE" SUPPRIMÉES (sauf YahooV2 et CoinGecko) ===
-  // ==========================================================
-
-
-  /**
-   * === SOURCE DE VÉRITÉ N°1 : Yahoo V2 ===
-   * MODIFIÉ : Suppression du fallback 'meta.regularMarketPrice'
-   */
   async fetchYahooV2Prices(tickers) {
+    // ... (code inchangé) ...
     const results = [];
     for (const ticker of tickers) {
       try {
         const symbol = YAHOO_MAP[ticker] || `${ticker}.F`;
-        
-        // On utilise interval=5m et range=2d (comme le graph)
         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=2d`;
-        
         const proxy = this.corsProxies[this.currentProxyIndex];
         const url = `${proxy}${encodeURIComponent(yahooUrl)}`;
-        
         const res = await fetch(url, { signal: AbortSignal.timeout(8000) }); 
-
         if (!res.ok) {
           throw new Error(`Erreur HTTP ${res.status}`);
         }
-
         const data = await res.json();
-        
-        // === LOGIQUE D'EXTRACTION (SÉCURISÉE) ===
         if (!data.chart?.result?.[0]?.timestamp) {
             throw new Error('Données de graphique invalides');
         }
-
         const result = data.chart.result[0];
-        const timestamps = result.timestamp; // Array de timestamps (secondes)
-        const quotes = result.indicators.quote[0].close; // Array de prix
+        const timestamps = result.timestamp; 
+        const quotes = result.indicators.quote[0].close; 
         const meta = result.meta;
-        
         if (!timestamps || !quotes || timestamps.length === 0) {
              throw new Error('Timestamps ou quotes manquants');
         }
-
-        // 1. Trouver le dernier prix (currentPrice)
         let currentPrice = null;
         for (let i = quotes.length - 1; i >= 0; i--) {
             if (quotes[i] !== null) {
@@ -213,24 +171,12 @@ export class PriceAPI {
                 break;
             }
         }
-        
-        // === MODIFICATION (SUPPRESSION DU FALLBACK) ===
-        // if (currentPrice === null) {
-        //    currentPrice = meta.regularMarketPrice; // <-- C'ÉTAIT LE BUG, SUPPRIMÉ
-        // }
-        
-        // Si on n'a trouvé aucun prix dans l'historique (quotes), on abandonne.
         if (currentPrice === null) {
              throw new Error(`Aucun prix trouvé dans l'historique (quotes) pour ${ticker}`);
         }
-        // ===============================================
-
-
-        // 2. Trouver la clôture de la veille (previousClose)
         const todayTimestamp = new Date();
-        todayTimestamp.setHours(0, 0, 0, 0); // Minuit ce matin (heure locale)
+        todayTimestamp.setHours(0, 0, 0, 0); 
         const todayStartUTC = Date.UTC(todayTimestamp.getUTCFullYear(), todayTimestamp.getUTCMonth(), todayTimestamp.getUTCDate()) / 1000;
-
         let previousClose = null;
         for (let i = timestamps.length - 1; i >= 0; i--) {
             if (timestamps[i] < todayStartUTC && quotes[i] !== null) {
@@ -238,37 +184,26 @@ export class PriceAPI {
                 break; 
             }
         }
-        
         if (previousClose === null) {
-            // Fallback sur le meta UNIQUEMENT pour previousClose
             previousClose = meta.chartPreviousClose || meta.previousClose || currentPrice;
         }
-        
         const currency = meta.currency || 'EUR';
-        
         const priceData = {
             price: currentPrice,
             previousClose: previousClose,
             currency: currency,
             marketState: meta.marketState || 'CLOSED',
             lastUpdate: Date.now(),
-            source: 'YahooV2 (5m)' // Source unifiée
+            source: 'YahooV2 (5m)' 
         };
-        // === FIN LOGIQUE D'EXTRACTION ===
-
         this.storage.setCurrentPrice(ticker.toUpperCase(), priceData);
         console.log(`Yahoo V2 (5m): ${ticker} = ${priceData.price.toFixed(2)} ${priceData.currency} (prev: ${previousClose ? previousClose.toFixed(2) : 'N/A'})`);
         results.push(ticker);
-
         if (tickers.indexOf(ticker) < tickers.length - 1) {
           await sleep(500); 
         }
       } catch (err) {
         console.error(`Erreur Yahoo V2 (5m) pour ${ticker}:`, err.message);
-        
-        // Si ça échoue (ex: aucun prix trouvé), on ne change PAS de proxy, 
-        // car l'API a fonctionné mais n'a pas renvoyé le prix "live" (ce qui est bien)
-        // On ne change de proxy que sur une erreur réseau
         if (err.message.includes('HTTP') || err.message.includes('network')) {
             this.currentProxyIndex = (this.currentProxyIndex + 1) % this.corsProxies.length;
             console.warn(`Proxy échoué. Passage au proxy suivant: ${this.corsProxies[this.currentProxyIndex]}`);
@@ -278,19 +213,14 @@ export class PriceAPI {
     return results.length > 0;
   }
 
-  /**
-   * === SOURCE DE VÉRITÉ N°2 : CoinGecko (Crypto) ===
-   * (Conservée car les cryptos sont 24/7)
-   */
   async fetchCryptoPrice(ticker) {
+    // ... (code inchangé) ...
     const upper = ticker.toUpperCase();
     try {
       let coinId;
       if (upper === 'BTC') coinId = 'bitcoin';
       else if (upper === 'ETH') coinId = 'ethereum';
-      // Ajoutez d'autres cryptos ici si nécessaire
       else return; 
-
       let previousClose = null;
       try {
         const today = new Date();
@@ -305,12 +235,10 @@ export class PriceAPI {
       } catch (e) {
         console.warn(`Erreur clôture 00:00 UTC pour ${upper}:`, e.message);
       }
-
       const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=eur`);
       if (res.ok) {
         const data = await res.json();
         const price = data[coinId]?.eur;
-        
         if (price) {
           if (previousClose === null) {
               console.warn(`Utilisation de la clôture 24h (fallback) pour ${upper}`);
@@ -319,7 +247,6 @@ export class PriceAPI {
               const change24h = data24h[coinId]?.eur_24h_change || 0;
               previousClose = price * (1 - change24h / 100);
           }
-
           this.storage.setCurrentPrice(upper, {
             price,
             previousClose, 
@@ -328,7 +255,6 @@ export class PriceAPI {
             lastUpdate: Date.now(),
             source: 'CoinGecko'
           });
-          
           providerStats['COINGECKO'].success++;
           console.log(`Crypto: ${upper} = ${price} EUR (Préc: ${previousClose})`);
         }
@@ -340,7 +266,7 @@ export class PriceAPI {
   }
   
   // ==========================================================
-  // FONCTIONS HISTORIQUES (CORRIGÉES POUR LE BUG "PAS DE DONNÉES")
+  // FONCTIONS HISTORIQUES (CORRIGÉES)
   // ==========================================================
 
   async getHistoricalPricesWithRetry(ticker, startTs, endTs, interval, retries = 3) {
@@ -348,7 +274,7 @@ export class PriceAPI {
     let cacheKey = `${formatted}_${startTs}_${endTs}_${interval}`;
     
     // Logique de cache intraday
-    const shortIntervals = ['5m', '15m', '30m', '1h'];
+    const shortIntervals = ['5m', '15m', '90m'];
     if (shortIntervals.includes(interval)) {
         const now = Date.now();
         const rounded = Math.floor(now / (5 * 60 * 1000)) * (5 * 60 * 1000);
@@ -360,23 +286,18 @@ export class PriceAPI {
         return this.historicalPriceCache[cacheKey];
     }
 
-    // === CORRECTION LOGIQUE URL ===
-    // Au lieu d'utiliser period1/period2 pour les courtes durées,
-    // on utilise 'range', qui gère mieux les jours fermés.
+    // === CORRECTION LOGIQUE URL v4 ===
+    // 'range' est *uniquement* pour 5m et 15m (intraday 1D et 2D)
+    // 'period1'/'period2' est pour TOUT le reste (90m, 1d, 1wk, 1mo)
     
     let yahooUrl;
     
     if (interval === '5m') {
-        // Demande 2 jours de données à 5min (gère le week-end)
         yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=2d&interval=5m`;
-    } else if (interval === '15m' || interval === '30m') {
-        // Demande 5 jours
+    } else if (interval === '15m') {
         yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=5d&interval=${interval}`;
-    } else if (interval === '1h') {
-        // Demande 1 mois
-        yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=1mo&interval=1h`;
     } else {
-        // Comportement normal pour 1J, 1S, etc. (les `startTs` et `endTs` sont déjà larges)
+        // 90m (pour 1W), 1d, 1wk, 1mo utilisent period1/period2
         yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?period1=${startTs}&period2=${endTs}&interval=${interval}`;
     }
     // === FIN CORRECTION ===
@@ -428,8 +349,8 @@ export class PriceAPI {
   }
 
   // ... (Le reste de api.js : loadHistoricalCache, saveHistoricalCache, cleanIntradayCache, getMarketStatus, etc. reste inchangé) ...
-
   loadHistoricalCache() {
+    // ... (code inchangé) ...
     try {
         const cached = localStorage.getItem('historicalPriceCache');
         if (!cached) return {};
@@ -444,8 +365,8 @@ export class PriceAPI {
     }
     return {};
   }
-
   saveHistoricalCache() {
+    // ... (code inchangé) ...
     try {
         this.cleanIntradayCache(); 
         localStorage.setItem('historicalPriceCache', JSON.stringify({ timestamp: Date.now(), data: this.historicalPriceCache }));
@@ -457,8 +378,8 @@ export class PriceAPI {
         }
     }
   }
-
   cleanIntradayCache() {
+    // ... (code inchangé) ...
     const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
     const keysToDelete = [];
     for (const key in this.historicalPriceCache) {
@@ -475,12 +396,11 @@ export class PriceAPI {
         console.log(`Cache historique nettoyé: ${keysToDelete.length} entrées intraday supprimées`);
     }
   }
-
   getMarketStatus() {
+    // ... (code inchangé) ...
     const now = new Date();
     const day = now.getDay();
     const hours = now.getHours();
-
     if (day === 0 || day === 6) {
       return {
         isOpen: false,
@@ -488,7 +408,6 @@ export class PriceAPI {
         message: 'Marchés fermés (weekend) - Prix de clôture du vendredi'
       };
     }
-
     if (hours < 8 || hours >= 22) {
       return {
         isOpen: false,
@@ -496,19 +415,17 @@ export class PriceAPI {
         message: 'Marchés fermés - Prix de clôture affichés'
       };
     }
-
     return {
       isOpen: true,
       reason: 'open',
       message: 'Marchés ouverts'
     };
   }
-
   getPriceSourceStats() {
+    // ... (code inchangé) ...
     const purchases = this.storage.getPurchases();
     const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
     let yahooV2Count = 0, coingeckoCount = 0, cachedCount = 0, missingCount = 0;
-
     tickers.forEach(ticker => {
       const priceData = this.storage.getCurrentPrice(ticker);
       if (!priceData || !priceData.price) {
@@ -517,7 +434,6 @@ export class PriceAPI {
       else if (priceData.source === 'CoinGecko') coingeckoCount++;
       else cachedCount++; 
     });
-
     return {
       total: tickers.length,
       yahooV2: yahooV2Count,
@@ -526,8 +442,8 @@ export class PriceAPI {
       missing: missingCount
     };
   }
-
   logProviderStats() {
+    // ... (code inchangé) ...
     console.log('Statistiques des providers (Unifié):');
     Object.entries(providerStats).forEach(([name, stats]) => {
       const total = stats.success + stats.fails;

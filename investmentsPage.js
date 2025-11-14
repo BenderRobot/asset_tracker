@@ -25,8 +25,7 @@ export class InvestmentsPage {
 
   /**
    * ========================================================
-   * === MODIFICATION "Cache-First" ===
-   * 'render' appelle maintenant 'loadPageWithCacheFirst'
+   * === "Cache-First" ===
    * ========================================================
    */
   async render(searchQuery = '') {
@@ -63,13 +62,14 @@ export class InvestmentsPage {
     let filteredHoldings = holdings.filter(h => {
       // Utilise les données du premier achat pour les filtres
       const assetType = h.purchases[0]?.assetType || 'Stock';
-      const broker = h.purchases[0]?.broker || 'RV-CT';
+      // Un actif peut être sur plusieurs brokers, on vérifie si *l'un* d'eux correspond
+      const brokers = [...new Set(h.purchases.map(p => p.broker || 'RV-CT'))];
 
       if (this.currentAssetTypeFilter) {
         if (assetType !== this.currentAssetTypeFilter) return false;
       }
       if (this.currentBrokerFilter) {
-        if (broker !== this.currentBrokerFilter) return false;
+        if (!brokers.includes(this.currentBrokerFilter)) return false;
       }
       return true;
     });
@@ -121,8 +121,91 @@ export class InvestmentsPage {
     this.attachRowClickListeners();
   }
 
-  // (Cette fonction n'est plus utilisée, le graphique gère son propre update)
-  // async updateChart(filtered, searchQuery, summary) { ... }
+  /**
+   * ========================================================
+   * === FONCTION DE TITRE MISE À JOUR (v3) ===
+   * Détermine le titre et l'icône du graphique en fonction
+   * des filtres actifs sur la page.
+   * ========================================================
+   */
+  getChartTitleConfig() {
+    const selectedTickers = this.filterManager.getSelectedTickers();
+    
+    // Priorité 1 : Filtre sur UN SEUL ticker (exactement comme le clic)
+    if (selectedTickers.size === 1) {
+        const ticker = Array.from(selectedTickers)[0];
+        // On va chercher le nom complet dans le storage
+        const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
+        const icon = this.dataManager.isCryptoTicker(ticker) ? '₿' : '📊';
+        
+        return {
+          mode: 'asset', // IMPORTANT: On dit au graphique que c'est un 'asset'
+          label: `${ticker} • ${name}`,
+          icon: icon
+        };
+    }
+
+    // Priorité 2 : Filtre sur PLUSIEURS tickers
+    if (selectedTickers.size > 1) {
+      const tickers = Array.from(selectedTickers);
+      let label;
+      if (tickers.length > 2) {
+        label = `${tickers.slice(0, 2).join(', ')}... (+${tickers.length - 2})`;
+      } else {
+        label = tickers.join(', '); 
+      }
+
+      // === NOUVELLE LOGIQUE D'ICÔNE "SMART" ===
+      const assetTypes = tickers.map(t => this.dataManager.isCryptoTicker(t) ? 'Crypto' : 'Stock');
+      const uniqueTypes = [...new Set(assetTypes)];
+      
+      let icon = '📈'; // '📈' (générique) est le fallback pour une sélection mixte
+      if (uniqueTypes.length === 1) {
+        // Tous les actifs sélectionnés sont du même type
+        icon = (uniqueTypes[0] === 'Crypto') ? '₿' : '📊';
+      }
+      // === FIN NOUVELLE LOGIQUE ===
+
+      return {
+        mode: 'filter',
+        label: label,
+        icon: icon // Utilise le nouvel icône "smart"
+      };
+    }
+    
+    // Priorité 3 : Filtre par Type d'Actif
+    if (this.currentAssetTypeFilter) {
+      let icon = '📊'; // Défaut
+      if (this.currentAssetTypeFilter === 'Crypto') icon = '₿';
+      if (this.currentAssetTypeFilter === 'Stock') icon = '📊';
+      if (this.currentAssetTypeFilter === 'ETF') icon = '🌍'; // Icône "monde" pour ETF
+      
+      return {
+        mode: 'filter',
+        label: `${this.currentAssetTypeFilter}`,
+        icon: icon
+      };
+    }
+    
+    // Priorité 4 : Filtre par Broker
+    if (this.currentBrokerFilter) {
+      // Récupère le nom complet du broker (ex: "Boursobank PEA (BB-PEA)")
+      const brokerLabel = window.app?.brokersList?.find(b => b.value === this.currentBrokerFilter)?.label || this.currentBrokerFilter;
+      
+      return {
+        mode: 'filter',
+        label: `${brokerLabel}`,
+        icon: '🏦' // Icône "banque" pour broker
+      };
+    }
+    
+    // Priorité 5 : Vue Globale par défaut
+    return {
+      mode: 'global',
+      label: 'Portfolio Global',
+      icon: '📈'
+    };
+  }
 
   attachRowClickListeners() {
     document.querySelectorAll('.asset-row').forEach(row => {
@@ -134,12 +217,17 @@ export class InvestmentsPage {
         if (!this.currentHoldings) return;
         const assetHolding = this.currentHoldings.find(h => h.ticker === ticker);
         if (!assetHolding) return;
+        
+        // Calcule un résumé *juste pour cet actif* pour les cartes
         const assetSummary = this.dataManager.calculateSummary([assetHolding]);
-        this.ui.updatePortfolioSummary(assetSummary, 1);
+        this.ui.updatePortfolioSummary(assetSummary, assetHolding.purchases.length);
         
         console.log(`📊 Clic sur ${ticker} - Affichage du graphique`);
         
         if (window.app && window.app.historicalChart) {
+          // CECI EST LA CLÉ :
+          // showAssetChart change le mode du graphique en 'asset'
+          // et force l'affichage de cet actif unique.
           window.app.historicalChart.showAssetChart(ticker, assetSummary);
           
           const summaryContainer = document.querySelector('.portfolio-summary-enhanced');
@@ -149,12 +237,7 @@ export class InvestmentsPage {
         }
       });
       
-      row.addEventListener('mouseenter', () => {
-        row.style.backgroundColor = '#f8f9fa';
-      });
-      row.addEventListener('mouseleave', () => {
-        row.style.backgroundColor = '';
-      });
+      // L'effet de hover est géré par la classe .asset-row:hover dans style.css
     });
   }
 
@@ -197,11 +280,27 @@ export class InvestmentsPage {
         }
         
         if (this.filterManager) {
-          this.filterManager.clearAllFilters();
+          // Ceci va vider le set selectedTickers et mettre à jour le dropdown
+          this.filterManager.clearAllFilters(); 
         }
         
         this.currentPage = 1;
-        this.render(''); // Relance le cycle de render
+        
+        // ========================================================
+        // === POINT CLÉ : Réinitialiser le mode du graphique ===
+        // ========================================================
+        if (window.app && window.app.historicalChart) {
+            // Force le graphique à revenir en mode 'portfolio' (global)
+            // au lieu de rester en mode 'asset' si un actif était cliqué
+            window.app.historicalChart.currentMode = 'portfolio';
+            window.app.historicalChart.selectedAssets = [];
+        }
+    
+        // Relance le cycle de render.
+        // `loadPageWithCacheFirst` sera appelé,
+        // qui appellera `getChartTitleConfig`,
+        // qui ne trouvera aucun filtre et retournera "Portfolio Global"
+        this.render(''); 
         
         console.log('✅ Filtres réinitialisés');
       });
@@ -218,6 +317,13 @@ export class InvestmentsPage {
           this.sortColumn = col;
           this.sortDirection = 'asc';
         }
+        
+        // Mettre à jour les classes CSS pour les flèches
+        document.querySelectorAll('th[data-sort]').forEach(header => {
+          header.classList.remove('sort-asc', 'sort-desc');
+        });
+        th.classList.add(`sort-${this.sortDirection}`);
+        
         this.currentPage = 1;
         this.render(this.currentSearchQuery); // Relance le cycle de render
       });

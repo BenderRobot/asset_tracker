@@ -1,5 +1,5 @@
 // ========================================
-// dataManager.js - Le cerveau des calculs (Unifié v3)
+// dataManager.js - Le cerveau des calculs (v11 - STABLE)
 // ========================================
 
 import { USD_TO_EUR_RATE, YAHOO_MAP } from './config.js'; 
@@ -22,9 +22,9 @@ export class DataManager {
             if (!aggregated[t]) {
                 aggregated[t] = {
                     name: p.name,
-                    assetType: p.assetType || 'Stock', // Ajout pour l'analyse
+                    assetType: p.assetType || 'Stock',
                     quantity: 0,
-                    invested: 0, // Investi dans la devise d'origine
+                    invested: 0, 
                     purchases: []
                 };
             }
@@ -64,7 +64,7 @@ export class DataManager {
             return {
                 ticker,
                 name: data.name,
-                assetType: data.assetType, // Ajout pour l'analyse
+                assetType: data.assetType,
                 quantity: data.quantity,
                 avgPrice: avgPriceEUR,
                 invested: investedEUR,
@@ -74,7 +74,7 @@ export class DataManager {
                 gainPct,
                 dayChange,
                 dayPct,
-                weight: 0, // Sera calculé dans generateFullReport
+                weight: 0, 
                 purchases: data.purchases
             };
         });
@@ -133,8 +133,7 @@ export class DataManager {
     }
 
     /**
-     * NOUVEAU: Calcule la liste enrichie des transactions (pour la page Transactions)
-     * (Logique déplacée depuis achatsPage.js)
+     * Calcule la liste enrichie des transactions (pour la page Transactions)
      */
     calculateEnrichedPurchases(filteredPurchases) {
         return filteredPurchases.map(p => {
@@ -161,9 +160,9 @@ export class DataManager {
                 currency: assetCurrency,
                 currentPriceOriginal,
                 buyPriceOriginal,
-                currentPriceEUR, // Note: c'est le prix unitaire en EUR
-                investedEUR,     // Note: c'est l'investi total en EUR
-                currentValueEUR, // Note: c'est la valeur totale en EUR
+                currentPriceEUR, 
+                investedEUR,     
+                currentValueEUR, 
                 gainEUR,
                 gainPct
             };
@@ -171,31 +170,20 @@ export class DataManager {
     }
 
     // ==========================================================
-    // NOUVELLES FONCTIONS (DÉPLACÉES DE analytics.js)
+    // FONCTIONS D'ANALYSE (Analytics)
     // ==========================================================
-
-    /**
-     * NOUVEAU: Génère le rapport complet pour la page Analytics
-     */
     generateFullReport(purchases) {
-        // 1. Calculer les holdings (actifs agrégés)
+        // ... (code inchangé) ...
         const holdings = this.calculateHoldings(purchases);
-        
-        // 2. Calculer le résumé global (pour les KPIs)
         const summary = this.calculateSummary(holdings);
-
-        // 3. Mettre à jour le poids (weight) de chaque actif
         holdings.forEach(asset => {
             asset.weight = summary.totalCurrentEUR > 0 
                 ? (asset.currentValue / summary.totalCurrentEUR) * 100 
                 : 0;
         });
-
-        // 4. Calculer les métriques d'analyse
         const diversification = this.calculateDiversification(holdings);
         const performance = this.analyzePerformance(holdings);
         const risk = this.calculateRisk(holdings);
-
         return {
             summary: {
                 totalValue: summary.totalCurrentEUR,
@@ -208,26 +196,20 @@ export class DataManager {
             diversification,
             performance,
             risk,
-            assets: holdings, // holdings enrichis avec 'weight'
+            assets: holdings, 
             generatedAt: new Date().toISOString()
         };
     }
-
-    /**
-     * NOUVEAU: Logique de 'analytics.js'
-     */
     calculateDiversification(holdings) {
-        // Indice de Herfindahl (concentration)
+        // ... (code inchangé) ...
         const herfindahl = holdings.reduce((sum, asset) => 
             sum + Math.pow(asset.weight / 100, 2), 0
         );
-
         const effectiveAssets = herfindahl > 0 ? 1 / herfindahl : 0;
         const maxDiversity = holdings.length;
         const diversityScore = maxDiversity > 0
             ? (effectiveAssets / maxDiversity) * 100
             : 0;
-
         return {
             herfindahl: herfindahl.toFixed(4),
             effectiveAssets: effectiveAssets.toFixed(2),
@@ -236,7 +218,6 @@ export class DataManager {
             recommendation: this.getDiversificationAdvice(diversityScore, holdings.length)
         };
     }
-
     getDiversificationAdvice(score, assetCount) {
         if (assetCount < 5) return 'Portfolio très concentré. Envisagez plus de diversification.';
         if (score < 30) return 'Diversification faible. Quelques actifs dominent.';
@@ -244,24 +225,17 @@ export class DataManager {
         if (score < 80) return 'Bonne diversification du portfolio.';
         return 'Excellente diversification du portfolio.';
     }
-
-    /**
-     * NOUVEAU: Logique de 'analytics.js'
-     */
     analyzePerformance(holdings) {
+        // ... (code inchangé) ...
         const sorted = [...holdings].sort((a, b) => b.gainPct - a.gainPct);
-        
         const winners = sorted.filter(a => a.gainPct > 0);
         const losers = sorted.filter(a => a.gainPct < 0);
-        
         const avgGain = holdings.length > 0
             ? holdings.reduce((sum, a) => sum + (a.gainPct || 0), 0) / holdings.length
             : 0;
-
         const winRate = holdings.length > 0
             ? (winners.length / holdings.length) * 100
             : 0;
-
         return {
             topPerformers: sorted.slice(0, 3),
             worstPerformers: sorted.slice(-3).reverse(),
@@ -272,7 +246,6 @@ export class DataManager {
             summary: this.getPerformanceSummary(avgGain, winRate)
         };
     }
-    
     getPerformanceSummary(avgGain, winRate) {
         if (avgGain > 10 && winRate > 70) return 'Performance exceptionnelle 🚀';
         if (avgGain > 5 && winRate > 60) return 'Très bonne performance 📈';
@@ -280,31 +253,17 @@ export class DataManager {
         if (avgGain > -5) return 'Performance stable ⚖️';
         return 'Performance en difficulté 📉';
     }
-
-    /**
-     * NOUVEAU: Logique de 'analytics.js'
-     */
     calculateRisk(holdings) {
+        // ... (code inchangé) ...
         if (holdings.length === 0) {
-             return {
-                volatility: '0.00',
-                maxDrawdown: '0.00',
-                sharpeRatio: '0.00',
-                riskLevel: 'N/A',
-                recommendation: 'Aucune donnée pour calculer le risque.'
-            };
+             return { volatility: '0.00', maxDrawdown: '0.00', sharpeRatio: '0.00', riskLevel: 'N/A', recommendation: 'Aucune donnée pour calculer le risque.' };
         }
-        
         const returns = holdings.map(a => a.gainPct || 0);
         const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-        const variance = returns.reduce((sum, r) => 
-            sum + Math.pow(r - avgReturn, 2), 0
-        ) / returns.length;
+        const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
         const volatility = Math.sqrt(variance);
-
         const maxDrawdown = Math.min(...returns.map(r => Math.min(r, 0)));
         const sharpeRatio = volatility > 0 ? avgReturn / volatility : 0;
-
         return {
             volatility: volatility.toFixed(2),
             maxDrawdown: maxDrawdown.toFixed(2),
@@ -313,27 +272,21 @@ export class DataManager {
             recommendation: this.getRiskAdvice(volatility, maxDrawdown)
         };
     }
-
     getRiskLevel(volatility) {
         if (volatility < 5) return 'Faible';
         if (volatility < 15) return 'Modéré';
         if (volatility < 30) return 'Élevé';
         return 'Très élevé';
     }
-
     getRiskAdvice(volatility, maxDrawdown) {
-        if (volatility > 30) {
-            return 'Volatilité élevée. Considérez des actifs plus stables.';
-        }
-        if (maxDrawdown < -20) {
-            return 'Certains actifs en forte perte. Réévaluez votre stratégie.';
-        }
+        if (volatility > 30) return 'Volatilité élevée. Considérez des actifs plus stables.';
+        if (maxDrawdown < -20) return 'Certains actifs en forte perte. Réévaluez votre stratégie.';
         return 'Profil de risque acceptable pour un portfolio diversifié.';
     }
 
 
     // ==========================================================
-    // LOGIQUE DU GRAPHIQUE (CORRIGÉE POUR SOURCE DE VÉRITÉ UNIQUE)
+    // LOGIQUE DU GRAPHIQUE (RESTAURÉE)
     // ==========================================================
 
     async calculateHistory(purchases, days) {
@@ -349,30 +302,19 @@ export class DataManager {
     }
 
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
-        // ... (Toute la logique de setup (assetMap, firstPurchase) reste identique) ...
+        // ... (logique assetMap et firstPurchase inchangée) ...
         const assetMap = new Map();
         const ticker = isSingleAsset ? purchases[0].ticker.toUpperCase() : null;
-
         if (isSingleAsset) {
-            assetMap.set(ticker, purchases.map(p => ({
-                date: new Date(p.date),
-                price: parseFloat(p.price),
-                quantity: parseFloat(p.quantity)
-            })));
+            assetMap.set(ticker, purchases.map(p => ({ date: new Date(p.date), price: parseFloat(p.price), quantity: parseFloat(p.quantity) })));
         } else {
             purchases.forEach(p => {
                 const t = p.ticker.toUpperCase();
                 if (!assetMap.has(t)) assetMap.set(t, []);
-                assetMap.get(t).push({
-                    date: new Date(p.date),
-                    price: parseFloat(p.price),
-                    quantity: parseFloat(p.quantity)
-                });
+                assetMap.get(t).push({ date: new Date(p.date), price: parseFloat(p.price), quantity: parseFloat(p.quantity) });
             });
         }
-
         assetMap.forEach(list => list.sort((a, b) => a.date - b.date));
-
         let firstPurchase = null;
         for (const list of assetMap.values()) {
             if (list.length > 0 && (!firstPurchase || list[0].date < firstPurchase)) {
@@ -381,55 +323,50 @@ export class DataManager {
         }
         if (!firstPurchase) return { labels: [], invested: [], values: [], yesterdayClose: null };
 
-        const isCryptoOrGlobal = isSingleAsset ? this.isCryptoTicker(ticker) : true;
+
+        // === LOGIQUE DE DATE SIMPLE (RESTAURÉE) ===
+        // On demande TOUJOURS les données jusqu'à aujourd'hui
         const today = new Date();
-        let effectiveDate = new Date(today);
-
-        if (!isCryptoOrGlobal) {
-            const day = today.getDay();
-            if (day === 0 || day === 6) {
-                effectiveDate = this.getLastTradingDay(today);
-            }
-        }
-
         const todayUTC = new Date(Date.UTC(
-            effectiveDate.getFullYear(),
-            effectiveDate.getMonth(),
-            effectiveDate.getDate(),
+            today.getFullYear(),
+            today.getMonth(),
+            today.getDate(),
             23, 59, 59, 999
         ));
 
         let displayStartUTC;
-        let displayDate = new Date(effectiveDate);
-
+        
         if (days === 1) {
-            displayStartUTC = new Date(Date.UTC(displayDate.getFullYear(), displayDate.getMonth(), displayDate.getDate(), 0, 0, 0));
+            displayStartUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0));
         } else if (days === 2) {
-            const twoDaysAgo = new Date(displayDate);
+            const twoDaysAgo = new Date(today);
             twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);
             displayStartUTC = new Date(Date.UTC(twoDaysAgo.getFullYear(), twoDaysAgo.getMonth(), twoDaysAgo.getDate(), 0, 0, 0));
         } else if (days !== 'all') {
-            const localDisplay = new Date(displayDate);
+            const localDisplay = new Date(today);
             localDisplay.setDate(localDisplay.getDate() - (days - 1));
             displayStartUTC = new Date(Date.UTC(localDisplay.getFullYear(), localDisplay.getMonth(), localDisplay.getDate()));
             if (displayStartUTC < firstPurchase) displayStartUTC = new Date(firstPurchase);
         } else {
             displayStartUTC = new Date(firstPurchase);
         }
+        // === FIN LOGIQUE DE DATE ===
 
         let dataStartUTC = new Date(displayStartUTC);
         dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - 5); 
         
         const startTs = Math.floor(dataStartUTC.getTime() / 1000);
-        const endTs = Math.floor(todayUTC.getTime() / 1000);
+        const endTs = Math.floor(todayUTC.getTime() / 1000); 
         
         const interval = this.getIntervalForPeriod(days); 
         const labelFormat = this.getLabelFormat(days);
+        
         const historicalDataMap = new Map();
-        const tickers = isSingleAsset ? [ticker] : Array.from(assetMap.keys());
+        const tickers = Array.from(assetMap.keys());
         const batchSize = 3;
 
         for (let i = 0; i < tickers.length; i += batchSize) {
+            // ... (logique de fetch inchangée) ...
             const batch = tickers.slice(i, i + batchSize);
             await Promise.all(batch.map(async (t) => {
                 try {
@@ -441,13 +378,13 @@ export class DataManager {
             }));
         }
 
+        // ... (logique de assetQuantities, assetInvested inchangée) ...
         const assetQuantities = new Map();
         const assetInvested = new Map();
         for (const t of tickers) {
             assetQuantities.set(t, 0);
             assetInvested.set(t, 0);
         }
-
         for (const [t, buyList] of assetMap.entries()) {
             for (const buy of buyList) {
                 if (buy.date < displayStartUTC) {
@@ -468,26 +405,19 @@ export class DataManager {
         const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
         
         
-        // === DÉBUT DE LA CORRECTION : SOURCE DE VÉRITÉ UNIQUE ===
-        
+        // ... (logique de yesterdayClose inchangée) ...
         let yesterdayClose = null; 
-        
-        // On trouve le VRAI dernier point de données avant aujourd'hui 00:00
         const todayTsForClose = new Date(todayUTC);
         todayTsForClose.setUTCHours(0, 0, 0, 0);
         const todayStartTsValue = todayTsForClose.getTime();
-
         const allTimestampsBeforeToday = sortedTimestamps.filter(ts => ts < todayStartTsValue);
 
         if (allTimestampsBeforeToday.length > 0) {
             const lastTsBeforeToday = allTimestampsBeforeToday[allTimestampsBeforeToday.length - 1];
             let totalYesterdayValue = 0;
             let assetsFound = 0;
-            
-            // Recalculer les quantités exactes à ce moment-là
             const lastDayQuantities = new Map();
             for (const t of tickers) lastDayQuantities.set(t, 0);
-            
             for (const [t, buyList] of assetMap.entries()) {
                 for (const buy of buyList) {
                     if (buy.date.getTime() <= lastTsBeforeToday) { // <=
@@ -495,14 +425,11 @@ export class DataManager {
                     }
                 }
             }
-            
-            // Calculer la valeur
             for (const t of tickers) {
                 const hist = historicalDataMap.get(t);
                 const qty = lastDayQuantities.get(t);
                 if (qty > 0) {
-                    // Utiliser '1wk' comme intervalle de sécurité pour findClosestPrice
-                    const price = this.findClosestPrice(hist, lastTsBeforeToday, '1wk'); 
+                    const price = this.findClosestPrice(hist, lastTsBeforeToday, '1wk'); // 1wk est une bonne tolérance
                     if (price !== null) {
                         totalYesterdayValue += price * qty;
                         assetsFound++;
@@ -513,13 +440,18 @@ export class DataManager {
                 yesterdayClose = totalYesterdayValue;
             }
         }
-        // === FIN DE LA CORRECTION ===
         
         
         const displayStartTs = displayStartUTC.getTime();
-        const displayTimestamps = sortedTimestamps.filter(ts => ts >= displayStartTs);
         
-        // (L'ancien bloc "if (days === 1)" a été supprimé car remplacé par la logique ci-dessus)
+        let displayEndTs = Infinity;
+        if (days === 1) {
+            displayEndTs = displayStartTs + (24 * 60 * 60 * 1000); // Fin du jour de bourse
+        }
+        
+        const displayTimestamps = sortedTimestamps.filter(ts => 
+            ts >= displayStartTs && ts < displayEndTs
+        );
         
         const lastKnownPrices = new Map();
         const allTsBefore = sortedTimestamps.filter(ts => ts < displayStartTs);
@@ -542,6 +474,8 @@ export class DataManager {
             }
         }
         
+        // === LOGIQUE "FLATLINE" (RESTAURÉE) ===
+        // Nous reportons le dernier prix connu pour éviter les graphiques vides
         for (const ts of displayTimestamps) {
             let tsChangedInvested = false;
             for (const [t, buyList] of assetMap.entries()) {
@@ -559,7 +493,7 @@ export class DataManager {
 
             let currentTsTotalValue = 0;
             let totalInvested = 0;
-            let hasAtLeastOnePrice = false; 
+            let hasAtLeastOnePrice = false;
 
             for (const t of tickers) {
                 const hist = historicalDataMap.get(t);
@@ -568,18 +502,23 @@ export class DataManager {
 
                 if (qty > 0) {
                     totalInvested += inv;
-                    const price = this.findClosestPrice(hist, ts, interval);
+                    
+                    // On utilise 'interval' pour la tolérance
+                    const price = this.findClosestPrice(hist, ts, interval); 
                     
                     if (price !== null) {
-                        lastKnownPrices.set(t, price);
+                        // Le prix est valide
+                        lastKnownPrices.set(t, price); // On met à jour le dernier prix connu
                         currentTsTotalValue += price * qty;
                         hasAtLeastOnePrice = true;
                     } else {
+                        // Le prix est NULL (donnée périmée), on reporte le DERNIER PRIX CONNU
                         const lastPrice = lastKnownPrices.get(t);
-                        if (lastPrice !== undefined && lastPrice !== null) { 
+                        if (lastPrice !== undefined && lastPrice !== null) {
                             currentTsTotalValue += lastPrice * qty;
                             hasAtLeastOnePrice = true; 
                         }
+                        // Si lastPrice est aussi null, hasAtLeastOnePrice reste false
                     }
                 }
             }
@@ -590,34 +529,38 @@ export class DataManager {
                 values.push(currentTsTotalValue);
             }
         }
+        // === FIN LOGIQUE "FLATLINE" ===
         
         return { labels, invested, values, yesterdayClose };
     }
 
 
     // ==========================================================
-    // UTILITAIRES (Déjà présents et conservés)
+    // UTILITAIRES (CORRIGÉS ET STABILISÉS)
     // ==========================================================
 
     getIntervalForPeriod(days) {
-        if (days === 1) return '5m';
-        if (days === 2) return '15m';
-        if (days <= 7) return '30m';
-        if (days <= 30) return '1h';
-        if (days <= 90) return '1d';
-        if (days <= 180) return '1d';
-        if (days <= 365) return '1d';
-        return '1wk';
+        // === CORRECTION GRANULARITÉ v3 (Celle-ci est la bonne) ===
+        if (days === 1) return '5m';   // 1 Jour -> 5 minutes
+        if (days === 2) return '15m';  // 2 Jours -> 15 minutes
+        if (days <= 7) return '90m';   // 1W -> 90 minutes (proche de votre demande de 3h)
+        if (days <= 30) return '1d';   // 1M -> 1 jour
+        if (days <= 90) return '1d';   // 3M -> 1 jour
+        if (days <= 180) return '1d';  // 6M -> 1 jour
+        if (days <= 365) return '1d';  // 1Y -> 1 jour
+        return '1wk'; // All -> 1 semaine
     }
 
     getLabelFormat(days) {
         return (dateUTC) => {
             const local = new Date(dateUTC);
-            if (days === 1 || days === 2) return local.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-            if (days <= 7) return local.toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-            if (days <= 30) return local.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
-            if (days <= 365) return local.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
-            return local.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
+            if (days === 1 || days === 2) return local.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); // 1D, 2J
+            
+            // === CORRECTION FORMATAGE 1W ===
+            if (days <= 7) return local.toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' }); // 1W -> "lun. 14:30"
+            
+            if (days <= 365) return local.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }); // 1M, 3M, 6M, 1Y
+            return local.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }); // All (format mmm/aa)
         };
     }
 
@@ -647,14 +590,13 @@ export class DataManager {
         if (hist[targetTs]) return hist[targetTs];
         
         let maxDiff;
-        const threeDays = 3 * 24 * 60 * 60 * 1000; 
-
-        if (interval === '5m') maxDiff = threeDays;
-        else if (interval === '15m') maxDiff = threeDays;
-        else if (interval === '30m') maxDiff = threeDays;
-        else if (interval === '1h') maxDiff = threeDays;
-        else if (interval === '1d') maxDiff = threeDays;
-        else maxDiff = 8 * 24 * 60 * 60 * 1000;
+        // Tolérance simple: 3 jours pour intraday, 8 jours pour daily/weekly
+        if (interval === '5m' || interval === '15m' || interval === '90m') {
+            maxDiff = 3 * 24 * 60 * 60 * 1000; 
+        } else {
+            // Pour 1d, 1wk, 1mo
+            maxDiff = 8 * 24 * 60 * 60 * 1000;
+        }
 
         const timestamps = Object.keys(hist).map(Number).sort((a, b) => a - b);
         
@@ -670,10 +612,12 @@ export class DataManager {
             return null;
         }
 
+        // On vérifie si le prix trouvé n'est pas trop vieux
         if ((targetTs - closestTs) > maxDiff) {
+            // La donnée est trop vieille
             return null;
         }
 
-        return hist[closestTs];
+        return hist[closestTs]; // Renvoie le dernier prix valide
     }
 }

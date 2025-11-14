@@ -1767,16 +1767,7 @@ th[data-sort]:hover::after {
   border: 1px solid rgba(52, 152, 219, 0.2);
 }
 
-/* Barre de stats en une ligne */
-.chart-stats-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 10px 0;
-  font-size: 0.88rem;
-  border-top: 1px solid rgba(255,255,255,0.08);
-  margin-top: 8px;
-}
+
 
 .stat {
   display: flex;
@@ -2000,55 +1991,154 @@ th[data-sort]:hover::after {
     border: 1px solid var(--border-color);
 }
 
-/* === BARRE DES STATS DU GRAPHIQUE === */
+/* ========================================
+   STYLES POUR LA BARRE DE STATS (3 GROUPES v3 - Adaptatif)
+   Remplace l'ancien bloc de stats
+   ======================================== */
+
 .chart-stats-bar {
-    display: flex;
-    justify-content: space-around;
-    flex-wrap: wrap;
+    display: grid;
+    /* Ceci crée des colonnes qui s'adaptent.
+      Chaque colonne essaie de faire au moins 240px.
+      'auto-fit' fera que les colonnes restantes s'étirent.
+    */
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    align-items: stretch; 
     background: var(--bg-secondary);
     border-radius: 10px;
     border: 1px solid var(--border-color);
-    padding: 10px 12px;
+    padding: 16px 20px;
     margin-top: 12px;
-    font-size: 13px;
 }
 
+/* Styles de base pour TOUTES les stats */
 .chart-stats-bar .stat {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    min-width: 90px;
+    min-width: auto; 
 }
-
 .chart-stats-bar .label {
     color: var(--text-muted);
     font-size: 11px;
     letter-spacing: 0.4px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
 }
-
 .chart-stats-bar .value {
     font-weight: 600;
-    margin-top: 2px;
+    margin-top: 0; 
+    color: var(--text-primary);
 }
-
 .chart-stats-bar .pct {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--text-secondary);
 }
 
-/* === RESPONSIVE FIX === */
-@media (max-width: 768px) {
-    .chart-header-mini {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
-    }
-    .view-toggle {
-        width: 100%;
-    }
+/* Groupes 1 (Période) et 2 (Var. Jour) */
+.stat-group-1, .stat-group-2 {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 16px;
+    /* On met une bordure sur TOUS les groupes, sauf le dernier */
+    border-right: 1px solid var(--border-color);
+    padding-right: 16px;
+}
+
+/* On centre le texte et on grossit les chiffres pour les groupes 1 et 2 */
+.stat-group-1 .stat, .stat-group-2 .stat {
+    align-items: center; /* Centrer horizontalement */
+}
+.stat-group-1 .value, .stat-group-2 #stat-day-var .value {
+    font-size: 20px; /* Plus gros */
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+.stat-group-1 .pct, .stat-group-2 #stat-day-var .pct {
+    font-size: 14px;
+}
+
+/* Cas spécial pour "Clôture Hier" (taille normale) */
+.stat-group-2 #stat-yesterday-close .value {
+    font-size: 16px; 
+    font-weight: 600;
+}
+
+
+/* Groupe 3: Grille de détails (Début, Fin, Haut, Bas) */
+.stat-group-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Grille 2x2 */
+    gap: 12px 16px; /* Espace vertical / horizontal */
+    padding-left: 16px;
+    /* Le groupe 3 n'a pas de bordure à droite */
+    border-right: none; 
+}
+
+/* Les détails ont un texte de taille normale, aligné à gauche */
+.stat-group-3 .stat {
+    align-items: flex-start; /* Aligner à gauche */
+}
+.stat-group-3 .value {
+    font-size: 16px;
+}
+
+
+/* Responsive pour mobile */
+@media (max-width: 820px) {
     .chart-stats-bar {
-        font-size: 12px;
-        gap: 8px;
+        grid-template-columns: 1fr; /* Une seule colonne */
+        gap: 16px;
+    }
+    
+    .stat-group {
+        border-right: none; /* Pas de ligne verticale */
+        border-bottom: 1px solid var(--border-color); /* Ligne horizontale */
+        padding-right: 0;
+        padding-bottom: 16px;
+    }
+    
+    /* Sur mobile, on met Groupe 2 côte à côte pour gagner de la place */
+    .stat-group-2 {
+        flex-direction: row;
+        justify-content: space-around;
+        align-items: flex-start;
+    }
+    .stat-group-2 .stat {
+        align-items: center;
+    }
+
+    .stat-group-3 {
+        grid-template-columns: 1fr 1fr; /* 2 colonnes sur mobile */
+        padding-left: 0;
+        border-bottom: none; /* Le dernier n'a pas de bordure */
+        padding-bottom: 0;
+    }
+}
+    
+    .stat-group {
+        border-right: none; /* Pas de ligne verticale */
+        border-bottom: 1px solid var(--border-color); /* Ligne horizontale */
+        padding-right: 0;
+        padding-bottom: 16px;
+    }
+    
+    /* Sur mobile, on met Groupe 2 côte à côte pour gagner de la place */
+    .stat-group-2 {
+        flex-direction: row;
+        justify-content: space-around;
+        align-items: flex-start;
+    }
+    .stat-group-2 .stat {
+        align-items: center;
+    }
+
+    .stat-group-3 {
+        grid-template-columns: 1fr 1fr; /* 2 colonnes sur mobile */
+        padding-left: 0;
+        border-bottom: none; /* Le dernier n'a pas de bordure */
+        padding-bottom: 0;
     }
 }
 /* ========================================
