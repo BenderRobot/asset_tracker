@@ -1,16 +1,22 @@
 // ========================================
-// dashboardApp.js - Tableau de bord du portfolio
+// dashboardApp.js - (RÉFACTORISÉ AVEC MARKETSTATUS)
 // ========================================
 
 import { Storage } from './storage.js';
 import { PriceAPI } from './api.js';
-import { MarketStatus } from './marketStatus.js';
+// MODIFICATION : Assurez-vous d'avoir le '?v=2' pour le cache
+import { MarketStatus } from './marketStatus.js?v=2'; 
+import { DataManager } from './dataManager.js';
 
 class DashboardApp {
     constructor() {
         this.storage = new Storage();
         this.api = new PriceAPI(this.storage);
+        
+        // MODIFICATION : Initialisation correcte
         this.marketStatus = new MarketStatus(this.storage);
+        this.dataManager = new DataManager(this.storage, this.api);
+        
         this.chart = null;
         this.selectedPeriod = '1D';
         this.newsCache = new Map();
@@ -21,11 +27,9 @@ class DashboardApp {
     async init() {
         console.log('Initialisation du Dashboard...');
         
-        // Ajouter l'animation pulse pour le market status
-        this.marketStatus.injectPulseAnimation();
-        
-        // Afficher le statut du marché
-        this.renderMarketStatus();
+        // MODIFICATION : Appel à la nouvelle fonction
+        // Ceci remplace les anciens appels à injectPulseAnimation() et renderMarketStatus()
+        this.marketStatus.startAutoRefresh('market-status-container', 'full');
         
         // Charger les données du portfolio
         await this.loadPortfolioData();
@@ -46,16 +50,23 @@ class DashboardApp {
         setInterval(() => this.refreshDashboard(), 5 * 60 * 1000);
     }
 
+    // MODIFICATION : SUPPRIMEZ CETTE ANCIENNE FONCTION
+    /*
     renderMarketStatus() {
         const container = document.getElementById('market-status-container');
         if (container) {
             container.innerHTML = this.marketStatus.createStatusBadge();
         }
     }
+    */
 
+    // ... (Le reste de votre fichier dashboardApp.js reste inchangé) ...
+    // ... (loadPortfolioData, renderKPIs, initChart, etc.)
+    
+    // (Collez le reste de votre fichier dashboardApp.js ci-dessous)
     async loadPortfolioData() {
         try {
-            console.log('Chargement des données du portfolio...');
+            console.log('Chargement des données du portfolio (via DataManager)...');
             const purchases = this.storage.getPurchases();
             console.log(`${purchases.length} transactions trouvées`);
             
@@ -64,163 +75,70 @@ class DashboardApp {
                 this.renderEmptyState();
                 return;
             }
-
-            // Grouper par ticker
-            const grouped = this.groupByTicker(purchases);
-            console.log(`${grouped.size} actifs uniques`);
             
-            // Rafraîchir les prix
+            // 1. Rafraîchir les prix (via l'API)
             console.log('Rafraîchissement des prix...');
-            await this.refreshPrices(grouped);
+            const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+            await this.api.fetchBatchPrices(tickers);
             
-            // Calculer les KPIs
-            console.log('Calcul des KPIs...');
-            this.calculateAndRenderKPIs(grouped);
+            // 2. Calculer les Holdings (via DataManager)
+            console.log('Calcul des holdings...');
+            const holdings = this.dataManager.calculateHoldings(purchases.filter(p => p.assetType !== 'Cash'));
+            
+            // 3. Calculer le Résumé (via DataManager)
+            console.log('Calcul du résumé...');
+            const summary = this.dataManager.calculateSummary(holdings);
+            
+            if (summary.assetsCount === 0) {
+                 console.warn('Aucun prix disponible, affichage message d\'erreur');
+                 this.showError('Aucun prix disponible. Cliquez sur Actualiser.');
+                 return;
+            }
+
+            // 4. Calculer les KPIs spécifiques au Dashboard (Secteur, Allocation)
+            // (Cette logique reste ici car elle est spécifique à cette vue)
+            const assetTypes = {};
+            holdings.forEach(asset => {
+                assetTypes[asset.assetType] = (assetTypes[asset.assetType] || 0) + asset.currentValue;
+            });
+            
+            const topSectorEntry = Object.entries(assetTypes).sort((a, b) => b[1] - a[1])[0];
+            const topSector = topSectorEntry ? topSectorEntry[0] : '-';
+            
+            const stocksValue = (assetTypes['Stock'] || 0) + (assetTypes['ETF'] || 0);
+            const cryptoValue = assetTypes['Crypto'] || 0;
+            const stocksPct = summary.totalCurrentEUR > 0 ? (stocksValue / summary.totalCurrentEUR) * 100 : 0;
+            const cryptoPct = summary.totalCurrentEUR > 0 ? (cryptoValue / summary.totalCurrentEUR) * 100 : 0;
+
+            // 5. Préparer les données pour l'affichage
+            const kpiData = {
+                totalValue: summary.totalCurrentEUR,
+                totalReturn: summary.gainTotal,
+                totalReturnPct: summary.gainPct,
+                totalDayChange: summary.totalDayChangeEUR,
+                dayChangePct: summary.dayChangePct,
+                topGainer: summary.bestAsset, // Vient du DataManager
+                topLoser: summary.worstAsset, // Vient du DataManager
+                assetsCount: summary.assetsCount,
+                totalInvested: summary.totalInvestedEUR,
+                topSector: topSector,
+                stocksPct: stocksPct,
+                cryptoPct: cryptoPct
+            };
+
+            // 6. Afficher les KPIs
+            console.log('Affichage des KPIs...');
+            this.renderKPIs(kpiData);
+            
+            // 7. Mettre à jour le graphique
+            this.updateChartData(summary.totalCurrentEUR, summary.totalDayChangeEUR);
             
             console.log('Chargement du portfolio terminé');
+
         } catch (error) {
             console.error('Erreur chargement portfolio:', error);
             this.showError('Erreur de chargement des données: ' + error.message);
         }
-    }
-
-    groupByTicker(purchases) {
-        const grouped = new Map();
-        
-        purchases.forEach(purchase => {
-            const ticker = purchase.ticker.toUpperCase();
-            
-            if (!grouped.has(ticker)) {
-                grouped.set(ticker, {
-                    ticker,
-                    name: purchase.name,
-                    assetType: purchase.assetType || 'Stock',
-                    currency: purchase.currency || 'EUR',
-                    positions: []
-                });
-            }
-            
-            grouped.get(ticker).positions.push(purchase);
-        });
-        
-        return grouped;
-    }
-
-    async refreshPrices(grouped) {
-        const tickers = Array.from(grouped.keys());
-        
-        // Utiliser fetchBatchPrices qui existe dans l'API
-        await this.api.fetchBatchPrices(tickers);
-    }
-
-    calculateAndRenderKPIs(grouped) {
-        console.log('Début calcul KPIs...');
-        let totalValue = 0;
-        let totalInvested = 0;
-        let totalDayChange = 0;
-        let assetsWithPrices = 0;
-        
-        const assets = [];
-        
-        grouped.forEach((group, ticker) => {
-            const priceData = this.storage.getCurrentPrice(ticker);
-            
-            console.log(`${ticker}: prix disponible =`, priceData);
-            
-            if (!priceData || !priceData.price) {
-                console.warn(`Prix manquant pour ${ticker}`);
-                return;
-            }
-            
-            const currentPrice = priceData.price;
-            const previousClose = priceData.previousClose || currentPrice;
-            
-            let quantity = 0;
-            let invested = 0;
-            
-            group.positions.forEach(position => {
-                quantity += position.quantity;
-                invested += position.price * position.quantity;
-            });
-            
-            const currentValue = currentPrice * quantity;
-            const gainLoss = currentValue - invested;
-            const gainPct = invested > 0 ? (gainLoss / invested) * 100 : 0;
-            
-            // Variation journée
-            const dayChange = (currentPrice - previousClose) * quantity;
-            const dayChangePct = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
-            
-            totalValue += currentValue;
-            totalInvested += invested;
-            totalDayChange += dayChange;
-            assetsWithPrices++;
-            
-            console.log(`${ticker}: valeur=${currentValue}, investi=${invested}, gain=${gainPct}%`);
-            
-            assets.push({
-                ticker,
-                name: group.name,
-                assetType: group.assetType,
-                currentValue,
-                invested,
-                gainLoss,
-                gainPct,
-                dayChange,
-                dayChangePct
-            });
-        });
-        
-        console.log(`Total: ${assetsWithPrices}/${grouped.size} actifs avec prix`);
-        console.log(`Valeur totale: ${totalValue}, Investi: ${totalInvested}`);
-        
-        if (assetsWithPrices === 0) {
-            console.warn('Aucun prix disponible, affichage message d\'erreur');
-            this.showError('Aucun prix disponible. Cliquez sur Actualiser.');
-            return;
-        }
-        
-        const totalReturn = totalValue - totalInvested;
-        const totalReturnPct = totalInvested > 0 ? (totalReturn / totalInvested) * 100 : 0;
-        const dayChangePct = (totalValue - totalDayChange) > 0 ? (totalDayChange / (totalValue - totalDayChange)) * 100 : 0;
-        
-        // Top Gainer et Loser
-        const sortedByGain = [...assets].sort((a, b) => b.gainPct - a.gainPct);
-        const topGainer = sortedByGain[0];
-        const topLoser = sortedByGain[sortedByGain.length - 1];
-        
-        // Secteur dominant (simplifié par type d'actif)
-        const assetTypes = {};
-        assets.forEach(asset => {
-            assetTypes[asset.assetType] = (assetTypes[asset.assetType] || 0) + asset.currentValue;
-        });
-        const topSector = Object.entries(assetTypes).sort((a, b) => b[1] - a[1])[0];
-        
-        // Allocation Actions vs Crypto
-        const stocksValue = (assetTypes['Stock'] || 0) + (assetTypes['ETF'] || 0);
-        const cryptoValue = assetTypes['Crypto'] || 0;
-        const stocksPct = totalValue > 0 ? (stocksValue / totalValue) * 100 : 0;
-        const cryptoPct = totalValue > 0 ? (cryptoValue / totalValue) * 100 : 0;
-        
-        // Render KPIs
-        console.log('Affichage des KPIs...');
-        this.renderKPIs({
-            totalValue,
-            totalReturn,
-            totalReturnPct,
-            totalDayChange,
-            dayChangePct,
-            topGainer,
-            topLoser,
-            assetsCount: grouped.size,
-            totalInvested,
-            topSector: topSector ? topSector[0] : '-',
-            stocksPct,
-            cryptoPct
-        });
-        
-        // Mettre à jour le graphique avec les données
-        this.updateChartData(totalValue, totalDayChange);
     }
 
     renderKPIs(data) {
@@ -245,7 +163,7 @@ class DashboardApp {
         dayChangePctEl.textContent = `(${data.dayChangePct >= 0 ? '+' : ''}${data.dayChangePct.toFixed(2)}%)`;
         dayChangePctEl.className = 'kpi-change-pct ' + (data.totalDayChange >= 0 ? 'stat-positive' : 'stat-negative');
         
-        // Top Gainer
+        // Top Gainer (Structure de 'bestAsset' du DataManager)
         if (data.topGainer) {
             document.getElementById('dashboard-top-gainer-ticker').textContent = data.topGainer.ticker;
             const gainerPctEl = document.getElementById('dashboard-top-gainer-pct');
@@ -253,7 +171,7 @@ class DashboardApp {
             gainerPctEl.className = 'kpi-change-pct stat-positive';
         }
         
-        // Top Loser
+        // Top Loser (Structure de 'worstAsset' du DataManager)
         if (data.topLoser) {
             document.getElementById('dashboard-top-loser-ticker').textContent = data.topLoser.ticker;
             const loserPctEl = document.getElementById('dashboard-top-loser-pct');
@@ -484,6 +402,9 @@ class DashboardApp {
     async loadIndex(ticker, id) {
         try {
             // Utiliser fetchBatchPrices pour un seul ticker
+            // Note: L'API YahooV2 (dans api.js) ne renvoie pas 'change' ou 'changePercent'
+            // Cette fonction devra être adaptée si vous changez d'API, 
+            // ou si vous modifiez api.js pour parser ces valeurs.
             await this.api.fetchBatchPrices([ticker]);
             const priceData = this.storage.getCurrentPrice(ticker);
             
@@ -495,8 +416,12 @@ class DashboardApp {
                 document.getElementById(`index-${id}`).textContent = 
                     symbol + priceData.price.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 
-                const change = priceData.change || 0;
-                const changePct = priceData.changePercent || 0;
+                // Calcul du changement basé sur previousClose
+                const change = priceData.price - (priceData.previousClose || priceData.price);
+                const changePct = (priceData.previousClose && priceData.previousClose > 0) 
+                                ? (change / priceData.previousClose) * 100 
+                                : 0;
+                
                 const changeEl = document.getElementById(`index-${id}-change`);
                 
                 changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%)`;

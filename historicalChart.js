@@ -1,9 +1,12 @@
 // ========================================
-// historicalChart.js - Architecture "Zéro Incohérence" (CORRIGÉ v7 - 1D Stats)
+// historicalChart.js - (v11 - Fix Bug 1D)
 // ========================================
+
+import { eventBus } from './eventBus.js';
 
 export class HistoricalChart {
   constructor(storage, dataManager, ui, investmentsPage) {
+    // ... (constructeur inchangé) ...
     this.storage = storage;
     this.dataManager = dataManager;
     this.ui = ui;
@@ -22,8 +25,19 @@ export class HistoricalChart {
     
     // Dépendance pour extraire le ticker du filtre (nécessaire)
     this.filterManager = investmentsPage.filterManager;
+
+    // Écouter les événements du bus
+    eventBus.addEventListener('showAssetChart', (e) => {
+        this.showAssetChart(e.detail.ticker, e.detail.summary);
+    });
+
+    eventBus.addEventListener('clearAssetChart', () => {
+        this.currentMode = 'portfolio';
+        this.selectedAssets = [];
+    });
   }
 
+  // ... (hexToRgba, setupPeriodButtons, autoRefresh... inchangés) ...
   // Convertit Hex en RGBA
   hexToRgba(hex, alpha) {
     let r = 0, g = 0, b = 0;
@@ -115,45 +129,56 @@ export class HistoricalChart {
     if (this.isLoading) return;
     this.isLoading = true;
     
-    // On s'assure que le mode est 'portfolio' (filtres) et non 'asset' (clic)
     this.currentMode = 'portfolio';
     this.selectedAssets = [];
 
     const graphLoader = document.getElementById('chart-loading');
     const canvas = document.getElementById('historical-portfolio-chart');
+    if (graphLoader) graphLoader.style.display = 'flex';
 
     try {
-      // 1. Récupérer les achats filtrés (pour tableau ET graphique)
+      // 1. Récupérer les achats filtrés
       const contextPurchases = this.getFilteredPurchasesFromPage();
-      
-      if (contextPurchases.length === 0) {
+      const assetPurchases = contextPurchases.filter(p => p.assetType !== 'Cash');
+      const cashPurchases = contextPurchases.filter(p => p.assetType === 'Cash');
+
+      if (assetPurchases.length === 0 && cashPurchases.length === 0) {
           this.showMessage('Aucun achat correspondant aux filtres');
-          this.investmentsPage.renderData([], { totalInvestedEUR: 0, totalCurrentEUR: 0, totalDayChangeEUR: 0, gainTotal: 0, gainPct: 0, dayChangePct: 0, assetsCount: 0, movementsCount: 0 });
+          this.investmentsPage.renderData([], { totalInvestedEUR: 0, totalCurrentEUR: 0, totalDayChangeEUR: 0, gainTotal: 0, gainPct: 0, dayChangePct: 0, assetsCount: 0, movementsCount: 0 }, 0);
           this.isLoading = false;
+          if (graphLoader) graphLoader.style.display = 'none';
           return;
       }
       
-      const tickers = [...new Set(contextPurchases.map(p => p.ticker.toUpperCase()))];
+      const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
+      
+      // ==========================================================
+      // === CORRECTION DU BUG "VAR TODAY" ===
+      // Nous rafraîchissons les prix AVANT tout calcul.
+      // ==========================================================
+      if (tickers.length > 0) {
+          await this.dataManager.api.fetchBatchPrices(tickers);
+      }
+      // ==========================================================
       
       // 2. Déterminer la CIBLE du graphique et des cartes
-      // (En mode 'load', la cible EST le contexte filtré)
       const titleConfig = this.investmentsPage.getChartTitleConfig();
-      let targetPurchases = contextPurchases;
+      let targetAssetPurchases = assetPurchases;
+      let targetCashPurchases = cashPurchases;
 
       if (titleConfig.mode === 'asset') {
-         // Cas où 1 seul ticker est filtré
          const ticker = this.filterManager.getSelectedTickers().values().next().value;
-         targetPurchases = contextPurchases.filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
+         targetAssetPurchases = assetPurchases.filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
+         targetCashPurchases = []; 
       }
       
-      // 3. Calculs & Rendu SYNC (Cartes + Tableau)
-      const contextHoldings = this.dataManager.calculateHoldings(contextPurchases);
-      const targetHoldings = this.dataManager.calculateHoldings(targetPurchases);
+      // 3. Calculs & Rendu SYNC (MAINTENANT AVEC PRIX FRAIS)
+      const contextHoldings = this.dataManager.calculateHoldings(assetPurchases);
+      const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
       let targetSummary = this.dataManager.calculateSummary(targetHoldings); 
+      const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
       
-      // 4. Rendu Graphique (Cache)
-      if (graphLoader) graphLoader.style.display = 'flex';
-      
+      // 4. Rendu Graphique
       let historicalChanges = { historicalDayChange: null, historicalDayChangePct: null };
       try {
         let graphData;
@@ -161,13 +186,13 @@ export class HistoricalChart {
             const ticker = this.filterManager.getSelectedTickers().values().next().value;
             graphData = await this.dataManager.calculateAssetHistory(ticker, this.currentPeriod);
         } else {
-            graphData = await this.dataManager.calculateHistory(targetPurchases, this.currentPeriod);
+            graphData = await this.dataManager.calculateHistory(targetAssetPurchases, this.currentPeriod);
         }
         
         this.lastYesterdayClose = graphData.yesterdayClose;
         
         if (!graphData || graphData.labels.length === 0) {
-             this.showMessage('Pas de données graphiques en cache. Cliquez sur "Refresh Prices"');
+             this.showMessage('Pas de données graphiques disponibles.');
         } else {
              historicalChanges = this.renderChart(canvas, graphData, targetSummary, titleConfig);
         }
@@ -178,82 +203,25 @@ export class HistoricalChart {
       }
 
       // 5. ÉCRASER la Var. Jour "live" par la Var. Jour "historique"
-      if (historicalChanges.historicalDayChange !== null) {
+      if (this.currentPeriod === 1 && historicalChanges.historicalDayChange !== null) {
           targetSummary.totalDayChangeEUR = historicalChanges.historicalDayChange;
           targetSummary.dayChangePct = historicalChanges.historicalDayChangePct;
       }
 
       // 6. Rendre le tableau (Contexte) et les cartes (Cible)
-      this.investmentsPage.renderData(contextHoldings, targetSummary);
-
-      // 7. Refresh API arrière-plan
-      setTimeout(async () => {
-          try {
-              // On rafraîchit TOUS les tickers du contexte
-              await this.refreshDataFromAPIIfNeeded(contextPurchases, tickers); 
-          } finally {
-              this.isLoading = false;
-          }
-      }, 500);
+      this.investmentsPage.renderData(contextHoldings, targetSummary, targetCashReserve.total);
 
     } catch (e) {
       console.error('Erreur chargement', e);
+      this.showMessage('Erreur de chargement', 'error');
+      if (graphLoader) graphLoader.style.display = 'none';
+    } finally {
       this.isLoading = false;
     }
   }
 
-  async refreshDataFromAPIIfNeeded(contextPurchases, tickers) {
-      const isStale = tickers.some(t => {
-          const assetType = this.storage.getAssetType(t);
-          return !this.storage.isCacheValid(t, assetType);
-      });
-
-      if (!isStale) return;
-      
-      this.lastRefreshTime = Date.now();
-      await this.dataManager.api.fetchBatchPrices(tickers);
-      
-      // === RE-CALCUL COMPLET APRÈS API ===
-      
-      // 1. Recalculer le Contexte (Tableau)
-      const contextHoldings = this.dataManager.calculateHoldings(contextPurchases);
-      
-      // 2. Recalculer le Titre et la Cible
-      const titleConfig = this.investmentsPage.getChartTitleConfig();
-      let targetPurchases = contextPurchases;
-
-      if (titleConfig.mode === 'asset') {
-         const ticker = this.filterManager.getSelectedTickers().values().next().value;
-         targetPurchases = contextPurchases.filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
-      }
-      
-      // 3. Recalculer la Cible (Cartes)
-      const targetHoldings = this.dataManager.calculateHoldings(targetPurchases);
-      let targetSummary = this.dataManager.calculateSummary(targetHoldings);
-      
-      // 4. Recalculer le Graphique (Cible)
-      let newGraphData;
-      if (titleConfig.mode === 'asset') {
-        const ticker = this.filterManager.getSelectedTickers().values().next().value;
-        newGraphData = await this.dataManager.calculateAssetHistory(ticker, this.currentPeriod);
-      } else {
-        newGraphData = await this.dataManager.calculateHistory(targetPurchases, this.currentPeriod);
-      }
-
-      this.lastYesterdayClose = newGraphData.yesterdayClose;
-      
-      // 5. Rendre le graphique
-      const historicalChanges = this.renderChart(document.getElementById('historical-portfolio-chart'), newGraphData, targetSummary, titleConfig);
-
-      // 6. Écraser Var. Jour
-      if (historicalChanges.historicalDayChange !== null) {
-          targetSummary.totalDayChangeEUR = historicalChanges.totalDayChangeEUR;
-          targetSummary.dayChangePct = historicalChanges.historicalDayChangePct;
-      }
-      
-      // 7. Rendre le tableau (Contexte) et les cartes (Cible)
-      this.investmentsPage.renderData(contextHoldings, targetSummary);
-  }
+  // MODIFICATION SUPPRIMÉE : 'refreshDataFromAPIIfNeeded' est maintenant géré par le 'update' normal
+  // ou le 'loadPageWithCacheFirst' qui force l'API.
 
   // ==========================================================
   // === Logique de MISE À JOUR (Clic, Période, Refresh) ===
@@ -274,11 +242,13 @@ export class HistoricalChart {
 
     try {
       // 1. CONTEXTE GLOBAL (Ce qu'on affiche dans le TABLEAU)
-      // (Prend en compte recherche, type, broker... mais PAS le filtre ticker dropdown)
       const contextPurchasesNoTickerFilter = this.getFilteredPurchasesFromPage(true); // Ignore Ticker filter
+      const contextAssetPurchases = contextPurchasesNoTickerFilter.filter(p => p.assetType !== 'Cash');
+
       
       // 2. CIBLE DU GRAPHIQUE ET TITRE
-      let targetPurchases;
+      let targetAssetPurchases;
+      let targetCashPurchases;
       let titleConfig;
 
       if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
@@ -290,28 +260,27 @@ export class HistoricalChart {
            label: `${ticker} • ${name}`,
            icon: this.dataManager.isCryptoTicker(ticker) ? '₿' : '📊'
          };
-         // Cible = juste cet actif (brut, sans filtres de page)
-         targetPurchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
+         targetAssetPurchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
+         targetCashPurchases = [];
       
       } else {
          // CAS 2: On est en vue "filtrée" ou "globale"
          titleConfig = this.investmentsPage.getChartTitleConfig();
-         // Cible = les achats filtrés (y compris filtre ticker)
-         targetPurchases = this.getFilteredPurchasesFromPage(false); // Inclut Ticker filter
+         const targetAllPurchases = this.getFilteredPurchasesFromPage(false); // Inclut Ticker filter
+         targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
+         targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
       }
       
       // 3. FETCH API
-      // On fetch TOUS les tickers du tableau, ET les tickers cibles
-      const contextTickers = new Set(contextPurchasesNoTickerFilter.map(p => p.ticker.toUpperCase()));
-      const targetTickers = new Set(targetPurchases.map(p => p.ticker.toUpperCase()));
+      const contextTickers = new Set(contextAssetPurchases.map(p => p.ticker.toUpperCase()));
+      const targetTickers = new Set(targetAssetPurchases.map(p => p.ticker.toUpperCase()));
       const allTickers = [...new Set([...contextTickers, ...targetTickers])];
       
       if (forceApi) {
           this.lastRefreshTime = Date.now();
-          allTickers.forEach(t => { if (this.storage.priceTimestamps[t]) this.storage.priceTimestamps[t] = 0; });
-          this.storage.savePricesCache();
+          // Vider le cache des prix n'est pas nécessaire si on force
+          await this.dataManager.api.fetchBatchPrices(allTickers);
       }
-      await this.dataManager.api.fetchBatchPrices(allTickers);
       
       // 4. CALCULS
       
@@ -324,36 +293,34 @@ export class HistoricalChart {
          
          graphData = await this.dataManager.calculateAssetHistory(ticker, this.currentPeriod);
       } else {
-         graphData = await this.dataManager.calculateHistory(targetPurchases, this.currentPeriod);
+         graphData = await this.dataManager.calculateHistory(targetAssetPurchases, this.currentPeriod);
       }
 
       // B. Données Cartes "Summary" (sur la CIBLE)
-      const targetHoldings = this.dataManager.calculateHoldings(targetPurchases);
+      const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
       let targetSummary = this.dataManager.calculateSummary(targetHoldings);
+      const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases); // Calcul cash
 
       // C. Données Tableau (sur le CONTEXTE)
-      const contextHoldings = this.dataManager.calculateHoldings(contextPurchasesNoTickerFilter);
+      const contextHoldings = this.dataManager.calculateHoldings(contextAssetPurchases);
       
-      // === Logique de Clôture UNIFIÉE (Source Historique) ===
       this.lastYesterdayClose = graphData.yesterdayClose;
-      // =======================================================
 
       let historicalChanges = { historicalDayChange: null, historicalDayChangePct: null };
       if (!graphData || graphData.labels.length === 0) {
         this.showMessage('Pas de données disponibles pour cette période');
       } else {
-        // E. Rendre le graphique, qui renvoie la VRAIE variation
         historicalChanges = this.renderChart(canvas, graphData, targetSummary, titleConfig);
       }
       
-      // F. ÉCRASER la Var. Jour "live" par la Var. Jour "historique"
-      if (historicalChanges.historicalDayChange !== null) {
+      // F. ÉCRASER la Var. Jour "live" par la Var. Jour "historique" (UNIQUEMENT en vue 1J)
+      if (this.currentPeriod === 1 && historicalChanges.historicalDayChange !== null) {
           targetSummary.totalDayChangeEUR = historicalChanges.historicalDayChange;
           targetSummary.dayChangePct = historicalChanges.historicalDayChangePct;
       }
 
       // G. Rendre le tableau (Contexte) et les cartes (Cible)
-      this.investmentsPage.renderData(contextHoldings, targetSummary);
+      this.investmentsPage.renderData(contextHoldings, targetSummary, targetCashReserve.total);
 
     } catch (error) {
       console.error('Erreur graphique (update):', error);
@@ -364,6 +331,7 @@ export class HistoricalChart {
     }
   }
 
+  // ... (getFilteredPurchasesFromPage inchangé) ...
   // Helper pour récupérer les achats selon les filtres de la page
   getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
       const searchQuery = this.investmentsPage.currentSearchQuery;
@@ -391,10 +359,12 @@ export class HistoricalChart {
       return purchases;
   }
 
+  // ... (renderChart et le reste du fichier sont inchangés) ...
   // ==========================================================
   // Rendu
   // ==========================================================
 
+  // ... (renderChart est 100% inchangé, car il ne s'occupe que de grapher les actifs) ...
   renderChart(canvas, data, summary, titleConfig) {
     if (this.chart) this.chart.destroy();
     if (!canvas) return;

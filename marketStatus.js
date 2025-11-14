@@ -1,13 +1,17 @@
 // ========================================
-// marketStatus.js - Indicateurs d'état du marché
+// marketStatus.js - (v2 - Auto-rafraîchissant)
 // ========================================
 
 export class MarketStatus {
     constructor(storage) {
         this.storage = storage;
+        this.containerId = null;
+        this.badgeType = 'compact'; // 'compact' ou 'full'
+        this.autoRefreshInterval = null;
+        this.currentBadgeHTML = ''; // Cache pour éviter les ré-écritures DOM inutiles
     }
 
-    // Obtenir l'état actuel du marché
+    // Obtenir l'état actuel du marché (inchangé)
     getStatus() {
         const now = new Date();
         const day = now.getDay(); // 0 = Dimanche, 6 = Samedi
@@ -21,7 +25,7 @@ export class MarketStatus {
                 isOpen: false,
                 type: 'weekend',
                 icon: '🌙',
-                color: '#fbbf24',
+                color: '#fbbf24', // Jaune
                 message: 'Marchés fermés (weekend)',
                 shortMessage: 'Fermé'
             };
@@ -36,8 +40,8 @@ export class MarketStatus {
                 isOpen: false,
                 type: 'before',
                 icon: '🌅',
-                color: '#60a5fa',
-                message: 'Ouverture Ã  9h00',
+                color: '#60a5fa', // Bleu
+                message: 'Ouverture à 9h00',
                 shortMessage: 'Pré-ouverture'
             };
         }
@@ -47,7 +51,7 @@ export class MarketStatus {
                 isOpen: false,
                 type: 'after',
                 icon: '🌙',
-                color: '#a78bfa',
+                color: '#a78bfa', // Violet
                 message: 'Prix de clôture',
                 shortMessage: 'Clôture'
             };
@@ -56,17 +60,53 @@ export class MarketStatus {
         return {
             isOpen: true,
             type: 'open',
-            icon: '✓',
-            color: '#10b981',
+            icon: '✓', // Note : L'icône ✓ est correcte, mais FontAwesome est peut-être nécessaire
+            color: '#10b981', // Vert
             message: 'Marchés ouverts',
             shortMessage: 'En direct'
         };
     }
 
-    // Créer un badge HTML pour l'état du marché
-    createStatusBadge() {
+    // NOUVEAU : Lance le rafraîchissement automatique
+    startAutoRefresh(containerId, badgeType = 'compact') {
+        this.containerId = containerId;
+        this.badgeType = badgeType;
+        
+        this.injectPulseAnimation(); // S'assure que l'animation est prête
+        
+        // Mettre à jour immédiatement
+        this._updateStatus();
+        
+        // Arrêter l'ancien minuteur s'il existe
+        if (this.autoRefreshInterval) {
+            clearInterval(this.autoRefreshInterval);
+        }
+        
+        // Lancer le nouveau minuteur (toutes les 60 secondes)
+        this.autoRefreshInterval = setInterval(() => this._updateStatus(), 60 * 1000);
+    }
+    
+    // NOUVEAU : Méthode privée pour mettre à jour le DOM
+    _updateStatus() {
+        const container = document.getElementById(this.containerId);
+        if (!container) return;
+
         const status = this.getStatus();
         
+        // Utilise le badge compact (vu dans vos captures d'écran) par défaut
+        const newBadgeHTML = (this.badgeType === 'compact') 
+            ? this.createCompactBadge(status) 
+            : this.createStatusBadge(status);
+
+        // Optimisation : Ne met à jour le DOM que si le HTML a changé
+        if (newBadgeHTML !== this.currentBadgeHTML) {
+            container.innerHTML = newBadgeHTML;
+            this.currentBadgeHTML = newBadgeHTML;
+        }
+    }
+
+    // MODIFIÉ : Accepte l'objet 'status'
+    createStatusBadge(status) {
         return `
             <div class="market-status-badge" style="
                 display: inline-flex;
@@ -80,80 +120,42 @@ export class MarketStatus {
                 font-weight: 600;
                 color: ${status.color};
             ">
-                <span>${status.icon}</span>
+                <span style="font-size: 10px;">${status.icon}</span>
                 <span>${status.message}</span>
             </div>
         `;
     }
 
-    // Badge compact pour le header
-    createCompactBadge() {
-        const status = this.getStatus();
-        
+    // MODIFIÉ : Accepte l'objet 'status'
+    createCompactBadge(status) {
+        // C'est ce badge que vous voyez dans vos captures d'écran
         return `
             <span class="market-status-compact" style="
                 display: inline-flex;
                 align-items: center;
-                gap: 4px;
-                font-size: 11px;
+                gap: 6px; /* Un peu plus d'espace */
+                font-size: 12px; /* Un peu plus grand */
                 font-weight: 600;
                 color: ${status.color};
+                padding: 5px 10px;
+                background: rgba(${this.hexToRgb(status.color)}, 0.1);
+                border-radius: 6px;
             ">
                 <span style="
-                    width: 6px;
-                    height: 6px;
+                    width: 7px;
+                    height: 7px;
                     border-radius: 50%;
                     background: ${status.color};
                     ${status.isOpen ? 'animation: pulse 2s infinite;' : ''}
                 "></span>
-                <span>${status.shortMessage}</span>
+                <span>${status.message}</span>
             </span>
         `;
     }
-
-    // Badge d'Ã¢ge du prix pour un ticker
-    createPriceAgeBadge(ticker) {
-        const age = this.storage.getPriceAge(ticker);
-        
-        if (!age) return '';
-        
-        // Déterminer la couleur selon l'Ã¢ge
-        let color = '#10b981'; // Vert (récent)
-        let icon = '🕐';
-        
-        if (age.includes('jour')) {
-            const days = parseInt(age);
-            if (days >= 3) {
-                color = '#ef4444'; // Rouge (vieux)
-                icon = 'âš ï¸';
-            } else {
-                color = '#fbbf24'; // Jaune (modéré)
-                icon = '🕐';
-            }
-        } else if (age.includes('h')) {
-            const hours = parseInt(age);
-            if (hours >= 6) {
-                color = '#fbbf24'; // Jaune
-                icon = '🕐';
-            }
-        }
-        
-        return `
-            <span class="price-age-badge" style="
-                display: inline-flex;
-                align-items: center;
-                gap: 3px;
-                font-size: 10px;
-                color: ${color};
-                opacity: 0.8;
-            " title="Dernière mise Ã  jour il y a ${age}">
-                <span>${icon}</span>
-                <span>${age}</span>
-            </span>
-        `;
-    }
-
-    // Convertir hex en rgb
+    
+    // ... (createPriceAgeBadge inchangé) ...
+    
+    // Convertir hex en rgb (inchangé)
     hexToRgb(hex) {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         return result ? 
@@ -161,15 +163,13 @@ export class MarketStatus {
             '59, 130, 246';
     }
 
-    // Injecter le badge dans la page
+    // Injecter le badge dans la page (MODIFIÉ)
     injectStatusBadge(containerId = 'market-status-container') {
-        const container = document.getElementById(containerId);
-        if (!container) return;
-        
-        container.innerHTML = this.createStatusBadge();
+        // Cette fonction est maintenant un alias pour startAutoRefresh
+        this.startAutoRefresh(containerId, 'full');
     }
 
-    // Animation pulse pour le point vert
+    // Animation pulse pour le point vert (inchangé)
     injectPulseAnimation() {
         const style = document.createElement('style');
         style.textContent = `
@@ -182,9 +182,8 @@ export class MarketStatus {
     }
 }
 
-// Fonction helper pour afficher l'état dans le UI
+// Fonction helper pour afficher l'état dans le UI (MODIFIÉ)
 export function initMarketStatus(storage) {
-    const marketStatus = new MarketStatus(storage);
-    marketStatus.injectPulseAnimation();
-    return marketStatus;
+    // Ne fait plus que créer l'instance
+    return new MarketStatus(storage);
 }

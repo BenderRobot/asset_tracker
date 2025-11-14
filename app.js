@@ -14,7 +14,7 @@ import { HistoricalChart } from './historicalChart.js?v=9';
 import { DataManager } from './dataManager.js?v=7'; // v7 est OK
 // ===========================================
 
-import { initMarketStatus } from './marketStatus.js';
+import { initMarketStatus } from './marketStatus.js?v=2';
 import { ASSET_TYPES, BROKERS, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED } from './config.js';
 
 
@@ -22,7 +22,7 @@ class App {
   constructor() {
     this.storage = new Storage();
     this.api = new PriceAPI(this.storage); 
-	this.brokersList = BROKERS; // <-- AJOUTÉ POUR ACCÈS GLOBAL
+	this.brokersList = BROKERS; // <-- Conservé pour 'populate'
     // === LE BON CÂBLAGE ===
     this.dataManager = new DataManager(this.storage, this.api); 
     this.ui = new UIComponents(this.storage);
@@ -35,18 +35,22 @@ class App {
     this.achatsPage = new AchatsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager);
     // ==========================================================
     
-    this.investmentsPage = new InvestmentsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager); 
+    // On passe 'this.brokersList' pour que 'getChartTitleConfig' fonctionne
+    this.investmentsPage = new InvestmentsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager, this.brokersList); 
 
     if (this.isInvestmentsPage()) { 
       // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
-      // Le graphique a besoin de 'ui' pour mettre à jour les cartes
-      // et de 'investmentsPage' pour mettre à jour le tableau.
       this.historicalChart = new HistoricalChart(
           this.storage, 
           this.dataManager, 
           this.ui, 
-          this.investmentsPage
+          this.investmentsPage // Le graphique a besoin de la page (pour getChartTitleConfig)
       ); 
+      // ==========================================
+      
+      // === INJECTION DE DÉPENDANCE ===
+      // On "injecte" le graphique dans la page pour qu'elle puisse l'appeler
+      this.investmentsPage.setHistoricalChart(this.historicalChart);
       // ==========================================
     }
     // === FIN CÂBLAGE ===
@@ -55,12 +59,55 @@ class App {
     this.isRefreshing = false;
     this.autoRefreshTimer = null;
   }
+	async setupCashFormListener() {
+    const form = document.getElementById('cash-form');
+    if (!form) return;
 
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        try {
+            const type = document.getElementById('cash-type').value; // "Dépôt" ou "Retrait"
+            const amount = parseFloat(document.getElementById('cash-amount').value);
+            const finalAmount = (type === 'Retrait' ? -amount : amount);
+
+            const cashMovement = {
+                // Nous réutilisons la structure existante
+                ticker: 'CASH',
+                name: type, // "Dépôt" ou "Retrait"
+                price: finalAmount, // Le montant (positif ou négatif)
+                date: document.getElementById('cash-date').value,
+                quantity: 1, // Quantité fixe
+                currency: 'EUR',
+                assetType: 'Cash',
+                broker: document.getElementById('cash-broker').value
+            };
+
+            if (!cashMovement.date || !cashMovement.broker || !cashMovement.price) {
+                alert('Tous les champs sont requis pour le mouvement de cash.');
+                return;
+            }
+
+            this.storage.addPurchase(cashMovement);
+            form.reset();
+
+            // Rafraîchir la page des transactions
+            await this.achatsPage.render(this.searchQuery);
+            this.showNotification('Mouvement de cash ajouté', 'success');
+
+        } catch (error) {
+            console.error('Erreur ajout cash:', error);
+            alert('Erreur: ' + error.message);
+        }
+    });
+}
   async init() {
     console.log('Initialisation de l\'application...'); 
 
     // Afficher l'état du marché
-    this.updateMarketStatus();
+	this.marketStatus.startAutoRefresh('market-status-container', 'full');
+    // AJOUT : Charger le taux de change AVANT tout calcul
+    await this.initConversionRates();
 
     this.storage.cleanExpiredCache();
     this.filterManager.updateTickerFilter(() => this.renderCurrentPage());
@@ -71,9 +118,6 @@ class App {
     // ==========================================================
     // === MODIFICATION : renderCurrentPage s'occupe de tout ===
     // ==========================================================
-    // 'renderCurrentPage' va appeler 'investmentsPage.render',
-    // qui va maintenant afficher le loader, puis charger le tableau,
-    // puis charger le graphique (et cacher le loader).
     await this.renderCurrentPage(); 
     // ==========================================================
 
@@ -85,12 +129,8 @@ class App {
     // ==========================================================
     // === MODIFICATION : On déplace l'init du graphique ici ===
     // ==========================================================
-    // On retire l'ancien appel 'historicalChart.init()' qui
-    // rechargeait le graphique inutilement.
     if (this.historicalChart) { 
-      // On attache juste les boutons de période (1D, 1W, etc.)
       this.historicalChart.setupPeriodButtons();
-      // On démarre l'auto-refresh *du graphique*
       this.historicalChart.startAutoRefresh(); 
     }
     // ==========================================================
@@ -98,6 +138,36 @@ class App {
     // Démarrer le rafraîchissement automatique
     this.startAutoRefresh();
     console.log('Application prête');
+  }
+
+  async initConversionRates() {
+    console.log('Initialisation du taux de change...');
+    const pair = 'USD_TO_EUR';
+    const cachedRate = this.storage.getConversionRate(pair);
+
+    if (cachedRate) {
+        console.log(`Taux de change (cache): 1 USD = ${cachedRate} EUR`);
+        return; // Le cache est valide (moins de 24h)
+    }
+
+    try {
+        // Appel direct à CoinGecko (simple, pas besoin de l'artillerie de api.js)
+        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=usd&vs_currencies=eur');
+        if (!res.ok) throw new Error('Réponse API invalide');
+        
+        const data = await res.json();
+        const rate = data?.usd?.eur;
+
+        if (rate) {
+            this.storage.setConversionRate(pair, rate);
+            console.log(`Taux de change (API): 1 USD = ${rate} EUR`);
+        } else {
+            throw new Error('Format de données invalide');
+        }
+    } catch (error) {
+        console.error('Échec de la récupération du taux de change:', error.message);
+        this.showNotification('Taux de change indisponible, utilisation du taux de secours.', 'error');
+    }
   }
 
   updateMarketStatus() {
@@ -125,6 +195,12 @@ class App {
       brokerSelect.innerHTML = '<option value="">Select Broker</option>' +
         BROKERS.map(broker => `<option value="${broker.value}">${broker.label}</option>`).join('');
     }
+
+	const cashBrokerSelect = document.getElementById('cash-broker');
+	if (cashBrokerSelect) {
+	  cashBrokerSelect.innerHTML = '<option value="">Select Broker</option>' +
+		BROKERS.map(broker => `<option value="${broker.value}">${broker.label}</option>`).join('');
+	}
   }
 
   isAchatsPage() {
@@ -141,8 +217,7 @@ class App {
     if (this.isAchatsPage()) {
       await this.achatsPage.render(this.searchQuery);
     } else if (this.isInvestmentsPage()) {
-      // MODIFICATION : On passe la query au 'render' de investmentsPage
-      // C'est lui qui la passera au graphique.
+      // On passe la query à la page, qui la stockera
       await this.investmentsPage.render(this.searchQuery); 
     }
   }
@@ -205,6 +280,7 @@ class App {
 
     this.achatsPage.setupSorting();
     this.setupCSVListeners();
+	this.setupCashFormListener();
   }
 
   setupInvestmentsPageListeners() {
@@ -212,7 +288,7 @@ class App {
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         this.searchQuery = e.target.value;
-        // MODIFICATION : On relance le render global
+        // On passe la query à la page
         this.investmentsPage.render(this.searchQuery);
       });
     }
@@ -225,7 +301,7 @@ class App {
     }
 
     this.investmentsPage.setupSorting();
-    this.investmentsPage.setupFilters();
+    this.investmentsPage.setupFilters(); // La page gère son propre bouton "Clear"
   }
 
   async addPurchase() {
@@ -278,9 +354,7 @@ class App {
     try {
       // ==========================================================
       // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
-      // On ne rafraîchit PAS l'API ici. On se contente de
-      // forcer le graphique à se mettre à jour.
-      // Le graphique rafraîchira l'API ET le reste de la page.
+      // ==========================================================
       
       if (this.isInvestmentsPage() && this.historicalChart) {
           console.log('Rafraîchissement déclenché... Le graphique prend la main.');
@@ -392,48 +466,70 @@ class App {
     const file = fileInput?.files[0];
     if (!file) return alert('Sélectionnez un fichier CSV');
 
+    const importBtn = document.getElementById('import-csv');
+    const originalBtnText = importBtn ? importBtn.innerHTML : 'Import CSV';
+    const fileNameSpan = document.getElementById('file-name');
+
     try {
+      // Mettre à jour l'UI pour montrer le chargement
+      if (importBtn) {
+        importBtn.disabled = true;
+        importBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Import...';
+      }
+
+      // Lire le fichier (rapide)
       const text = await file.text();
-      const lines = text.split('\n').filter(l => l.trim());
-      if (lines.length < 2) return alert('CSV vide ou invalide');
+      
+      // Démarrer le Worker (doit être au même niveau que app.js)
+      const worker = new Worker('./csvWorker.js');
+      
+      // Envoyer le texte au worker
+      worker.postMessage(text);
 
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-      let imported = 0;
-
-      lines.slice(1).forEach(line => {
-        const values = line.split(',').map(v => v.trim());
-        const purchase = {};
-        headers.forEach((h, i) => {
-          if (h === 'ticker') purchase.ticker = values[i];
-          else if (h === 'name') purchase.name = values[i];
-          else if (h === 'price') purchase.price = parseFloat(values[i]);
-          else if (h === 'date') purchase.date = values[i];
-          else if (h === 'quantity') purchase.quantity = parseFloat(values[i]);
-          else if (h === 'currency') purchase.currency = values[i];
-          else if (h.includes('asset')) purchase.assetType = values[i];
-          else if (h === 'broker') purchase.broker = values[i];
-        });
-
-        if (purchase.ticker && purchase.name && purchase.price && purchase.date && purchase.quantity) {
-          purchase.currency = purchase.currency || 'EUR';
-          purchase.assetType = purchase.assetType || 'Stock';
-          purchase.broker = purchase.broker || 'RV-CT';
-          this.storage.addPurchase(purchase);
-          imported++;
-        }
+      // Attendre la réponse (se fait en arrière-plan)
+      const result = await new Promise((resolve, reject) => {
+        worker.onmessage = (e) => {
+          if (e.data.error) {
+            reject(new Error(e.data.error));
+          } else {
+            resolve(e.data);
+          }
+        };
+        worker.onerror = (e) => {
+          reject(new Error('Erreur du Worker CSV: ' + e.message));
+        };
       });
+      
+      worker.terminate(); // Tuer le worker après le travail
 
+      // Nous avons la réponse !
+      const { purchases, count } = result;
+
+      if (count > 0) {
+        purchases.forEach(purchase => {
+          this.storage.addPurchase(purchase);
+        });
+      }
+
+      // Mettre à jour l'UI principale (exactement comme avant)
       this.filterManager.updateTickerFilter(() => this.renderCurrentPage());
       await this.achatsPage.render(this.searchQuery);
-      this.showNotification(`${imported} transactions importées`, 'success');
+      this.showNotification(`${count} transactions importées`, 'success');
 
       fileInput.value = '';
       if (fileNameSpan) fileNameSpan.textContent = 'No file chosen';
+
     } catch (error) {
       alert('Erreur import: ' + error.message);
+      this.showNotification('Échec de l\'importation', 'error');
+    } finally {
+      // Restaurer le bouton
+      if (importBtn) {
+        importBtn.disabled = false;
+        importBtn.innerHTML = originalBtnText;
+      }
     }
   }
-
   exportCSV() {
     const purchases = this.storage.getPurchases();
     if (!purchases.length) return alert('Aucune transaction');
@@ -527,7 +623,8 @@ class App {
 // === INITIALISATION ===
 (async () => {
   const app = new App();
-  window.app = app;
+  // MODIFICATION : On supprime la variable globale
+  // window.app = app; 
   try {
     await app.init();
   } catch (error) {

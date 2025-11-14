@@ -1,5 +1,5 @@
 // ========================================
-// analyticsApp.js - Application Analytics (Câblage Corrigé)
+// analyticsApp.js - (v2 - Avec MarketStatus)
 // ========================================
 
 import { Storage } from './storage.js';
@@ -9,6 +9,8 @@ import { formatCurrency, formatPercent } from './utils.js';
 // === CHANGEMENT 1 : Importer les nouvelles dépendances ===
 import { PriceAPI } from './api.js';
 import { DataManager } from './dataManager.js';
+// AJOUT : Importer MarketStatus (avec le cache buster)
+import { MarketStatus } from './marketStatus.js?v=2'; 
 
 class AnalyticsApp {
     constructor() {
@@ -19,13 +21,18 @@ class AnalyticsApp {
         
         // On passe le dataManager, pas le storage
         this.analytics = new PortfolioAnalytics(this.dataManager); 
-        // ===============================================
+        
+        // AJOUT : Initialiser MarketStatus
+        this.marketStatus = new MarketStatus(this.storage);
         
         this.allocationChart = null;
     }
 
     async init() {
         console.log('📊 Initialisation Analytics...');
+        
+        // AJOUT : Démarrer l'auto-refresh du statut marché
+        this.marketStatus.startAutoRefresh('market-status-container', 'full');
         
         // === CHANGEMENT 3 : Rafraîchir les prix avant de rendre ===
         // (Optionnel, mais garantit des données à jour à l'ouverture)
@@ -47,6 +54,13 @@ class AnalyticsApp {
         console.log('✅ Analytics prêt');
     }
 
+    // ... (Le reste de votre fichier analyticsApp.js est inchangé) ...
+    // render()
+    // updateSummary()
+    // updatePerformance()
+    // etc...
+
+// (Collez le reste de votre fichier analyticsApp.js ici)
     async render() {
         // Cette fonction n'a pas besoin de changer,
         // car this.analytics.generateReport() appelle maintenant

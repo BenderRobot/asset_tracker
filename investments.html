@@ -7,7 +7,8 @@
 	<link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    <link rel="stylesheet" href="style.css?v=10">
+    <link rel="stylesheet" href="css/global.css?v=10">
+	<link rel="stylesheet" href="css/investments.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -51,15 +52,17 @@
                 </div>
             </div>
             
-            <div class="summary-stats">
+			<div class="summary-stats">
                 <div class="stat-item">
-                    <div class="stat-label">Assets</div>
-                    <div id="unique-assets" class="stat-value">0</div>
+                    <div class="stat-label">Best Performer (Day)</div>
+                    <div id="best-day-asset" class="stat-value stat-positive">-</div>
                 </div>
+                
                 <div class="stat-item">
-                    <div class="stat-label">Positions</div>
-                    <div id="total-movements" class="stat-value">0</div>
+                    <div class="stat-label">Worst Performer (Day)</div>
+                    <div id="worst-day-asset" class="stat-value stat-negative">-</div>
                 </div>
+                
                 <div class="stat-item">
                     <div class="stat-label">Best Performer</div>
                     <div id="best-asset" class="stat-value stat-positive">-</div>
@@ -198,7 +201,7 @@
                     <th data-sort="invested">INVESTED</th>
                     <th data-sort="currentPrice">CURRENT</th>
                     <th data-sort="currentValue">VALUE</th>
-                    <th data-sort="gainLoss">P&L</th>
+                    <th data-sort="gainEUR">P&L</th>
                     <th data-sort="gainPct">RT %</th>
                     <th data-sort="dayChange">DAY P&L</th>
                     <th data-sort="dayPct">DAY %</th>
@@ -210,6 +213,6 @@
         <div class="pagination" id="pagination"></div>
     </div>
 
-    <script type="module" src="./app.js?v=9"></script>
+    <script type="module" src="./app.js?v=10"></script>
 </body>
 </html>

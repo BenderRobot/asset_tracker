@@ -1,17 +1,16 @@
 // ========================================
-// achatsPage.js - MODIFIÉ POUR DATA-MANAGER
+// achatsPage.js - (v7 - Avec Cash Reserve)
 // ========================================
-import { PAGE_SIZE, USD_TO_EUR_RATE, ASSET_TYPES, BROKERS, CURRENCIES } from './config.js';
+import { PAGE_SIZE, ASSET_TYPES, BROKERS, CURRENCIES } from './config.js';
 import { formatCurrency, formatPercent, formatDate, formatQuantity } from './utils.js';
 
 export class AchatsPage {
-  // === CHANGEMENT 1 : Accepter dataManager ===
   constructor(storage, api, ui, filterManager, dataManager) {
     this.storage = storage;
     this.api = api;
     this.ui = ui;
     this.filterManager = filterManager;
-    this.dataManager = dataManager; // <-- AJOUTÉ
+    this.dataManager = dataManager;
     this.currentPage = 1;
     this.sortColumn = 'date';
     this.sortDirection = 'desc';
@@ -28,20 +27,29 @@ export class AchatsPage {
 
     tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:20px;">Chargement...</td></tr>';
 
+    // 1. Obtenir toutes les transactions filtrées
     let filtered = this.filterManager.filterPurchases(this.storage.getPurchases(), searchQuery);
-    const tickers = [...new Set(filtered.map(p => p.ticker.toUpperCase()))];
+
+    // 2. Séparer les actifs du cash
+    const assetPurchases = filtered.filter(p => p.assetType !== 'Cash');
+    const cashMovements = filtered.filter(p => p.assetType === 'Cash');
+
+    // 3. Rafraîchir les prix UNIQUEMENT pour les actifs
+    const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
     await this.api.fetchBatchPrices(tickers);
 
     // ==========================================================
-    // === CHANGEMENT 2 : Utiliser le DataManager pour l'enrichissement ===
+    // 4. Enrichir les deux listes séparément
     // ==========================================================
-    // Toute la logique de calcul (lignes 40-66 de l'original) 
-    // est remplacée par cet appel unique :
-    const enriched = this.dataManager.calculateEnrichedPurchases(filtered);
+    const enrichedAssets = this.dataManager.calculateEnrichedPurchases(assetPurchases);
+    const enrichedCash = this.dataManager.calculateEnrichedPurchases(cashMovements);
+
+    // 5. Combiner pour l'affichage
+    const allEnriched = [...enrichedAssets, ...enrichedCash];
     // ==========================================================
 
-
-    enriched.sort((a, b) => {
+    allEnriched.sort((a, b) => {
+      // ... (logique de tri inchangée) ...
       const valA = a[this.sortColumn] ?? -Infinity;
       const valB = b[this.sortColumn] ?? -Infinity;
       
@@ -55,9 +63,9 @@ export class AchatsPage {
       return order * (this.sortDirection === 'asc' ? 1 : -1);
     });
 
-    const totalPages = Math.max(1, Math.ceil(enriched.length / PAGE_SIZE));
+    const totalPages = Math.max(1, Math.ceil(allEnriched.length / PAGE_SIZE));
     if (this.currentPage > totalPages) this.currentPage = totalPages;
-    const pageItems = enriched.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
+    const pageItems = allEnriched.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
 
     tbody.innerHTML = pageItems.map(p => {
       const key = this.storage.getRowKey(p);
@@ -69,7 +77,26 @@ export class AchatsPage {
       const assetTypeBadge = `<span class="asset-type-badge asset-type-${p.assetType.toLowerCase().replace(/\s/g, '-')}">${p.assetType}</span>`;
       const brokerBadge = `<span class="broker-badge">${p.broker}</span>`;
       
-      // Les données 'p' sont maintenant directement enrichies
+      // MODIFICATION : Gérer l'affichage du cash
+      if (p.assetType === 'Cash') {
+        const cashColor = p.price > 0 ? 'positive' : 'negative';
+        return `
+          <tr data-row-key="${key}" style="opacity: 0.8; background: var(--bg-secondary);">
+            <td><input type="checkbox" class="row-select" data-key="${key}"></td>
+            <td>${assetTypeBadge}</td>
+            <td>${brokerBadge}</td>
+            <td>${formatDate(p.date)}</td>
+            <td><strong>${p.ticker}</strong></td>
+            <td>${p.name}</td>
+            <td>${currencyBadge}</td>
+            <td>-</td> <td>-</td> <td class="${cashColor}">${formatCurrency(p.gainEUR, 'EUR')}</td> <td>-</td> <td class="${cashColor}">${formatCurrency(p.buyPriceOriginal, 'EUR')}</td> <td>-</td> <td>-</td> <td class="action-cell">
+              <div class="action-trigger" data-key="${key}">...</div>
+            </td>
+          </tr>
+        `;
+      }
+
+      // Affichage normal pour les actifs
       return `
         <tr data-row-key="${key}">
           <td><input type="checkbox" class="row-select" data-key="${key}"></td>
@@ -108,11 +135,19 @@ export class AchatsPage {
     }).join('') || '<tr><td colspan="16">Aucune transaction.</td></tr>';
 
     
-    // === CHANGEMENT 3 : Logique de résumé (inchangée, mais correcte) ===
-    // (Cette partie utilisait déjà le dataManager, on la conserve)
-    const holdings = this.dataManager.calculateHoldings(filtered);
+    // ==========================================================
+    // 6. Calculer le résumé et le cash
+    // ==========================================================
+    // Le résumé se base UNIQUEMENT sur les actifs filtrés
+    const holdings = this.dataManager.calculateHoldings(assetPurchases);
     const summary = this.dataManager.calculateSummary(holdings);
-    this.ui.updatePortfolioSummary(summary, filtered.length); 
+    
+    // La réserve de cash se base sur TOUTES les transactions (non filtrées)
+    // pour que le résumé global soit toujours correct.
+    const globalCashReserve = this.dataManager.calculateCashReserve(this.storage.getPurchases());
+    
+    // 7. Mettre à jour l'UI
+    this.ui.updatePortfolioSummary(summary, allEnriched.length, globalCashReserve.total); 
     // ==========================================================
     
     this.ui.renderPagination(this.currentPage, totalPages, (newPage) => {
@@ -122,9 +157,12 @@ export class AchatsPage {
 
     this.attachEventListeners();
   }
-
-  // ... (TOUT LE RESTE DU FICHIER : attachEventListeners, setupModalHandlers, openEditModal, etc. ne change pas) ...
-  // ... (Copiez simplement le reste de votre fichier original ici) ...
+  
+  // ... (Le reste de achatsPage.js est inchangé) ...
+  // attachEventListeners()
+  // setupModalHandlers()
+  // openEditModal()
+  // etc...
   
   attachEventListeners() {
     const table = document.getElementById('purchases-table');
@@ -146,6 +184,19 @@ export class AchatsPage {
         e.preventDefault();
         e.stopPropagation();
         const key = btn.dataset.key;
+        
+        // Ne pas ouvrir la bulle pour le cash (simplifié)
+        const purchase = this.storage.getPurchaseByKey(key);
+        if (purchase && purchase.assetType === 'Cash') {
+            if (confirm('Supprimer ce mouvement de cash ?')) {
+                 this.storage.removePurchase(key);
+                 this.selectedRows.delete(key);
+                 this.render();
+                 this.filterManager.updateTickerFilter(() => this.render());
+            }
+            return;
+        }
+
         const bubble = document.getElementById(`bubble-${key}`);
         if (this.openBubble && this.openBubble !== bubble) {
           this.openBubble.classList.remove('show');

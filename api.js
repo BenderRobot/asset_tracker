@@ -1,7 +1,9 @@
 // ========================================
-// api.js - RÉCUPÉRATION DES PRIX (v9 - STABLE)
+// api.js - RÉCUPÉRATION DES PRIX (v9.1 - Taux Dynamique)
 // ========================================
-import { RAPIDAPI_KEY, YAHOO_MAP, USD_TO_EUR_RATE } from './config.js';
+
+// MODIFICATION : Import du taux de SECOURS
+import { RAPIDAPI_KEY, YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE } from './config.js';
 import { sleep } from './utils.js';
 
 const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
@@ -51,13 +53,17 @@ export class PriceAPI {
             !yahooSymbol.includes('.AS'));
   }
 
+  // MODIFICATION : Utilise le taux dynamique du storage
   convertToEUR(price, ticker) {
-    // ... (code inchangé) ...
     if (USD_TICKERS.has(ticker.toUpperCase())) {
       return { price, currency: 'USD' };
     }
+    
+    // Récupère le taux dynamique du storage
+    const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+
     return {
-      price: price * USD_TO_EUR_RATE,
+      price: price * dynamicRate, // Utilise le taux dynamique
       currency: 'EUR'
     };
   }

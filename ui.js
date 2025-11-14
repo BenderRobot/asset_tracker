@@ -1,29 +1,25 @@
 // ========================================
-// ui.js - Composants UI avec GESTION DEVISES AMÉLIORÉE
+// ui.js - (v3 - Best/Worst Day)
 // ========================================
-
-import { USD_TO_EUR_RATE } from './config.js';
 
 export class UIComponents {
     constructor(storage) {
         this.storage = storage;
     }
 
-    // RÉSUMÉ DU PORTEFEUILLE - Ne fait plus que de l'affichage !
-    updatePortfolioSummary(summary, movementsCount) {
+    // MODIFICATION : Gère bestDayAsset et worstDayAsset
+    updatePortfolioSummary(summary, movementsCount, cashReserveTotal = 0) {
         
-        // summary contient déjà :
-        // { totalInvestedEUR, totalCurrentEUR, totalDayChangeEUR,
-        //   gainTotal, gainPct, dayChangePct,
-        //   bestAsset, worstAsset, assetsCount }
+        // summary contient maintenant :
+        // { ... bestAsset, worstAsset, bestDayAsset, worstDayAsset ... }
 
         console.log('📊 Résumé Portfolio (Reçu):', summary);
+        console.log('💰 Réserve Cash (Reçu):', cashReserveTotal);
 
         const formatSimple = (value) => {
             if (value === null || value === undefined || isNaN(value)) return '-';
             return value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
         };
-
         const formatPctSimple = (value) => {
             if (value === null || isNaN(value)) return '-';
             const sign = value >= 0 ? '+' : '';
@@ -34,10 +30,15 @@ export class UIComponents {
             const el = document.getElementById(id);
             if (el) el.innerHTML = html;
         };
+        const updateEl = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
 
-        // 1. TOTAL VALUE
+        // 1. TOTAL VALUE (Actifs + Cash)
+        const totalValueWithCash = (summary.totalCurrentEUR || 0) + cashReserveTotal;
         updateHTML('total-current', `
-            ${formatSimple(summary.totalCurrentEUR)}
+            ${formatSimple(totalValueWithCash)}
             <div style="font-size: 14px; font-weight: 400; opacity: 0.7; margin-top: 4px;">
                 Invested: ${formatSimple(summary.totalInvestedEUR)}
             </div>
@@ -57,7 +58,7 @@ export class UIComponents {
             avgCostEl.innerHTML = `<span style="color: ${dayChangeColor}">${formatPctSimple(summary.dayChangePct)}</span>`;
         }
 
-        // 4. BEST PERFORMER
+        // 4. BEST PERFORMER (TOTAL)
         if (summary.bestAsset) {
             const bestColor = summary.bestAsset.gainPct >= 0 ? '#10b981' : '#ef4444';
             updateHTML('best-asset', `
@@ -68,7 +69,7 @@ export class UIComponents {
             updateHTML('best-asset', '-');
         }
 
-        // 5. WORST PERFORMER
+        // 5. WORST PERFORMER (TOTAL)
         if (summary.worstAsset) {
             const worstColor = summary.worstAsset.gainPct >= 0 ? '#10b981' : '#ef4444';
             updateHTML('worst-asset', `
@@ -78,18 +79,38 @@ export class UIComponents {
         } else {
             updateHTML('worst-asset', '-');
         }
+        
+        // 6. AJOUT : BEST PERFORMER (DAY)
+        if (summary.bestDayAsset) {
+            const bestDayColor = summary.bestDayAsset.dayPct >= 0 ? '#10b981' : '#ef4444';
+            updateHTML('best-day-asset', `
+                <div style="font-size: 14px; font-weight: 600;">${summary.bestDayAsset.ticker}</div>
+                <div style="font-size: 12px; color: ${bestDayColor}; margin-top: 2px;">${formatPctSimple(summary.bestDayAsset.dayPct)}</div>
+            `);
+        } else {
+            updateHTML('best-day-asset', '-');
+        }
 
-        // Stats simples
-        const updateEl = (id, value) => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = value;
-        };
+        // 7. AJOUT : WORST PERFORMER (DAY)
+        if (summary.worstDayAsset) {
+            const worstDayColor = summary.worstDayAsset.dayPct >= 0 ? '#10b981' : '#ef4444';
+            updateHTML('worst-day-asset', `
+                <div style="font-size: 14px; font-weight: 600;">${summary.worstDayAsset.ticker}</div>
+                <div style="font-size: 12px; color: ${worstDayColor}; margin-top: 2px;">${formatPctSimple(summary.worstDayAsset.dayPct)}</div>
+            `);
+        } else {
+            updateHTML('worst-day-asset', '-');
+        }
 
+        // Stats simples (pour index.html)
         updateEl('unique-assets', summary.assetsCount);
-        updateEl('total-movements', movementsCount); // Utilise le compte de 'investmentsPage'
-        updateEl('cash-reserve', formatSimple(0));
+        updateEl('total-movements', movementsCount);
+        
+        // Cash Reserve (pour les deux pages)
+        updateEl('cash-reserve', formatSimple(cashReserveTotal));
     }
 
+    // ... (Reste de ui.js inchangé) ...
     // PAGINATION
     renderPagination(currentPage, totalPages, callback) {
         const paginationEl = document.getElementById('pagination');

@@ -1,8 +1,8 @@
 // ========================================
-// dataManager.js - Le cerveau des calculs (v11 - STABLE)
+// dataManager.js - (v13 - Best/Worst Day)
 // ========================================
 
-import { USD_TO_EUR_RATE, YAHOO_MAP } from './config.js'; 
+import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js'; 
 
 export class DataManager {
     constructor(storage, api) {
@@ -11,13 +11,38 @@ export class DataManager {
     }
 
     /**
-     * Calcule la liste agrégée et enrichie des actifs (pour la page Investissements)
+     * NOUVELLE FONCTION : Calcule la réserve de cash
      */
-    calculateHoldings(filteredPurchases) {
+    calculateCashReserve(allPurchases) {
+        const cashMovements = allPurchases.filter(p => p.assetType === 'Cash');
+        
+        const byBroker = {};
+        let total = 0;
+
+        cashMovements.forEach(move => {
+            const broker = move.broker || 'Unknown';
+            if (!byBroker[broker]) {
+                byBroker[broker] = 0;
+            }
+            byBroker[broker] += move.price;
+            total += move.price;
+        });
+
+        return { total, byBroker };
+    }
+
+
+    /**
+     * Calcule la liste agrégée et enrichie des actifs
+     */
+    calculateHoldings(assetPurchases) {
+        // ... (fonction inchangée) ...
         const aggregated = {};
+        
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
 
         // 1. Agréger les achats par ticker
-        filteredPurchases.forEach(p => {
+        assetPurchases.forEach(p => {
             const t = p.ticker.toUpperCase();
             if (!aggregated[t]) {
                 aggregated[t] = {
@@ -40,7 +65,7 @@ export class DataManager {
             const currentPrice = d.price;
             const previousClose = d.previousClose;
 
-            const rate = currency === 'USD' ? USD_TO_EUR_RATE : 1;
+            const rate = currency === 'USD' ? dynamicRate : 1;
 
             const investedEUR = data.invested * rate;
             const avgPrice = (data.quantity > 0) ? data.invested / data.quantity : 0;
@@ -84,12 +109,14 @@ export class DataManager {
 
     /**
      * Calcule le résumé global du portefeuille (pour les cartes)
+     * MODIFIÉ : Ajout de bestDayAsset et worstDayAsset
      */
     calculateSummary(holdings) {
         let totalInvestedEUR = 0;
         let totalCurrentEUR = 0;
         let totalDayChangeEUR = 0;
-        const assetPerformances = [];
+        const assetTotalPerformances = [];
+        const assetDayPerformances = []; // <-- AJOUT
 
         holdings.forEach(asset => {
             totalInvestedEUR += asset.invested || 0;
@@ -97,11 +124,20 @@ export class DataManager {
             totalDayChangeEUR += asset.dayChange || 0;
 
             if (asset.currentValue !== null) {
-                assetPerformances.push({
+                // Performance totale (inchangé)
+                assetTotalPerformances.push({
                     ticker: asset.ticker,
                     name: asset.name,
                     gainPct: asset.gainPct || 0,
                     gain: asset.gainEUR || 0
+                });
+                
+                // AJOUT : Performance du jour
+                assetDayPerformances.push({
+                    ticker: asset.ticker,
+                    name: asset.name,
+                    dayPct: asset.dayPct || 0,
+                    dayChange: asset.dayChange || 0
                 });
             }
         });
@@ -114,9 +150,15 @@ export class DataManager {
             ? (totalDayChangeEUR / totalPreviousCloseEUR) * 100
             : 0;
 
-        const sortedAssets = assetPerformances.sort((a, b) => b.gainPct - a.gainPct);
-        const bestAsset = sortedAssets.length > 0 ? sortedAssets[0] : null;
-        const worstAsset = sortedAssets.length > 0 ? sortedAssets[sortedAssets.length - 1] : null;
+        // Tri pour performance totale (inchangé)
+        const sortedTotal = assetTotalPerformances.sort((a, b) => b.gainPct - a.gainPct);
+        const bestAsset = sortedTotal.length > 0 ? sortedTotal[0] : null;
+        const worstAsset = sortedTotal.length > 0 ? sortedTotal[sortedTotal.length - 1] : null;
+        
+        // AJOUT : Tri pour performance du jour
+        const sortedDay = assetDayPerformances.sort((a, b) => b.dayPct - a.dayPct);
+        const bestDayAsset = sortedDay.length > 0 ? sortedDay[0] : null;
+        const worstDayAsset = sortedDay.length > 0 ? sortedDay[sortedDay.length - 1] : null;
 
         return {
             totalInvestedEUR,
@@ -125,25 +167,51 @@ export class DataManager {
             gainTotal,
             gainPct,
             dayChangePct,
-            bestAsset,
-            worstAsset,
+            bestAsset,    // P&L Total (%)
+            worstAsset,   // P&L Total (%)
+            bestDayAsset, // <-- NOUVEAU
+            worstDayAsset,// <-- NOUVEAU
             assetsCount: holdings.length,
             movementsCount: holdings.reduce((sum, h) => sum + h.purchases.length, 0)
         };
     }
 
+    // ... (Le reste de dataManager.js est inchangé) ...
+    
     /**
      * Calcule la liste enrichie des transactions (pour la page Transactions)
      */
     calculateEnrichedPurchases(filteredPurchases) {
+        // ... (fonction inchangée) ...
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+        
         return filteredPurchases.map(p => {
+
+            // CAS 1 : C'est un mouvement de cash
+            if (p.assetType === 'Cash') {
+                const isDeposit = p.price > 0;
+                return {
+                    ...p,
+                    currency: 'EUR',
+                    currentPriceOriginal: null,
+                    buyPriceOriginal: p.price,
+                    currentPriceEUR: null, 
+                    investedEUR: null,     
+                    currentValueEUR: null, 
+                    // On affiche le montant dans la colonne P&L
+                    gainEUR: p.price, 
+                    gainPct: null
+                };
+            }
+
+            // CAS 2 : C'est un actif (logique existante)
             const t = p.ticker.toUpperCase();
             const d = this.storage.getCurrentPrice(t) || {};
             const assetCurrency = d.currency || p.currency || 'EUR';
             const currentPriceOriginal = d.price;
             const buyPriceOriginal = p.price;
             
-            const rate = assetCurrency === 'USD' ? USD_TO_EUR_RATE : 1;
+            const rate = assetCurrency === 'USD' ? dynamicRate : 1;
 
             const currentPriceEUR = currentPriceOriginal * rate;
             const buyPriceEUR = buyPriceOriginal * rate;
@@ -173,9 +241,14 @@ export class DataManager {
     // FONCTIONS D'ANALYSE (Analytics)
     // ==========================================================
     generateFullReport(purchases) {
-        // ... (code inchangé) ...
-        const holdings = this.calculateHoldings(purchases);
+        // ... (fonction inchangée) ...
+        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
+        const cashPurchases = purchases.filter(p => p.assetType === 'Cash');
+
+        const holdings = this.calculateHoldings(assetPurchases);
         const summary = this.calculateSummary(holdings);
+        const cashReserve = this.calculateCashReserve(cashPurchases); // Calcule le cash
+        
         holdings.forEach(asset => {
             asset.weight = summary.totalCurrentEUR > 0 
                 ? (asset.currentValue / summary.totalCurrentEUR) * 100 
@@ -184,6 +257,7 @@ export class DataManager {
         const diversification = this.calculateDiversification(holdings);
         const performance = this.analyzePerformance(holdings);
         const risk = this.calculateRisk(holdings);
+        
         return {
             summary: {
                 totalValue: summary.totalCurrentEUR,
@@ -191,7 +265,8 @@ export class DataManager {
                 totalGain: summary.gainTotal,
                 totalGainPct: summary.gainPct,
                 dayChange: summary.totalDayChangeEUR,
-                dayChangePct: summary.dayChangePct
+                dayChangePct: summary.dayChangePct,
+                cashReserve: cashReserve.total // AJOUT
             },
             diversification,
             performance,
@@ -200,6 +275,8 @@ export class DataManager {
             generatedAt: new Date().toISOString()
         };
     }
+    
+    // ... (Le reste de generateFullReport (diversification, performance, risque) est inchangé) ...
     calculateDiversification(holdings) {
         // ... (code inchangé) ...
         const herfindahl = holdings.reduce((sum, asset) => 
@@ -286,21 +363,26 @@ export class DataManager {
 
 
     // ==========================================================
-    // LOGIQUE DU GRAPHIQUE (RESTAURÉE)
+    // LOGIQUE DU GRAPHIQUE
     // ==========================================================
-
     async calculateHistory(purchases, days) {
-        return this.calculateGenericHistory(purchases, days, false);
+        // ... (fonction inchangée) ...
+        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
+        return this.calculateGenericHistory(assetPurchases, days, false);
     }
     async calculateAssetHistory(ticker, days) {
+        // ... (fonction inchangée) ...
         const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
         if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null };
         return this.calculateGenericHistory(purchases, days, true);
     }
     async calculateMultipleAssetsHistory(purchases, days) {
-        return this.calculateGenericHistory(purchases, days, false);
+        // ... (fonction inchangée) ...
+        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
+        return this.calculateGenericHistory(assetPurchases, days, false);
     }
 
+    // ... (calculateGenericHistory et utilitaires inchangés) ...
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
         // ... (logique assetMap et firstPurchase inchangée) ...
         const assetMap = new Map();
@@ -540,7 +622,7 @@ export class DataManager {
     // ==========================================================
 
     getIntervalForPeriod(days) {
-        // === CORRECTION GRANULARITÉ v3 (Celle-ci est la bonne) ===
+        // ... (fonction inchangée) ...
         if (days === 1) return '5m';   // 1 Jour -> 5 minutes
         if (days === 2) return '15m';  // 2 Jours -> 15 minutes
         if (days <= 7) return '90m';   // 1W -> 90 minutes (proche de votre demande de 3h)
@@ -552,6 +634,7 @@ export class DataManager {
     }
 
     getLabelFormat(days) {
+        // ... (fonction inchangée) ...
         return (dateUTC) => {
             const local = new Date(dateUTC);
             if (days === 1 || days === 2) return local.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); // 1D, 2J
@@ -565,6 +648,7 @@ export class DataManager {
     }
 
     getLastTradingDay(date) {
+        // ... (fonction inchangée) ...
         const day = date.getDay();
         const result = new Date(date);
         if (day === 0) result.setDate(result.getDate() - 2);
@@ -573,12 +657,14 @@ export class DataManager {
     }
 
     isCryptoTicker(ticker) {
+        // ... (fonction inchangée) ...
         const cryptoList = ['BTC','ETH','SOL','ADA','DOT','LINK','LTC','XRP','XLM','BNB','AVAX','DOGE','SHIB','MATIC','UNI','AAVE'];
         ticker = ticker.toUpperCase();
         return cryptoList.includes(ticker) || ticker.includes('-EUR') || ticker.includes('-USD');
     }
 
     formatTicker(ticker) {
+        // ... (fonction inchangée) ...
         ticker = ticker.toUpperCase().trim();
         if (YAHOO_MAP[ticker]) return YAHOO_MAP[ticker];
         const cryptos = ['ETH','SOL','ADA','DOT','LINK','LTC','XRP','XLM','BNB','AVAX'];
@@ -586,6 +672,7 @@ export class DataManager {
     }
 
     findClosestPrice(hist, targetTs, interval) {
+        // ... (fonction inchangée) ...
         if (!hist || Object.keys(hist).length === 0) return null;
         if (hist[targetTs]) return hist[targetTs];
         

@@ -7,7 +7,7 @@
 	<link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="css/global.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -128,7 +128,10 @@
             <a href="analytics.html" class="active">Analytics</a>
         </nav>
 
-        <h1>📊 Portfolio Analytics</h1>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1 style="margin-bottom: 0;">📊 Portfolio Analytics</h1>
+            <div id="market-status-container"></div>
+        </div>
 
         <!-- Résumé -->
         <div class="portfolio-summary-enhanced">

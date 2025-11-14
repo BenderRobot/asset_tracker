@@ -4,17 +4,19 @@
 
 export const RAPIDAPI_KEY = '900cd83ff7msh970062bff547634p1d444bjsn67326eb30d74';
 
-// CACHE : DurÃ©es diffÃ©rentes selon type d'actif
-export const CACHE_EXPIRY_STOCKS_MARKET_OPEN = 10 * 60 * 1000; // 10 minutes (marchÃ© ouvert)
-export const CACHE_EXPIRY_STOCKS_MARKET_CLOSED = 7 * 24 * 60 * 60 * 1000; // 7 jours (marchÃ© fermÃ©/weekend)
-export const CACHE_EXPIRY_CRYPTO = 5 * 60 * 1000; // 5 minutes (marchÃ© 24/7)
+// CACHE : Durées différentes selon type d'actif
+export const CACHE_EXPIRY_STOCKS_MARKET_OPEN = 10 * 60 * 1000; // 10 minutes (marché ouvert)
+export const CACHE_EXPIRY_STOCKS_MARKET_CLOSED = 7 * 24 * 60 * 60 * 1000; // 7 jours (marché fermé/weekend)
+export const CACHE_EXPIRY_CRYPTO = 5 * 60 * 1000; // 5 minutes (marché 24/7)
 
 // REFRESH AUTOMATIQUE
 export const AUTO_REFRESH_INTERVAL = 10 * 60 * 1000; // Rafraîchir toutes les 10 minutes
-export const AUTO_REFRESH_ENABLED = true; // Activer/dÃ©sactiver le refresh auto
+export const AUTO_REFRESH_ENABLED = true; // Activer/désactiver le refresh auto
 
 export const PAGE_SIZE = 25;
-export const USD_TO_EUR_RATE = 0.925;
+
+// MODIFICATION : Ceci est maintenant un taux de SECOURS
+export const USD_TO_EUR_FALLBACK_RATE = 0.925; 
 
 export const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 
@@ -29,14 +31,15 @@ export const YAHOO_MAP = {
   'BTC': 'BTC-EUR'
 };
 
-// Types d'actifs (SIMPLIFIÃ‰)
+// Types d'actifs (SIMPLIFIÉ)
 export const ASSET_TYPES = [
   'Stock',
   'ETF',
-  'Crypto'
+  'Crypto',
+  'Cash' // <-- AJOUTEZ CETTE LIGNE
 ];
 
-// Brokers disponibles (SIMPLIFIÃ‰)
+// Brokers disponibles (SIMPLIFIÉ)
 export const BROKERS = [
   { value: 'RV-CT', label: 'Revolut' },
   { value: 'TR-CT', label: 'Trade Republic' },
@@ -45,7 +48,7 @@ export const BROKERS = [
   { value: 'Bitstack', label: 'Bitstack' }
 ];
 
-// Devises disponibles (SIMPLIFIÃ‰)
+// Devises disponibles (SIMPLIFIÉ)
 export const CURRENCIES = [
   { value: 'EUR', label: 'Euro (€)', symbol: '€' },
   { value: 'USD', label: 'Dollar ($)', symbol: '$' }

@@ -19,6 +19,7 @@ export class Storage {
         
         // Index pour recherche rapide
         this.purchaseIndex = this.buildIndex();
+		this.conversionRates = this.loadConversionRates();
     }
 
     // === CHARGEMENT OPTIMISÉ ===
@@ -48,6 +49,26 @@ export class Storage {
             return data ? JSON.parse(data) : {};
         } catch (e) {
             console.error('Erreur chargement timestamps:', e);
+            return {};
+        }
+    }
+
+	loadConversionRates() {
+        try {
+            const data = localStorage.getItem('conversionRates');
+            // On ne garde que les taux de moins de 24h
+            const parsed = data ? JSON.parse(data) : {};
+            const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+            
+            Object.keys(parsed).forEach(key => {
+                if (parsed[key].timestamp < twentyFourHoursAgo) {
+                    delete parsed[key];
+                }
+            });
+            
+            return parsed;
+        } catch (e) {
+            console.error('Erreur chargement taux de change:', e);
             return {};
         }
     }
@@ -464,5 +485,25 @@ export class Storage {
         
         const ageMinutes = Math.floor(ageMs / (1000 * 60));
         return `${ageMinutes}min`;
+    }
+
+	getConversionRate(pair) {
+        const rateData = this.conversionRates[pair.toUpperCase()];
+        if (rateData) {
+            return rateData.rate; // Le loadConversionRates a déjà vérifié le timestamp
+        }
+        return null;
+    }
+
+    setConversionRate(pair, rate) {
+        this.conversionRates[pair.toUpperCase()] = {
+            rate: rate,
+            timestamp: Date.now()
+        };
+        try {
+            localStorage.setItem('conversionRates', JSON.stringify(this.conversionRates));
+        } catch (e) {
+            console.error('Erreur sauvegarde taux de change:', e);
+        }
     }
 }

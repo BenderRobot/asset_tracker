@@ -36,3 +36,4 @@ export class PortfolioAnalytics {
         a.click();
         URL.revokeObjectURL(url);
     }
+} // <-- AJOUT DE L'ACCOLADE FERMANTE MANQUANTE
