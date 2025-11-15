@@ -1,5 +1,5 @@
 // ========================================
-// api.js - RÉCUPÉRATION DES PRIX (v9.1 - Taux Dynamique)
+// api.js - (v10 - Avec Indices)
 // ========================================
 
 // MODIFICATION : Import du taux de SECOURS
@@ -151,7 +151,8 @@ export class PriceAPI {
     const results = [];
     for (const ticker of tickers) {
       try {
-        const symbol = YAHOO_MAP[ticker] || `${ticker}.F`;
+        // MODIFICATION : Le formatTicker est plus intelligent ici
+        const symbol = this.formatTicker(ticker); 
         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=2d`;
         const proxy = this.corsProxies[this.currentProxyIndex];
         const url = `${proxy}${encodeURIComponent(yahooUrl)}`;
@@ -347,9 +348,14 @@ export class PriceAPI {
     return {}; 
   }
   
+  // MODIFICATION : Ajout des indices
   formatTicker(ticker) {
     ticker = ticker.toUpperCase().trim();
     if (YAHOO_MAP[ticker]) return YAHOO_MAP[ticker];
+    
+    // Indices (n'ont pas besoin de mapping s'ils sont bien nommés)
+    if (ticker.startsWith('^')) return ticker; 
+    
     const cryptos = ['ETH','SOL','ADA','DOT','LINK','LTC','XRP','XLM','BNB','AVAX'];
     return cryptos.includes(ticker) ? ticker + '-EUR' : ticker;
   }

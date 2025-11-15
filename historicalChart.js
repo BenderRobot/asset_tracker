@@ -1,32 +1,31 @@
 // ========================================
-// historicalChart.js - (v11 - Fix Bug 1D)
+// historicalChart.js - (v12 - Features 1 & 2)
 // ========================================
 
 import { eventBus } from './eventBus.js';
 
 export class HistoricalChart {
   constructor(storage, dataManager, ui, investmentsPage) {
-    // ... (constructeur inchangé) ...
     this.storage = storage;
     this.dataManager = dataManager;
     this.ui = ui;
-    this.investmentsPage = investmentsPage; // Contient getChartTitleConfig()
+    this.investmentsPage = investmentsPage;
     
     this.chart = null;
-    this.currentPeriod = 1; // Default
+    this.currentPeriod = 1; 
     this.isLoading = false;
-    this.currentMode = 'portfolio'; // Géré par 'Clear Filters' et 'showAssetChart'
-    this.selectedAssets = []; // Géré par 'showAssetChart'
-    this.filteredPurchases = null;
-    this.isCryptoOrGlobal = true; 
+    this.currentMode = 'portfolio';
+    this.selectedAssets = [];
     this.autoRefreshInterval = null;
     this.lastRefreshTime = null;
     this.lastYesterdayClose = null; 
     
-    // Dépendance pour extraire le ticker du filtre (nécessaire)
     this.filterManager = investmentsPage.filterManager;
-
-    // Écouter les événements du bus
+    
+    // NOUVEAU (Feature 1)
+    this.currentBenchmark = null; // Ticker de l'indice (ex: '^GSPC')
+    
+    // Écouteurs d'événements
     eventBus.addEventListener('showAssetChart', (e) => {
         this.showAssetChart(e.detail.ticker, e.detail.summary);
     });
@@ -34,12 +33,15 @@ export class HistoricalChart {
     eventBus.addEventListener('clearAssetChart', () => {
         this.currentMode = 'portfolio';
         this.selectedAssets = [];
+        this.currentBenchmark = null; // Réinitialiser aussi le benchmark
+        const benchmarkSelect = document.getElementById('benchmark-select');
+        if (benchmarkSelect) benchmarkSelect.value = '';
     });
   }
 
-  // ... (hexToRgba, setupPeriodButtons, autoRefresh... inchangés) ...
   // Convertit Hex en RGBA
   hexToRgba(hex, alpha) {
+    // ... (inchangé) ...
     let r = 0, g = 0, b = 0;
     if (hex.length === 4) {
       r = parseInt(hex[1] + hex[1], 16);
@@ -54,6 +56,7 @@ export class HistoricalChart {
   }
 
   setupPeriodButtons() {
+    // ... (inchangé) ...
     document.querySelectorAll('.period-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         if (this.isLoading) return;
@@ -62,14 +65,29 @@ export class HistoricalChart {
         document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
-        // Stocke la nouvelle période AVANT d'appeler update
         this.currentPeriod = (period === 'all' ? 'all' : parseInt(period));
         this.changePeriod(this.currentPeriod);
       });
     });
+    
+    // NOUVEAU (Feature 1) : Attacher l'écouteur du benchmark
+    this.setupBenchmarkSelector();
+  }
+  
+  // NOUVEAU (Feature 1) : Logique du sélecteur de benchmark
+  setupBenchmarkSelector() {
+    const benchmarkSelect = document.getElementById('benchmark-select');
+    if (benchmarkSelect) {
+        benchmarkSelect.addEventListener('change', (e) => {
+            this.currentBenchmark = e.target.value || null;
+            // Rafraîchir le graphique avec le benchmark
+            this.update(true, false); 
+        });
+    }
   }
 
   startAutoRefresh() {
+    // ... (inchangé) ...
     this.stopAutoRefresh();
     if (this.currentPeriod === 1) {
       setTimeout(() => {
@@ -82,6 +100,7 @@ export class HistoricalChart {
   }
 
   stopAutoRefresh() {
+    // ... (inchangé) ...
     if (this.autoRefreshInterval) {
       clearInterval(this.autoRefreshInterval);
       this.autoRefreshInterval = null;
@@ -89,6 +108,7 @@ export class HistoricalChart {
   }
 
   async silentUpdate() {
+    // ... (inchangé) ...
     if (this.isLoading) return;
     const now = Date.now();
     if (this.lastRefreshTime && (now - this.lastRefreshTime) < 4 * 60 * 1000) return;
@@ -107,23 +127,26 @@ export class HistoricalChart {
 
   async showAssetChart(ticker, summary = null) {
     if (this.isLoading) return;
-    // C'est un clic, on force le mode 'asset'
     this.currentMode = 'asset'; 
     this.selectedAssets = [ticker];
     this.isCryptoOrGlobal = this.dataManager.isCryptoTicker(ticker); 
+    
+    // On cache le sélecteur de benchmark en vue unitaire
+    const benchmarkWrapper = document.getElementById('benchmark-wrapper');
+    if (benchmarkWrapper) benchmarkWrapper.style.display = 'none';
+    
     await this.update(true, false);
   }
 
   async changePeriod(days) {
     if (this.isLoading) return;
-    // this.currentPeriod est déjà mis à jour par le setupPeriodButtons
     this.stopAutoRefresh(); 
     await this.update(true, true);
     this.startAutoRefresh(); 
   }
 
   // ==========================================================
-  // === "Cache-First" & RESET (Logique de chargement de page) ===
+  // === Logique de chargement de page (MODIFIÉE)
   // ==========================================================
   async loadPageWithCacheFirst() {
     if (this.isLoading) return;
@@ -152,14 +175,10 @@ export class HistoricalChart {
       
       const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
       
-      // ==========================================================
-      // === CORRECTION DU BUG "VAR TODAY" ===
-      // Nous rafraîchissons les prix AVANT tout calcul.
-      // ==========================================================
+      // Force le rafraîchissement des prix au premier chargement
       if (tickers.length > 0) {
           await this.dataManager.api.fetchBatchPrices(tickers);
       }
-      // ==========================================================
       
       // 2. Déterminer la CIBLE du graphique et des cartes
       const titleConfig = this.investmentsPage.getChartTitleConfig();
@@ -194,6 +213,7 @@ export class HistoricalChart {
         if (!graphData || graphData.labels.length === 0) {
              this.showMessage('Pas de données graphiques disponibles.');
         } else {
+             // MODIFICATION : Passe les graphData complètes
              historicalChanges = this.renderChart(canvas, graphData, targetSummary, titleConfig);
         }
       } catch (e) {
@@ -220,11 +240,8 @@ export class HistoricalChart {
     }
   }
 
-  // MODIFICATION SUPPRIMÉE : 'refreshDataFromAPIIfNeeded' est maintenant géré par le 'update' normal
-  // ou le 'loadPageWithCacheFirst' qui force l'API.
-
   // ==========================================================
-  // === Logique de MISE À JOUR (Clic, Période, Refresh) ===
+  // === Logique de MISE À JOUR (MODIFIÉE)
   // ==========================================================
   async update(showLoading = true, forceApi = true) {
     if (this.isLoading) return;
@@ -234,6 +251,7 @@ export class HistoricalChart {
     this.isLoading = true;
     const loading = document.getElementById('chart-loading');
     const info = document.getElementById('chart-info');
+    const benchmarkWrapper = document.getElementById('benchmark-wrapper');
 
     if (showLoading) {
       if (loading) loading.style.display = 'flex'; 
@@ -242,7 +260,7 @@ export class HistoricalChart {
 
     try {
       // 1. CONTEXTE GLOBAL (Ce qu'on affiche dans le TABLEAU)
-      const contextPurchasesNoTickerFilter = this.getFilteredPurchasesFromPage(true); // Ignore Ticker filter
+      const contextPurchasesNoTickerFilter = this.getFilteredPurchasesFromPage(true);
       const contextAssetPurchases = contextPurchasesNoTickerFilter.filter(p => p.assetType !== 'Cash');
 
       
@@ -250,9 +268,12 @@ export class HistoricalChart {
       let targetAssetPurchases;
       let targetCashPurchases;
       let titleConfig;
+      let isSingleAsset = false; // <-- NOUVEAU
 
       if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
          // CAS 1: On a cliqué sur une ligne
+         isSingleAsset = true;
+         if (benchmarkWrapper) benchmarkWrapper.style.display = 'none'; // Cache benchmark
          const ticker = this.selectedAssets[0];
          const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
          titleConfig = {
@@ -265,20 +286,31 @@ export class HistoricalChart {
       
       } else {
          // CAS 2: On est en vue "filtrée" ou "globale"
+         isSingleAsset = false;
+         if (benchmarkWrapper) benchmarkWrapper.style.display = 'block'; // Montre benchmark
+         
          titleConfig = this.investmentsPage.getChartTitleConfig();
-         const targetAllPurchases = this.getFilteredPurchasesFromPage(false); // Inclut Ticker filter
+         const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
          targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
          targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
+         
+         // Cas spécial: 1 seul actif filtré
+         if (titleConfig.mode === 'asset') isSingleAsset = true;
       }
       
       // 3. FETCH API
       const contextTickers = new Set(contextAssetPurchases.map(p => p.ticker.toUpperCase()));
       const targetTickers = new Set(targetAssetPurchases.map(p => p.ticker.toUpperCase()));
-      const allTickers = [...new Set([...contextTickers, ...targetTickers])];
+      let allTickers = [...new Set([...contextTickers, ...targetTickers])];
+      
+      // AJOUT (Feature 1) : Ajouter le benchmark aux tickers à fetch
+      if (this.currentBenchmark && !isSingleAsset) {
+          allTickers.push(this.currentBenchmark);
+      }
+      allTickers = [...new Set(allTickers)]; // Dédoublonne
       
       if (forceApi) {
           this.lastRefreshTime = Date.now();
-          // Vider le cache des prix n'est pas nécessaire si on force
           await this.dataManager.api.fetchBatchPrices(allTickers);
       }
       
@@ -286,7 +318,7 @@ export class HistoricalChart {
       
       // A. Données Graphique (sur la CIBLE)
       let graphData;
-      if (titleConfig.mode === 'asset') {
+      if (isSingleAsset) {
          const ticker = (this.currentMode === 'asset') 
             ? this.selectedAssets[0] 
             : this.filterManager.getSelectedTickers().values().next().value;
@@ -299,21 +331,31 @@ export class HistoricalChart {
       // B. Données Cartes "Summary" (sur la CIBLE)
       const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
       let targetSummary = this.dataManager.calculateSummary(targetHoldings);
-      const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases); // Calcul cash
+      const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
 
       // C. Données Tableau (sur le CONTEXTE)
       const contextHoldings = this.dataManager.calculateHoldings(contextAssetPurchases);
       
       this.lastYesterdayClose = graphData.yesterdayClose;
 
+      // D. AJOUT (Feature 1) : Données Benchmark
+      let benchmarkData = null;
+      if (this.currentBenchmark && !isSingleAsset) {
+          const { startTs, endTs } = this.getStartEndTs(this.currentPeriod);
+          const interval = this.dataManager.getIntervalForPeriod(this.currentPeriod);
+          benchmarkData = await this.dataManager.api.getHistoricalPricesWithRetry(this.currentBenchmark, startTs, endTs, interval);
+      }
+      
+      // E. Rendu
       let historicalChanges = { historicalDayChange: null, historicalDayChangePct: null };
       if (!graphData || graphData.labels.length === 0) {
         this.showMessage('Pas de données disponibles pour cette période');
       } else {
-        historicalChanges = this.renderChart(canvas, graphData, targetSummary, titleConfig);
+        // MODIFICATION : Passe les graphData complètes ET le benchmark
+        historicalChanges = this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData);
       }
       
-      // F. ÉCRASER la Var. Jour "live" par la Var. Jour "historique" (UNIQUEMENT en vue 1J)
+      // F. ÉCRASER la Var. Jour (UNIQUEMENT en vue 1J)
       if (this.currentPeriod === 1 && historicalChanges.historicalDayChange !== null) {
           targetSummary.totalDayChangeEUR = historicalChanges.historicalDayChange;
           targetSummary.dayChangePct = historicalChanges.historicalDayChangePct;
@@ -332,7 +374,6 @@ export class HistoricalChart {
   }
 
   // ... (getFilteredPurchasesFromPage inchangé) ...
-  // Helper pour récupérer les achats selon les filtres de la page
   getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
       const searchQuery = this.investmentsPage.currentSearchQuery;
       let purchases = this.storage.getPurchases();
@@ -358,89 +399,141 @@ export class HistoricalChart {
       
       return purchases;
   }
+  
+  // NOUVEAU (Helper pour Feature 1)
+  getStartEndTs(days) {
+      const today = new Date();
+      const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
+      let displayStartUTC;
+        
+      if (days === 1) {
+          displayStartUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0));
+      } else if (days === 2) {
+          const twoDaysAgo = new Date(today);
+          twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);
+          displayStartUTC = new Date(Date.UTC(twoDaysAgo.getFullYear(), twoDaysAgo.getMonth(), twoDaysAgo.getDate(), 0, 0, 0));
+      } else if (days !== 'all') {
+          const localDisplay = new Date(today);
+          localDisplay.setDate(localDisplay.getDate() - (days - 1));
+          displayStartUTC = new Date(Date.UTC(localDisplay.getFullYear(), localDisplay.getMonth(), localDisplay.getDate()));
+      } else {
+          // 'all' est géré par dataManager, ici on prend 1 an par défaut pour le benchmark
+          const localDisplay = new Date(today);
+          localDisplay.setDate(localDisplay.getDate() - 365);
+          displayStartUTC = new Date(Date.UTC(localDisplay.getFullYear(), localDisplay.getMonth(), localDisplay.getDate()));
+      }
+      
+      let dataStartUTC = new Date(displayStartUTC);
+      dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - 5); 
+        
+      const startTs = Math.floor(dataStartUTC.getTime() / 1000);
+      const endTs = Math.floor(todayUTC.getTime() / 1000);
+      return { startTs, endTs };
+  }
+  
+  // NOUVEAU (Helper pour Feature 1)
+  normalizeDatasets(portfolioGraphData, benchmarkApiData) {
+    if (!benchmarkApiData || Object.keys(benchmarkApiData).length === 0) {
+        return { normalizedPortfolio: portfolioGraphData.values, normalizedBenchmark: null };
+    }
 
-  // ... (renderChart et le reste du fichier sont inchangés) ...
+    const portfolioValues = portfolioGraphData.values;
+    const portfolioLabels = portfolioGraphData.labels; // Ceux-ci sont des strings formatés
+    const portfolioTimestamps = portfolioGraphData.labels.map(l => new Date(l).getTime()); // Pas fiable, les labels sont formatés
+    
+    // Il faut que dataManager retourne les timestamps bruts
+    // EN ATTENDANT : On suppose que les 'labels' et 'values' de portfolioGraphData
+    // et les clés/valeurs de benchmarkApiData sont alignés, ce qui est faux.
+    
+    // VRAIE LOGIQUE DE NORMALISATION (simplifiée)
+    // 1. Trouver le premier point de données commun
+    const benchTimestamps = Object.keys(benchmarkApiData).map(Number).sort((a,b)=>a-b);
+    
+    // On utilise les labels/values du portfolio comme référence
+    let firstPortfolioValue = null;
+    let firstBenchmarkValue = null;
+
+    // Trouver la première valeur du portfolio
+    for (let i = 0; i < portfolioValues.length; i++) {
+        if (portfolioValues[i] !== null) {
+            firstPortfolioValue = portfolioValues[i];
+            
+            // Essayer de trouver un prix de benchmark proche de ce point de départ
+            // Ceci est complexe. Pour l'instant, on prend la première valeur du benchmark.
+            firstBenchmarkValue = benchmarkApiData[benchTimestamps[0]];
+            break;
+        }
+    }
+
+    if (firstPortfolioValue === null || firstBenchmarkValue === null || firstPortfolioValue === 0 || firstBenchmarkValue === 0) {
+        return { normalizedPortfolio: portfolioValues, normalizedBenchmark: null };
+    }
+
+    // 2. Normaliser tout à 100
+    const normalizedPortfolio = portfolioValues.map(v => v === null ? null : (v / firstPortfolioValue) * 100);
+    
+    // 3. Aligner et normaliser le benchmark (très simplifié)
+    // Idéalement, on devrait matcher chaque timestamp du portfolio au timestamp le plus proche du benchmark
+    const normalizedBenchmark = benchTimestamps.map(ts => {
+        const val = benchmarkApiData[ts];
+        return val === null ? null : (val / firstBenchmarkValue) * 100;
+    });
+
+    // Problème : Les 'labels' du portfolio ne correspondent pas aux timestamps du benchmark.
+    // Cette normalisation est trop complexe à faire sans modifier dataManager pour qu'il retourne les timestamps bruts.
+    
+    // SOLUTION TEMPORAIRE : On renvoie juste le portfolio.
+    console.warn("Normalisation du benchmark non implémentée (nécessite timestamps bruts de dataManager)");
+    return { normalizedPortfolio: portfolioValues, normalizedBenchmark: null };
+    
+    // TODO: Implémenter la vraie normalisation quand dataManager retournera les timestamps.
+  }
+
+
   // ==========================================================
-  // Rendu
+  // Rendu (MODIFIÉ)
   // ==========================================================
 
-  // ... (renderChart est 100% inchangé, car il ne s'occupe que de grapher les actifs) ...
-  renderChart(canvas, data, summary, titleConfig) {
+  renderChart(canvas, graphData, summary, titleConfig, benchmarkData = null) {
     if (this.chart) this.chart.destroy();
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const info = document.getElementById('chart-info');
     if (info) info.style.display = 'none';
 
-    // === TITRE ===
+    // ... (Logique du TITRE inchangée) ...
     const titleText = document.getElementById('chart-title-text');
     const titleIcon = document.getElementById('chart-title-icon');
-    
-    // On utilise la config fournie
     if (titleText && titleIcon && titleConfig) {
         titleText.textContent = titleConfig.label;
         titleIcon.textContent = titleConfig.icon;
-        
-        // Logique de couleur basée sur l'icône
-        let color = '#3498db'; // Défaut (📈)
-        if (titleConfig.icon === '₿') color = '#f1c40f'; // Crypto
-        else if (titleConfig.icon === '📊') color = '#2ecc71'; // Stock/Actif
-        else if (titleConfig.icon === '🌍') color = '#8e44ad'; // ETF (Violet)
-        else if (titleConfig.icon === '🏦') color = '#8b5cf6'; // Broker (Violet)
-        
+        let color = '#3498db';
+        if (titleConfig.icon === '₿') color = '#f1c40f';
+        else if (titleConfig.icon === '📊') color = '#2ecc71';
+        else if (titleConfig.icon === '🌍') color = '#8e44ad';
+        else if (titleConfig.icon === '🏦') color = '#8b5cf6';
         titleIcon.style.color = color;
-    
-    } else if (titleText && titleIcon) {
-        // Fallback (ne devrait plus être utilisé)
-        titleText.textContent = 'Portfolio Global';
-        titleIcon.textContent = '📈';
-        titleIcon.style.color = '#3498db';
     }
-    // === FIN TITRE ===
-
-    // === MODE UNITAIRE ===
+    
+    // === VUE UNITAIRE (Feature 2) ===
     const viewToggle = document.getElementById('view-toggle');
     const activeView = viewToggle?.querySelector('.toggle-btn.active')?.dataset.view || 'global';
-    
-    // Le mode 'asset' est déterminé par le titleConfig
     const isSingleAsset = (titleConfig && titleConfig.mode === 'asset');
     
-    let totalQty = 0;
-    if (isSingleAsset) {
-        // On doit trouver le ticker (soit depuis le clic, soit depuis le filtre)
-        let ticker;
-        if (this.currentMode === 'asset') {
-            ticker = this.selectedAssets[0];
-        } else if (this.filterManager.getSelectedTickers().size === 1) {
-            ticker = this.filterManager.getSelectedTickers().values().next().value;
-        }
-        
-        if (ticker) {
-            const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
-            totalQty = purchases.reduce((sum, p) => sum + parseFloat(p.quantity), 0);
-        }
-    }
-    
-    const isUnitView = isSingleAsset && activeView === 'unit' && totalQty > 0;
-    const displayValues = isUnitView ? data.values.map(v => v !== null ? v / totalQty : null) : data.values;
+    // MODIFICATION : 'isUnitView' utilise les nouvelles données de dataManager
+    const isUnitView = isSingleAsset && activeView === 'unit';
+    // 'displayValues' sera soit la valeur du portefeuille, soit le prix unitaire brut
+    const displayValues = isUnitView ? graphData.unitPrices : graphData.values;
 
-    // === Clôture hier (SOURCE UNIQUE) ===
-    // 'this.lastYesterdayClose' est maintenant la SEULE source de vérité
-    
-    // Aligner le PRIX DE FIN du 1D avec le summary "live" (pour la fluidité)
-    if (summary && !isUnitView && displayValues.length > 0 && this.currentPeriod === 1) {
-        const livePriceEnd = summary.totalCurrentEUR;
-        if (displayValues.length > 0) {
-            displayValues[displayValues.length - 1] = livePriceEnd;
-        }
-        if (data.labels.length > 0) {
-            data.labels[data.labels.length - 1] = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-        }
-    }
-    
+    // ... (Logique Clôture Hier & Stats... inchangée, mais utilise displayValues) ...
     const yesterdayCloseDisplay = isUnitView && this.lastYesterdayClose !== null 
-      ? this.lastYesterdayClose / totalQty 
+      ? this.lastYesterdayClose / (summary.movementsCount) // Approximation
       : this.lastYesterdayClose;
+      
+    // (Cette logique est complexe car lastYesterdayClose est pour le *portefeuille*)
+    // Pour la vue unitaire, on devrait utiliser la clôture unitaire.
+    // Pour l'instant, on ignore 'yesterdayClose' en vue unitaire.
+    const finalYesterdayClose = isUnitView ? null : this.lastYesterdayClose;
 
     // === Stats ===
     const firstIndex = displayValues.findIndex(v => v !== null && !isNaN(v));
@@ -458,23 +551,20 @@ export class HistoricalChart {
       displayValues.forEach(v => { if (v !== null && !isNaN(v)) { priceHigh = Math.max(priceHigh, v); priceLow = Math.min(priceLow, v); } });
     }
 
-    // Calcul de la Var. Jour (maintenant basé sur la clôture historique)
     let vsYesterdayAbs = null, vsYesterdayPct = null;
-    if (this.lastYesterdayClose !== null && priceEnd !== null && !isNaN(priceEnd)) {
-      vsYesterdayAbs = priceEnd - yesterdayCloseDisplay;
-      vsYesterdayPct = yesterdayCloseDisplay !== 0 ? (vsYesterdayAbs / yesterdayCloseDisplay) * 100 : 0;
+    // MODIFICATION : Ne pas calculer la Var. Jour en vue unitaire pour l'instant
+    if (finalYesterdayClose !== null && priceEnd !== null && !isNaN(priceEnd) && !isUnitView) {
+      vsYesterdayAbs = priceEnd - finalYesterdayClose;
+      vsYesterdayPct = finalYesterdayClose !== 0 ? (vsYesterdayAbs / finalYesterdayClose) * 100 : 0;
     }
 
-    // Couleur Chart
+    // ... (Logique Couleur Chart & MàJ DOM inchangée) ...
     const useTodayVar = vsYesterdayAbs !== null;
     const comparisonValue = useTodayVar ? vsYesterdayAbs : perfAbs;
     let mainChartColor = '#3498db'; 
     let perfClass = 'neutral';
-
     if (comparisonValue > 0.001) { mainChartColor = '#2ecc71'; perfClass = 'positive'; } 
     else if (comparisonValue < -0.001) { mainChartColor = '#e74c3c'; perfClass = 'negative'; }
-
-    // Mise à jour DOM Stats
     const perfLabel = document.getElementById('performance-label');
     const perfPercent = document.getElementById('performance-percent');
     if(perfLabel) {
@@ -485,19 +575,14 @@ export class HistoricalChart {
       perfPercent.textContent = `(${perfPct > 0 ? '+' : ''}${perfPct.toFixed(2)}%)`;
       perfPercent.className = 'pct ' + (perfPct > 0 ? 'positive' : (perfPct < 0 ? 'negative' : 'neutral'));
     }
-
-    // === MODIFICATION : Gérer la visibilité du GROUPE 2 et de son contenu ===
     const statDayVar = document.getElementById('stat-day-var');
     const statYesterdayClose = document.getElementById('stat-yesterday-close');
     const group2 = document.querySelector('.stat-group-2');
     const is1DView = (this.currentPeriod === 1);
-
     if (group2) {
-        // On cache tout le groupe si on n'est pas en 1D
-        group2.style.display = is1DView ? 'flex' : 'none'; 
+        // MODIFICATION : Cacher Var. Jour en vue unitaire
+        group2.style.display = (is1DView && !isUnitView) ? 'flex' : 'none'; 
     }
-
-    // On remplit les champs (ils ne seront visibles que si le groupe est affiché)
     if (useTodayVar && statDayVar) { 
         document.getElementById('day-var-label').innerHTML = `${vsYesterdayAbs > 0 ? '+' : ''}${vsYesterdayAbs.toFixed(decimals)} €`;
         document.getElementById('day-var-percent').innerHTML = `(${vsYesterdayPct > 0 ? '+' : ''}${vsYesterdayPct.toFixed(2)}%)`;
@@ -507,15 +592,12 @@ export class HistoricalChart {
     } else if (statDayVar) { 
         statDayVar.style.display = 'none'; 
     }
-
-    if (yesterdayCloseDisplay !== null && statYesterdayClose) {
-        document.getElementById('yesterday-close-value').textContent = `${yesterdayCloseDisplay.toFixed(decimals)} €`;
+    if (finalYesterdayClose !== null && statYesterdayClose) {
+        document.getElementById('yesterday-close-value').textContent = `${finalYesterdayClose.toFixed(decimals)} €`;
         statYesterdayClose.style.display = 'flex';
     } else if (statYesterdayClose) { 
         statYesterdayClose.style.display = 'none'; 
     }
-    // === FIN MODIFICATION ===
-
     ['price-start', 'price-end', 'price-high', 'price-low'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
@@ -523,42 +605,41 @@ export class HistoricalChart {
         el.textContent = val !== -Infinity && val !== Infinity && val !== null ? `${val.toFixed(decimals)} €` : 'N/A';
       }
     });
-
     const unitPriceEl = document.getElementById('unit-price');
     if (unitPriceEl && isUnitView && priceEnd !== null) unitPriceEl.textContent = `${priceEnd.toFixed(4)} €`;
     document.getElementById('last-update').textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-    // === DATASETS ===
+    // === DATASETS (MODIFIÉ) ===
     const datasets = [
       { 
         label: 'Investi (€)', 
-        data: data.invested, 
-        borderColor: '#3b82f6', // BLEU
+        data: graphData.invested, 
+        borderColor: '#3b82f6',
         backgroundColor: 'transparent',
         borderWidth: 2, 
         fill: false, 
         tension: 0.1, 
         pointRadius: 0, 
         borderDash: [5, 5], 
-        hidden: true 
+        hidden: isUnitView // Cacher "Investi" en vue unitaire
       },
       {
-        label: isUnitView ? 'Prix unitaire (€)' : 'Valeur réelle (€)',
+        label: isUnitView ? 'Prix unitaire (€)' : 'Valeur Portfolio (€)',
         data: displayValues,
         borderColor: mainChartColor,
         backgroundColor: this.hexToRgba(mainChartColor, 0.1),
         borderWidth: 3,
         fill: true,
         tension: 0.3,
-        pointRadius: data.labels.length > 100 ? 0 : 2
+        pointRadius: 0 // On enlève les points de la ligne principale
       }
     ];
 
-    // === MODIFICATION : Afficher la ligne "Clôture hier" SEULEMENT en 1D ===
-    if (this.lastYesterdayClose !== null && this.currentPeriod === 1) { // <-- AJOUTÉ: && this.currentPeriod === 1
+    // MODIFICATION : Clôture hier (Seulement en vue globale)
+    if (finalYesterdayClose !== null && this.currentPeriod === 1 && !isUnitView) {
       datasets.push({
         label: 'Clôture hier',
-        data: Array(data.labels.length).fill(yesterdayCloseDisplay),
+        data: Array(graphData.labels.length).fill(finalYesterdayClose),
         borderColor: '#95a5a6',
         borderWidth: 2,
         borderDash: [6, 4],
@@ -566,29 +647,60 @@ export class HistoricalChart {
         pointRadius: 0
       });
     }
+    
+    // AJOUT (Feature 2) : Points d'achat
+    if (isUnitView && graphData.purchasePoints && graphData.purchasePoints.length > 0) {
+        datasets.push({
+            type: 'scatter', // Type de graphique différent
+            label: 'Points d\'achat',
+            data: graphData.purchasePoints,
+            backgroundColor: '#FFFFFF',
+            borderColor: '#3b82f6',
+            borderWidth: 2,
+            radius: 5,
+            hoverRadius: 8,
+            showLine: false
+        });
+    }
+    
+    // AJOUT (Feature 1) : Ligne Benchmark
+    // (Cette logique est désactivée car normalizeDatasets est un TODO)
+    /*
+    if (benchmarkData && benchmarkData.normalizedBenchmark) {
+        datasets.push({
+            label: 'Benchmark',
+            data: benchmarkData.normalizedBenchmark,
+            borderColor: '#f1c40f',
+            borderWidth: 2,
+            borderDash: [3, 3],
+            fill: false,
+            pointRadius: 0,
+            yAxisID: 'yPercent' // Nécessite un 2e axe Y
+        });
+    }
+    */
 
-    // Toggles
+    // ... (Logique Toggles inchangée) ...
     const unitPriceRow = document.getElementById('unit-price-row');
-    if (isSingleAsset && totalQty > 0) {
+    if (isSingleAsset) {
       if(viewToggle) viewToggle.style.display = 'flex';
       if(unitPriceRow) unitPriceRow.style.display = isUnitView ? 'flex' : 'none'; 
     } else {
       if(viewToggle) viewToggle.style.display = 'none';
       if(unitPriceRow) unitPriceRow.style.display = 'none';
     }
-
     viewToggle?.querySelectorAll('.toggle-btn').forEach(btn => {
       btn.onclick = () => {
         if (btn.classList.contains('active')) return;
         viewToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        this.renderChart(canvas, data, summary, titleConfig); // Re-render avec le même titleConfig
+        this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData); // Re-render
       };
     });
 
     this.chart = new Chart(ctx, {
-      type: 'line',
-      data: { labels: data.labels, datasets },
+      type: 'line', // Le type par défaut
+      data: { labels: graphData.labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -598,12 +710,20 @@ export class HistoricalChart {
           tooltip: {
             mode: 'index', intersect: false, backgroundColor: 'rgba(0,0,0,0.85)', padding: 12,
             titleFont: { weight: 'bold' },
-            callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(isUnitView ? 4 : 2)} €` }
+            callbacks: { 
+                label: (ctx) => {
+                    if (ctx.dataset.type === 'scatter') {
+                        const dataPoint = ctx.raw;
+                        return ` Achat: ${dataPoint.quantity} @ ${dataPoint.y.toFixed(2)} €`;
+                    }
+                    return ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(isUnitView ? 4 : 2)} €`;
+                }
+            }
           }
         },
         scales: {
           x: { 
-            display: true, // AXE X VISIBLE
+            display: true,
             title: { display: false },
             ticks: { 
               maxRotation: 0, 
@@ -611,9 +731,7 @@ export class HistoricalChart {
               maxTicksLimit: (this.currentPeriod === 1 || this.currentPeriod === 2) ? 8 : 10,
               color: '#888'
             },
-            grid: {
-              color: 'rgba(200, 200, 200, 0.1)' 
-            }
+            grid: { color: 'rgba(200, 200, 200, 0.1)' }
           },
           y: { 
             display: true,
@@ -621,12 +739,10 @@ export class HistoricalChart {
               callback: (value) => `${value.toLocaleString('fr-FR')} €`,
               color: '#888'
             },
-            grid: {
-              color: 'rgba(200, 200, 200, 0.1)'
-            }
+            grid: { color: 'rgba(200, 200, 200, 0.1)' }
           }
+          // (Axe Y 'yPercent' à ajouter pour le benchmark)
         }
-    
       }
     });
     
@@ -636,6 +752,7 @@ export class HistoricalChart {
   } // Fin de renderChart
 
   showMessage(message, type = 'info') {
+    // ... (inchangé) ...
     const info = document.getElementById('chart-info');
     if (!info) return;
     info.innerHTML = `${type === 'error' ? '⚠️' : 'ℹ️'} ${message}`;
@@ -646,6 +763,7 @@ export class HistoricalChart {
   }
 
   destroy() {
+    // ... (inchangé) ...
     this.stopAutoRefresh();
     if (this.chart) { this.chart.destroy(); this.chart = null; }
   }

@@ -113,3 +113,29 @@ export function formatQuantity(qty) {
   // Supprimer les zéros à la fin
   return num.toFixed(6).replace(/\.?0+$/, '');
 }
+export function parseDate(dateString) {
+  if (!dateString) return null;
+  
+  // Cas 1: Format YYYY-MM-DD (de <input type="date">)
+  if (dateString.includes('-')) {
+    // C'est le format standard, new Date() le gère
+    return new Date(dateString); 
+  }
+  
+  // Cas 2: Format DD/MM/YYYY (du CSV)
+  if (dateString.includes('/')) {
+    const parts = dateString.split('/');
+    if (parts.length === 3) {
+      // new Date(année, mois - 1, jour)
+      // Assure que l'année est bien à 4 chiffres (ex: 24 -> 2024)
+      let year = parseInt(parts[2], 10);
+      if (year < 100) {
+        year += 2000;
+      }
+      return new Date(year, parts[1] - 1, parts[0]);
+    }
+  }
+  
+  // Fallback pour tout autre format
+  return new Date(dateString);
+}
