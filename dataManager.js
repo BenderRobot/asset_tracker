@@ -1,9 +1,8 @@
 // ========================================
-// dataManager.js - (v17 - Fix Date Parsing)
+// dataManager.js - (v19 - Fix Point de Départ)
 // ========================================
 
 import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js'; 
-// AJOUT : Importer notre nouvelle fonction
 import { parseDate } from './utils.js';
 
 export class DataManager {
@@ -12,7 +11,6 @@ export class DataManager {
         this.api = api;
     }
 
-    // ... (calculateCashReserve, calculateHoldings, calculateSummary, calculateEnrichedPurchases... sont INCHANGÉS) ...
     calculateCashReserve(allPurchases) {
         const cashMovements = allPurchases.filter(p => p.assetType === 'Cash');
         
@@ -31,13 +29,10 @@ export class DataManager {
         return { total, byBroker };
     }
 
-
     calculateHoldings(assetPurchases) {
         const aggregated = {};
-        
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
 
-        // 1. Agréger les achats par ticker
         assetPurchases.forEach(p => {
             const t = p.ticker.toUpperCase();
             if (!aggregated[t]) {
@@ -54,7 +49,6 @@ export class DataManager {
             aggregated[t].purchases.push(p);
         });
 
-        // 2. Enrichir avec les données de marché
         const enriched = Object.entries(aggregated).map(([ticker, data]) => {
             const d = this.storage.getCurrentPrice(ticker) || {};
             const currency = d.currency || 'EUR';
@@ -165,11 +159,9 @@ export class DataManager {
     }
 
     calculateEnrichedPurchases(filteredPurchases) {
-        // ... (fonction inchangée) ...
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
         
         return filteredPurchases.map(p => {
-
             if (p.assetType === 'Cash') {
                 return {
                     ...p,
@@ -216,11 +208,7 @@ export class DataManager {
         });
     }
 
-    // ==========================================================
-    // FONCTIONS D'ANALYSE (Analytics)
-    // ==========================================================
     generateFullReport(purchases) {
-        // ... (fonction inchangée) ...
         const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
         const cashPurchases = purchases.filter(p => p.assetType === 'Cash');
 
@@ -255,7 +243,6 @@ export class DataManager {
         };
     }
     
-    // ... (Le reste de generateFullReport (diversification, performance, risque) est inchangé) ...
     calculateDiversification(holdings) {
         const herfindahl = holdings.reduce((sum, asset) => 
             sum + Math.pow(asset.weight / 100, 2), 0
@@ -337,11 +324,6 @@ export class DataManager {
         return 'Profil de risque acceptable pour un portfolio diversifié.';
     }
 
-
-    // ==========================================================
-    // LOGIQUE DU GRAPHIQUE (CORRIGÉE POUR FEATURE 2)
-    // ==========================================================
-
     async calculateHistory(purchases, days) {
         const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
         return this.calculateGenericHistory(assetPurchases, days, false);
@@ -351,22 +333,16 @@ export class DataManager {
         if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [] };
         return this.calculateGenericHistory(purchases, days, true);
     }
-    async calculateMultipleAssetsHistory(purchases, days) {
-        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
-        return this.calculateGenericHistory(assetPurchases, days, false);
-    }
 
-    // MODIFICATION : Utilise parseDate()
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
-        
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
 
         const assetMap = new Map();
         const ticker = isSingleAsset ? purchases[0].ticker.toUpperCase() : null;
+        
         if (isSingleAsset) {
-            // MODIFICATION : Utilise parseDate
             assetMap.set(ticker, purchases.map(p => ({ 
-                date: parseDate(p.date), // <-- CORRIGÉ
+                date: parseDate(p.date), 
                 price: parseFloat(p.price), 
                 quantity: parseFloat(p.quantity),
                 currency: p.currency || 'EUR'
@@ -375,9 +351,8 @@ export class DataManager {
             purchases.forEach(p => {
                 const t = p.ticker.toUpperCase();
                 if (!assetMap.has(t)) assetMap.set(t, []);
-                // MODIFICATION : Utilise parseDate
                 assetMap.get(t).push({ 
-                    date: parseDate(p.date), // <-- CORRIGÉ
+                    date: parseDate(p.date),
                     price: parseFloat(p.price), 
                     quantity: parseFloat(p.quantity),
                     currency: p.currency || 'EUR'
@@ -395,14 +370,8 @@ export class DataManager {
         }
         if (!firstPurchase) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [] };
 
-        // ... (logique de date inchangée) ...
         const today = new Date();
-        const todayUTC = new Date(Date.UTC(
-            today.getFullYear(),
-            today.getMonth(),
-            today.getDate(),
-            23, 59, 59, 999
-        ));
+        const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
 
         let displayStartUTC;
         
@@ -421,8 +390,9 @@ export class DataManager {
             displayStartUTC = new Date(firstPurchase);
         }
 
+        // On garde le buffer de sécurité de 30 jours (utile si l'API a un trou ou si l'achat est un weekend)
         let dataStartUTC = new Date(displayStartUTC);
-        dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - 5); 
+        dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - 30); 
         
         const startTs = Math.floor(dataStartUTC.getTime() / 1000);
         const endTs = Math.floor(todayUTC.getTime() / 1000); 
@@ -430,7 +400,6 @@ export class DataManager {
         const interval = this.getIntervalForPeriod(days); 
         const labelFormat = this.getLabelFormat(days);
         
-        // ... (logique fetch inchangée) ...
         const historicalDataMap = new Map();
         const tickers = Array.from(assetMap.keys());
         const batchSize = 3;
@@ -447,13 +416,13 @@ export class DataManager {
             }));
         }
 
-        // ... (logique assetQuantities, assetInvested inchangée) ...
         const assetQuantities = new Map();
-        const assetInvested = new Map(); // Note: 'invested' est en devise d'origine ici
+        const assetInvested = new Map();
         for (const t of tickers) {
             assetQuantities.set(t, 0);
             assetInvested.set(t, 0);
         }
+        // Pré-calcul des quantités AVANT le début du graphique
         for (const [t, buyList] of assetMap.entries()) {
             for (const buy of buyList) {
                 if (buy.date < displayStartUTC) {
@@ -476,8 +445,6 @@ export class DataManager {
         });
         const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
         
-        
-        // ... (logique de yesterdayClose inchangée) ...
         let yesterdayClose = null; 
         const todayTsForClose = new Date(todayUTC);
         todayTsForClose.setUTCHours(0, 0, 0, 0);
@@ -513,7 +480,6 @@ export class DataManager {
             }
         }
         
-        
         const displayStartTs = displayStartUTC.getTime();
         
         let displayEndTs = Infinity;
@@ -546,14 +512,20 @@ export class DataManager {
             }
         }
         
-        // ... (Boucle principale "flatline" inchangée) ...
-        for (const ts of displayTimestamps) {
+        // === BOUCLE PRINCIPALE OPTIMISÉE ===
+        for (let i = 0; i < displayTimestamps.length; i++) {
+            const ts = displayTimestamps[i];
             let tsChangedInvested = false;
+            
+            // === CORRECTIF CRITIQUE ICI ===
+            // Si c'est le tout premier point du graphique, on force le 'prevTs' à être
+            // légèrement avant le début, pour être sûr d'inclure l'achat qui a lieu
+            // exactement à 'displayStartUTC'.
+            // (Avant : si achat == displayStartUTC, la condition > échouait)
+            const prevTs = (i === 0) ? displayStartUTC.getTime() - 1 : displayTimestamps[i - 1];
+
             for (const [t, buyList] of assetMap.entries()) {
                 for (const buy of buyList) {
-                    const currentIndex = displayTimestamps.indexOf(ts);
-                    const prevTs = (currentIndex === 0) ? displayStartUTC.getTime() : displayTimestamps[currentIndex - 1];
-                    
                     if (buy.date.getTime() > prevTs && buy.date.getTime() <= ts) {
                         assetQuantities.set(t, assetQuantities.get(t) + buy.quantity);
                         assetInvested.set(t, assetInvested.get(t) + (buy.price * buy.quantity));
@@ -595,7 +567,7 @@ export class DataManager {
             
             const label = labelFormat(ts);
             labels.push(label);
-            labelTimestampMap.set(ts, label); // MODIFIÉ : Map inverse (ts -> label)
+            labelTimestampMap.set(ts, label); 
             
             if (hasAtLeastOnePrice || tsChangedInvested) {
                 invested.push(totalInvested);
@@ -608,9 +580,6 @@ export class DataManager {
             }
         }
         
-        // ==========================================================
-        // === CORRECTION FINALE : Logique des points d'achat (Feature 2)
-        // ==========================================================
         if (isSingleAsset) {
             const buyList = assetMap.get(ticker);
             const finalEndTs = (displayEndTs === Infinity ? todayUTC.getTime() : displayEndTs);
@@ -618,10 +587,8 @@ export class DataManager {
             for (const buy of buyList) {
                 const buyTs = buy.date.getTime();
                 
-                // 1. On ne garde que les achats dans la plage visible
                 if (buyTs >= displayStartTs && buyTs <= finalEndTs) {
                     
-                    // 2. Trouver le timestamp API le plus PROCHE de cet achat
                     let closestApiTs = -1;
                     let minDiff = Infinity;
                     
@@ -634,16 +601,13 @@ export class DataManager {
                     }
 
                     if (closestApiTs !== -1) {
-                        // 3. Trouver le label (string) qui correspond
                         const label = labelTimestampMap.get(closestApiTs);
-                        
-                        // 4. Convertir le prix d'achat en EUR si besoin
                         const rate = buy.currency === 'USD' ? dynamicRate : 1;
                         const buyPriceInEur = buy.price * rate;
 
                         purchasePoints.push({
-                            x: label,           // Le label string de l'axe X
-                            y: buyPriceInEur,   // Le prix d'achat RÉEL (converti en EUR)
+                            x: label,
+                            y: buyPriceInEur,
                             quantity: buy.quantity,
                             date: buy.date
                         });
@@ -651,15 +615,10 @@ export class DataManager {
                 }
             }
         }
-        // ==========================================================
         
         return { labels, invested, values, yesterdayClose, unitPrices, purchasePoints };
     }
 
-
-    // ==========================================================
-	// UTILITAIRES (CORRIGÉS POUR FEATURE 2 - Vue ALL)
-	// ==========================================================
 	getIntervalForPeriod(days) {
 		if (days === 1) return '5m';
 		if (days === 2) return '15m';
@@ -675,20 +634,14 @@ export class DataManager {
 		return (dateUTC) => {
 			const local = new Date(dateUTC);
 			
-			// 1. Vues Intraday (Heure)
 			if (days === 1 || days === 2) {
 				return local.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 			}
 			
-			// 2. Vue Semaine (Jour + Heure)
 			if (days <= 7) {
 				return local.toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 			}
 			
-			// 3. Vues Longues (1M, 1Y, ALL) -> CORRECTION ICI
-			// On inclut TOUJOURS le jour ('2-digit') pour garantir que chaque point
-			// a une étiquette unique (ex: "01 nov. 24", "08 nov. 24").
-			// Cela permet à Chart.js de placer le point d'achat exactement sur la bonne semaine/jour.
 			return local.toLocaleDateString('fr-FR', { 
 				day: '2-digit', 
 				month: 'short', 

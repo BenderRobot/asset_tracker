@@ -1,5 +1,5 @@
 // ========================================
-// historicalChart.js - (v12 - Features 1 & 2)
+// historicalChart.js - (v15 - Version Complète & Corrigée)
 // ========================================
 
 import { eventBus } from './eventBus.js';
@@ -21,9 +21,7 @@ export class HistoricalChart {
     this.lastYesterdayClose = null; 
     
     this.filterManager = investmentsPage.filterManager;
-    
-    // NOUVEAU (Feature 1)
-    this.currentBenchmark = null; // Ticker de l'indice (ex: '^GSPC')
+    this.currentBenchmark = null;
     
     // Écouteurs d'événements
     eventBus.addEventListener('showAssetChart', (e) => {
@@ -33,7 +31,7 @@ export class HistoricalChart {
     eventBus.addEventListener('clearAssetChart', () => {
         this.currentMode = 'portfolio';
         this.selectedAssets = [];
-        this.currentBenchmark = null; // Réinitialiser aussi le benchmark
+        this.currentBenchmark = null; 
         const benchmarkSelect = document.getElementById('benchmark-select');
         if (benchmarkSelect) benchmarkSelect.value = '';
     });
@@ -41,7 +39,6 @@ export class HistoricalChart {
 
   // Convertit Hex en RGBA
   hexToRgba(hex, alpha) {
-    // ... (inchangé) ...
     let r = 0, g = 0, b = 0;
     if (hex.length === 4) {
       r = parseInt(hex[1] + hex[1], 16);
@@ -56,7 +53,6 @@ export class HistoricalChart {
   }
 
   setupPeriodButtons() {
-    // ... (inchangé) ...
     document.querySelectorAll('.period-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         if (this.isLoading) return;
@@ -70,24 +66,20 @@ export class HistoricalChart {
       });
     });
     
-    // NOUVEAU (Feature 1) : Attacher l'écouteur du benchmark
     this.setupBenchmarkSelector();
   }
   
-  // NOUVEAU (Feature 1) : Logique du sélecteur de benchmark
   setupBenchmarkSelector() {
     const benchmarkSelect = document.getElementById('benchmark-select');
     if (benchmarkSelect) {
         benchmarkSelect.addEventListener('change', (e) => {
             this.currentBenchmark = e.target.value || null;
-            // Rafraîchir le graphique avec le benchmark
             this.update(true, false); 
         });
     }
   }
 
   startAutoRefresh() {
-    // ... (inchangé) ...
     this.stopAutoRefresh();
     if (this.currentPeriod === 1) {
       setTimeout(() => {
@@ -100,7 +92,6 @@ export class HistoricalChart {
   }
 
   stopAutoRefresh() {
-    // ... (inchangé) ...
     if (this.autoRefreshInterval) {
       clearInterval(this.autoRefreshInterval);
       this.autoRefreshInterval = null;
@@ -108,7 +99,6 @@ export class HistoricalChart {
   }
 
   async silentUpdate() {
-    // ... (inchangé) ...
     if (this.isLoading) return;
     const now = Date.now();
     if (this.lastRefreshTime && (now - this.lastRefreshTime) < 4 * 60 * 1000) return;
@@ -131,7 +121,6 @@ export class HistoricalChart {
     this.selectedAssets = [ticker];
     this.isCryptoOrGlobal = this.dataManager.isCryptoTicker(ticker); 
     
-    // On cache le sélecteur de benchmark en vue unitaire
     const benchmarkWrapper = document.getElementById('benchmark-wrapper');
     if (benchmarkWrapper) benchmarkWrapper.style.display = 'none';
     
@@ -146,7 +135,7 @@ export class HistoricalChart {
   }
 
   // ==========================================================
-  // === Logique de chargement de page (MODIFIÉE)
+  // === Logique de chargement de page (Cache-First)
   // ==========================================================
   async loadPageWithCacheFirst() {
     if (this.isLoading) return;
@@ -191,7 +180,7 @@ export class HistoricalChart {
          targetCashPurchases = []; 
       }
       
-      // 3. Calculs & Rendu SYNC (MAINTENANT AVEC PRIX FRAIS)
+      // 3. Calculs & Rendu SYNC
       const contextHoldings = this.dataManager.calculateHoldings(assetPurchases);
       const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
       let targetSummary = this.dataManager.calculateSummary(targetHoldings); 
@@ -213,7 +202,6 @@ export class HistoricalChart {
         if (!graphData || graphData.labels.length === 0) {
              this.showMessage('Pas de données graphiques disponibles.');
         } else {
-             // MODIFICATION : Passe les graphData complètes
              historicalChanges = this.renderChart(canvas, graphData, targetSummary, titleConfig);
         }
       } catch (e) {
@@ -222,13 +210,13 @@ export class HistoricalChart {
         if (graphLoader) graphLoader.style.display = 'none';
       }
 
-      // 5. ÉCRASER la Var. Jour "live" par la Var. Jour "historique"
+      // 5. ÉCRASER la Var. Jour avec l'historique (seulement en vue 1J)
       if (this.currentPeriod === 1 && historicalChanges.historicalDayChange !== null) {
           targetSummary.totalDayChangeEUR = historicalChanges.historicalDayChange;
           targetSummary.dayChangePct = historicalChanges.historicalDayChangePct;
       }
 
-      // 6. Rendre le tableau (Contexte) et les cartes (Cible)
+      // 6. Rendre le tableau et les cartes
       this.investmentsPage.renderData(contextHoldings, targetSummary, targetCashReserve.total);
 
     } catch (e) {
@@ -241,7 +229,7 @@ export class HistoricalChart {
   }
 
   // ==========================================================
-  // === Logique de MISE À JOUR (MODIFIÉE)
+  // === Logique de MISE À JOUR ===
   // ==========================================================
   async update(showLoading = true, forceApi = true) {
     if (this.isLoading) return;
@@ -259,21 +247,19 @@ export class HistoricalChart {
     }
 
     try {
-      // 1. CONTEXTE GLOBAL (Ce qu'on affiche dans le TABLEAU)
+      // 1. CONTEXTE GLOBAL
       const contextPurchasesNoTickerFilter = this.getFilteredPurchasesFromPage(true);
       const contextAssetPurchases = contextPurchasesNoTickerFilter.filter(p => p.assetType !== 'Cash');
 
-      
-      // 2. CIBLE DU GRAPHIQUE ET TITRE
+      // 2. CIBLE DU GRAPHIQUE
       let targetAssetPurchases;
       let targetCashPurchases;
       let titleConfig;
-      let isSingleAsset = false; // <-- NOUVEAU
+      let isSingleAsset = false; 
 
       if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
-         // CAS 1: On a cliqué sur une ligne
          isSingleAsset = true;
-         if (benchmarkWrapper) benchmarkWrapper.style.display = 'none'; // Cache benchmark
+         if (benchmarkWrapper) benchmarkWrapper.style.display = 'none'; 
          const ticker = this.selectedAssets[0];
          const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
          titleConfig = {
@@ -285,16 +271,14 @@ export class HistoricalChart {
          targetCashPurchases = [];
       
       } else {
-         // CAS 2: On est en vue "filtrée" ou "globale"
          isSingleAsset = false;
-         if (benchmarkWrapper) benchmarkWrapper.style.display = 'block'; // Montre benchmark
+         if (benchmarkWrapper) benchmarkWrapper.style.display = 'block'; 
          
          titleConfig = this.investmentsPage.getChartTitleConfig();
          const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
          targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
          targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
          
-         // Cas spécial: 1 seul actif filtré
          if (titleConfig.mode === 'asset') isSingleAsset = true;
       }
       
@@ -303,11 +287,10 @@ export class HistoricalChart {
       const targetTickers = new Set(targetAssetPurchases.map(p => p.ticker.toUpperCase()));
       let allTickers = [...new Set([...contextTickers, ...targetTickers])];
       
-      // AJOUT (Feature 1) : Ajouter le benchmark aux tickers à fetch
       if (this.currentBenchmark && !isSingleAsset) {
           allTickers.push(this.currentBenchmark);
       }
-      allTickers = [...new Set(allTickers)]; // Dédoublonne
+      allTickers = [...new Set(allTickers)];
       
       if (forceApi) {
           this.lastRefreshTime = Date.now();
@@ -315,8 +298,6 @@ export class HistoricalChart {
       }
       
       // 4. CALCULS
-      
-      // A. Données Graphique (sur la CIBLE)
       let graphData;
       if (isSingleAsset) {
          const ticker = (this.currentMode === 'asset') 
@@ -328,17 +309,13 @@ export class HistoricalChart {
          graphData = await this.dataManager.calculateHistory(targetAssetPurchases, this.currentPeriod);
       }
 
-      // B. Données Cartes "Summary" (sur la CIBLE)
       const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
       let targetSummary = this.dataManager.calculateSummary(targetHoldings);
       const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
-
-      // C. Données Tableau (sur le CONTEXTE)
       const contextHoldings = this.dataManager.calculateHoldings(contextAssetPurchases);
       
       this.lastYesterdayClose = graphData.yesterdayClose;
 
-      // D. AJOUT (Feature 1) : Données Benchmark
       let benchmarkData = null;
       if (this.currentBenchmark && !isSingleAsset) {
           const { startTs, endTs } = this.getStartEndTs(this.currentPeriod);
@@ -346,22 +323,18 @@ export class HistoricalChart {
           benchmarkData = await this.dataManager.api.getHistoricalPricesWithRetry(this.currentBenchmark, startTs, endTs, interval);
       }
       
-      // E. Rendu
       let historicalChanges = { historicalDayChange: null, historicalDayChangePct: null };
       if (!graphData || graphData.labels.length === 0) {
         this.showMessage('Pas de données disponibles pour cette période');
       } else {
-        // MODIFICATION : Passe les graphData complètes ET le benchmark
         historicalChanges = this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData);
       }
       
-      // F. ÉCRASER la Var. Jour (UNIQUEMENT en vue 1J)
       if (this.currentPeriod === 1 && historicalChanges.historicalDayChange !== null) {
           targetSummary.totalDayChangeEUR = historicalChanges.historicalDayChange;
           targetSummary.dayChangePct = historicalChanges.historicalDayChangePct;
       }
 
-      // G. Rendre le tableau (Contexte) et les cartes (Cible)
       this.investmentsPage.renderData(contextHoldings, targetSummary, targetCashReserve.total);
 
     } catch (error) {
@@ -373,7 +346,7 @@ export class HistoricalChart {
     }
   }
 
-  // ... (getFilteredPurchasesFromPage inchangé) ...
+  // === UTILITAIRES ===
   getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
       const searchQuery = this.investmentsPage.currentSearchQuery;
       let purchases = this.storage.getPurchases();
@@ -400,7 +373,6 @@ export class HistoricalChart {
       return purchases;
   }
   
-  // NOUVEAU (Helper pour Feature 1)
   getStartEndTs(days) {
       const today = new Date();
       const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
@@ -417,7 +389,6 @@ export class HistoricalChart {
           localDisplay.setDate(localDisplay.getDate() - (days - 1));
           displayStartUTC = new Date(Date.UTC(localDisplay.getFullYear(), localDisplay.getMonth(), localDisplay.getDate()));
       } else {
-          // 'all' est géré par dataManager, ici on prend 1 an par défaut pour le benchmark
           const localDisplay = new Date(today);
           localDisplay.setDate(localDisplay.getDate() - 365);
           displayStartUTC = new Date(Date.UTC(localDisplay.getFullYear(), localDisplay.getMonth(), localDisplay.getDate()));
@@ -430,70 +401,10 @@ export class HistoricalChart {
       const endTs = Math.floor(todayUTC.getTime() / 1000);
       return { startTs, endTs };
   }
-  
-  // NOUVEAU (Helper pour Feature 1)
-  normalizeDatasets(portfolioGraphData, benchmarkApiData) {
-    if (!benchmarkApiData || Object.keys(benchmarkApiData).length === 0) {
-        return { normalizedPortfolio: portfolioGraphData.values, normalizedBenchmark: null };
-    }
-
-    const portfolioValues = portfolioGraphData.values;
-    const portfolioLabels = portfolioGraphData.labels; // Ceux-ci sont des strings formatés
-    const portfolioTimestamps = portfolioGraphData.labels.map(l => new Date(l).getTime()); // Pas fiable, les labels sont formatés
-    
-    // Il faut que dataManager retourne les timestamps bruts
-    // EN ATTENDANT : On suppose que les 'labels' et 'values' de portfolioGraphData
-    // et les clés/valeurs de benchmarkApiData sont alignés, ce qui est faux.
-    
-    // VRAIE LOGIQUE DE NORMALISATION (simplifiée)
-    // 1. Trouver le premier point de données commun
-    const benchTimestamps = Object.keys(benchmarkApiData).map(Number).sort((a,b)=>a-b);
-    
-    // On utilise les labels/values du portfolio comme référence
-    let firstPortfolioValue = null;
-    let firstBenchmarkValue = null;
-
-    // Trouver la première valeur du portfolio
-    for (let i = 0; i < portfolioValues.length; i++) {
-        if (portfolioValues[i] !== null) {
-            firstPortfolioValue = portfolioValues[i];
-            
-            // Essayer de trouver un prix de benchmark proche de ce point de départ
-            // Ceci est complexe. Pour l'instant, on prend la première valeur du benchmark.
-            firstBenchmarkValue = benchmarkApiData[benchTimestamps[0]];
-            break;
-        }
-    }
-
-    if (firstPortfolioValue === null || firstBenchmarkValue === null || firstPortfolioValue === 0 || firstBenchmarkValue === 0) {
-        return { normalizedPortfolio: portfolioValues, normalizedBenchmark: null };
-    }
-
-    // 2. Normaliser tout à 100
-    const normalizedPortfolio = portfolioValues.map(v => v === null ? null : (v / firstPortfolioValue) * 100);
-    
-    // 3. Aligner et normaliser le benchmark (très simplifié)
-    // Idéalement, on devrait matcher chaque timestamp du portfolio au timestamp le plus proche du benchmark
-    const normalizedBenchmark = benchTimestamps.map(ts => {
-        const val = benchmarkApiData[ts];
-        return val === null ? null : (val / firstBenchmarkValue) * 100;
-    });
-
-    // Problème : Les 'labels' du portfolio ne correspondent pas aux timestamps du benchmark.
-    // Cette normalisation est trop complexe à faire sans modifier dataManager pour qu'il retourne les timestamps bruts.
-    
-    // SOLUTION TEMPORAIRE : On renvoie juste le portfolio.
-    console.warn("Normalisation du benchmark non implémentée (nécessite timestamps bruts de dataManager)");
-    return { normalizedPortfolio: portfolioValues, normalizedBenchmark: null };
-    
-    // TODO: Implémenter la vraie normalisation quand dataManager retournera les timestamps.
-  }
-
 
   // ==========================================================
-  // Rendu (MODIFIÉ)
+  // Rendu (MODIFIÉ : Fix Tooltip + Alignement)
   // ==========================================================
-
   renderChart(canvas, graphData, summary, titleConfig, benchmarkData = null) {
     if (this.chart) this.chart.destroy();
     if (!canvas) return;
@@ -501,7 +412,7 @@ export class HistoricalChart {
     const info = document.getElementById('chart-info');
     if (info) info.style.display = 'none';
 
-    // ... (Logique du TITRE inchangée) ...
+    // Titre
     const titleText = document.getElementById('chart-title-text');
     const titleIcon = document.getElementById('chart-title-icon');
     if (titleText && titleIcon && titleConfig) {
@@ -515,27 +426,20 @@ export class HistoricalChart {
         titleIcon.style.color = color;
     }
     
-    // === VUE UNITAIRE (Feature 2) ===
     const viewToggle = document.getElementById('view-toggle');
     const activeView = viewToggle?.querySelector('.toggle-btn.active')?.dataset.view || 'global';
     const isSingleAsset = (titleConfig && titleConfig.mode === 'asset');
     
-    // MODIFICATION : 'isUnitView' utilise les nouvelles données de dataManager
     const isUnitView = isSingleAsset && activeView === 'unit';
-    // 'displayValues' sera soit la valeur du portefeuille, soit le prix unitaire brut
     const displayValues = isUnitView ? graphData.unitPrices : graphData.values;
 
-    // ... (Logique Clôture Hier & Stats... inchangée, mais utilise displayValues) ...
+    // Stats
     const yesterdayCloseDisplay = isUnitView && this.lastYesterdayClose !== null 
-      ? this.lastYesterdayClose / (summary.movementsCount) // Approximation
+      ? this.lastYesterdayClose / (summary.movementsCount || 1) 
       : this.lastYesterdayClose;
       
-    // (Cette logique est complexe car lastYesterdayClose est pour le *portefeuille*)
-    // Pour la vue unitaire, on devrait utiliser la clôture unitaire.
-    // Pour l'instant, on ignore 'yesterdayClose' en vue unitaire.
     const finalYesterdayClose = isUnitView ? null : this.lastYesterdayClose;
 
-    // === Stats ===
     const firstIndex = displayValues.findIndex(v => v !== null && !isNaN(v));
     let lastIndex = displayValues.length - 1;
     while (lastIndex >= 0 && (displayValues[lastIndex] === null || isNaN(displayValues[lastIndex]))) lastIndex--;
@@ -552,19 +456,18 @@ export class HistoricalChart {
     }
 
     let vsYesterdayAbs = null, vsYesterdayPct = null;
-    // MODIFICATION : Ne pas calculer la Var. Jour en vue unitaire pour l'instant
     if (finalYesterdayClose !== null && priceEnd !== null && !isNaN(priceEnd) && !isUnitView) {
       vsYesterdayAbs = priceEnd - finalYesterdayClose;
       vsYesterdayPct = finalYesterdayClose !== 0 ? (vsYesterdayAbs / finalYesterdayClose) * 100 : 0;
     }
 
-    // ... (Logique Couleur Chart & MàJ DOM inchangée) ...
     const useTodayVar = vsYesterdayAbs !== null;
     const comparisonValue = useTodayVar ? vsYesterdayAbs : perfAbs;
     let mainChartColor = '#3498db'; 
     let perfClass = 'neutral';
     if (comparisonValue > 0.001) { mainChartColor = '#2ecc71'; perfClass = 'positive'; } 
     else if (comparisonValue < -0.001) { mainChartColor = '#e74c3c'; perfClass = 'negative'; }
+    
     const perfLabel = document.getElementById('performance-label');
     const perfPercent = document.getElementById('performance-percent');
     if(perfLabel) {
@@ -575,12 +478,13 @@ export class HistoricalChart {
       perfPercent.textContent = `(${perfPct > 0 ? '+' : ''}${perfPct.toFixed(2)}%)`;
       perfPercent.className = 'pct ' + (perfPct > 0 ? 'positive' : (perfPct < 0 ? 'negative' : 'neutral'));
     }
+    
+    // Mise à jour de la barre de stats
     const statDayVar = document.getElementById('stat-day-var');
     const statYesterdayClose = document.getElementById('stat-yesterday-close');
     const group2 = document.querySelector('.stat-group-2');
     const is1DView = (this.currentPeriod === 1);
     if (group2) {
-        // MODIFICATION : Cacher Var. Jour en vue unitaire
         group2.style.display = (is1DView && !isUnitView) ? 'flex' : 'none'; 
     }
     if (useTodayVar && statDayVar) { 
@@ -598,6 +502,7 @@ export class HistoricalChart {
     } else if (statYesterdayClose) { 
         statYesterdayClose.style.display = 'none'; 
     }
+    
     ['price-start', 'price-end', 'price-high', 'price-low'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
@@ -605,11 +510,12 @@ export class HistoricalChart {
         el.textContent = val !== -Infinity && val !== Infinity && val !== null ? `${val.toFixed(decimals)} €` : 'N/A';
       }
     });
+    
     const unitPriceEl = document.getElementById('unit-price');
     if (unitPriceEl && isUnitView && priceEnd !== null) unitPriceEl.textContent = `${priceEnd.toFixed(4)} €`;
     document.getElementById('last-update').textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-    // === DATASETS (MODIFIÉ) ===
+    // DATASETS
     const datasets = [
       { 
         label: 'Investi (€)', 
@@ -621,7 +527,8 @@ export class HistoricalChart {
         tension: 0.1, 
         pointRadius: 0, 
         borderDash: [5, 5], 
-        hidden: isUnitView // Cacher "Investi" en vue unitaire
+        hidden: isUnitView,
+        spanGaps: true 
       },
       {
         label: isUnitView ? 'Prix unitaire (€)' : 'Valeur Portfolio (€)',
@@ -631,11 +538,11 @@ export class HistoricalChart {
         borderWidth: 3,
         fill: true,
         tension: 0.3,
-        pointRadius: 0 // On enlève les points de la ligne principale
+        pointRadius: 0,
+        spanGaps: true 
       }
     ];
 
-    // MODIFICATION : Clôture hier (Seulement en vue globale)
     if (finalYesterdayClose !== null && this.currentPeriod === 1 && !isUnitView) {
       datasets.push({
         label: 'Clôture hier',
@@ -648,39 +555,24 @@ export class HistoricalChart {
       });
     }
     
-    // AJOUT (Feature 2) : Points d'achat
-    if (isUnitView && graphData.purchasePoints && graphData.purchasePoints.length > 0) {
+    // === POINTS D'ACHAT ALIGNÉS ===
+    if (isUnitView && graphData.purchasePoints) {
         datasets.push({
-            type: 'scatter', // Type de graphique différent
+            type: 'line', 
             label: 'Points d\'achat',
-            data: graphData.purchasePoints,
+            data: graphData.purchasePoints, 
             backgroundColor: '#FFFFFF',
             borderColor: '#3b82f6',
             borderWidth: 2,
-            radius: 5,
-            hoverRadius: 8,
-            showLine: false
+            pointRadius: 5,
+            pointHoverRadius: 8,
+            showLine: false, // Cache la ligne
+            parsing: {
+                yAxisKey: 'y' // Indique à Chart.js où lire la valeur
+            }
         });
     }
-    
-    // AJOUT (Feature 1) : Ligne Benchmark
-    // (Cette logique est désactivée car normalizeDatasets est un TODO)
-    /*
-    if (benchmarkData && benchmarkData.normalizedBenchmark) {
-        datasets.push({
-            label: 'Benchmark',
-            data: benchmarkData.normalizedBenchmark,
-            borderColor: '#f1c40f',
-            borderWidth: 2,
-            borderDash: [3, 3],
-            fill: false,
-            pointRadius: 0,
-            yAxisID: 'yPercent' // Nécessite un 2e axe Y
-        });
-    }
-    */
 
-    // ... (Logique Toggles inchangée) ...
     const unitPriceRow = document.getElementById('unit-price-row');
     if (isSingleAsset) {
       if(viewToggle) viewToggle.style.display = 'flex';
@@ -694,12 +586,12 @@ export class HistoricalChart {
         if (btn.classList.contains('active')) return;
         viewToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData); // Re-render
+        this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData); 
       };
     });
 
     this.chart = new Chart(ctx, {
-      type: 'line', // Le type par défaut
+      type: 'line', 
       data: { labels: graphData.labels, datasets },
       options: {
         responsive: true,
@@ -712,11 +604,18 @@ export class HistoricalChart {
             titleFont: { weight: 'bold' },
             callbacks: { 
                 label: (ctx) => {
-                    if (ctx.dataset.type === 'scatter') {
+                    // Détection via le label du dataset
+                    if (ctx.dataset.label === 'Points d\'achat') {
                         const dataPoint = ctx.raw;
-                        return ` Achat: ${dataPoint.quantity} @ ${dataPoint.y.toFixed(2)} €`;
+                        // Vérification que dataPoint est bien l'objet complet
+                        if (dataPoint && dataPoint.quantity) {
+                            return ` Achat: ${dataPoint.quantity} @ ${dataPoint.y.toFixed(2)} €`;
+                        }
                     }
-                    return ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(isUnitView ? 4 : 2)} €`;
+                    // Pour les autres datasets, formatage standard
+                    if (ctx.parsed.y !== null) {
+                        return ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(isUnitView ? 4 : 2)} €`;
+                    }
                 }
             }
           }
@@ -741,18 +640,14 @@ export class HistoricalChart {
             },
             grid: { color: 'rgba(200, 200, 200, 0.1)' }
           }
-          // (Axe Y 'yPercent' à ajouter pour le benchmark)
         }
       }
     });
     
-    // RENVOYER LA VARIATION HISTORIQUE
     return { historicalDayChange: vsYesterdayAbs, historicalDayChangePct: vsYesterdayPct };
-  
-  } // Fin de renderChart
+  }
 
   showMessage(message, type = 'info') {
-    // ... (inchangé) ...
     const info = document.getElementById('chart-info');
     if (!info) return;
     info.innerHTML = `${type === 'error' ? '⚠️' : 'ℹ️'} ${message}`;
@@ -763,7 +658,6 @@ export class HistoricalChart {
   }
 
   destroy() {
-    // ... (inchangé) ...
     this.stopAutoRefresh();
     if (this.chart) { this.chart.destroy(); this.chart = null; }
   }
