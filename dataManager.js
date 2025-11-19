@@ -658,28 +658,44 @@ export class DataManager {
 
 
     // ==========================================================
-    // UTILITAIRES (INCHANGÉS)
-    // ==========================================================
-    getIntervalForPeriod(days) {
-        if (days === 1) return '5m';
-        if (days === 2) return '15m';
-        if (days <= 7) return '90m';
-        if (days <= 30) return '1d';
-        if (days <= 90) return '1d';
-        if (days <= 180) return '1d';
-        if (days <= 365) return '1d';
-        return '1wk';
-    }
+	// UTILITAIRES (CORRIGÉS POUR FEATURE 2 - Vue ALL)
+	// ==========================================================
+	getIntervalForPeriod(days) {
+		if (days === 1) return '5m';
+		if (days === 2) return '15m';
+		if (days <= 7) return '90m';
+		if (days <= 30) return '1d';
+		if (days <= 90) return '1d';
+		if (days <= 180) return '1d';
+		if (days <= 365) return '1d';
+		return '1d';
+	}
 
-    getLabelFormat(days) {
-        return (dateUTC) => {
-            const local = new Date(dateUTC);
-            if (days === 1 || days === 2) return local.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); // 1D, 2J
-            if (days <= 7) return local.toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' }); // 1W -> "lun. 14:30"
-            if (days <= 365) return local.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }); // 1M, 3M, 6M, 1Y
-            return local.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }); // All (format mmm/aa)
-        };
-    }
+	getLabelFormat(days) {
+		return (dateUTC) => {
+			const local = new Date(dateUTC);
+			
+			// 1. Vues Intraday (Heure)
+			if (days === 1 || days === 2) {
+				return local.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+			}
+			
+			// 2. Vue Semaine (Jour + Heure)
+			if (days <= 7) {
+				return local.toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+			}
+			
+			// 3. Vues Longues (1M, 1Y, ALL) -> CORRECTION ICI
+			// On inclut TOUJOURS le jour ('2-digit') pour garantir que chaque point
+			// a une étiquette unique (ex: "01 nov. 24", "08 nov. 24").
+			// Cela permet à Chart.js de placer le point d'achat exactement sur la bonne semaine/jour.
+			return local.toLocaleDateString('fr-FR', { 
+				day: '2-digit', 
+				month: 'short', 
+				year: '2-digit' 
+			});
+		};
+	}
 
     getLastTradingDay(date) {
         const day = date.getDay();
