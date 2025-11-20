@@ -1,3 +1,4 @@
+
 // ========================================
 // historicalChart.js - (v15 - Version Complète & Corrigée)
 // ========================================
@@ -527,7 +528,7 @@ export class HistoricalChart {
         tension: 0.1, 
         pointRadius: 0, 
         borderDash: [5, 5], 
-        hidden: isUnitView,
+        hidden: true,
         spanGaps: true 
       },
       {

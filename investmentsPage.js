@@ -58,14 +58,21 @@ export class InvestmentsPage {
    * MODIFIÉ : Accepte cashReserveTotal
    * ========================================================
    */
+  // Dans investmentsPage.js
+
   renderData(holdings, summary, cashReserveTotal) {
-    console.log('InvestmentsPage.renderData() appelé par le graphique.');
+    console.log('InvestmentsPage.renderData() appelé.');
     
+    // === FIX CRITIQUE : Mise à jour de la référence locale ===
+    // On écrase les anciennes données par celles reçues (qui sont fraîches et alignées)
+    this.currentHoldings = holdings;
+    // ========================================================
+
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
 
-    // 1. Appliquer les filtres de la page (non-graphique)
-    let filteredHoldings = holdings.filter(h => {
+    // 1. Appliquer les filtres de la page (Asset Type / Broker)
+    let filteredHoldings = this.currentHoldings.filter(h => {
       const assetType = h.purchases[0]?.assetType || 'Stock';
       const brokers = [...new Set(h.purchases.map(p => p.broker || 'RV-CT'))];
 
@@ -78,10 +85,7 @@ export class InvestmentsPage {
       return true;
     });
 
-    this.currentHoldings = filteredHoldings;
-
     // 2. Trier
-    // MODIFICATION : Logique de tri améliorée
     filteredHoldings.sort((a, b) => {
       const valA = a[this.sortColumn] ?? -Infinity;
       const valB = b[this.sortColumn] ?? -Infinity;
@@ -95,14 +99,13 @@ export class InvestmentsPage {
       
       return order * (this.sortDirection === 'asc' ? 1 : -1);
     });
-    // FIN MODIFICATION
 
     // 3. Pagination
     const totalPages = Math.max(1, Math.ceil(filteredHoldings.length / PAGE_SIZE));
     if (this.currentPage > totalPages) this.currentPage = totalPages;
     const pageItems = filteredHoldings.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
 
-    // 4. Affichage du tableau (inchangé)
+    // 4. Affichage du tableau
     tbody.innerHTML = pageItems.map(p => `
       <tr class="asset-row" data-ticker="${p.ticker}" data-avgprice="${p.avgPrice}">
         <td><strong>${p.ticker}</strong></td>
@@ -120,12 +123,15 @@ export class InvestmentsPage {
     `).join('') || '<tr><td colspan="11">Aucun investissement.</td></tr>';
 
     // 5. Mettre à jour l'UI avec le résumé (les cartes)
+    // C'est ici que les cartes "Total Value", "Var Today", etc. sont mises à jour
     this.ui.updatePortfolioSummary(summary, summary.movementsCount, cashReserveTotal);
 
     // 6. Reste
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
-      this.renderData(holdings, summary, cashReserveTotal);
+      // Attention : ici on rappelle renderData avec les holdings globaux stockés
+      // pour réappliquer le filtrage et la pagination
+      this.renderData(this.currentHoldings, summary, cashReserveTotal);
     });
     
     this.ui.populateTickerSelect(this.storage.getPurchases());

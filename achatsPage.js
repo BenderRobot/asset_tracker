@@ -36,7 +36,7 @@ export class AchatsPage {
 
     // 3. Rafraîchir les prix UNIQUEMENT pour les actifs
     const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
-    await this.api.fetchBatchPrices(tickers);
+    await this.api.fetchBatchPrices(tickers, true);
 
     // ==========================================================
     // 4. Enrichir les deux listes séparément

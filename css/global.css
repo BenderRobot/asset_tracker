@@ -308,7 +308,7 @@ table {
     border-spacing: 0;
     background: var(--bg-card);
     border-radius: 12px;
-    overflow: hidden;
+    overflow: visible;
     border: 1px solid var(--border-color);
 }
 

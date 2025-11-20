@@ -30,14 +30,17 @@ export class FilterManager {
         <button id="filter-toggle" style="min-width:200px;display:flex;justify-content:space-between;align-items:center;">
           <span>${buttonText}</span><span>▼</span>
         </button>
-        <div id="filter-dropdown" style="display:none;position:absolute;top:100%;left:0;background:white;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:1000;min-width:300px;max-height:400px;overflow-y:auto;margin-top:5px;">
-          <div style="padding:10px;border-bottom:1px solid #eee;display:flex;gap:10px;">
+        
+        <div id="filter-dropdown" style="display:none;position:absolute;top:100%;left:0;background:#1a2238;color:#ffffff;border:1px solid #2d3548;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:1000;min-width:300px;max-height:400px;overflow-y:auto;margin-top:5px;">
+          
+          <div style="padding:10px;border-bottom:1px solid #2d3548;display:flex;gap:10px;">
             <button id="select-all-tickers" style="flex:1;padding:6px;font-size:12px;">Tout sélectionner</button>
             <button id="clear-all-tickers" style="flex:1;padding:6px;font-size:12px;background:#dc3545;color:white;">Tout désélectionner</button>
           </div>
+          
           <div style="padding:10px;">
             ${sorted.map(([t, n]) => `
-              <label style="display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;">
+              <label style="display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;transition:background 0.2s;" onmouseover="this.style.background='#22294a'" onmouseout="this.style.background='transparent'">
                 <input type="checkbox" class="ticker-checkbox" value="${t}" ${this.selectedTickers.has(t) ? 'checked' : ''}>
                 <span><strong>${t}</strong> - ${n}</span>
               </label>
