@@ -1,5 +1,5 @@
 // ========================================
-// dataManager.js - (v19 - Fix Point de Départ)
+// dataManager.js - (v20 - Fix Binance Limit & Weekend Flat Line)
 // ========================================
 
 import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js'; 
@@ -375,12 +375,18 @@ export class DataManager {
 
         let displayStartUTC;
         
+        // CORRECTION BUFFER : Réduction de la taille du buffer pour 1J/2J
+        // Cela évite de demander trop de données à Binance et de se faire couper la fin
+        let bufferDays = 30;
+
         if (days === 1) {
             displayStartUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0));
+            bufferDays = 3; // Buffer réduit pour 1J
         } else if (days === 2) {
             const twoDaysAgo = new Date(today);
             twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);
             displayStartUTC = new Date(Date.UTC(twoDaysAgo.getFullYear(), twoDaysAgo.getMonth(), twoDaysAgo.getDate(), 0, 0, 0));
+            bufferDays = 5; // Buffer réduit pour 2J
         } else if (days !== 'all') {
             const localDisplay = new Date(today);
             localDisplay.setDate(localDisplay.getDate() - (days - 1));
@@ -390,9 +396,8 @@ export class DataManager {
             displayStartUTC = new Date(firstPurchase);
         }
 
-        // On garde le buffer de sécurité de 30 jours (utile si l'API a un trou ou si l'achat est un weekend)
         let dataStartUTC = new Date(displayStartUTC);
-        dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - 30); 
+        dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - bufferDays); 
         
         const startTs = Math.floor(dataStartUTC.getTime() / 1000);
         const endTs = Math.floor(todayUTC.getTime() / 1000); 
@@ -443,7 +448,7 @@ export class DataManager {
         historicalDataMap.forEach(hist => {
             Object.keys(hist).forEach(ts => allTimestamps.add(parseInt(ts)));
         });
-        const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
+        let sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
         
         let yesterdayClose = null; 
         const todayTsForClose = new Date(todayUTC);
@@ -487,9 +492,37 @@ export class DataManager {
             displayEndTs = displayStartTs + (24 * 60 * 60 * 1000);
         }
         
-        const displayTimestamps = sortedTimestamps.filter(ts => 
+        let displayTimestamps = sortedTimestamps.filter(ts => 
             ts >= displayStartTs && ts < displayEndTs
         );
+
+        // === CORRECTION WEEKEND (Actions) ===
+        // Si on est en vue 1J/2J et qu'on n'a pas de données dans la plage (ex: Samedi/Dimanche pour Actions)
+        // MAIS qu'on a un yesterdayClose, on génère une ligne plate.
+        if (displayTimestamps.length === 0 && (days === 1 || days === 2) && yesterdayClose !== null) {
+            const nowTs = Date.now();
+            // On crée 2 points : Début de journée (00:00) et Maintenant
+            // Ou pour 2J : Hier 00:00 et Maintenant
+            
+            // Pour faire simple et joli, on prend displayStartTs et nowTs
+            // On s'assure que displayStartTs est bien dans le passé
+            if (displayStartTs < nowTs) {
+                displayTimestamps = [displayStartTs, nowTs];
+                // On doit "faker" les données historiques pour ces timestamps
+                for (const t of tickers) {
+                    const hist = historicalDataMap.get(t);
+                    // Si l'historique est vide ou s'arrête avant, on ajoute le dernier prix connu
+                    // findClosestPrice va déjà chercher en arrière, mais il faut que hist ne soit pas vide
+                    // Si hist est vide (cas rare), on ne peut rien faire.
+                    // Mais si hist s'arrête vendredi, findClosestPrice (avec 7 jours de tolérance) trouvera le prix.
+                    
+                    // On ajoute artificiellement ces timestamps dans hist pour que la boucle principale les trouve ?
+                    // Non, la boucle principale utilise displayTimestamps et appelle findClosestPrice.
+                    // Donc juste forcer displayTimestamps suffit, À CONDITION que findClosestPrice
+                    // accepte de regarder jusqu'à vendredi (ce qu'on a réglé avec maxDiff=7j).
+                }
+            }
+        }
         
         const lastKnownPrices = new Map();
         const allTsBefore = sortedTimestamps.filter(ts => ts < displayStartTs);
@@ -517,11 +550,6 @@ export class DataManager {
             const ts = displayTimestamps[i];
             let tsChangedInvested = false;
             
-            // === CORRECTIF CRITIQUE ICI ===
-            // Si c'est le tout premier point du graphique, on force le 'prevTs' à être
-            // légèrement avant le début, pour être sûr d'inclure l'achat qui a lieu
-            // exactement à 'displayStartUTC'.
-            // (Avant : si achat == displayStartUTC, la condition > échouait)
             const prevTs = (i === 0) ? displayStartUTC.getTime() - 1 : displayTimestamps[i - 1];
 
             for (const [t, buyList] of assetMap.entries()) {
@@ -677,9 +705,10 @@ export class DataManager {
         
         let maxDiff;
         if (interval === '5m' || interval === '15m' || interval === '90m') {
-            maxDiff = 3 * 24 * 60 * 60 * 1000; 
+            // On garde la tolérance augmentée à 7 jours pour combler les trous (weekends actions)
+            maxDiff = 7 * 24 * 60 * 60 * 1000; 
         } else {
-            maxDiff = 8 * 24 * 60 * 60 * 1000;
+            maxDiff = 10 * 24 * 60 * 60 * 1000;
         }
 
         const timestamps = Object.keys(hist).map(Number).sort((a, b) => a - b);

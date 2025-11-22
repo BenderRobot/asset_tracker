@@ -1,5 +1,5 @@
 // ========================================
-// api.js - (v16 - Smart Session Logic)
+// api.js - (v17 - Binance Fallback)
 // ========================================
 
 import { RAPIDAPI_KEY, YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE } from './config.js';
@@ -9,7 +9,8 @@ const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 
 const providerStats = {
   YAHOO_V2: { success: 0, fails: 0, lastError: null },
-  COINGECKO: { success: 0, fails: 0, lastError: null }
+  COINGECKO: { success: 0, fails: 0, lastError: null },
+  BINANCE: { success: 0, fails: 0, lastError: null }
 };
 
 export class PriceAPI {
@@ -96,7 +97,12 @@ export class PriceAPI {
       const others = batch.filter(t => this.storage.getAssetType(t) !== 'Crypto');
       
       for (const crypto of cryptos) {
-        await this.fetchCryptoPrice(crypto);
+        // Tentative CoinGecko d'abord, puis Binance si échec
+        const success = await this.fetchCryptoPrice(crypto);
+        if (!success) {
+            console.log(`⚠️ CoinGecko échec pour ${crypto}, tentative Binance...`);
+            await this.fetchBinancePrice(crypto);
+        }
       }
 
       if (others.length > 0) {
@@ -106,7 +112,7 @@ export class PriceAPI {
     this.logProviderStats();
   }
 
-  // --- COINGECKO (Cryptos) ---
+  // --- COINGECKO (Cryptos - Principal) ---
   async fetchCryptoPrice(ticker) {
     const upper = ticker.toUpperCase();
     try {
@@ -114,7 +120,10 @@ export class PriceAPI {
       if (upper === 'BTC') coinId = 'bitcoin';
       else if (upper === 'ETH') coinId = 'ethereum';
       else if (upper === 'SOL') coinId = 'solana';
-      else return;
+      else if (upper === 'ADA') coinId = 'cardano';
+      else if (upper === 'XRP') coinId = 'ripple';
+      else if (upper === 'BNB') coinId = 'binancecoin';
+      else return false;
 
       let previousClose = null;
       
@@ -152,11 +161,46 @@ export class PriceAPI {
             source: 'CoinGecko'
           });
           providerStats['COINGECKO'].success++;
+          return true;
         }
       }
+      return false;
     } catch (e) {
       providerStats['COINGECKO'].fails++;
+      return false;
     }
+  }
+
+  // --- BINANCE (Cryptos - Fallback) ---
+  async fetchBinancePrice(ticker) {
+      const upper = ticker.toUpperCase();
+      try {
+          // Binance utilise des paires comme BTCEUR, ETHEUR
+          const symbol = `${upper}EUR`; 
+          const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
+          
+          if (res.ok) {
+              const data = await res.json();
+              const price = parseFloat(data.lastPrice);
+              const prevClose = parseFloat(data.prevClosePrice);
+              
+              if (!isNaN(price)) {
+                  this.storage.setCurrentPrice(upper, {
+                      price: price,
+                      previousClose: prevClose,
+                      currency: 'EUR',
+                      marketState: 'OPEN',
+                      lastUpdate: Date.now(),
+                      source: 'Binance'
+                  });
+                  providerStats['BINANCE'].success++;
+                  return true;
+              }
+          }
+      } catch (e) {
+          providerStats['BINANCE'].fails++;
+      }
+      return false;
   }
 
   // --- YAHOO (Stocks/ETF) ---
@@ -177,7 +221,7 @@ export class PriceAPI {
     for (const ticker of tickers) {
       try {
         const symbol = this.formatTicker(ticker); 
-        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=5d`; // Range 5j pour être sûr d'avoir l'avant-veille si weekend
+        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=5d`; 
         
         const proxy = this.corsProxies[this.currentProxyIndex];
         const url = `${proxy}${encodeURIComponent(yahooUrl)}`;
@@ -195,9 +239,8 @@ export class PriceAPI {
         const quotes = result.indicators.quote[0].close; 
         const meta = result.meta;
 
-        // 1. Prix Actuel + DATE DU TRADE
         let currentPrice = null;
-        let lastTradeTimestamp = null; // <-- On capture l'heure exacte du dernier prix
+        let lastTradeTimestamp = null; 
 
         for (let i = quotes.length - 1; i >= 0; i--) {
             if (quotes[i] !== null) {
@@ -208,24 +251,17 @@ export class PriceAPI {
         }
         if (currentPrice === null) throw new Error('Prix introuvable');
 
-        // 2. Previous Close "INTELLIGENT"
-        // Au lieu de comparer à "Aujourd'hui Minuit", on compare au "Minuit du jour du dernier trade".
-        
-        // On convertit le timestamp du dernier trade en date
         const tradeDate = new Date(lastTradeTimestamp * 1000);
-        // On calcule le 00:00 UTC de CETTE journée là
         const tradeSessionStartUTC = Date.UTC(tradeDate.getUTCFullYear(), tradeDate.getUTCMonth(), tradeDate.getUTCDate()) / 1000;
         
         let previousClose = null;
         for (let i = timestamps.length - 1; i >= 0; i--) {
-            // On cherche le dernier prix strictement AVANT le début de la session concernée
             if (timestamps[i] < tradeSessionStartUTC && quotes[i] !== null) {
                 previousClose = parseFloat(quotes[i]);
                 break; 
             }
         }
         
-        // Si on ne trouve pas (ex: nouveau listing ou trou de données), fallback sur meta
         if (previousClose === null) {
             previousClose = meta.chartPreviousClose || meta.previousClose || currentPrice;
         }
@@ -253,16 +289,41 @@ export class PriceAPI {
     return results.length > 0;
   }
 
-  // --- HISTORIQUE ---
+  // --- HISTORIQUE (Graphiques) ---
   async getHistoricalPricesWithRetry(ticker, startTs, endTs, interval, retries = 3) {
     const formatted = this.formatTicker(ticker); 
+    // Détection Crypto améliorée
+    const isCrypto = this.storage.getAssetType(ticker) === 'Crypto' || 
+                     ['BTC','ETH','SOL','ADA','XRP','BNB','DOT','AVAX','MATIC'].includes(ticker.toUpperCase());
+
     let cacheKey = `${formatted}_${startTs}_${endTs}_${interval}`;
     if (['5m', '15m', '90m'].includes(interval)) {
         const rounded = Math.floor(Date.now() / 300000) * 300000;
         cacheKey += `_${rounded}`;
     }
+    
+    // Vérification du cache mémoire
     if (this.historicalPriceCache[cacheKey]) return this.historicalPriceCache[cacheKey];
     
+    // 1. PRIORITÉ BINANCE (Pour les Cryptos uniquement)
+    // On tente Binance en PREMIER car les données sont plus fiables (pas de trous le weekend/nuit)
+    if (isCrypto) {
+        // console.log(`✨ Tentative Prioritaire Binance pour ${ticker}...`);
+        try {
+            const binanceData = await this.fetchBinanceHistory(ticker, startTs, endTs, interval);
+            // Si on a reçu des données valides (> 0 points)
+            if (Object.keys(binanceData).length > 0) {
+                this.historicalPriceCache[cacheKey] = binanceData;
+                this.saveHistoricalCache();
+                return binanceData; // On retourne immédiatement, on ignore Yahoo
+            }
+        } catch (e) {
+            console.warn(`Binance primary failed for ${ticker}, falling back to Yahoo...`, e);
+            // Si Binance échoue, on ne fait rien et on laisse le code continuer vers Yahoo ci-dessous
+        }
+    }
+
+    // 2. YAHOO FINANCE (Stocks ou Fallback Crypto)
     let yahooUrl;
     if (interval === '5m') yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=2d&interval=5m`;
     else if (interval === '15m') yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=5d&interval=15m`;
@@ -283,19 +344,52 @@ export class PriceAPI {
             const result = chartData.chart.result[0];
             const timestamps = result.timestamp;
             const quotes = result.indicators.quote[0].close;
+            
+            if (!timestamps || timestamps.length < 2) throw new Error('Données Yahoo vides');
+
             const prices = {};
             timestamps.forEach((ts, idx) => {
                 if (quotes[idx] !== null) prices[ts * 1000] = parseFloat(quotes[idx]);
             });
+            
             this.historicalPriceCache[cacheKey] = prices;
             this.saveHistoricalCache();
             return prices;
         } catch (error) {
+            // console.warn(`Yahoo History Fail (${ticker}): ${error.message}`);
             this.currentProxyIndex = (this.currentProxyIndex + 1) % this.corsProxies.length;
             await sleep(1000);
         }
     }
+
     return {}; 
+  }
+  // --- HISTORIQUE BINANCE (Implémentation) ---
+  async fetchBinanceHistory(ticker, startTs, endTs, interval) {
+      const symbol = `${ticker.toUpperCase()}EUR`;
+      // Mapping intervalle
+      let bInterval = '1d';
+      if (interval === '5m') bInterval = '5m';
+      else if (interval === '15m') bInterval = '15m';
+      else if (interval === '90m') bInterval = '1h'; // Binance n'a pas 90m, 1h est le plus proche
+      else if (interval === '1d') bInterval = '1d';
+
+      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${bInterval}&startTime=${startTs * 1000}&endTime=${endTs * 1000}&limit=1000`;
+      
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Binance Error');
+      
+      const data = await res.json();
+      const prices = {};
+      
+      // Format Binance: [timestamp, open, high, low, close, volume, ...]
+      data.forEach(candle => {
+          const ts = candle[0];
+          const close = parseFloat(candle[4]);
+          prices[ts] = close;
+      });
+      
+      return prices;
   }
 
   loadHistoricalCache() {
