@@ -277,7 +277,7 @@ class App {
         this.filterManager.setBrokerFilter(e.target.value);
       });
     }
-
+	this.achatsPage.setupTabs();
     this.achatsPage.setupSorting();
     this.setupCSVListeners();
 	this.setupCashFormListener();

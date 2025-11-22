@@ -211,3 +211,96 @@ input[type="checkbox"] {
       grid-template-columns: 1fr;
     }
   }
+  
+  /* ========================================
+   STYLE DES ONGLETS (TABS) - À AJOUTER
+   ======================================== */
+
+/* La carte globale */
+.add-transaction-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    margin: 24px 0;
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+}
+
+/* En-tête des boutons */
+.tabs-header {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.tab-btn {
+    flex: 1;
+    padding: 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.tab-btn:hover {
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-primary);
+}
+
+/* Style du bouton actif */
+.tab-btn.active {
+    color: var(--accent-blue);
+    border-bottom-color: var(--accent-blue);
+    background: rgba(59, 130, 246, 0.05);
+}
+
+/* CONTENU DES ONGLETS (C'EST ICI QUE LA MAGIE OPÈRE) */
+.tab-content {
+    display: none; /* <--- CACHE PAR DÉFAUT */
+    padding: 24px;
+    animation: fadeIn 0.3s ease;
+}
+
+.tab-content.active {
+    display: block; /* <--- AFFICHE UNIQUEMENT SI ACTIF */
+}
+
+/* Style spécifique pour la grille Data Management */
+.data-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 12px;
+    align-items: center;
+}
+
+.file-input-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-secondary);
+    padding: 6px 12px 6px 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    height: 42px;
+}
+
+.btn-import { background: var(--accent-green) !important; color: white !important; }
+.btn-import:hover { background: #059669 !important; }
+
+/* Harmonisation formulaire Cash */
+#cash-form.purchase-form-grid {
+    align-items: end !important; 
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important;
+}
+
+@media (max-width: 768px) {
+    .data-grid { grid-template-columns: 1fr; }
+}

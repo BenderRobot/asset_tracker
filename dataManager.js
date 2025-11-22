@@ -1,5 +1,5 @@
 // ========================================
-// dataManager.js - (Version Corrigée Weekend & Labels 2D)
+// dataManager.js - (v19 - Fix Limite Binance 1D)
 // ========================================
 
 import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js'; 
@@ -354,7 +354,7 @@ export class DataManager {
                 const t = p.ticker.toUpperCase();
                 if (!assetMap.has(t)) assetMap.set(t, []);
                 assetMap.get(t).push({ 
-                    date: parseDate(p.date),
+                    date: parseDate(p.date), 
                     price: parseFloat(p.price), 
                     quantity: parseFloat(p.quantity),
                     currency: p.currency || 'EUR'
@@ -414,7 +414,8 @@ export class DataManager {
             // === LOGIQUE STANDARD (Semaine ou Crypto) ===
             if (days === 1) {
                 displayStartUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0));
-                bufferDays = 3; 
+                // FIX: Réduction du buffer pour éviter la limite de 1000 bougies de Binance (83h)
+                bufferDays = 2; 
             } else if (days === 2) {
                 const twoDaysAgo = new Date(today);
                 twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);

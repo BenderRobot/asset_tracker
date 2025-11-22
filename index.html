@@ -4,90 +4,122 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portfolio Tracker - Transactions</title>
-	<link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="stylesheet" href="css/global.css">
-	<link rel="stylesheet" href="css/transactions.css">
+    <link rel="stylesheet" href="css/transactions.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
-        <!-- Navigation -->
         <nav class="nav-menu">
             <a href="index.html" class="active">Transactions</a>
             <a href="investments.html">Portfolio</a>
-			<a href="dashboard.html">Dashboard</a>
-			<a href="analytics.html">Analytics</a>
-			<a href="migration.html">Migration</a>
+            <a href="dashboard.html">Dashboard</a>
+            <a href="analytics.html">Analytics</a>
+            <a href="migration.html">Migration</a>
         </nav>
 
-        <!-- En-tête -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h1>📋 Transaction History</h1>
+            <h1>📋 Transaction</h1>
             <div id="market-status-container"></div>
         </div>
         
-        <!-- Résumé du Portfolio -->
-        <div class="portfolio-summary-enhanced">
-            <div class="summary-grid">
-                <div class="summary-card summary-card-primary">
-                    <div class="summary-card-label">Total Value</div>
-                    <div id="total-current" class="summary-card-value">€0.00</div>
-                </div>
-                
-                <div class="summary-card">
-                    <div class="summary-card-label">Total Return</div>
-                    <div id="total-gain-loss" class="summary-card-value">€0.00</div>
-                    <div class="summary-card-meta">
-                        <span id="total-gain-pct" class="meta-large">0.00%</span>
-                    </div>
-                </div>
-                
-                <div class="summary-card">
-                    <div class="summary-card-label">Var Today</div>
-                    <div id="total-invested" class="summary-card-value">€0.00</div>
-                    <div class="summary-card-meta">
-                        <span id="avg-cost-per-share" class="meta-info">Avg: €0.00</span>
-                    </div>
-                </div>
+        <div class="add-transaction-card">
+            <div class="tabs-header">
+                <button class="tab-btn active" data-tab="asset">
+                    <i class="fas fa-chart-line tab-icon"></i> Actif
+                </button>
+                <button class="tab-btn" data-tab="cash">
+                    <i class="fas fa-wallet tab-icon"></i> Cash
+                </button>
+                <button class="tab-btn" data-tab="data">
+                    <i class="fas fa-database tab-icon"></i> Données
+                </button>
             </div>
-            
-            <div class="summary-stats">
-                <div class="stat-item">
-                    <div class="stat-label">Assets</div>
-                    <div id="unique-assets" class="stat-value">0</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Transactions</div>
-                    <div id="total-movements" class="stat-value">0</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Best Performer</div>
-                    <div id="best-asset" class="stat-value stat-positive">-</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Worst Performer</div>
-                    <div id="worst-asset" class="stat-value stat-negative">-</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Cash Reserve</div>
-                    <div id="cash-reserve" class="stat-value">€0.00</div>
+
+            <div id="tab-asset" class="tab-content active">
+                <form id="purchase-form" class="purchase-form-grid">
+                    <input type="text" id="ticker" placeholder="Ticker (e.g. AAPL)" required>
+                    <input type="text" id="name" placeholder="Nom de l'entreprise" required>
+                    
+                    <div class="form-group-inline">
+                        <input type="number" id="price" placeholder="Prix unitaire" step="any" required>
+                        <select id="currency-select" required>
+                            <option value="EUR">EUR (€)</option>
+                            <option value="USD">USD ($)</option>
+                        </select>
+                    </div>
+                    
+                    <input type="date" id="date" required>
+                    <input type="number" id="quantity" placeholder="Quantité" step="any" required>
+                    
+                    <select id="asset-type-select" required>
+                        <option value="">Type d'actif...</option>
+                        </select>
+                    
+                    <select id="broker-select" required>
+                        <option value="">Courtier...</option>
+                        </select>
+                    
+                    <button type="submit" class="btn-submit">Ajouter la transaction</button>
+                </form>
+            </div>
+
+            <div id="tab-cash" class="tab-content">
+                <form id="cash-form" class="purchase-form-grid">
+                    <select id="cash-type" required>
+                        <option value="Dépôt">Dépôt (J'ajoute du cash)</option>
+                        <option value="Retrait">Retrait (Je retire du cash)</option>
+                    </select>
+                    
+                    <select id="cash-broker" required>
+                        <option value="">Courtier...</option>
+                        </select>
+                    
+                    <input type="number" id="cash-amount" placeholder="Montant (€)" step="0.01" required>
+                    
+                    <input type="date" id="cash-date" required>
+
+                    <input type="text" id="cash-currency" value="EUR" hidden>
+                    <input type="text" id="cash-asset-type" value="Cash" hidden>
+
+                    <button type="submit" class="btn-submit">Enregistrer le mouvement</button>
+                </form>
+            </div>
+
+            <div id="tab-data" class="tab-content">
+                <div class="data-grid">
+                    <div class="file-input-group">
+                        <input type="file" id="csv-file" accept=".csv" hidden>
+                        <button type="button" id="choose-file-btn" class="btn-secondary">
+                            <i class="fas fa-folder-open"></i> Choisir CSV
+                        </button>
+                        <span id="file-name" class="file-name">Aucun fichier choisi</span>
+                    </div>
+
+                    <button id="import-csv" class="btn-primary btn-import">
+                        <i class="fas fa-upload"></i> Importer
+                    </button>
+                    
+                    <button id="export-csv" class="btn-secondary btn-export">
+                        <i class="fas fa-download"></i> Exporter CSV
+                    </button>
                 </div>
             </div>
         </div>
 
+
         <h2>All Transactions</h2>
         
-        <!-- Barre de recherche et filtres -->
         <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
             <input type="text" id="search-input" placeholder="Search ticker, name or date..." style="flex: 1; min-width: 250px;">
             <div id="ticker-filter-dropdown"></div>
             
-            <!-- Filtre par Type d'Actif -->
             <select id="filter-asset-type" style="min-width: 150px;">
                 <option value="">All Asset Types</option>
                 <option value="Stock">Stock</option>
@@ -95,7 +127,6 @@
                 <option value="Crypto">Crypto</option>
             </select>
             
-            <!-- Filtre par Broker -->
             <select id="filter-broker" style="min-width: 150px;">
                 <option value="">All Brokers</option>
                 <option value="RV-CT">Revolut</option>
@@ -104,12 +135,11 @@
                 <option value="Binance">Binance</option>
                 <option value="Bitstack">Bitstack</option>
             </select>
-			
+            
             <button id="clear-filters" class="btn-secondary">Clear Filters</button>            
             <button id="refresh-prices">Refresh Prices</button>
         </div>
-		
-        <!-- Actions groupées -->
+        
         <div class="bulk-actions" id="bulk-actions" style="display:none;">
             <button id="select-all-btn">Select All</button>
             <button id="bulk-edit-type" class="btn-secondary">Edit Asset Type</button>
@@ -127,7 +157,7 @@
                     <th data-sort="date">DATE</th>
                     <th data-sort="ticker">TICKER</th>
                     <th data-sort="name">NAME</th>
-	                <th data-sort="currency">CCY</th>
+                    <th data-sort="currency">CCY</th>
                     <th data-sort="currentPriceOriginal">CURRENT</th>
                     <th data-sort="quantity">QTY</th>
                     <th data-sort="gainEUR">P&L</th>
@@ -143,267 +173,80 @@
 
         <div class="pagination" id="pagination"></div>
 
-        <h2>Add Transaction</h2>
-        <form id="purchase-form" class="purchase-form-grid">
-            <input type="text" id="ticker" placeholder="Ticker (e.g. AAPL)" required>
-            <input type="text" id="name" placeholder="Company name" required>
-            
-            <div class="form-group-inline">
-                <input type="number" id="price" placeholder="Price" step="0.01" required>
-                <select id="currency-select" required>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="USD">USD ($)</option>
-                </select>
-            </div>
-            
-            <input type="date" id="date" required>
-            <input type="number" id="quantity" placeholder="Quantity" step="0.000001" required>
-            
-            <select id="asset-type-select" required>
-                <option value="">Select Asset Type</option>
-                <option value="Stock">Stock</option>
-                <option value="ETF">ETF</option>
-                <option value="Crypto">Crypto</option>
-            </select>
-            
-            <select id="broker-select" required>
-                <option value="">Select Broker</option>
-                <option value="RV-CT">Revolut</option>
-                <option value="TR-CT">Trade Republic</option>
-                <option value="BB-PEA">Boursobank PEA</option>
-                <option value="Binance">Binance</option>
-                <option value="Bitstack">Bitstack</option>
-            </select>
-            
-            <button type="submit" class="btn-submit">Add</button>
-        </form>
-        
-        <h2>Add Cash Movement</h2>
-        <form id="cash-form" class="purchase-form-grid" style="grid-template-columns: 1fr 1fr 1fr; align-items: end;">
-            <div class="form-group">
-                <label for="cash-type">Type</label>
-                <select id="cash-type" required>
-                    <option value="Dépôt">Dépôt (J'ajoute du cash)</option>
-                    <option value="Retrait">Retrait (Je retire du cash)</option>
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label for="cash-broker">Broker</label>
-                <select id="cash-broker" required>
-                    </select>
-            </div>
-            
-            <div class="form-group">
-                <label for="cash-amount">Montant (€)</label>
-                <input type="number" id="cash-amount" placeholder="1000" step="0.01" required>
-            </div>
-            
-            <div class="form-group">
-                <label for="cash-date">Date</label>
-                <input type="date" id="cash-date" required>
-            </div>
-
-            <input type="text" id="cash-currency" value="EUR" hidden>
-            <input type="text" id="cash-asset-type" value="Cash" hidden>
-
-            <button type="submit" class="btn-submit" style="grid-column: 3 / 4;">Ajouter Mouvement</button>
-        </form>
-
-        <h2>Data Management</h2>
-        <div class="data-management">
-            <div class="file-upload-wrapper">
-                <input type="file" id="csv-file" accept=".csv" hidden>
-                <button type="button" id="choose-file-btn" class="btn-secondary">
-                    <i class="fas fa-folder-open"></i>
-                    Choose CSV File
-                </button>
-                <span id="file-name" class="file-name">No file chosen</span>
-				<button id="import-csv" class="btn-primary">
-					<i class="fas fa-upload"></i>
-					Import CSV
-				</button>
-				<button id="export-csv" class="btn-primary">
-					<i class="fas fa-download"></i>
-					Export CSV
-				</button>
-			</div>
-        </div>
     </div>
 
-	<!-- MODAL D'ÉDITION COMPLET -->
-	<div class="modal-overlay" id="edit-modal" style="display: none;">
-	  <div class="modal-content" style="max-width: 600px;">
-		<div class="modal-header">
-		  <h3>✏️ Modifier la transaction</h3>
-		  <button class="modal-close" id="close-modal">×</button>
-		</div>
-		<div class="modal-body">
-		  <form id="edit-form">
-		    <!-- Ticker et Nom -->
-		    <div class="form-row">
-		      <div class="form-group">
-			    <label><i class="fas fa-tag"></i> Ticker</label>
-			    <input type="text" id="edit-ticker" required 
-			           placeholder="Ex: AAPL" 
-			           style="text-transform: uppercase;">
-			  </div>
-			  <div class="form-group">
-			    <label><i class="fas fa-building"></i> Nom</label>
-			    <input type="text" id="edit-name" required 
-			           placeholder="Ex: Apple Inc.">
-			  </div>
-		    </div>
+    <div class="modal-overlay" id="edit-modal" style="display: none;">
+      <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+          <h3>✏️ Modifier la transaction</h3>
+          <button class="modal-close" id="close-modal">×</button>
+        </div>
+        <div class="modal-body">
+          <form id="edit-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label><i class="fas fa-tag"></i> Ticker</label>
+                <input type="text" id="edit-ticker" required placeholder="Ex: AAPL" style="text-transform: uppercase;">
+              </div>
+              <div class="form-group">
+                <label><i class="fas fa-building"></i> Nom</label>
+                <input type="text" id="edit-name" required placeholder="Ex: Apple Inc.">
+              </div>
+            </div>
 
-		    <!-- Prix et Quantité -->
-		    <div class="form-row">
-		      <div class="form-group">
-			    <label><i class="fas fa-euro-sign"></i> Prix d'achat</label>
-			    <input type="number" id="edit-price" step="any" min="0" required>
-			  </div>
-			  <div class="form-group">
-			    <label><i class="fas fa-boxes"></i> Quantité</label>
-			    <input type="number" id="edit-quantity" step="any" min="0" required>
-			  </div>
-		    </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label><i class="fas fa-euro-sign"></i> Prix d'achat</label>
+                <input type="number" id="edit-price" step="any" min="0" required>
+              </div>
+              <div class="form-group">
+                <label><i class="fas fa-boxes"></i> Quantité</label>
+                <input type="number" id="edit-quantity" step="any" min="0" required>
+              </div>
+            </div>
 
-		    <!-- Date et Devise -->
-		    <div class="form-row">
-		      <div class="form-group">
-			    <label><i class="fas fa-calendar"></i> Date</label>
-			    <input type="date" id="edit-date" required>
-			  </div>
-			  <div class="form-group">
-			    <label><i class="fas fa-dollar-sign"></i> Devise</label>
-			    <select id="edit-currency" required>
-			      <option value="EUR">Euro (€)</option>
-			      <option value="USD">Dollar ($)</option>
-			    </select>
-			  </div>
-		    </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label><i class="fas fa-calendar"></i> Date</label>
+                <input type="date" id="edit-date" required>
+              </div>
+              <div class="form-group">
+                <label><i class="fas fa-dollar-sign"></i> Devise</label>
+                <select id="edit-currency" required>
+                  <option value="EUR">Euro (€)</option>
+                  <option value="USD">Dollar ($)</option>
+                </select>
+              </div>
+            </div>
 
-		    <!-- Type d'actif et Broker -->
-		    <div class="form-row">
-		      <div class="form-group">
-			    <label><i class="fas fa-chart-line"></i> Type d'actif</label>
-			    <select id="edit-asset-type" required>
-			      <option value="Stock">Stock</option>
-			      <option value="ETF">ETF</option>
-			      <option value="Crypto">Crypto</option>
-			    </select>
-			  </div>
-			  <div class="form-group">
-			    <label><i class="fas fa-university"></i> Broker</label>
-			    <select id="edit-broker" required>
-			      <!-- Options seront remplies dynamiquement -->
-			    </select>
-			  </div>
-		    </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label><i class="fas fa-chart-line"></i> Type d'actif</label>
+                <select id="edit-asset-type" required>
+                  <option value="Stock">Stock</option>
+                  <option value="ETF">ETF</option>
+                  <option value="Crypto">Crypto</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label><i class="fas fa-university"></i> Broker</label>
+                <select id="edit-broker" required>
+                  </select>
+              </div>
+            </div>
 
-		    <div class="form-actions" style="margin-top: 24px;">
-		      <button type="button" class="btn-cancel" id="cancel-edit">
-		        <i class="fas fa-times"></i> Annuler
-		      </button>
-		      <button type="submit" class="btn-save">
-		        <i class="fas fa-check"></i> Sauvegarder
-		      </button>
-		    </div>
-		  </form>
-		</div>
-	  </div>
-	</div>
-
-	<style>
-	  /* Styles pour le formulaire du modal */
-	  .form-row {
-	    display: grid;
-	    grid-template-columns: 1fr 1fr;
-	    gap: 16px;
-	    margin-bottom: 16px;
-	  }
-
-	  .form-group {
-	    display: flex;
-	    flex-direction: column;
-	    gap: 8px;
-	  }
-
-	  .form-group label {
-	    font-size: 13px;
-	    font-weight: 600;
-	    color: var(--text-primary);
-	    display: flex;
-	    align-items: center;
-	    gap: 6px;
-	  }
-
-	  .form-group label i {
-	    color: var(--accent-blue);
-	    font-size: 12px;
-	  }
-
-	  .form-group input,
-	  .form-group select {
-	    padding: 10px 12px;
-	    background: var(--bg-primary);
-	    border: 1px solid var(--border-color);
-	    border-radius: 6px;
-	    color: var(--text-primary);
-	    font-size: 14px;
-	    transition: all 0.2s;
-	  }
-
-	  .form-group input:focus,
-	  .form-group select:focus {
-	    outline: none;
-	    border-color: var(--accent-blue);
-	    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-	  }
-
-	  .form-actions {
-	    display: flex;
-	    gap: 12px;
-	    justify-content: flex-end;
-	  }
-
-	  .btn-cancel,
-	  .btn-save {
-	    padding: 10px 20px;
-	    border-radius: 6px;
-	    font-weight: 600;
-	    cursor: pointer;
-	    transition: all 0.2s;
-	    display: flex;
-	    align-items: center;
-	    gap: 8px;
-	  }
-
-	  .btn-cancel {
-	    background: transparent;
-	    color: var(--text-primary);
-	    border: 1px solid var(--border-color);
-	  }
-
-	  .btn-cancel:hover {
-	    background: rgba(255, 255, 255, 0.05);
-	  }
-
-	  .btn-save {
-	    background: var(--accent-blue);
-	    color: white;
-	    border: none;
-	  }
-
-	  .btn-save:hover {
-	    background: #2563eb;
-	  }
-
-	  @media (max-width: 768px) {
-	    .form-row {
-	      grid-template-columns: 1fr;
-	    }
-	  }
-	</style>
+            <div class="form-actions" style="margin-top: 24px;">
+              <button type="button" class="btn-cancel" id="cancel-edit">
+                <i class="fas fa-times"></i> Annuler
+              </button>
+              <button type="submit" class="btn-save">
+                <i class="fas fa-check"></i> Sauvegarder
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="./app.js"></script>
 </body>

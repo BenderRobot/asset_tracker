@@ -1,5 +1,5 @@
 // ========================================
-// api.js - (v17 - Binance Fallback)
+// api.js - (v20 - Fix 1D Range & Cache)
 // ========================================
 
 import { RAPIDAPI_KEY, YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE } from './config.js';
@@ -294,8 +294,6 @@ export class PriceAPI {
     let formatted = this.formatTicker(ticker); 
     
     // === FIX HYBRIDE GOLD ETF ===
-    // Si on demande de l'intraday (1J, 2J, 1W) pour l'Or, on force le ticker "liquide"
-    // Sinon (1M, 1Y...), on garde le ticker "maître" défini dans config.js (GOLD.PA)
     if (formatted === 'GOLD.PA' && ['5m', '15m', '90m'].includes(interval)) {
         console.log('🔀 Switch Gold: Utilisation de GOLD-EUR.PA pour les données intraday');
         formatted = 'GOLD-EUR.PA';
@@ -315,28 +313,33 @@ export class PriceAPI {
     if (this.historicalPriceCache[cacheKey]) return this.historicalPriceCache[cacheKey];
     
     // 1. PRIORITÉ BINANCE (Pour les Cryptos uniquement)
-    // On tente Binance en PREMIER car les données sont plus fiables (pas de trous le weekend/nuit)
     if (isCrypto) {
-        // console.log(`✨ Tentative Prioritaire Binance pour ${ticker}...`);
         try {
             const binanceData = await this.fetchBinanceHistory(ticker, startTs, endTs, interval);
-            // Si on a reçu des données valides (> 0 points)
             if (Object.keys(binanceData).length > 0) {
                 this.historicalPriceCache[cacheKey] = binanceData;
                 this.saveHistoricalCache();
-                return binanceData; // On retourne immédiatement, on ignore Yahoo
+                return binanceData; 
             }
         } catch (e) {
             console.warn(`Binance primary failed for ${ticker}, falling back to Yahoo...`, e);
-            // Si Binance échoue, on ne fait rien et on laisse le code continuer vers Yahoo ci-dessous
         }
     }
 
     // 2. YAHOO FINANCE (Stocks ou Fallback Crypto)
     let yahooUrl;
-    if (interval === '5m') yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=2d&interval=5m`;
-    else if (interval === '15m') yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=5d&interval=15m`;
-    else yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?period1=${startTs}&period2=${endTs}&interval=${interval}`;
+    
+    // 🔥 FIX 1 : Cache Buster pour forcer le proxy à ignorer son cache
+    const noCache = `&_=${Date.now()}`;
+
+    // 🔥 FIX 2 : Pour la vue 5m (1D), on demande "range=5d" au lieu de "2d"
+    // Cela aligne la requête sur celle du header (qui fonctionne) pour récupérer les données récentes
+    if (interval === '5m') 
+        yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=5d&interval=5m${noCache}`;
+    else if (interval === '15m') 
+        yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=5d&interval=15m${noCache}`;
+    else 
+        yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?period1=${startTs}&period2=${endTs}&interval=${interval}${noCache}`;
 
     for (let attempt = 0; attempt < retries; attempt++) {
         try {

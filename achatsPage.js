@@ -1,7 +1,7 @@
 // ========================================
-// achatsPage.js - (v7 - Avec Cash Reserve)
+// achatsPage.js - (v8 - Avec Gestion des Onglets)
 // ========================================
-import { PAGE_SIZE, ASSET_TYPES, BROKERS, CURRENCIES } from './config.js';
+import { PAGE_SIZE, BROKERS } from './config.js';
 import { formatCurrency, formatPercent, formatDate, formatQuantity } from './utils.js';
 
 export class AchatsPage {
@@ -38,18 +38,14 @@ export class AchatsPage {
     const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
     await this.api.fetchBatchPrices(tickers, true);
 
-    // ==========================================================
     // 4. Enrichir les deux listes séparément
-    // ==========================================================
     const enrichedAssets = this.dataManager.calculateEnrichedPurchases(assetPurchases);
     const enrichedCash = this.dataManager.calculateEnrichedPurchases(cashMovements);
 
     // 5. Combiner pour l'affichage
     const allEnriched = [...enrichedAssets, ...enrichedCash];
-    // ==========================================================
 
     allEnriched.sort((a, b) => {
-      // ... (logique de tri inchangée) ...
       const valA = a[this.sortColumn] ?? -Infinity;
       const valB = b[this.sortColumn] ?? -Infinity;
       
@@ -77,7 +73,7 @@ export class AchatsPage {
       const assetTypeBadge = `<span class="asset-type-badge asset-type-${p.assetType.toLowerCase().replace(/\s/g, '-')}">${p.assetType}</span>`;
       const brokerBadge = `<span class="broker-badge">${p.broker}</span>`;
       
-      // MODIFICATION : Gérer l'affichage du cash
+      // Affichage du cash
       if (p.assetType === 'Cash') {
         const cashColor = p.price > 0 ? 'positive' : 'negative';
         return `
@@ -134,21 +130,13 @@ export class AchatsPage {
       `;
     }).join('') || '<tr><td colspan="16">Aucune transaction.</td></tr>';
 
-    
-    // ==========================================================
     // 6. Calculer le résumé et le cash
-    // ==========================================================
-    // Le résumé se base UNIQUEMENT sur les actifs filtrés
     const holdings = this.dataManager.calculateHoldings(assetPurchases);
     const summary = this.dataManager.calculateSummary(holdings);
-    
-    // La réserve de cash se base sur TOUTES les transactions (non filtrées)
-    // pour que le résumé global soit toujours correct.
     const globalCashReserve = this.dataManager.calculateCashReserve(this.storage.getPurchases());
     
     // 7. Mettre à jour l'UI
     this.ui.updatePortfolioSummary(summary, allEnriched.length, globalCashReserve.total); 
-    // ==========================================================
     
     this.ui.renderPagination(this.currentPage, totalPages, (newPage) => {
       this.currentPage = newPage;
@@ -158,14 +146,9 @@ export class AchatsPage {
     this.attachEventListeners();
   }
   
-  // ... (Le reste de achatsPage.js est inchangé) ...
-  // attachEventListeners()
-  // setupModalHandlers()
-  // openEditModal()
-  // etc...
-  
   attachEventListeners() {
     const table = document.getElementById('purchases-table');
+    if (!table) return;
 
     table.querySelectorAll('.row-select').forEach(cb => {
       cb.onclick = null;
@@ -185,7 +168,6 @@ export class AchatsPage {
         e.stopPropagation();
         const key = btn.dataset.key;
         
-        // Ne pas ouvrir la bulle pour le cash (simplifié)
         const purchase = this.storage.getPurchaseByKey(key);
         if (purchase && purchase.assetType === 'Cash') {
             if (confirm('Supprimer ce mouvement de cash ?')) {
@@ -358,6 +340,43 @@ export class AchatsPage {
     const checked = Array.from(all).filter(cb => cb.checked).length;
     header.checked = checked === all.length && all.length > 0;
     header.indeterminate = checked > 0 && checked < all.length;
+  }
+
+  // === NOUVELLE MÉTHODE : GESTION DES ONGLETS ===
+  setupTabs() {
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    if (!tabBtns.length) return;
+
+    // Gestion du clic sur les onglets
+    tabBtns.forEach(btn => {
+      // Pour éviter les doublons d'écouteurs si appelé plusieurs fois, on utilise onclick ou on clone
+      // Ici, une approche simple suffit si setupTabs n'est appelé qu'une fois au chargement
+      btn.addEventListener('click', (e) => {
+        e.preventDefault(); // Empêcher tout comportement par défaut
+
+        // 1. Désactiver tous les boutons et contenus
+        tabBtns.forEach(b => b.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+
+        // 2. Activer le bouton cliqué
+        btn.classList.add('active');
+        
+        // 3. Activer le contenu correspondant
+        const tabName = btn.dataset.tab; // Récupère "asset", "cash" ou "data"
+        const content = document.getElementById(`tab-${tabName}`);
+        if (content) content.classList.add('active');
+      });
+    });
+    
+    // Initialisation des dates par défaut (Aujourd'hui)
+    const today = new Date().toISOString().split('T')[0];
+    const dateAsset = document.getElementById('date');
+    const dateCash = document.getElementById('cash-date');
+    
+    if (dateAsset && !dateAsset.value) dateAsset.value = today;
+    if (dateCash && !dateCash.value) dateCash.value = today;
   }
 
   setupSorting() {
