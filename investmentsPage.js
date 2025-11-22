@@ -286,28 +286,34 @@ export class InvestmentsPage {
     const clearFiltersBtn = document.getElementById('clear-filters');
     if (clearFiltersBtn) {
       clearFiltersBtn.addEventListener('click', () => {
+        console.log('🧹 Clear Filters clicked');
+        
+        // ... (logique existante de reset filtres)
         this.currentAssetTypeFilter = '';
         this.currentBrokerFilter = '';
-        
         if (assetTypeFilter) assetTypeFilter.value = '';
         if (brokerFilter) brokerFilter.value = '';
-        
         const searchInput = document.getElementById('search-input');
         if (searchInput) searchInput.value = '';
-        
         this.currentSearchQuery = ''; 
-        
-        if (this.filterManager) {
-          this.filterManager.clearAllFilters(); 
-        }
-        
+        if (this.filterManager) this.filterManager.clearAllFilters(); 
         this.currentPage = 1;
         
-        // Réinitialiser le graphique en mode portfolio
+        // === NOUVEAU : RESET BENCHMARK ===
+        const benchmarkSelect = document.getElementById('benchmark-select');
+        if (benchmarkSelect) {
+            benchmarkSelect.value = ''; // Remet le select à "vs Benchmark"
+        }
+        
+        // Réinitialiser le graphique en mode portfolio propre
         if (this.historicalChart) {
             this.historicalChart.currentMode = 'portfolio';
             this.historicalChart.selectedAssets = [];
+            this.historicalChart.currentBenchmark = null; // Reset variable interne
+            // Force une mise à jour complète pour effacer le mode Performance
+            this.historicalChart.update(true, false); 
         }
+        // =================================
     
         this.render(''); 
       });
