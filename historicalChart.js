@@ -1,6 +1,5 @@
-
 // ========================================
-// historicalChart.js - (v15 - Version Complète & Corrigée)
+// historicalChart.js - (v18 - Synchro Totale "Vérité 1D")
 // ========================================
 
 import { eventBus } from './eventBus.js';
@@ -136,6 +135,46 @@ export class HistoricalChart {
   }
 
   // ==========================================================
+  // === Synchronisation Summary <-> Graph Data (LA VÉRITÉ 1D) ===
+  // ==========================================================
+  syncSummaryWithChartData(summary, graphData) {
+      // On cherche la dernière valeur valide du graphique 1D fourni
+      const values = graphData.values;
+      let lastValue = null;
+
+      if (values && values.length > 0) {
+          for (let i = values.length - 1; i >= 0; i--) {
+              if (values[i] !== null && !isNaN(values[i])) {
+                  lastValue = values[i];
+                  break;
+              }
+          }
+      }
+
+      // Si on a trouvé une valeur de fin de graph, on met à jour le résumé
+      if (lastValue !== null) {
+          // 1. Mettre à jour la Valeur Actuelle (Total Value)
+          summary.totalCurrentEUR = lastValue;
+
+          // 2. Recalculer le Gain Total (P&L)
+          summary.gainTotal = summary.totalCurrentEUR - summary.totalInvestedEUR;
+
+          // 3. Recalculer le % Total
+          summary.gainPct = summary.totalInvestedEUR > 0 
+              ? (summary.gainTotal / summary.totalInvestedEUR) * 100 
+              : 0;
+              
+          // 4. Optionnel : Recalculer Var Day si available
+          if (graphData.yesterdayClose && graphData.yesterdayClose > 0) {
+              summary.totalDayChangeEUR = summary.totalCurrentEUR - graphData.yesterdayClose;
+              summary.dayChangePct = (summary.totalDayChangeEUR / graphData.yesterdayClose) * 100;
+          }
+      }
+
+      return summary;
+  }
+
+  // ==========================================================
   // === Logique de chargement de page (Cache-First)
   // ==========================================================
   async loadPageWithCacheFirst() {
@@ -165,12 +204,10 @@ export class HistoricalChart {
       
       const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
       
-      // Force le rafraîchissement des prix au premier chargement
       if (tickers.length > 0) {
           await this.dataManager.api.fetchBatchPrices(tickers);
       }
       
-      // 2. Déterminer la CIBLE du graphique et des cartes
       const titleConfig = this.investmentsPage.getChartTitleConfig();
       let targetAssetPurchases = assetPurchases;
       let targetCashPurchases = cashPurchases;
@@ -181,17 +218,17 @@ export class HistoricalChart {
          targetCashPurchases = []; 
       }
       
-      // 3. Calculs & Rendu SYNC
       const contextHoldings = this.dataManager.calculateHoldings(assetPurchases);
       const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
       let targetSummary = this.dataManager.calculateSummary(targetHoldings); 
       const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
       
-      // 4. Rendu Graphique
-      let historicalChanges = { historicalDayChange: null, historicalDayChangePct: null };
       try {
         let graphData;
-        if (titleConfig.mode === 'asset') {
+        const isSingleAsset = (titleConfig.mode === 'asset');
+        
+        // Récupération des données graphiques principales
+        if (isSingleAsset) {
             const ticker = this.filterManager.getSelectedTickers().values().next().value;
             graphData = await this.dataManager.calculateAssetHistory(ticker, this.currentPeriod);
         } else {
@@ -203,7 +240,25 @@ export class HistoricalChart {
         if (!graphData || graphData.labels.length === 0) {
              this.showMessage('Pas de données graphiques disponibles.');
         } else {
-             historicalChanges = this.renderChart(canvas, graphData, targetSummary, titleConfig);
+             this.renderChart(canvas, graphData, targetSummary, titleConfig);
+             
+             // === LOGIQUE DE VÉRITÉ 1D ===
+             // Si on est déjà en 1D, on utilise graphData.
+             // Si on est en > 1D, on doit quand même récupérer la valeur 1D pour la carte.
+             let referenceData = graphData;
+             
+             if (this.currentPeriod !== 1) {
+                 // On est en vue 1M, 1Y, etc. -> On fetch la 1D en arrière-plan
+                 if (isSingleAsset) {
+                     const ticker = this.filterManager.getSelectedTickers().values().next().value;
+                     referenceData = await this.dataManager.calculateAssetHistory(ticker, 1);
+                 } else {
+                     referenceData = await this.dataManager.calculateHistory(targetAssetPurchases, 1);
+                 }
+             }
+             
+             // On écrase le résumé avec la donnée 1D précise
+             targetSummary = this.syncSummaryWithChartData(targetSummary, referenceData);
         }
       } catch (e) {
         console.error('Erreur Graph Cache', e);
@@ -211,13 +266,6 @@ export class HistoricalChart {
         if (graphLoader) graphLoader.style.display = 'none';
       }
 
-      // 5. ÉCRASER la Var. Jour avec l'historique (seulement en vue 1J)
-      if (this.currentPeriod === 1 && historicalChanges.historicalDayChange !== null) {
-          targetSummary.totalDayChangeEUR = historicalChanges.historicalDayChange;
-          targetSummary.dayChangePct = historicalChanges.historicalDayChangePct;
-      }
-
-      // 6. Rendre le tableau et les cartes
       this.investmentsPage.renderData(contextHoldings, targetSummary, targetCashReserve.total);
 
     } catch (e) {
@@ -248,11 +296,9 @@ export class HistoricalChart {
     }
 
     try {
-      // 1. CONTEXTE GLOBAL
       const contextPurchasesNoTickerFilter = this.getFilteredPurchasesFromPage(true);
       const contextAssetPurchases = contextPurchasesNoTickerFilter.filter(p => p.assetType !== 'Cash');
 
-      // 2. CIBLE DU GRAPHIQUE
       let targetAssetPurchases;
       let targetCashPurchases;
       let titleConfig;
@@ -283,7 +329,6 @@ export class HistoricalChart {
          if (titleConfig.mode === 'asset') isSingleAsset = true;
       }
       
-      // 3. FETCH API
       const contextTickers = new Set(contextAssetPurchases.map(p => p.ticker.toUpperCase()));
       const targetTickers = new Set(targetAssetPurchases.map(p => p.ticker.toUpperCase()));
       let allTickers = [...new Set([...contextTickers, ...targetTickers])];
@@ -298,7 +343,7 @@ export class HistoricalChart {
           await this.dataManager.api.fetchBatchPrices(allTickers);
       }
       
-      // 4. CALCULS
+      // 4. CALCULS GRAPHIQUE PRINCIPAL
       let graphData;
       if (isSingleAsset) {
          const ticker = (this.currentMode === 'asset') 
@@ -324,18 +369,34 @@ export class HistoricalChart {
           benchmarkData = await this.dataManager.api.getHistoricalPricesWithRetry(this.currentBenchmark, startTs, endTs, interval);
       }
       
-      let historicalChanges = { historicalDayChange: null, historicalDayChangePct: null };
       if (!graphData || graphData.labels.length === 0) {
         this.showMessage('Pas de données disponibles pour cette période');
       } else {
-        historicalChanges = this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData);
+        this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData);
+        
+        // === C'EST ICI QUE LA MAGIE OPÈRE (VÉRITÉ 1D) ===
+        let referenceDataForSummary = graphData;
+
+        if (this.currentPeriod !== 1) {
+            // Si on n'est pas en 1D, le graphData est "imprécis" (clôtures veille).
+            // On fetch les données 1D en douce pour avoir le vrai prix actuel.
+            try {
+                if (isSingleAsset) {
+                   const ticker = (this.currentMode === 'asset') ? this.selectedAssets[0] : this.filterManager.getSelectedTickers().values().next().value;
+                   referenceDataForSummary = await this.dataManager.calculateAssetHistory(ticker, 1);
+                } else {
+                   referenceDataForSummary = await this.dataManager.calculateHistory(targetAssetPurchases, 1);
+                }
+            } catch (e) {
+                console.warn("Fallback Summary: Impossible de fetcher la 1D", e);
+            }
+        }
+
+        // On force le résumé à utiliser la donnée 1D précise
+        targetSummary = this.syncSummaryWithChartData(targetSummary, referenceDataForSummary);
       }
       
-      if (this.currentPeriod === 1 && historicalChanges.historicalDayChange !== null) {
-          targetSummary.totalDayChangeEUR = historicalChanges.historicalDayChange;
-          targetSummary.dayChangePct = historicalChanges.historicalDayChangePct;
-      }
-
+      // 5. RENDU FINAL DES CARTES (avec le targetSummary corrigé)
       this.investmentsPage.renderData(contextHoldings, targetSummary, targetCashReserve.total);
 
     } catch (error) {
@@ -347,7 +408,7 @@ export class HistoricalChart {
     }
   }
 
-  // === UTILITAIRES ===
+  // === UTILITAIRES (Inchangés) ===
   getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
       const searchQuery = this.investmentsPage.currentSearchQuery;
       let purchases = this.storage.getPurchases();
@@ -404,7 +465,7 @@ export class HistoricalChart {
   }
 
   // ==========================================================
-  // Rendu (MODIFIÉ : Fix Tooltip + Alignement)
+  // Rendu (Inchangé)
   // ==========================================================
   renderChart(canvas, graphData, summary, titleConfig, benchmarkData = null) {
     if (this.chart) this.chart.destroy();

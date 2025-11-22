@@ -1,5 +1,5 @@
 // ========================================
-// dataManager.js - (v20 - Fix Binance Limit & Weekend Flat Line)
+// dataManager.js - (Version Corrigée Weekend & Labels 2D)
 // ========================================
 
 import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js'; 
@@ -328,12 +328,14 @@ export class DataManager {
         const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
         return this.calculateGenericHistory(assetPurchases, days, false);
     }
+    
     async calculateAssetHistory(ticker, days) {
         const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
         if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [] };
         return this.calculateGenericHistory(purchases, days, true);
     }
 
+    // === FONCTION MODIFIÉE POUR GÉRER LE WEEKEND ===
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
 
@@ -373,27 +375,59 @@ export class DataManager {
         const today = new Date();
         const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
 
-        let displayStartUTC;
-        
-        // CORRECTION BUFFER : Réduction de la taille du buffer pour 1J/2J
-        // Cela évite de demander trop de données à Binance et de se faire couper la fin
-        let bufferDays = 30;
+        // 1. Détection Actif Crypto vs Stock (Weekend Check)
+        const sampleTicker = isSingleAsset ? ticker : Array.from(assetMap.keys())[0];
+        const isCrypto = this.isCryptoTicker(sampleTicker || '');
+        const isWeekend = today.getDay() === 0 || today.getDay() === 6; // 0=Dim, 6=Sam
 
-        if (days === 1) {
-            displayStartUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0));
-            bufferDays = 3; // Buffer réduit pour 1J
-        } else if (days === 2) {
-            const twoDaysAgo = new Date(today);
-            twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);
-            displayStartUTC = new Date(Date.UTC(twoDaysAgo.getFullYear(), twoDaysAgo.getMonth(), twoDaysAgo.getDate(), 0, 0, 0));
-            bufferDays = 5; // Buffer réduit pour 2J
-        } else if (days !== 'all') {
-            const localDisplay = new Date(today);
-            localDisplay.setDate(localDisplay.getDate() - (days - 1));
-            displayStartUTC = new Date(Date.UTC(localDisplay.getFullYear(), localDisplay.getMonth(), localDisplay.getDate()));
-            if (displayStartUTC < firstPurchase) displayStartUTC = new Date(firstPurchase);
+        let displayStartUTC;
+        let bufferDays = 30;
+        let hardStopEndTs = null; // Pour forcer l'arrêt du graph à vendredi
+
+        // === LOGIQUE INTELLIGENTE WEEKEND ===
+        if (!isCrypto && isWeekend && (days === 1 || days === 2)) {
+            // Si c'est une Action le Weekend, on remonte le temps
+            const daysToGoBack = today.getDay() === 0 ? 2 : 1; // Dimanche -> -2 (Vendredi), Samedi -> -1 (Vendredi)
+            
+            // La fin du graph sera Vendredi 23:59:59
+            const lastTradingDay = new Date(today);
+            lastTradingDay.setDate(today.getDate() - daysToGoBack);
+            lastTradingDay.setHours(23, 59, 59, 999);
+            
+            // On définit le timestamp d'arrêt pour ne pas avoir de ligne plate jusqu'à dimanche
+            hardStopEndTs = lastTradingDay.getTime();
+
+            // Calcul du début de la fenêtre
+            const startTradingDay = new Date(lastTradingDay);
+            startTradingDay.setHours(0, 0, 0, 0);
+
+            if (days === 2) {
+                // Si vue 2D, on prend Vendredi - 1 jour = Jeudi
+                startTradingDay.setDate(startTradingDay.getDate() - 1);
+            }
+
+            // On définit le début d'affichage
+            displayStartUTC = new Date(Date.UTC(startTradingDay.getFullYear(), startTradingDay.getMonth(), startTradingDay.getDate(), 0, 0, 0));
+            bufferDays = 5; 
+
         } else {
-            displayStartUTC = new Date(firstPurchase);
+            // === LOGIQUE STANDARD (Semaine ou Crypto) ===
+            if (days === 1) {
+                displayStartUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0));
+                bufferDays = 3; 
+            } else if (days === 2) {
+                const twoDaysAgo = new Date(today);
+                twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);
+                displayStartUTC = new Date(Date.UTC(twoDaysAgo.getFullYear(), twoDaysAgo.getMonth(), twoDaysAgo.getDate(), 0, 0, 0));
+                bufferDays = 5; 
+            } else if (days !== 'all') {
+                const localDisplay = new Date(today);
+                localDisplay.setDate(localDisplay.getDate() - (days - 1));
+                displayStartUTC = new Date(Date.UTC(localDisplay.getFullYear(), localDisplay.getMonth(), localDisplay.getDate()));
+                if (displayStartUTC < firstPurchase) displayStartUTC = new Date(firstPurchase);
+            } else {
+                displayStartUTC = new Date(firstPurchase);
+            }
         }
 
         let dataStartUTC = new Date(displayStartUTC);
@@ -427,7 +461,6 @@ export class DataManager {
             assetQuantities.set(t, 0);
             assetInvested.set(t, 0);
         }
-        // Pré-calcul des quantités AVANT le début du graphique
         for (const [t, buyList] of assetMap.entries()) {
             for (const buy of buyList) {
                 if (buy.date < displayStartUTC) {
@@ -451,15 +484,16 @@ export class DataManager {
         let sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
         
         let yesterdayClose = null; 
-        const todayTsForClose = new Date(todayUTC);
-        todayTsForClose.setUTCHours(0, 0, 0, 0);
-        const todayStartTsValue = todayTsForClose.getTime();
-        const allTimestampsBeforeToday = sortedTimestamps.filter(ts => ts < todayStartTsValue);
+        
+        // Reference start TS pour le calcul de "Hier"
+        const referenceStartTs = displayStartUTC.getTime();
+        const allTimestampsBeforeStart = sortedTimestamps.filter(ts => ts < referenceStartTs);
 
-        if (allTimestampsBeforeToday.length > 0) {
-            const lastTsBeforeToday = allTimestampsBeforeToday[allTimestampsBeforeToday.length - 1];
+        if (allTimestampsBeforeStart.length > 0) {
+            const lastTsBeforeToday = allTimestampsBeforeStart[allTimestampsBeforeStart.length - 1];
             let totalYesterdayValue = 0;
             let assetsFound = 0;
+            
             const lastDayQuantities = new Map();
             for (const t of tickers) lastDayQuantities.set(t, 0);
             for (const [t, buyList] of assetMap.entries()) {
@@ -469,6 +503,7 @@ export class DataManager {
                     }
                 }
             }
+            
             for (const t of tickers) {
                 const hist = historicalDataMap.get(t);
                 const qty = lastDayQuantities.get(t);
@@ -487,43 +522,21 @@ export class DataManager {
         
         const displayStartTs = displayStartUTC.getTime();
         
-        let displayEndTs = Infinity;
-        if (days === 1) {
+        // Calcul de la fin d'affichage
+        let displayEndTs;
+        if (hardStopEndTs) {
+            displayEndTs = hardStopEndTs; // On force l'arrêt à Vendredi soir si weekend
+        } else if (days === 1) {
             displayEndTs = displayStartTs + (24 * 60 * 60 * 1000);
+        } else {
+            displayEndTs = Infinity;
         }
         
         let displayTimestamps = sortedTimestamps.filter(ts => 
-            ts >= displayStartTs && ts < displayEndTs
+            ts >= displayStartTs && ts <= displayEndTs // Note: <= pour inclure la dernière bougie
         );
 
-        // === CORRECTION WEEKEND (Actions) ===
-        // Si on est en vue 1J/2J et qu'on n'a pas de données dans la plage (ex: Samedi/Dimanche pour Actions)
-        // MAIS qu'on a un yesterdayClose, on génère une ligne plate.
-        if (displayTimestamps.length === 0 && (days === 1 || days === 2) && yesterdayClose !== null) {
-            const nowTs = Date.now();
-            // On crée 2 points : Début de journée (00:00) et Maintenant
-            // Ou pour 2J : Hier 00:00 et Maintenant
-            
-            // Pour faire simple et joli, on prend displayStartTs et nowTs
-            // On s'assure que displayStartTs est bien dans le passé
-            if (displayStartTs < nowTs) {
-                displayTimestamps = [displayStartTs, nowTs];
-                // On doit "faker" les données historiques pour ces timestamps
-                for (const t of tickers) {
-                    const hist = historicalDataMap.get(t);
-                    // Si l'historique est vide ou s'arrête avant, on ajoute le dernier prix connu
-                    // findClosestPrice va déjà chercher en arrière, mais il faut que hist ne soit pas vide
-                    // Si hist est vide (cas rare), on ne peut rien faire.
-                    // Mais si hist s'arrête vendredi, findClosestPrice (avec 7 jours de tolérance) trouvera le prix.
-                    
-                    // On ajoute artificiellement ces timestamps dans hist pour que la boucle principale les trouve ?
-                    // Non, la boucle principale utilise displayTimestamps et appelle findClosestPrice.
-                    // Donc juste forcer displayTimestamps suffit, À CONDITION que findClosestPrice
-                    // accepte de regarder jusqu'à vendredi (ce qu'on a réglé avec maxDiff=7j).
-                }
-            }
-        }
-        
+        // (Le code de remplissage des trous "Last Known Prices" n'a pas besoin de changer)
         const lastKnownPrices = new Map();
         const allTsBefore = sortedTimestamps.filter(ts => ts < displayStartTs);
         const lastTsOverall = allTsBefore.length > 0 ? allTsBefore[allTsBefore.length - 1] : null;
@@ -545,7 +558,6 @@ export class DataManager {
             }
         }
         
-        // === BOUCLE PRINCIPALE OPTIMISÉE ===
         for (let i = 0; i < displayTimestamps.length; i++) {
             const ts = displayTimestamps[i];
             let tsChangedInvested = false;
@@ -662,11 +674,14 @@ export class DataManager {
 		return (dateUTC) => {
 			const local = new Date(dateUTC);
 			
-			if (days === 1 || days === 2) {
+			if (days === 1) {
+                // Vue 1 jour : Heure seulement
 				return local.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 			}
 			
 			if (days <= 7) {
+                // Vue 2 jours à 7 jours : Jour abrégé + Heure
+                // C'est ici que le changement pour la vue 2D s'applique
 				return local.toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 			}
 			

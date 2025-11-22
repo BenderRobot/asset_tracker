@@ -291,7 +291,16 @@ export class PriceAPI {
 
   // --- HISTORIQUE (Graphiques) ---
   async getHistoricalPricesWithRetry(ticker, startTs, endTs, interval, retries = 3) {
-    const formatted = this.formatTicker(ticker); 
+    let formatted = this.formatTicker(ticker); 
+    
+    // === FIX HYBRIDE GOLD ETF ===
+    // Si on demande de l'intraday (1J, 2J, 1W) pour l'Or, on force le ticker "liquide"
+    // Sinon (1M, 1Y...), on garde le ticker "maître" défini dans config.js (GOLD.PA)
+    if (formatted === 'GOLD.PA' && ['5m', '15m', '90m'].includes(interval)) {
+        console.log('🔀 Switch Gold: Utilisation de GOLD-EUR.PA pour les données intraday');
+        formatted = 'GOLD-EUR.PA';
+    }
+	
     // Détection Crypto améliorée
     const isCrypto = this.storage.getAssetType(ticker) === 'Crypto' || 
                      ['BTC','ETH','SOL','ADA','XRP','BNB','DOT','AVAX','MATIC'].includes(ticker.toUpperCase());
