@@ -1,10 +1,9 @@
 // ========================================
-// investmentsPage.js - (v11 - Tri Corrigé)
+// investmentsPage.js - (v12 - Fix Filtres & Tri)
 // ========================================
 
 import { PAGE_SIZE } from './config.js';
 import { formatCurrency, formatPercent, formatQuantity } from './utils.js';
-// (Plus besoin de eventBus si on utilise l'injection de dépendance)
 
 export class InvestmentsPage {
   constructor(storage, api, ui, filterManager, dataManager, brokersList) {
@@ -13,8 +12,8 @@ export class InvestmentsPage {
     this.ui = ui;
     this.filterManager = filterManager;
     this.dataManager = dataManager;
-    this.brokersList = brokersList; // Propriété pour la liste des brokers
-    this.historicalChart = null; // Propriété pour le graphique (sera injecté)
+    this.brokersList = brokersList;
+    this.historicalChart = null;
     this.currentPage = 1;
     this.sortColumn = 'dayPct';
     this.sortDirection = 'desc';
@@ -25,54 +24,67 @@ export class InvestmentsPage {
     this.currentSearchQuery = ''; 
   }
 
-  // AJOUT : Méthode pour l'injection de dépendance
+  // Injection de dépendance pour le graphique
   setHistoricalChart(chartInstance) {
     this.historicalChart = chartInstance;
   }
 
   /**
    * ========================================================
-   * === "Cache-First" ===
+   * === Rendu Principal (Cache-First) ===
    * ========================================================
    */
   async render(searchQuery = '') {
-    console.log('InvestmentsPage.render() appelé. Délégation au graphique...');
-    this.currentSearchQuery = searchQuery; // Stocke la query pour que le graphique la lise
+    // Stocke la query pour usage ultérieur (tri, filtres, graph)
+    this.currentSearchQuery = searchQuery;
     
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Chargement du cache...</td></tr>';
+    
+    // Loader temporaire dans le tableau
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Chargement des données...</td></tr>';
     
     if (this.historicalChart) {
+      // Le graphique gère le chargement initial et appelle renderData une fois prêt
       await this.historicalChart.loadPageWithCacheFirst(); 
     } else {
         console.error("Erreur: historicalChart n'est pas initialisé.");
-        // Fallback
-        this.renderData([], { totalInvestedEUR: 0, totalCurrentEUR: 0, totalDayChangeEUR: 0, gainTotal: 0, gainPct: 0, dayChangePct: 0, assetsCount: 0, movementsCount: 0 }, 0);
+        this.renderData([], { 
+            totalInvestedEUR: 0, totalCurrentEUR: 0, totalDayChangeEUR: 0, 
+            gainTotal: 0, gainPct: 0, dayChangePct: 0, 
+            assetsCount: 0, movementsCount: 0 
+        }, 0);
     }
   }
 
   /**
    * ========================================================
-   * === "ZÉRO INCOHÉRENCE" ===
-   * MODIFIÉ : Accepte cashReserveTotal
+   * === Rendu des Données (Tableau + Cartes) ===
    * ========================================================
    */
-  // Dans investmentsPage.js
-
   renderData(holdings, summary, cashReserveTotal) {
-    console.log('InvestmentsPage.renderData() appelé.');
-    
-    // === FIX CRITIQUE : Mise à jour de la référence locale ===
-    // On écrase les anciennes données par celles reçues (qui sont fraîches et alignées)
+    // Mise à jour de la référence locale des données
     this.currentHoldings = holdings;
-    // ========================================================
 
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
 
-    // 1. Appliquer les filtres de la page (Asset Type / Broker)
+    // === CORRECTION ICI : Récupération des tickers sélectionnés ===
+    const selectedTickers = this.filterManager.getSelectedTickers();
+    // ============================================================
+
+    // 1. Appliquer les filtres (Type / Broker / Ticker / Recherche)
     let filteredHoldings = this.currentHoldings.filter(h => {
+      
+      // --- Filtre Prioritaire : Sélection Ticker via Menu Déroulant ---
+      if (selectedTickers.size > 0) {
+        if (!selectedTickers.has(h.ticker.toUpperCase())) {
+            return false;
+        }
+      }
+      // ---------------------------------------------------------------
+
+      // Filtres contextuels (Type d'actif et Broker)
       const assetType = h.purchases[0]?.assetType || 'Stock';
       const brokers = [...new Set(h.purchases.map(p => p.broker || 'RV-CT'))];
 
@@ -85,7 +97,7 @@ export class InvestmentsPage {
       return true;
     });
 
-    // 2. Trier
+    // 2. Tri
     filteredHoldings.sort((a, b) => {
       const valA = a[this.sortColumn] ?? -Infinity;
       const valB = b[this.sortColumn] ?? -Infinity;
@@ -105,7 +117,7 @@ export class InvestmentsPage {
     if (this.currentPage > totalPages) this.currentPage = totalPages;
     const pageItems = filteredHoldings.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
 
-    // 4. Affichage du tableau
+    // 4. Génération HTML du tableau
     tbody.innerHTML = pageItems.map(p => `
       <tr class="asset-row" data-ticker="${p.ticker}" data-avgprice="${p.avgPrice}">
         <td><strong>${p.ticker}</strong></td>
@@ -120,34 +132,32 @@ export class InvestmentsPage {
         <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatCurrency(p.dayChange, 'EUR')}</td>
         <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatPercent(p.dayPct)}</td>
       </tr>
-    `).join('') || '<tr><td colspan="11">Aucun investissement.</td></tr>';
+    `).join('') || '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-secondary);">Aucun investissement correspondant.</td></tr>';
 
-    // 5. Mettre à jour l'UI avec le résumé (les cartes)
-    // C'est ici que les cartes "Total Value", "Var Today", etc. sont mises à jour
+    // 5. Mise à jour du résumé global (Cartes en haut de page)
     this.ui.updatePortfolioSummary(summary, summary.movementsCount, cashReserveTotal);
 
-    // 6. Reste
+    // 6. Mise à jour de la pagination
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
-      // Attention : ici on rappelle renderData avec les holdings globaux stockés
-      // pour réappliquer le filtrage et la pagination
+      // Rappel récursif avec les mêmes données pour changer de page
       this.renderData(this.currentHoldings, summary, cashReserveTotal);
     });
     
+    // Mise à jour du sélecteur de ticker (si nécessaire pour l'UI) et attachement des événements
     this.ui.populateTickerSelect(this.storage.getPurchases());
     this.attachRowClickListeners();
   }
 
   /**
    * ========================================================
-   * === FONCTION DE TITRE MISE À JOUR (v3) ===
+   * === Configuration du Titre du Graphique ===
    * ========================================================
    */
   getChartTitleConfig() {
-    // ... (cette fonction est inchangée) ...
     const selectedTickers = this.filterManager.getSelectedTickers();
     
-    // Priorité 1 : Filtre sur UN SEUL ticker (exactement comme le clic)
+    // Cas 1 : Un seul ticker sélectionné
     if (selectedTickers.size === 1) {
         const ticker = Array.from(selectedTickers)[0];
         const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
@@ -160,7 +170,7 @@ export class InvestmentsPage {
         };
     }
 
-    // Priorité 2 : Filtre sur PLUSIEURS tickers
+    // Cas 2 : Plusieurs tickers sélectionnés
     if (selectedTickers.size > 1) {
       const tickers = Array.from(selectedTickers);
       let label;
@@ -185,12 +195,12 @@ export class InvestmentsPage {
       };
     }
     
-    // Priorité 3 : Filtre par Type d'Actif
+    // Cas 3 : Filtre par Type d'Actif
     if (this.currentAssetTypeFilter) {
-      let icon = '📊'; // Défaut
+      let icon = '📊';
       if (this.currentAssetTypeFilter === 'Crypto') icon = '₿';
-      if (this.currentAssetTypeFilter === 'Stock') icon = '📊';
-      if (this.currentAssetTypeFilter === 'ETF') icon = '🌍';
+      else if (this.currentAssetTypeFilter === 'Stock') icon = '📊';
+      else if (this.currentAssetTypeFilter === 'ETF') icon = '🌍';
       
       return {
         mode: 'filter',
@@ -199,10 +209,9 @@ export class InvestmentsPage {
       };
     }
     
-    // Priorité 4 : Filtre par Broker
+    // Cas 4 : Filtre par Broker
     if (this.currentBrokerFilter) {
       const brokerLabel = this.brokersList?.find(b => b.value === this.currentBrokerFilter)?.label || this.currentBrokerFilter;
-      
       return {
         mode: 'filter',
         label: `${brokerLabel}`,
@@ -210,7 +219,7 @@ export class InvestmentsPage {
       };
     }
     
-    // Priorité 5 : Vue Globale par défaut
+    // Cas 5 : Vue Globale (Défaut)
     return {
       mode: 'global',
       label: 'Portfolio Global',
@@ -218,8 +227,12 @@ export class InvestmentsPage {
     };
   }
 
+  /**
+   * ========================================================
+   * === Gestionnaires d'événements ===
+   * ========================================================
+   */
   attachRowClickListeners() {
-    // ... (cette fonction est inchangée) ...
     document.querySelectorAll('.asset-row').forEach(row => {
       row.style.cursor = 'pointer';
       row.addEventListener('click', () => {
@@ -229,16 +242,16 @@ export class InvestmentsPage {
         const assetHolding = this.currentHoldings.find(h => h.ticker === ticker);
         if (!assetHolding) return;
         
+        // Calculer un résumé rapide pour l'actif cliqué
         const assetSummary = this.dataManager.calculateSummary([assetHolding]);
         
-        // MODIFIÉ : Quand on clique sur un actif, la réserve de cash affichée est 0
+        // Mise à jour des cartes du haut pour l'actif sélectionné (Cash = 0)
         this.ui.updatePortfolioSummary(assetSummary, assetHolding.purchases.length, 0);
-        
-        console.log(`📊 Clic sur ${ticker} - Affichage du graphique`);
         
         if (this.historicalChart) {
           this.historicalChart.showAssetChart(ticker, assetSummary);
           
+          // Scroll fluide vers le graphique
           const summaryContainer = document.querySelector('.portfolio-summary-enhanced');
           if (summaryContainer) {
             summaryContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -249,30 +262,30 @@ export class InvestmentsPage {
   }
 
   setupFilters() {
-    // ... (cette fonction est inchangée) ...
+    // Filtre Type d'actif
     const assetTypeFilter = document.getElementById('filter-asset-type');
     if (assetTypeFilter) {
       assetTypeFilter.addEventListener('change', (e) => {
         this.currentAssetTypeFilter = e.target.value;
         this.currentPage = 1;
-        this.render(this.currentSearchQuery); // Relance le cycle de render
+        this.render(this.currentSearchQuery); 
       });
     }
     
+    // Filtre Broker
     const brokerFilter = document.getElementById('filter-broker');
     if (brokerFilter) {
       brokerFilter.addEventListener('change', (e) => {
         this.currentBrokerFilter = e.target.value;
         this.currentPage = 1;
-        this.render(this.currentSearchQuery); // Relance le cycle de render
+        this.render(this.currentSearchQuery);
       });
     }
     
+    // Bouton "Clear Filters"
     const clearFiltersBtn = document.getElementById('clear-filters');
     if (clearFiltersBtn) {
       clearFiltersBtn.addEventListener('click', () => {
-        console.log('🧹 Clear Filters clicked');
-        
         this.currentAssetTypeFilter = '';
         this.currentBrokerFilter = '';
         
@@ -290,23 +303,24 @@ export class InvestmentsPage {
         
         this.currentPage = 1;
         
+        // Réinitialiser le graphique en mode portfolio
         if (this.historicalChart) {
             this.historicalChart.currentMode = 'portfolio';
             this.historicalChart.selectedAssets = [];
         }
     
         this.render(''); 
-        
-        console.log('✅ Filtres réinitialisés');
       });
     }
   }
 
   setupSorting() {
-    // ... (cette fonction est inchangée) ...
     document.querySelectorAll('th[data-sort]').forEach(th => {
+      th.style.cursor = 'pointer';
       th.addEventListener('click', () => {
         const col = th.dataset.sort;
+        
+        // Inversion de la direction ou changement de colonne
         if (this.sortColumn === col) {
           this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
@@ -314,13 +328,15 @@ export class InvestmentsPage {
           this.sortDirection = 'asc';
         }
         
+        // Mise à jour visuelle des en-têtes
         document.querySelectorAll('th[data-sort]').forEach(header => {
           header.classList.remove('sort-asc', 'sort-desc');
         });
         th.classList.add(`sort-${this.sortDirection}`);
         
         this.currentPage = 1;
-        this.render(this.currentSearchQuery); // Relance le cycle de render
+        // Re-rendu avec les paramètres de tri
+        this.render(this.currentSearchQuery);
       });
     });
   }

@@ -1,5 +1,5 @@
 // ========================================
-// historicalChart.js - (v18 - Synchro Totale "Vérité 1D")
+// historicalChart.js - (v23 - Fix Visibilité Parent Stats)
 // ========================================
 
 import { eventBus } from './eventBus.js';
@@ -134,11 +134,7 @@ export class HistoricalChart {
     this.startAutoRefresh(); 
   }
 
-  // ==========================================================
-  // === Synchronisation Summary <-> Graph Data (LA VÉRITÉ 1D) ===
-  // ==========================================================
   syncSummaryWithChartData(summary, graphData) {
-      // On cherche la dernière valeur valide du graphique 1D fourni
       const values = graphData.values;
       let lastValue = null;
 
@@ -151,20 +147,13 @@ export class HistoricalChart {
           }
       }
 
-      // Si on a trouvé une valeur de fin de graph, on met à jour le résumé
       if (lastValue !== null) {
-          // 1. Mettre à jour la Valeur Actuelle (Total Value)
           summary.totalCurrentEUR = lastValue;
-
-          // 2. Recalculer le Gain Total (P&L)
           summary.gainTotal = summary.totalCurrentEUR - summary.totalInvestedEUR;
-
-          // 3. Recalculer le % Total
           summary.gainPct = summary.totalInvestedEUR > 0 
               ? (summary.gainTotal / summary.totalInvestedEUR) * 100 
               : 0;
               
-          // 4. Optionnel : Recalculer Var Day si available
           if (graphData.yesterdayClose && graphData.yesterdayClose > 0) {
               summary.totalDayChangeEUR = summary.totalCurrentEUR - graphData.yesterdayClose;
               summary.dayChangePct = (summary.totalDayChangeEUR / graphData.yesterdayClose) * 100;
@@ -186,10 +175,11 @@ export class HistoricalChart {
 
     const graphLoader = document.getElementById('chart-loading');
     const canvas = document.getElementById('historical-portfolio-chart');
+    const benchmarkWrapper = document.getElementById('benchmark-wrapper');
+    
     if (graphLoader) graphLoader.style.display = 'flex';
 
     try {
-      // 1. Récupérer les achats filtrés
       const contextPurchases = this.getFilteredPurchasesFromPage();
       const assetPurchases = contextPurchases.filter(p => p.assetType !== 'Cash');
       const cashPurchases = contextPurchases.filter(p => p.assetType === 'Cash');
@@ -212,9 +202,15 @@ export class HistoricalChart {
       let targetAssetPurchases = assetPurchases;
       let targetCashPurchases = cashPurchases;
 
-      if (titleConfig.mode === 'asset') {
-         const ticker = this.filterManager.getSelectedTickers().values().next().value;
-         targetAssetPurchases = assetPurchases.filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
+      const isSingleAssetMode = (titleConfig.mode === 'asset');
+      if (benchmarkWrapper) {
+          benchmarkWrapper.style.display = isSingleAssetMode ? 'none' : 'block';
+      }
+
+      let currentTicker = null;
+      if (isSingleAssetMode) {
+         currentTicker = this.filterManager.getSelectedTickers().values().next().value;
+         targetAssetPurchases = assetPurchases.filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
          targetCashPurchases = []; 
       }
       
@@ -225,12 +221,9 @@ export class HistoricalChart {
       
       try {
         let graphData;
-        const isSingleAsset = (titleConfig.mode === 'asset');
         
-        // Récupération des données graphiques principales
-        if (isSingleAsset) {
-            const ticker = this.filterManager.getSelectedTickers().values().next().value;
-            graphData = await this.dataManager.calculateAssetHistory(ticker, this.currentPeriod);
+        if (isSingleAssetMode) {
+            graphData = await this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod);
         } else {
             graphData = await this.dataManager.calculateHistory(targetAssetPurchases, this.currentPeriod);
         }
@@ -240,24 +233,16 @@ export class HistoricalChart {
         if (!graphData || graphData.labels.length === 0) {
              this.showMessage('Pas de données graphiques disponibles.');
         } else {
-             this.renderChart(canvas, graphData, targetSummary, titleConfig);
+             this.renderChart(canvas, graphData, targetSummary, titleConfig, null, currentTicker);
              
-             // === LOGIQUE DE VÉRITÉ 1D ===
-             // Si on est déjà en 1D, on utilise graphData.
-             // Si on est en > 1D, on doit quand même récupérer la valeur 1D pour la carte.
              let referenceData = graphData;
-             
              if (this.currentPeriod !== 1) {
-                 // On est en vue 1M, 1Y, etc. -> On fetch la 1D en arrière-plan
-                 if (isSingleAsset) {
-                     const ticker = this.filterManager.getSelectedTickers().values().next().value;
-                     referenceData = await this.dataManager.calculateAssetHistory(ticker, 1);
+                 if (isSingleAssetMode) {
+                     referenceData = await this.dataManager.calculateAssetHistory(currentTicker, 1);
                  } else {
                      referenceData = await this.dataManager.calculateHistory(targetAssetPurchases, 1);
                  }
              }
-             
-             // On écrase le résumé avec la donnée 1D précise
              targetSummary = this.syncSummaryWithChartData(targetSummary, referenceData);
         }
       } catch (e) {
@@ -277,9 +262,6 @@ export class HistoricalChart {
     }
   }
 
-  // ==========================================================
-  // === Logique de MISE À JOUR ===
-  // ==========================================================
   async update(showLoading = true, forceApi = true) {
     if (this.isLoading) return;
     const canvas = document.getElementById('historical-portfolio-chart');
@@ -302,31 +284,35 @@ export class HistoricalChart {
       let targetAssetPurchases;
       let targetCashPurchases;
       let titleConfig;
-      let isSingleAsset = false; 
+      let isSingleAsset = false;
+      let currentTicker = null; 
 
       if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
          isSingleAsset = true;
-         if (benchmarkWrapper) benchmarkWrapper.style.display = 'none'; 
-         const ticker = this.selectedAssets[0];
-         const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
+         currentTicker = this.selectedAssets[0];
+         const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === currentTicker.toUpperCase())?.name || currentTicker;
          titleConfig = {
            mode: 'asset',
-           label: `${ticker} • ${name}`,
-           icon: this.dataManager.isCryptoTicker(ticker) ? '₿' : '📊'
+           label: `${currentTicker} • ${name}`,
+           icon: this.dataManager.isCryptoTicker(currentTicker) ? '₿' : '📊'
          };
-         targetAssetPurchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
+         targetAssetPurchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
          targetCashPurchases = [];
       
       } else {
-         isSingleAsset = false;
-         if (benchmarkWrapper) benchmarkWrapper.style.display = 'block'; 
-         
          titleConfig = this.investmentsPage.getChartTitleConfig();
          const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
          targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
          targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
          
-         if (titleConfig.mode === 'asset') isSingleAsset = true;
+         if (titleConfig.mode === 'asset') {
+             isSingleAsset = true;
+             currentTicker = this.filterManager.getSelectedTickers().values().next().value;
+         }
+      }
+      
+      if (benchmarkWrapper) {
+          benchmarkWrapper.style.display = isSingleAsset ? 'none' : 'block'; 
       }
       
       const contextTickers = new Set(contextAssetPurchases.map(p => p.ticker.toUpperCase()));
@@ -343,14 +329,9 @@ export class HistoricalChart {
           await this.dataManager.api.fetchBatchPrices(allTickers);
       }
       
-      // 4. CALCULS GRAPHIQUE PRINCIPAL
       let graphData;
-      if (isSingleAsset) {
-         const ticker = (this.currentMode === 'asset') 
-            ? this.selectedAssets[0] 
-            : this.filterManager.getSelectedTickers().values().next().value;
-         
-         graphData = await this.dataManager.calculateAssetHistory(ticker, this.currentPeriod);
+      if (isSingleAsset && currentTicker) {
+         graphData = await this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod);
       } else {
          graphData = await this.dataManager.calculateHistory(targetAssetPurchases, this.currentPeriod);
       }
@@ -372,18 +353,13 @@ export class HistoricalChart {
       if (!graphData || graphData.labels.length === 0) {
         this.showMessage('Pas de données disponibles pour cette période');
       } else {
-        this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData);
+        this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker);
         
-        // === C'EST ICI QUE LA MAGIE OPÈRE (VÉRITÉ 1D) ===
         let referenceDataForSummary = graphData;
-
         if (this.currentPeriod !== 1) {
-            // Si on n'est pas en 1D, le graphData est "imprécis" (clôtures veille).
-            // On fetch les données 1D en douce pour avoir le vrai prix actuel.
             try {
-                if (isSingleAsset) {
-                   const ticker = (this.currentMode === 'asset') ? this.selectedAssets[0] : this.filterManager.getSelectedTickers().values().next().value;
-                   referenceDataForSummary = await this.dataManager.calculateAssetHistory(ticker, 1);
+                if (isSingleAsset && currentTicker) {
+                   referenceDataForSummary = await this.dataManager.calculateAssetHistory(currentTicker, 1);
                 } else {
                    referenceDataForSummary = await this.dataManager.calculateHistory(targetAssetPurchases, 1);
                 }
@@ -391,12 +367,9 @@ export class HistoricalChart {
                 console.warn("Fallback Summary: Impossible de fetcher la 1D", e);
             }
         }
-
-        // On force le résumé à utiliser la donnée 1D précise
         targetSummary = this.syncSummaryWithChartData(targetSummary, referenceDataForSummary);
       }
       
-      // 5. RENDU FINAL DES CARTES (avec le targetSummary corrigé)
       this.investmentsPage.renderData(contextHoldings, targetSummary, targetCashReserve.total);
 
     } catch (error) {
@@ -408,7 +381,6 @@ export class HistoricalChart {
     }
   }
 
-  // === UTILITAIRES (Inchangés) ===
   getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
       const searchQuery = this.investmentsPage.currentSearchQuery;
       let purchases = this.storage.getPurchases();
@@ -464,10 +436,7 @@ export class HistoricalChart {
       return { startTs, endTs };
   }
 
-  // ==========================================================
-  // Rendu (Inchangé)
-  // ==========================================================
-  renderChart(canvas, graphData, summary, titleConfig, benchmarkData = null) {
+  renderChart(canvas, graphData, summary, titleConfig, benchmarkData = null, currentTicker = null) {
     if (this.chart) this.chart.destroy();
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -542,27 +511,88 @@ export class HistoricalChart {
     }
     
     // Mise à jour de la barre de stats
-    const statDayVar = document.getElementById('stat-day-var');
-    const statYesterdayClose = document.getElementById('stat-yesterday-close');
     const group2 = document.querySelector('.stat-group-2');
-    const is1DView = (this.currentPeriod === 1);
+    
     if (group2) {
-        group2.style.display = (is1DView && !isUnitView) ? 'flex' : 'none'; 
-    }
-    if (useTodayVar && statDayVar) { 
-        document.getElementById('day-var-label').innerHTML = `${vsYesterdayAbs > 0 ? '+' : ''}${vsYesterdayAbs.toFixed(decimals)} €`;
-        document.getElementById('day-var-percent').innerHTML = `(${vsYesterdayPct > 0 ? '+' : ''}${vsYesterdayPct.toFixed(2)}%)`;
-        document.getElementById('day-var-label').className = `value ${perfClass}`;
-        document.getElementById('day-var-percent').className = `pct ${perfClass}`;
-        statDayVar.style.display = 'flex';
-    } else if (statDayVar) { 
-        statDayVar.style.display = 'none'; 
-    }
-    if (finalYesterdayClose !== null && statYesterdayClose) {
-        document.getElementById('yesterday-close-value').textContent = `${finalYesterdayClose.toFixed(decimals)} €`;
-        statYesterdayClose.style.display = 'flex';
-    } else if (statYesterdayClose) { 
-        statYesterdayClose.style.display = 'none'; 
+        const statDayVar = document.getElementById('stat-day-var');
+        const statYesterdayClose = document.getElementById('stat-yesterday-close');
+        
+        // Création dynamique des éléments unitaires si nécessaire
+        let statUnitPrice = document.getElementById('stat-unit-price-display');
+        let statPru = document.getElementById('stat-pru-display');
+
+        if (!statUnitPrice) {
+            statUnitPrice = document.createElement('div');
+            statUnitPrice.className = 'stat';
+            statUnitPrice.id = 'stat-unit-price-display';
+            statUnitPrice.style.display = 'none';
+            statUnitPrice.innerHTML = `<span class="label">PRIX ACTUEL</span><span class="value">0.00 €</span>`;
+            group2.appendChild(statUnitPrice);
+        }
+        
+        if (!statPru) {
+            statPru = document.createElement('div');
+            statPru.className = 'stat';
+            statPru.id = 'stat-pru-display';
+            statPru.style.display = 'none';
+            statPru.innerHTML = `<span class="label">PRU (MOYEN)</span><span class="value">0.00 €</span>`;
+            group2.appendChild(statPru);
+        }
+
+        // Calcul PRU
+        let avgPrice = 0;
+        if (currentTicker) {
+             const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
+             let totalInvested = 0;
+             let totalQty = 0;
+             purchases.forEach(p => {
+                 totalInvested += (p.price * p.quantity);
+                 totalQty += p.quantity;
+             });
+             avgPrice = totalQty > 0 ? totalInvested / totalQty : 0;
+        }
+
+        if (isUnitView) {
+            // === CORRECTION CRITIQUE : On force le parent à être visible ===
+            group2.style.display = 'flex'; 
+            // =============================================================
+
+            if(statDayVar) statDayVar.style.display = 'none';
+            if(statYesterdayClose) statYesterdayClose.style.display = 'none';
+            
+            if(statUnitPrice) {
+                statUnitPrice.style.display = 'flex';
+                statUnitPrice.querySelector('.value').textContent = priceEnd !== null ? `${priceEnd.toFixed(4)} €` : '-';
+            }
+            if(statPru) {
+                statPru.style.display = 'flex';
+                statPru.querySelector('.value').textContent = `${avgPrice.toFixed(4)} €`;
+                statPru.querySelector('.value').style.color = '#FF9F43'; 
+            }
+        } else {
+            if(statUnitPrice) statUnitPrice.style.display = 'none';
+            if(statPru) statPru.style.display = 'none';
+
+            // Restaurer les stats globales (seulement si 1D)
+            const is1DView = (this.currentPeriod === 1);
+            group2.style.display = (is1DView) ? 'flex' : 'none'; 
+
+            if (useTodayVar && statDayVar) { 
+                document.getElementById('day-var-label').innerHTML = `${vsYesterdayAbs > 0 ? '+' : ''}${vsYesterdayAbs.toFixed(decimals)} €`;
+                document.getElementById('day-var-percent').innerHTML = `(${vsYesterdayPct > 0 ? '+' : ''}${vsYesterdayPct.toFixed(2)}%)`;
+                document.getElementById('day-var-label').className = `value ${perfClass}`;
+                document.getElementById('day-var-percent').className = `pct ${perfClass}`;
+                statDayVar.style.display = 'flex';
+            } else if (statDayVar) { 
+                statDayVar.style.display = 'none'; 
+            }
+            if (finalYesterdayClose !== null && statYesterdayClose) {
+                document.getElementById('yesterday-close-value').textContent = `${finalYesterdayClose.toFixed(decimals)} €`;
+                statYesterdayClose.style.display = 'flex';
+            } else if (statYesterdayClose) { 
+                statYesterdayClose.style.display = 'none'; 
+            }
+        }
     }
     
     ['price-start', 'price-end', 'price-high', 'price-low'].forEach(id => {
@@ -617,7 +647,10 @@ export class HistoricalChart {
       });
     }
     
-    // === POINTS D'ACHAT ALIGNÉS ===
+    if (benchmarkData && !isUnitView) {
+        // Logique benchmark
+    }
+    
     if (isUnitView && graphData.purchasePoints) {
         datasets.push({
             type: 'line', 
@@ -628,17 +661,41 @@ export class HistoricalChart {
             borderWidth: 2,
             pointRadius: 5,
             pointHoverRadius: 8,
-            showLine: false, // Cache la ligne
+            showLine: false, 
             parsing: {
-                yAxisKey: 'y' // Indique à Chart.js où lire la valeur
+                yAxisKey: 'y'
             }
         });
+    }
+
+    if (isUnitView && currentTicker) {
+        const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
+        let totalInvested = 0;
+        let totalQty = 0;
+        purchases.forEach(p => {
+            totalInvested += (p.price * p.quantity);
+            totalQty += p.quantity;
+        });
+        const avgPrice = totalQty > 0 ? totalInvested / totalQty : 0;
+
+        if (avgPrice > 0) {
+            datasets.push({
+                label: 'PRU (Prix Moyen)',
+                data: Array(graphData.labels.length).fill(avgPrice),
+                borderColor: '#FF9F43', 
+                borderWidth: 2,
+                borderDash: [10, 5],
+                fill: false,
+                pointRadius: 0,
+                order: 10
+            });
+        }
     }
 
     const unitPriceRow = document.getElementById('unit-price-row');
     if (isSingleAsset) {
       if(viewToggle) viewToggle.style.display = 'flex';
-      if(unitPriceRow) unitPriceRow.style.display = isUnitView ? 'flex' : 'none'; 
+      if(unitPriceRow) unitPriceRow.style.display = 'none'; 
     } else {
       if(viewToggle) viewToggle.style.display = 'none';
       if(unitPriceRow) unitPriceRow.style.display = 'none';
@@ -648,7 +705,7 @@ export class HistoricalChart {
         if (btn.classList.contains('active')) return;
         viewToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData); 
+        this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData, currentTicker); 
       };
     });
 
@@ -666,15 +723,15 @@ export class HistoricalChart {
             titleFont: { weight: 'bold' },
             callbacks: { 
                 label: (ctx) => {
-                    // Détection via le label du dataset
+                    if (ctx.dataset.label === 'PRU (Prix Moyen)') {
+                         return ` PRU: ${ctx.parsed.y.toFixed(4)} €`;
+                    }
                     if (ctx.dataset.label === 'Points d\'achat') {
                         const dataPoint = ctx.raw;
-                        // Vérification que dataPoint est bien l'objet complet
                         if (dataPoint && dataPoint.quantity) {
                             return ` Achat: ${dataPoint.quantity} @ ${dataPoint.y.toFixed(2)} €`;
                         }
                     }
-                    // Pour les autres datasets, formatage standard
                     if (ctx.parsed.y !== null) {
                         return ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(isUnitView ? 4 : 2)} €`;
                     }
