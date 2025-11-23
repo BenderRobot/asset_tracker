@@ -9,8 +9,9 @@
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     
-    <link rel="stylesheet" href="css/global.css">
-    <link rel="stylesheet" href="css/investments.css">
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/dashboard.css">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,193 +21,162 @@
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+    <script>
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+    </script>
 </head>
 <body>
-	<aside class="app-sidebar" id="app-sidebar">
+    <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-header">
-            <div class="nav-icon" style="font-size: 24px;">💎</div>
+            <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
+            </div>
             <span class="app-logo-text">Asset Tracker</span>
         </div>
         
         <nav class="sidebar-nav">
-            <a href="index.html" class="nav-item">
-                <div class="nav-icon">📋</div>
-                <span class="nav-text">Transactions</span>
-            </a>
-            <a href="investments.html" class="nav-item">
-                <div class="nav-icon">📈</div>
-                <span class="nav-text">Assets</span>
-            </a>
-            <a href="dashboard.html" class="nav-item active"> 
-                <div class="nav-icon">🚀</div>
-                <span class="nav-text">Dashboard</span>
-            </a>
-            <a href="analytics.html" class="nav-item">
-                <div class="nav-icon">📊</div>
-                <span class="nav-text">Analytics</span>
-            </a>
-            <a href="migration.html" class="nav-item">
-                <div class="nav-icon">🔄</div>
-                <span class="nav-text">Migration</span>
-            </a>
+            <a href="index.html" class="nav-item"><div class="nav-icon">📋</div><span class="nav-text">Transactions</span></a>
+            <a href="investments.html" class="nav-item"><div class="nav-icon">📈</div><span class="nav-text">Assets</span></a>
+            <a href="dashboard.html" class="nav-item active"><div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span></a>
+            <a href="analytics.html" class="nav-item"><div class="nav-icon">📊</div><span class="nav-text">Analytics</span></a>
         </nav>
 
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="migration.html" class="nav-item"><div class="nav-icon"><i class="fas fa-cog"></i></div><span class="nav-text">Migration</span></a>
+        </div>
+
         <div class="sidebar-footer">
-            <button id="sidebar-toggle" title="Toggle Menu">
-                <i class="fas fa-chevron-left"></i>
-            </button>
+            <button id="sidebar-toggle" title="Toggle Menu"><i class="fas fa-chevron-left"></i></button>
         </div>
     </aside>
+
     <main class="main-content">
         <div class="container">
 
-            <div class="dashboard-layout">
+            <div class="dashboard-top-section">
                 
-            
-            <div class="dashboard-main">
-                
-                <div class="dashboard-kpi-grid-v2">
-                    <div class="kpi-card kpi-hero">
-                        <div class="kpi-header">
-                            <span class="kpi-label">Total Value</span>
-                            <i class="fas fa-wallet kpi-icon"></i>
+                <div class="dashboard-left-column">
+                    
+                    <div class="dashboard-kpi-grid-v2">
+                        <div class="kpi-card kpi-hero">
+                            <div class="kpi-header"><span class="kpi-label">Total Value</span><i class="fas fa-wallet kpi-icon"></i></div>
+                            <div class="kpi-value" id="dashboard-total-value">€0.00</div>
+                            <div class="kpi-meta"><span id="dashboard-total-return" class="kpi-change">€0.00</span><span id="dashboard-total-return-pct" class="kpi-change-pct">(0.00%)</span></div>
                         </div>
-                        <div class="kpi-value" id="dashboard-total-value">€0.00</div>
-                        <div class="kpi-meta">
-                            <span id="dashboard-total-return" class="kpi-change">€0.00</span>
-                            <span id="dashboard-total-return-pct" class="kpi-change-pct">(0.00%)</span>
+                        <div class="kpi-card kpi-hero">
+                            <div class="kpi-header"><span class="kpi-label">Day Change</span><i class="fas fa-chart-line kpi-icon"></i></div>
+                            <div class="kpi-value" id="dashboard-day-change">€0.00</div>
+                            <div class="kpi-meta"><span id="dashboard-day-change-pct" class="kpi-change-pct">(0.00%)</span></div>
+                        </div>
+                        <div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Top Gainer</span><i class="fas fa-arrow-trend-up kpi-icon"></i></div><div class="kpi-name-large" id="dashboard-top-gainer-name">-</div><div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span></div></div>
+                        <div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Top Loser</span><i class="fas fa-arrow-trend-down kpi-icon"></i></div><div class="kpi-name-large" id="dashboard-top-loser-name">-</div><div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span></div></div>
+                        <div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Top Sector</span><i class="fas fa-industry kpi-icon"></i></div><div class="kpi-name-large" id="dashboard-top-sector">-</div></div>
+                        <div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Asset Allocation</span><i class="fas fa-chart-pie kpi-icon"></i></div><div id="dashboard-allocation-container"></div></div>
+                    </div>
+
+                    <div class="dashboard-chart-section">
+                        <div class="chart-header-mini">
+                            <div class="title-mini">
+                                <h3 class="chart-title"><span class="title-icon">📈</span><span id="chart-title-text">Global Portfolio</span></h3>
+                                <span id="chart-title-icon" style="display:none"></span><div id="last-update" style="display:none"></div><div id="view-toggle" style="display:none"></div>
+                            </div>
+                            <div class="header-controls">
+                                <div id="benchmark-wrapper" class="benchmark-wrapper">
+                                    <select id="benchmark-select">
+                                        <option value="">vs Benchmark</option>
+                                        <option value="^GSPC">S&P 500</option>
+                                        <option value="^IXIC">Nasdaq 100</option>
+                                        <option value="^STOXX50E">Eurostoxx 50</option>
+                                        <option value="BTC-EUR">Bitcoin</option>
+                                    </select>
+                                </div>
+                                <div id="chart-info" style="display:none; font-size:12px;"></div>
+                                <div class="chart-controls-inline">
+                                    <button class="period-btn active" data-period="1">1D</button>
+                                    <button class="period-btn" data-period="7">1W</button>
+                                    <button class="period-btn" data-period="30">1M</button>
+                                    <button class="period-btn" data-period="90">3M</button>
+                                    <button class="period-btn" data-period="365">1Y</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chart-wrapper tall">
+                            <canvas id="historical-portfolio-chart"></canvas>
+                            <div id="chart-loading" class="chart-loading"><div class="svg-loader-container"><svg class="loader-svg" viewBox="0 0 50 50"><circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle></svg></div></div>
+                        </div>
+                        <div class="chart-stats-bar">
+                            <div class="stat-group stat-group-1"><div class="stat"><span class="label">PERIOD RETURN</span><span id="performance-label" class="value neutral">--</span><span id="performance-percent" class="pct neutral">--</span></div></div>
+                            <div class="stat-group stat-group-2" style="display:none;"><div id="unit-price-row"><span id="unit-price"></span></div><div id="stat-day-var"><span id="day-var-label"></span><span id="day-var-percent"></span></div><div id="stat-yesterday-close"><span id="yesterday-close-value"></span></div></div>
+                            <div class="stat-group stat-group-3">
+                                <div class="stat"><span class="label">START</span><span id="price-start" class="value">--</span></div>
+                                <div class="stat"><span class="label">END</span><span id="price-end" class="value">--</span></div>
+                                <div class="stat"><span class="label">HIGH</span><span id="price-high" class="value">--</span></div>
+                                <div class="stat"><span class="label">LOW</span><span id="price-low" class="value">--</span></div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="kpi-card kpi-hero">
-                        <div class="kpi-header">
-                            <span class="kpi-label">Day Change</span>
-                            <i class="fas fa-chart-line kpi-icon"></i>
-                        </div>
-                        <div class="kpi-value" id="dashboard-day-change">€0.00</div>
-                        <div class="kpi-meta">
-                            <span id="dashboard-day-change-pct" class="kpi-change-pct">(0.00%)</span>
-                        </div>
-                    </div>
-
-                    <div class="kpi-card">
-                        <div class="kpi-header">
-                            <span class="kpi-label">Top Gainer</span>
-                            <i class="fas fa-arrow-trend-up kpi-icon" style="color: var(--accent-green);"></i>
-                        </div>
-                        <div class="kpi-name-large" id="dashboard-top-gainer-name">-</div>
-                        <div class="kpi-meta">
-                            <span id="dashboard-top-gainer-pct" class="kpi-change-pct stat-positive">-</span>
-                        </div>
-                    </div>
-
-                    <div class="kpi-card">
-                        <div class="kpi-header">
-                            <span class="kpi-label">Top Loser</span>
-                            <i class="fas fa-arrow-trend-down kpi-icon" style="color: var(--accent-red);"></i>
-                        </div>
-                        <div class="kpi-name-large" id="dashboard-top-loser-name">-</div>
-                        <div class="kpi-meta">
-                            <span id="dashboard-top-loser-pct" class="kpi-change-pct stat-negative">-</span>
-                        </div>
-                    </div>
-
-                    <div class="kpi-card">
-                        <div class="kpi-header">
-                            <span class="kpi-label">Top Sector</span>
-                            <i class="fas fa-industry kpi-icon"></i>
-                        </div>
-                        <div class="kpi-name-large" id="dashboard-top-sector">-</div>
-                    </div>
-
-                    <div class="kpi-card">
-						<div class="kpi-header">
-							<span class="kpi-label">Asset Allocation</span>
-							<i class="fas fa-chart-pie kpi-icon"></i>
-						</div>
-						<div id="dashboard-allocation-container"></div>
-					</div>
                 </div>
 
-                <div class="dashboard-chart-section" style="background: var(--bg-card); border-radius: 12px; padding: 20px; border: 1px solid var(--border-color);">
-                    <div class="chart-header-mini" style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
-                        <div class="title-mini">
-                            <h3 class="chart-title" style="margin: 0; display: flex; align-items: center; gap: 10px; font-size: 18px;">
-                                <span class="title-icon">📈</span>
-                                <span id="chart-title-text">Global Performance</span>
-                            </h3>
+                <div class="dashboard-right-sidebar">
+                    <div class="dashboard-indices-panel-full">
+                        <h3 class="section-title-right">Indices & Futures</h3>
+						<div id="market-status-container"></div>
+                        <div id="market-overview-container" class="indices-list">
+                            <div class="market-loading">Loading...</div>
                         </div>
-                        <div class="header-controls">
-                            <div id="chart-info" style="display:none; font-size:12px; color:orange; margin-right:10px;"></div>
-                            <div class="chart-controls-inline">
-                                <button class="period-btn active" data-period="1">1D</button>
-                                <button class="period-btn" data-period="7">1W</button>
-                                <button class="period-btn" data-period="30">1M</button>
-                                <button class="period-btn" data-period="90">3M</button>
-                                <button class="period-btn" data-period="365">1Y</button>
-                            </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="dashboard-bottom-section">
+                <div class="dashboard-feeds-grid">
+                    <div class="feed-card">
+                        <div class="feed-header">
+                            <h3><i class="fas fa-bullseye" style="color:#3b82f6"></i> Mes Actifs</h3>
+                            <button id="refresh-portfolio-news" class="btn-icon-small"><i class="fas fa-sync"></i></button>
+                        </div>
+                        <div id="news-portfolio-container" class="feed-content">
+                            <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</div>
                         </div>
                     </div>
 
-                    <div class="chart-wrapper tall" style="height: 450px; position: relative; border-radius: 12px; overflow: hidden;">
-                        <canvas id="historical-portfolio-chart"></canvas>
-                        
-                        <div id="chart-loading" class="chart-loading">
-                            <div class="svg-loader-container">
-                                <svg class="loader-svg" viewBox="0 0 50 50">
-                                    <circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
-                                </svg>
-                            </div>
+                    <div class="feed-card">
+                        <div class="feed-header">
+                            <h3><i class="fas fa-globe" style="color:#10b981"></i> Macro Éco</h3>
                         </div>
-                    </div>
-                    
-                    <div class="chart-stats-bar" style="margin-top: 0; border-top: none; border-radius: 0 0 12px 12px; background: var(--bg-secondary);">
-                        <div class="stat-group stat-group-1">
-                            <div class="stat">
-                                <span class="label">PERIOD RETURN</span>
-                                <span id="performance-label" class="value neutral">--</span>
-                                <span id="performance-percent" class="pct neutral">--</span>
-                            </div>
-                        </div>
-                        <div class="stat-group stat-group-3" style="border:none;">
-                            <div class="stat"><span class="label">START</span><span id="price-start" class="value">--</span></div>
-                            <div class="stat"><span class="label">END</span><span id="price-end" class="value">--</span></div>
-                            <div class="stat"><span class="label">HIGH</span><span id="price-high" class="value">--</span></div>
-                            <div class="stat"><span class="label">LOW</span><span id="price-low" class="value">--</span></div>
+                        <div id="news-global-container" class="feed-content">
+                            <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="dashboard-sidebar">
-                
-                <div class="dashboard-market-mini">
-                    <h3>Market Overview</h3>
-                    <div class="market-mini-row" id="index-sp500-row">
-                        <span>S&P 500</span> <span class="market-val" id="index-sp500-change">-</span>
-                    </div>
-                    <div class="market-mini-row" id="index-cac40-row">
-                        <span>CAC 40</span> <span class="market-val" id="index-cac40-change">-</span>
-                    </div>
-                    <div class="market-mini-row" id="index-btc-row">
-                        <span>Bitcoin</span> <span class="market-val" id="index-btc-change">-</span>
-                    </div>
-                </div>
+        </div>
+    </main>
 
-                <div class="dashboard-news-section vertical-fill">
-                    <div class="news-header">
-                        <h2>Portfolio News</h2>
-                        <button id="refresh-news-btn" class="btn-icon" title="Refresh"><i class="fas fa-sync"></i></button>
-                    </div>
-                    <div class="news-container" id="news-container">
-                        <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading news...</div>
-                    </div>
+    <div class="modal-overlay" id="news-modal" style="display: none;">
+        <div class="modal-content news-modal-content">
+            <div class="modal-header">
+                <div class="news-modal-ticker" id="modal-news-ticker">TICKER</div>
+                <button class="modal-close" id="close-news-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <h3 id="modal-news-title" style="margin-bottom: 16px; line-height: 1.4;">Titre</h3>
+                <div class="news-ai-badge"><i class="fas fa-robot"></i> Résumé Gemini AI</div>
+                <div id="modal-news-summary" class="news-summary-text">Chargement...</div>
+                <div style="margin-top: 24px; text-align: right;">
+                    <a href="#" id="modal-news-link" target="_blank" class="btn-primary" style="font-size: 12px; padding: 8px 16px;">Lire l'article complet</a>
                 </div>
             </div>
         </div>
     </div>
 
     <script type="module" src="./dashboardApp.js"></script>
-	<script type="module" src="./sidebar.js"></script>
+    <script type="module" src="./sidebar.js"></script>
 </body>
 </html>

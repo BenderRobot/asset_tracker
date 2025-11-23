@@ -4,14 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Analytics - Asset Tracker</title>
-	<link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    <link rel="stylesheet" href="css/global.css">
+    
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <style>
         .analytics-grid {
             display: grid;
@@ -118,13 +124,22 @@
             margin: 0;
         }
     </style>
+	<script>
+		// Script Anti-Flash : Applique l'état réduit avant le rendu visuel
+		const isCollapsed = localStorage.getItem('sidebarState') === 'true';
+		if (isCollapsed) {
+			document.documentElement.classList.add('sidebar-collapsed');
+		}
+	</script>
 </head>
 <body>
     <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-header">
-            <div class="nav-icon" style="font-size: 24px;">💎</div>
-            <span class="app-logo-text">Asset Tracker</span>
-        </div>
+			<div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+				<img src="/icons/android-chrome-192x192.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
+			</div>
+			<span class="app-logo-text">Asset Tracker</span>
+		</div>
         
         <nav class="sidebar-nav">
             <a href="index.html" class="nav-item">
@@ -143,11 +158,15 @@
                 <div class="nav-icon">📊</div>
                 <span class="nav-text">Analytics</span>
             </a>
+            </nav>
+
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
             <a href="migration.html" class="nav-item">
-                <div class="nav-icon">🔄</div>
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
                 <span class="nav-text">Migration</span>
             </a>
-        </nav>
+        </div>
 
         <div class="sidebar-footer">
             <button id="sidebar-toggle" title="Toggle Menu">
@@ -155,124 +174,118 @@
             </button>
         </div>
     </aside>
+
     <main class="main-content">
         <div class="container">
 
-        <!-- Résumé -->
-        <div class="portfolio-summary-enhanced">
-            <div class="summary-grid">
-                <div class="summary-card summary-card-primary">
-                    <div class="summary-card-label">Total Value</div>
-                    <div id="total-value" class="summary-card-value">€0.00</div>
-                </div>
-                
-                <div class="summary-card">
-                    <div class="summary-card-label">Total Return</div>
-                    <div id="total-return" class="summary-card-value">€0.00</div>
-                    <div class="summary-card-meta">
-                        <span id="return-pct" class="meta-large">0.00%</span>
+            <div class="portfolio-summary-enhanced">
+                <div class="summary-grid">
+                    <div class="summary-card summary-card-primary">
+                        <div class="summary-card-label">Total Value</div>
+                        <div id="total-value" class="summary-card-value">€0.00</div>
+                    </div>
+                    
+                    <div class="summary-card">
+                        <div class="summary-card-label">Total Return</div>
+                        <div id="total-return" class="summary-card-value">€0.00</div>
+                        <div class="summary-card-meta">
+                            <span id="return-pct" class="meta-large">0.00%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="summary-card">
+                        <div class="summary-card-label">Win Rate</div>
+                        <div id="win-rate" class="summary-card-value">0%</div>
                     </div>
                 </div>
-                
-                <div class="summary-card">
-                    <div class="summary-card-label">Win Rate</div>
-                    <div id="win-rate" class="summary-card-value">0%</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Analytics Cards -->
-        <div class="analytics-grid">
-            <!-- Performance -->
-            <div class="analytics-card">
-                <h3>📈 Performance</h3>
-                <div class="metric-row">
-                    <span class="metric-label">Moyenne des gains</span>
-                    <span id="avg-gain" class="metric-value">0%</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">Gagnants</span>
-                    <span id="winners-count" class="metric-value">0</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">Perdants</span>
-                    <span id="losers-count" class="metric-value">0</span>
-                </div>
-                <div class="recommendation-box">
-                    <p id="performance-summary">-</p>
-                </div>
             </div>
 
-            <!-- Diversification -->
-            <div class="analytics-card">
-                <h3>🎯 Diversification</h3>
-                <div class="metric-row">
-                    <span class="metric-label">Score</span>
-                    <span id="diversity-score" class="metric-value">0/100</span>
+            <div class="analytics-grid">
+                <div class="analytics-card">
+                    <h3>📈 Performance</h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Moyenne des gains</span>
+                        <span id="avg-gain" class="metric-value">0%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Gagnants</span>
+                        <span id="winners-count" class="metric-value">0</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Perdants</span>
+                        <span id="losers-count" class="metric-value">0</span>
+                    </div>
+                    <div class="recommendation-box">
+                        <p id="performance-summary">-</p>
+                    </div>
                 </div>
-                <div class="metric-row">
-                    <span class="metric-label">Actifs effectifs</span>
-                    <span id="effective-assets" class="metric-value">0</span>
+
+                <div class="analytics-card">
+                    <h3>🎯 Diversification</h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Score</span>
+                        <span id="diversity-score" class="metric-value">0/100</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Actifs effectifs</span>
+                        <span id="effective-assets" class="metric-value">0</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Total actifs</span>
+                        <span id="total-assets" class="metric-value">0</span>
+                    </div>
+                    <div class="recommendation-box">
+                        <p id="diversity-recommendation">-</p>
+                    </div>
                 </div>
-                <div class="metric-row">
-                    <span class="metric-label">Total actifs</span>
-                    <span id="total-assets" class="metric-value">0</span>
-                </div>
-                <div class="recommendation-box">
-                    <p id="diversity-recommendation">-</p>
+
+                <div class="analytics-card">
+                    <h3>⚠️ Risque</h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Volatilité</span>
+                        <span id="volatility" class="metric-value">0%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Max Drawdown</span>
+                        <span id="max-drawdown" class="metric-value">0%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Niveau de risque</span>
+                        <span id="risk-level" class="metric-value risk-badge">-</span>
+                    </div>
+                    <div class="recommendation-box">
+                        <p id="risk-recommendation">-</p>
+                    </div>
                 </div>
             </div>
 
-            <!-- Risque -->
-            <div class="analytics-card">
-                <h3>⚠️ Risque</h3>
-                <div class="metric-row">
-                    <span class="metric-label">Volatilité</span>
-                    <span id="volatility" class="metric-value">0%</span>
+            <div class="analytics-grid">
+                <div class="analytics-card">
+                    <h3>🏆 Top Performers</h3>
+                    <div id="top-performers" class="performer-list"></div>
                 </div>
-                <div class="metric-row">
-                    <span class="metric-label">Max Drawdown</span>
-                    <span id="max-drawdown" class="metric-value">0%</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">Niveau de risque</span>
-                    <span id="risk-level" class="metric-value risk-badge">-</span>
-                </div>
-                <div class="recommendation-box">
-                    <p id="risk-recommendation">-</p>
-                </div>
-            </div>
-        </div>
 
-        <!-- Top/Worst Performers -->
-        <div class="analytics-grid">
-            <div class="analytics-card">
-                <h3>🏆 Top Performers</h3>
-                <div id="top-performers" class="performer-list"></div>
+                <div class="analytics-card">
+                    <h3>📉 Worst Performers</h3>
+                    <div id="worst-performers" class="performer-list"></div>
+                </div>
             </div>
 
             <div class="analytics-card">
-                <h3>📉 Worst Performers</h3>
-                <div id="worst-performers" class="performer-list"></div>
+                <h3>📊 Asset Allocation</h3>
+                <div class="chart-container">
+                    <canvas id="allocation-chart"></canvas>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin: 24px 0;">
+                <button id="export-report" class="btn-secondary">Export Report (JSON)</button>
+                <button id="refresh-analytics" class="btn-primary">Refresh Analytics</button>
             </div>
         </div>
-
-        <!-- Graphique d'allocation -->
-        <div class="analytics-card">
-            <h3>📊 Asset Allocation</h3>
-            <div class="chart-container">
-                <canvas id="allocation-chart"></canvas>
-            </div>
-        </div>
-
-        <!-- Actions -->
-        <div style="display: flex; gap: 12px; margin: 24px 0;">
-            <button id="export-report">Export Report (JSON)</button>
-            <button id="refresh-analytics">Refresh Analytics</button>
-        </div>
-    </div>
+    </main>
 
     <script type="module" src="./analyticsApp.js"></script>
-	<script type="module" src="./sidebar.js"></script>
+    <script type="module" src="./sidebar.js"></script>
 </body>
 </html>

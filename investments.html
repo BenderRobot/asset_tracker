@@ -4,22 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Investments - Asset Tracker</title>
-	<link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    <link rel="stylesheet" href="css/global.css?v=10">
-	<link rel="stylesheet" href="css/investments.css">
+    
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/investments.css">
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <script>
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+    </script>
 </head>
 <body>
-	<aside class="app-sidebar" id="app-sidebar">
+    <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-header">
-            <div class="nav-icon" style="font-size: 24px;">💎</div>
-            <span class="app-logo-text">Asset Tracker</span>
-        </div>
+			<div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+				<img src="/icons/android-chrome-192x192.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
+			</div>
+			<span class="app-logo-text">Asset Tracker</span>
+		</div>
+
         
         <nav class="sidebar-nav">
             <a href="index.html" class="nav-item">
@@ -38,11 +52,15 @@
                 <div class="nav-icon">📊</div>
                 <span class="nav-text">Analytics</span>
             </a>
+        </nav>
+
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
             <a href="migration.html" class="nav-item">
-                <div class="nav-icon">🔄</div>
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
                 <span class="nav-text">Migration</span>
             </a>
-        </nav>
+        </div>
 
         <div class="sidebar-footer">
             <button id="sidebar-toggle" title="Toggle Menu">
@@ -50,202 +68,205 @@
             </button>
         </div>
     </aside>
-    <div class="container">       
-		
-        <div class="portfolio-summary-enhanced">
-            <div class="summary-grid">
-                <div class="summary-card summary-card-primary">
-                    <div class="summary-card-label">Total Value</div>
-                    <div id="total-current" class="summary-card-value">€0.00</div>
-                </div>
-                
-                <div class="summary-card">
-                    <div class="summary-card-label">Total Return</div>
-                    <div id="total-gain-loss" class="summary-card-value">€0.00</div>
-                    <div class="summary-card-meta">
-                        <span id="total-gain-pct" class="meta-large">0.00%</span>
-                    </div>
-                </div>
-                
-                <div class="summary-card">
-                    <div class="summary-card-label">Var Today</div>
-                    <div id="total-invested" class="summary-card-value">€0.00</div>
-                    <div class="summary-card-meta">
-                        <span id="avg-cost-per-share" class="meta-info">Avg: €0.00</span>
-                    </div>
-                </div>
-            </div>
+
+    <main class="main-content">
+        <div class="container">       
             
-			<div class="summary-stats">
-                <div class="stat-item">
-                    <div class="stat-label">Best Performer (Day)</div>
-                    <div id="best-day-asset" class="stat-value stat-positive">-</div>
+            <div class="portfolio-summary-enhanced">
+                <div class="summary-grid">
+                    <div class="summary-card summary-card-primary">
+                        <div class="summary-card-label">Total Value</div>
+                        <div id="total-current" class="summary-card-value">€0.00</div>
+                    </div>
+                    
+                    <div class="summary-card">
+                        <div class="summary-card-label">Total Return</div>
+                        <div id="total-gain-loss" class="summary-card-value">€0.00</div>
+                        <div class="summary-card-meta">
+                            <span id="total-gain-pct" class="meta-large">0.00%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="summary-card">
+                        <div class="summary-card-label">Var Today</div>
+                        <div id="total-invested" class="summary-card-value">€0.00</div>
+                        <div class="summary-card-meta">
+                            <span id="avg-cost-per-share" class="meta-info">Avg: €0.00</span>
+                        </div>
+                    </div>
                 </div>
                 
-                <div class="stat-item">
-                    <div class="stat-label">Worst Performer (Day)</div>
-                    <div id="worst-day-asset" class="stat-value stat-negative">-</div>
-                </div>
-                
-                <div class="stat-item">
-                    <div class="stat-label">Best Performer</div>
-                    <div id="best-asset" class="stat-value stat-positive">-</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Worst Performer</div>
-                    <div id="worst-asset" class="stat-value stat-negative">-</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-label">Cash Reserve</div>
-                    <div id="cash-reserve" class="stat-value">€0.00</div>
+                <div class="summary-stats">
+                    <div class="stat-item">
+                        <div class="stat-label">Best Performer (Day)</div>
+                        <div id="best-day-asset" class="stat-value stat-positive">-</div>
+                    </div>
+                    
+                    <div class="stat-item">
+                        <div class="stat-label">Worst Performer (Day)</div>
+                        <div id="worst-day-asset" class="stat-value stat-negative">-</div>
+                    </div>
+                    
+                    <div class="stat-item">
+                        <div class="stat-label">Best Performer</div>
+                        <div id="best-asset" class="stat-value stat-positive">-</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Worst Performer</div>
+                        <div id="worst-asset" class="stat-value stat-negative">-</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Cash Reserve</div>
+                        <div id="cash-reserve" class="stat-value">€0.00</div>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <div class="historical-chart-container ultra-compact">
+            <div class="historical-chart-container ultra-compact">
+                <div class="chart-header-mini">
+                    <div class="title-mini">
+                        <h3 id="chart-title" class="chart-title">
+                            <span id="chart-title-icon" class="title-icon">Chart</span>
+                            <span id="chart-title-text">Portfolio Global</span>
+                        </h3>
+                    </div>
 
-		  <div class="chart-header-mini">
-			<div class="title-mini">
-			  <h3 id="chart-title" class="chart-title">
-				<span id="chart-title-icon" class="title-icon">Chart</span>
-				<span id="chart-title-text">Portfolio Global</span>
-			  </h3>
-			  </div>
+                    <div class="header-controls">
+                        <div class="benchmark-select-wrapper" id="benchmark-wrapper" style="display: none;">
+                            <select id="benchmark-select" class="btn-secondary" style="padding: 6px 12px; font-size: 0.85rem; -webkit-appearance: listbox;">
+                                <option value="">vs Benchmark</option>
+                                <option value="^GSPC">S&P 500</option>
+                                <option value="^IXIC">Nasdaq 100</option>
+                                <option value="^STOXX50E">Eurostoxx 50</option>
+                            </select>
+                        </div>
+                        <div class="view-toggle" id="view-toggle" style="display:none;">
+                            <button class="toggle-btn active" data-view="global">Global</button>
+                            <button class="toggle-btn" data-view="unit">Unite</button>
+                        </div>
+                        <div id="last-update" class="time">00:00</div>
+                    </div>
+                </div>
+                
+                <div id="chart-info" class="chart-info" style="display:none;"></div>
 
-			<div class="header-controls">
-				<div class="benchmark-select-wrapper" id="benchmark-wrapper" style="display: none;">
-                <select id="benchmark-select" class="btn-secondary" style="padding: 6px 12px; font-size: 0.85rem; -webkit-appearance: listbox;">
-                    <option value="">vs Benchmark</option>
-                    <option value="^GSPC">S&P 500</option>
-                    <option value="^IXIC">Nasdaq 100</option>
-                    <option value="^STOXX50E">Eurostoxx 50</option>
+                <div class="chart-wrapper tall">
+                    <canvas id="historical-portfolio-chart"></canvas>
+                    <div id="chart-loading" class="chart-loading"> 
+                        <div class="svg-loader-container">
+                            <svg class="loader-svg" viewBox="0 0 50 50">
+                                <circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
+                            </svg>
+                            <div class="loader-text">Chargement des données...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-stats-bar">
+                    <div class="stat-group stat-group-1">
+                        <div class="stat stat-period">
+                            <span class="label">PÉRIODE</span>
+                            <span id="performance-label" class="value neutral">+0.00 €</span>
+                            <span id="performance-percent" class="pct neutral">(0.00%)</span>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-group stat-group-2">
+                        <div class="stat" id="stat-day-var" style="display: none;">
+                            <span class="label">VAR. JOUR</span>
+                            <span id="day-var-label" class="value neutral">+0.00 €</span>
+                            <span id="day-var-percent" class="pct neutral">(0.00%)</span>
+                        </div>
+                        <div class="stat" id="stat-yesterday-close" style="display: none;">
+                            <span class="label">CLÔTURE HIER</span>
+                            <span id="yesterday-close-value" class="value">0.00 €</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-group stat-group-3">
+                        <div class="stat">
+                            <span class="label">DÉBUT</span>
+                            <span id="price-start" class="value">0.00 €</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">FIN</span>
+                            <span id="price-end" class="value">0.00 €</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">HAUT</span>
+                            <span id="price-high" class="value positive">0.00 €</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">BAS</span>
+                            <span id="price-low" class="value negative">0.00 €</span>
+                        </div>
+                        <div class="stat" id="unit-price-row" style="display:none;">
+                            <span class="label">UNITE</span>
+                            <span id="unit-price" class="value">0.00 €</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="chart-controls">
+                    <button class="period-btn active" data-period="1">1J</button>
+                    <button class="period-btn" data-period="2">2J</button>
+                    <button class="period-btn" data-period="7">1W</button>
+                    <button class="period-btn" data-period="30">1M</button>
+                    <button class="period-btn" data-period="90">3M</button>
+                    <button class="period-btn" data-period="180">6M</button>
+                    <button class="period-btn" data-period="365">1Y</button>
+                    <button class="period-btn" data-period="all">All</button>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
+                <input type="text" id="search-input" placeholder="Search ticker, name or date..." style="flex: 1; min-width: 250px;">
+                <div id="ticker-filter-dropdown"></div>
+                
+                <select id="filter-asset-type" style="min-width: 150px;">
+                    <option value="">All Asset Types</option>
+                    <option value="Stock">Stock</option>
+                    <option value="ETF">ETF</option>
+                    <option value="Crypto">Crypto</option>
                 </select>
-              </div>
-			  <div class="view-toggle" id="view-toggle" style="display:none;">
-				<button class="toggle-btn active" data-view="global">Global</button>
-				<button class="toggle-btn" data-view="unit">Unite</button>
-			  </div>
-			  <div id="last-update" class="time">00:00</div>
-			</div>
-		  </div>
-		  <div id="chart-info" class="chart-info" style="display:none;"></div>
-
-		  <div class="chart-wrapper tall">
-			<canvas id="historical-portfolio-chart"></canvas>
-			
-            <div id="chart-loading" class="chart-loading"> <div class="svg-loader-container">
-                <svg class="loader-svg" viewBox="0 0 50 50">
-                  <circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
-                </svg>
-                <div class="loader-text">Chargement des données...</div>
-              </div>
-			</div>
+                
+                <select id="filter-broker" style="min-width: 150px;">
+                    <option value="">All Brokers</option>
+                    <option value="RV-CT">Revolut</option>
+                    <option value="TR-CT">Trade Republic</option>
+                    <option value="BB-PEA">Boursobank PEA</option>
+                    <option value="Binance">Binance</option>
+                    <option value="Bitstack">Bitstack</option>
+                </select>
+                
+                <button id="clear-filters" class="btn-secondary">Clear Filters</button>
+                <button id="refresh-prices">Refresh Prices</button>
             </div>
-
-		  <div class="chart-stats-bar">
-    
-			<div class="stat-group stat-group-1">
-				<div class="stat stat-period">
-					<span class="label">PÉRIODE</span>
-					<span id="performance-label" class="value neutral">+0.00 €</span>
-					<span id="performance-percent" class="pct neutral">(0.00%)</span>
-				</div>
-			</div>
-			
-			<div class="stat-group stat-group-2">
-				<div class="stat" id="stat-day-var" style="display: none;">
-					<span class="label">VAR. JOUR</span>
-					<span id="day-var-label" class="value neutral">+0.00 €</span>
-					<span id="day-var-percent" class="pct neutral">(0.00%)</span>
-				</div>
-				<div class="stat" id="stat-yesterday-close" style="display: none;">
-					<span class="label">CLÔTURE HIER</span>
-					<span id="yesterday-close-value" class="value">0.00 €</span>
-				</div>
-			</div>
-
-			<div class="stat-group stat-group-3">
-				<div class="stat">
-					<span class="label">DÉBUT</span>
-					<span id="price-start" class="value">0.00 €</span>
-				</div>
-				<div class="stat">
-					<span class="label">FIN</span>
-					<span id="price-end" class="value">0.00 €</span>
-				</div>
-				<div class="stat">
-					<span class="label">HAUT</span>
-					<span id="price-high" class="value positive">0.00 €</span>
-				</div>
-				<div class="stat">
-					<span class="label">BAS</span>
-					<span id="price-low" class="value negative">0.00 €</span>
-				</div>
-				<div class="stat" id="unit-price-row" style="display:none;">
-					<span class="label">UNITE</span>
-					<span id="unit-price" class="value">0.00 €</span>
-				</div>
-			</div>
-		</div>
-		  <div class="chart-controls">
-			<button class="period-btn active" data-period="1">1J</button>
-			<button class="period-btn" data-period="2">2J</button>
-			<button class="period-btn" data-period="7">1W</button>
-			<button class="period-btn" data-period="30">1M</button>
-			<button class="period-btn" data-period="90">3M</button>
-			<button class="period-btn" data-period="180">6M</button>
-			<button class="period-btn" data-period="365">1Y</button>
-			<button class="period-btn" data-period="all">All</button>
-		  </div>
-		</div>
-
-        <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
-            <input type="text" id="search-input" placeholder="Search ticker, name or date..." style="flex: 1; min-width: 250px;">
-            <div id="ticker-filter-dropdown"></div>
             
-            <select id="filter-asset-type" style="min-width: 150px;">
-                <option value="">All Asset Types</option>
-                <option value="Stock">Stock</option>
-                <option value="ETF">ETF</option>
-                <option value="Crypto">Crypto</option>
-            </select>
-            
-            <select id="filter-broker" style="min-width: 150px;">
-                <option value="">All Brokers</option>
-                <option value="RV-CT">Revolut</option>
-                <option value="TR-CT">Trade Republic</option>
-                <option value="BB-PEA">Boursobank PEA</option>
-                <option value="Binance">Binance</option>
-                <option value="Bitstack">Bitstack</option>
-            </select>
-			
-            <button id="clear-filters" class="btn-secondary">Clear Filters</button>
-            <button id="refresh-prices">Refresh Prices</button>
+            <table id="investments-table">
+                <thead>
+                    <tr>
+                        <th data-sort="ticker">TICKER</th>
+                        <th data-sort="name">NAME</th>
+                        <th data-sort="quantity">QUANTITY</th>
+                        <th data-sort="avgPrice">AVG PRICE</th>
+                        <th data-sort="invested">INVESTED</th>
+                        <th data-sort="currentPrice">CURRENT</th>
+                        <th data-sort="currentValue">VALUE</th>
+                        <th data-sort="gainEUR">P&L</th>
+                        <th data-sort="gainPct">RT %</th>
+                        <th data-sort="dayChange">DAY P&L</th>
+                        <th data-sort="dayPct">DAY %</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+
+            <div class="pagination" id="pagination"></div>
         </div>
-		
-        <table id="investments-table">
-            <thead>
-                <tr>
-                    <th data-sort="ticker">TICKER</th>
-                    <th data-sort="name">NAME</th>
-                    <th data-sort="quantity">QUANTITY</th>
-                    <th data-sort="avgPrice">AVG PRICE</th>
-                    <th data-sort="invested">INVESTED</th>
-                    <th data-sort="currentPrice">CURRENT</th>
-                    <th data-sort="currentValue">VALUE</th>
-                    <th data-sort="gainEUR">P&L</th>
-                    <th data-sort="gainPct">RT %</th>
-                    <th data-sort="dayChange">DAY P&L</th>
-                    <th data-sort="dayPct">DAY %</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-
-        <div class="pagination" id="pagination"></div>
-    </div>
+    </main>
 
     <script type="module" src="./app.js?v=10"></script>
-	<script type="module" src="./sidebar.js"></script>
+    <script type="module" src="./sidebar.js"></script>
 </body>
 </html>

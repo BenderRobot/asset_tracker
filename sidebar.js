@@ -1,44 +1,33 @@
-// sidebar.js – VERSION QUI MARCHE PARTOUT À 100%
+// sidebar.js – Version Zéro-Flash & Footer Fixe
 const sidebar = document.getElementById('app-sidebar');
 const toggleBtn = document.getElementById('sidebar-toggle');
-const icon = toggleBtn?.querySelector('i');
+const icon = toggleBtn ? toggleBtn.querySelector('i') : null;
+const html = document.documentElement; // On cible <html>
 
 if (sidebar && toggleBtn) {
-    // Fonction qui gère TOUT (collapse + décalage + sauvegarde + hover)
-    function setCollapsed(collapsed) {
-        if (collapsed) {
-            sidebar.classList.add('collapsed');
-            document.body.classList.add('sidebar-collapsed');
-            sidebar.style.width = '72px';
-            if (icon) icon.classList.replace('fa-chevron-left', 'fa-chevron-right');
+    // Fonction pour mettre à jour l'UI (Icônes seulement, la largeur est gérée par CSS)
+    function updateUI(isCollapsed) {
+        if (isCollapsed) {
+            if (icon) icon.className = 'fas fa-chevron-right';
         } else {
-            sidebar.classList.remove('collapsed');
-            document.body.classList.remove('sidebar-collapsed');
-            sidebar.style.width = '240px';
-            if (icon) icon.classList.replace('fa-chevron-right', 'fa-chevron-left');
+            if (icon) icon.className = 'fas fa-chevron-left';
         }
-        localStorage.setItem('sidebarState', collapsed);
     }
 
-    // Charger l’état au démarrage
-    const saved = localStorage.getItem('sidebarState') === 'true';
-    setCollapsed(saved);
+    // Fonction de bascule
+    function toggleSidebar() {
+        const isCollapsed = html.classList.toggle('sidebar-collapsed');
+        localStorage.setItem('sidebarState', isCollapsed);
+        updateUI(isCollapsed);
+    }
 
-    // Clic sur le chevron
+    // État initial (déjà géré par le script dans le head, on met juste à jour l'icône)
+    const savedState = localStorage.getItem('sidebarState') === 'true';
+    updateUI(savedState);
+
+    // Event Listener
     toggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        setCollapsed(!sidebar.classList.contains('collapsed'));
-    });
-
-    // HOVER EXPAND (le meilleur effet pro)
-    sidebar.addEventListener('mouseenter', () => {
-        if (sidebar.classList.contains('collapsed')) {
-            sidebar.style.width = '240px';
-        }
-    });
-    sidebar.addEventListener('mouseleave', () => {
-        if (sidebar.classList.contains('collapsed')) {
-            sidebar.style.width = '72px';
-        }
+        toggleSidebar();
     });
 }

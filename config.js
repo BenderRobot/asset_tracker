@@ -4,6 +4,10 @@
 
 export const RAPIDAPI_KEY = '900cd83ff7msh970062bff547634p1d444bjsn67326eb30d74';
 
+// AJOUTEZ VOTRE CLÉ ICI UNE FOIS POUR TOUTES
+export const GEMINI_API_KEY = 'AIzaSyCSFjArNaC35wbZLLGXOlPEO4HJO7hN7pw';
+export const FINNHUB_API_KEY = 'd447bqhr01qge0d0spfgd447bqhr01qge0d0spg0';
+
 // CACHE : Durées différentes selon type d'actif
 export const CACHE_EXPIRY_STOCKS_MARKET_OPEN = 10 * 60 * 1000; // 10 minutes (marché ouvert)
 export const CACHE_EXPIRY_STOCKS_MARKET_CLOSED = 7 * 24 * 60 * 60 * 1000; // 7 jours (marché fermé/weekend)

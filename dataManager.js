@@ -94,17 +94,27 @@ export class DataManager {
         return enriched;
     }
 
-    calculateSummary(holdings) {
+calculateSummary(holdings) {
         let totalInvestedEUR = 0;
         let totalCurrentEUR = 0;
         let totalDayChangeEUR = 0;
         const assetTotalPerformances = [];
         const assetDayPerformances = [];
+        
+        // Pour le calcul des secteurs
+        const sectorStats = {}; 
 
         holdings.forEach(asset => {
             totalInvestedEUR += asset.invested || 0;
             totalCurrentEUR += asset.currentValue || 0;
             totalDayChangeEUR += asset.dayChange || 0;
+
+            // Calcul par secteur
+            const type = asset.assetType || 'Other';
+            if (!sectorStats[type]) {
+                sectorStats[type] = { value: 0, name: type };
+            }
+            sectorStats[type].value += (asset.currentValue || 0);
 
             if (asset.currentValue !== null) {
                 assetTotalPerformances.push({
@@ -122,6 +132,22 @@ export class DataManager {
                 });
             }
         });
+
+        // Trouver le Top Sector
+        let bestSector = { name: '-', value: 0, pct: 0 };
+        if (totalCurrentEUR > 0) {
+            let maxVal = -1;
+            Object.values(sectorStats).forEach(s => {
+                if (s.value > maxVal) {
+                    maxVal = s.value;
+                    bestSector = {
+                        name: s.name,
+                        value: s.value,
+                        pct: (s.value / totalCurrentEUR) * 100
+                    };
+                }
+            });
+        }
 
         const gainTotal = totalCurrentEUR - totalInvestedEUR;
         const gainPct = totalInvestedEUR > 0 ? (gainTotal / totalInvestedEUR) * 100 : 0;
@@ -150,11 +176,11 @@ export class DataManager {
             worstAsset,
             bestDayAsset,
             worstDayAsset,
+            topSector: bestSector, // Maintenant un objet complet
             assetsCount: holdings.length,
             movementsCount: holdings.reduce((sum, h) => sum + h.purchases.length, 0)
         };
     }
-
     calculateEnrichedPurchases(filteredPurchases) {
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
         
