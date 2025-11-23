@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analytics</title>
+    <title>Analytics - Asset Tracker</title>
 	<link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -120,18 +120,43 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Navigation -->
-        <nav class="nav-menu">
-            <a href="index.html">Transactions</a>
-            <a href="investments.html">Portfolio</a>
-            <a href="analytics.html" class="active">Analytics</a>
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="font-size: 24px;">💎</div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div>
+                <span class="nav-text">Transactions</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">📈</div>
+                <span class="nav-text">Assets</span>
+            </a>
+            <a href="dashboard.html" class="nav-item"> 
+                <div class="nav-icon">🚀</div>
+                <span class="nav-text">Dashboard</span>
+            </a>
+            <a href="analytics.html" class="nav-item active">
+                <div class="nav-icon">📊</div>
+                <span class="nav-text">Analytics</span>
+            </a>
+            <a href="migration.html" class="nav-item">
+                <div class="nav-icon">🔄</div>
+                <span class="nav-text">Migration</span>
+            </a>
         </nav>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h1 style="margin-bottom: 0;">📊 Portfolio Analytics</h1>
-            <div id="market-status-container"></div>
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu">
+                <i class="fas fa-chevron-left"></i>
+            </button>
         </div>
+    </aside>
+    <main class="main-content">
+        <div class="container">
 
         <!-- Résumé -->
         <div class="portfolio-summary-enhanced">
@@ -248,5 +273,6 @@
     </div>
 
     <script type="module" src="./analyticsApp.js"></script>
+	<script type="module" src="./sidebar.js"></script>
 </body>
 </html>

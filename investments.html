@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Portfolio Tracker - Investissements</title>
+    <title>Investments - Asset Tracker</title>
 	<link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -15,18 +15,42 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div class="container">
-        <nav class="nav-menu">
-            <a href="index.html">Transactions</a>
-            <a href="investments.html" class="active">Portfolio</a>
-			<a href="dashboard.html">Dashboard</a>
-			<a href="analytics.html">Analytics</a>
+	<aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="font-size: 24px;">💎</div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div>
+                <span class="nav-text">Transactions</span>
+            </a>
+            <a href="investments.html" class="nav-item active">
+                <div class="nav-icon">📈</div>
+                <span class="nav-text">Assets</span>
+            </a>
+            <a href="dashboard.html" class="nav-item"> 
+                <div class="nav-icon">🚀</div>
+                <span class="nav-text">Dashboard</span>
+            </a>
+            <a href="analytics.html" class="nav-item">
+                <div class="nav-icon">📊</div>
+                <span class="nav-text">Analytics</span>
+            </a>
+            <a href="migration.html" class="nav-item">
+                <div class="nav-icon">🔄</div>
+                <span class="nav-text">Migration</span>
+            </a>
         </nav>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h1>📈 Portfolio Overview</h1>
-            <div id="market-status-container"></div>
-        </div>        
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+        </div>
+    </aside>
+    <div class="container">       
 		
         <div class="portfolio-summary-enhanced">
             <div class="summary-grid">
@@ -222,5 +246,6 @@
     </div>
 
     <script type="module" src="./app.js?v=10"></script>
+	<script type="module" src="./sidebar.js"></script>
 </body>
 </html>

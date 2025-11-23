@@ -61,9 +61,15 @@ export class UIComponents {
         // 4. BEST PERFORMER (TOTAL)
         if (summary.bestAsset) {
             const bestColor = summary.bestAsset.gainPct >= 0 ? '#10b981' : '#ef4444';
+            // MODIFICATION : .name au lieu de .ticker
+            // AJOUT : Style pour couper le texte si trop long (...)
             updateHTML('best-asset', `
-                <div style="font-size: 14px; font-weight: 600;">${summary.bestAsset.ticker}</div>
-                <div style="font-size: 12px; color: ${bestColor}; margin-top: 2px;">${formatPctSimple(summary.bestAsset.gainPct)}</div>
+                <div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.bestAsset.name}">
+                    ${summary.bestAsset.name}
+                </div>
+                <div style="font-size: 12px; color: ${bestColor}; margin-top: 2px;">
+                    ${formatPctSimple(summary.bestAsset.gainPct)}
+                </div>
             `);
         } else {
             updateHTML('best-asset', '-');
@@ -72,23 +78,49 @@ export class UIComponents {
         // 5. WORST PERFORMER (TOTAL)
         if (summary.worstAsset) {
             const worstColor = summary.worstAsset.gainPct >= 0 ? '#10b981' : '#ef4444';
+            // MODIFICATION : .name au lieu de .ticker
             updateHTML('worst-asset', `
-                <div style="font-size: 14px; font-weight: 600;">${summary.worstAsset.ticker}</div>
-                <div style="font-size: 12px; color: ${worstColor}; margin-top: 2px;">${formatPctSimple(summary.worstAsset.gainPct)}</div>
+                <div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.worstAsset.name}">
+                    ${summary.worstAsset.name}
+                </div>
+                <div style="font-size: 12px; color: ${worstColor}; margin-top: 2px;">
+                    ${formatPctSimple(summary.worstAsset.gainPct)}
+                </div>
             `);
         } else {
             updateHTML('worst-asset', '-');
         }
         
-        // 6. AJOUT : BEST PERFORMER (DAY)
+        // 6. BEST PERFORMER (DAY)
         if (summary.bestDayAsset) {
             const bestDayColor = summary.bestDayAsset.dayPct >= 0 ? '#10b981' : '#ef4444';
+            // MODIFICATION : .name au lieu de .ticker
             updateHTML('best-day-asset', `
-                <div style="font-size: 14px; font-weight: 600;">${summary.bestDayAsset.ticker}</div>
-                <div style="font-size: 12px; color: ${bestDayColor}; margin-top: 2px;">${formatPctSimple(summary.bestDayAsset.dayPct)}</div>
+                <div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.bestDayAsset.name}">
+                    ${summary.bestDayAsset.name}
+                </div>
+                <div style="font-size: 12px; color: ${bestDayColor}; margin-top: 2px;">
+                    ${formatPctSimple(summary.bestDayAsset.dayPct)}
+                </div>
             `);
         } else {
             updateHTML('best-day-asset', '-');
+        }
+
+        // 7. WORST PERFORMER (DAY)
+        if (summary.worstDayAsset) {
+            const worstDayColor = summary.worstDayAsset.dayPct >= 0 ? '#10b981' : '#ef4444';
+            // MODIFICATION : .name au lieu de .ticker
+            updateHTML('worst-day-asset', `
+                <div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.worstDayAsset.name}">
+                    ${summary.worstDayAsset.name}
+                </div>
+                <div style="font-size: 12px; color: ${worstDayColor}; margin-top: 2px;">
+                    ${formatPctSimple(summary.worstDayAsset.dayPct)}
+                </div>
+            `);
+        } else {
+            updateHTML('worst-day-asset', '-');
         }
 
         // 7. AJOUT : WORST PERFORMER (DAY)
