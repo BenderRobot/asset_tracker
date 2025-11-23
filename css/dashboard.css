@@ -1,5 +1,5 @@
 /* ========================================
-   DASHBOARD.CSS - Version Finale (Structure Étages)
+   DASHBOARD.CSS - Version Finale Corrigée
    ======================================== */
 
 /* --- CONTAINER GLOBAL --- */
@@ -9,16 +9,13 @@
     gap: 24px;
     padding-bottom: 40px;
 }
-/* On désactive le layout global précédent */
 .dashboard-layout { display: contents; } 
 
 /* === SECTION HAUTE (2 COLONNES) === */
 .dashboard-top-section {
     display: grid;
-    /* Gauche (KPI+Graph) flexible | Droite (Indices) fixe */
     grid-template-columns: 1fr 300px; 
     gap: 24px;
-    /* Force la colonne indices à faire toute la hauteur de la colonne gauche */
     align-items: stretch; 
 }
 
@@ -32,7 +29,6 @@
 
 /* --- COLONNE DROITE --- */
 .dashboard-right-sidebar {
-    /* Sticky pour suivre le scroll si la gauche est plus longue */
     position: sticky;
     top: 24px;
     height: calc(100vh - 48px); 
@@ -48,9 +44,43 @@
     display: flex;
     flex-direction: column;
     padding: 16px;
-    height: 100%; /* Remplit toute la hauteur disponible */
+    height: 100%;
     overflow: hidden;
 }
+
+/* --- NOUVEAU HEADER INDICES (Titre + Status alignés) --- */
+.indices-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.indices-header .section-title-right {
+    margin: 0;
+    font-size: 13px; /* Légèrement plus grand */
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Style spécifique pour le badge Market Status intégré */
+#market-status-container .market-status-compact {
+    font-size: 11px !important;
+    padding: 4px 8px !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+/* Effet Néon sur le point de statut */
+#market-status-container span[style*="border-radius"] {
+    box-shadow: 0 0 8px currentColor;
+}
+
 .indices-list {
     display: flex;
     flex-direction: column;
@@ -58,7 +88,7 @@
     overflow-y: auto;
     flex: 1;
     padding-right: 4px;
-    margin-top: 12px;
+    margin-top: 0; /* Ajusté car le margin est géré par le header maintenant */
 }
 .indices-list::-webkit-scrollbar { width: 4px; }
 .indices-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
@@ -70,7 +100,8 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 16px;
 }
-/* Styles KPI (Inchangés - Copiez-collez) */
+
+/* Styles KPI */
 .kpi-card { background: var(--bg-card); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; flex-direction: column; justify-content: space-between; min-height: 130px; transition: transform 0.2s, border-color 0.2s; }
 .kpi-card:hover { border-color: var(--accent-blue); transform: translateY(-2px); }
 .kpi-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
@@ -85,6 +116,8 @@
 .kpi-sector-details { display: flex; flex-direction: column; gap: 2px; margin-top: auto; }
 .kpi-sector-value { font-size: 14px; font-weight: 700; color: var(--text-primary); }
 .kpi-sector-pct { font-size: 11px; color: var(--text-muted); }
+
+/* Asset Allocation */
 #dashboard-allocation-container { height: 100%; display: flex; flex-direction: column; }
 .allocation-wrapper { display: flex; flex-direction: column; gap: 12px; height: 100%; width: 100%; }
 .allocation-bar { display: flex; width: 100%; height: 6px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.05); margin-bottom: 4px; flex-shrink: 0; }
@@ -98,19 +131,7 @@
 .alloc-right span { font-weight: 600; color: var(--text-primary); font-family: 'Inter', monospace; text-align: right; }
 
 
-/* === BLOC 2 : SPLIT SECTION (GRAPH + INDICES) === */
-.dashboard-split-section {
-    display: grid;
-    grid-template-columns: 1fr 300px; /* Graphique large + Indices fixes */
-    gap: 24px;
-    /* C'est la clé : STRETCH force les deux colonnes à avoir la même hauteur visuelle */
-    align-items: stretch;
-    
-    /* On ne fixe plus de hauteur ici, c'est le contenu (le graph) qui décidera */
-    height: auto; 
-}
-
-/* Partie Gauche : Graphique */
+/* === BLOC 2 : CHART SECTION (CORRIGÉE) === */
 .dashboard-chart-section {
     background: var(--bg-card);
     border-radius: 12px;
@@ -119,86 +140,83 @@
     flex-direction: column; 
     overflow: hidden;
     
-    /* NOUVELLE HAUTEUR : On augmente à 550px pour ne plus couper les infos */
-    height: 550px; 
+    /* MODIF : Hauteur flexible avec un minimum pour éviter les coupures */
+	height: 550px;
     min-height: 550px;
 }
 
-/* Partie Droite : Indices */
-.dashboard-right-sidebar {
-    /* On s'assure qu'il prend toute la hauteur définie par le voisin (le graph) */
-    height: 100%; 
-    display: flex;
-    flex-direction: column;
-}
-
-.dashboard-indices-panel-full {
-    background: var(--bg-card);
-    border-radius: 12px;
-    border: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    padding: 16px;
-    
-    /* IMPORTANT : Prend 100% de la hauteur du parent (.dashboard-right-sidebar) */
-    height: 100%; 
-    overflow: hidden;
-}
-
-.indices-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    overflow-y: auto; /* Active le scroll si la liste est plus longue que le graph */
-    flex: 1; /* Prend tout l'espace disponible */
-    padding-right: 4px;
-    margin-top: 12px;
-}
-.indices-list::-webkit-scrollbar { width: 4px; }
-.indices-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
-
-/* Ajustement interne du Graphique pour qu'il remplisse l'espace */
+/* Wrapper interne du graphique */
 .chart-wrapper.tall {
-    /* Le canvas prend l'espace restant, moins le header et le footer */
-    flex: 1; 
-    height: auto; /* On laisse flex gérer */
-    min-height: 0; /* Important pour le resize du canvas */
+    flex: 1; /* Prend tout l'espace restant */
+    height: auto; 
+    min-height: 350px; /* Hauteur minimale pour le canvas */
     position: relative;
     padding: 10px 20px;
     background: transparent;
 }
 
-/* Le footer reste collé en bas */
-.chart-stats-bar {
-    margin: 0; 
-    border: none; 
-    border-top: 1px solid var(--border-color); 
-    background: rgba(15, 20, 35, 0.5); 
+/* Header du graphique */
+.chart-header-mini { 
     padding: 16px 24px; 
+    background: transparent; 
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05); 
     display: flex; 
-    align-items: center; 
     justify-content: space-between; 
-    gap: 24px; 
-    flex-wrap: wrap;
-    flex-shrink: 0; /* Ne s'écrase pas */
+    align-items: center; 
+    flex-wrap: wrap; 
+    gap: 10px; 
 }
-/* ... (Styles Chart inchangés) ... */
-.chart-header-mini { padding: 16px 24px; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
 .chart-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; color: var(--text-primary); margin: 0; }
 .header-controls { display: flex; align-items: center; gap: 16px; }
+
+/* Contrôles Période */
 .chart-controls-inline { display: flex; gap: 4px; background: var(--bg-secondary); padding: 2px; border-radius: 8px; border: 1px solid var(--border-color); }
 .chart-controls-inline .period-btn { padding: 4px 12px; font-size: 11px; font-weight: 600; border: none; background: transparent; color: var(--text-secondary); border-radius: 6px; cursor: pointer; transition: all 0.2s; }
 .chart-controls-inline .period-btn:hover { color: var(--text-primary); }
 .chart-controls-inline .period-btn.active { background: var(--accent-blue); color: white; }
+
+/* Benchmark Select */
 .benchmark-wrapper { position: relative; }
 #benchmark-select { appearance: none; background-color: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-secondary); padding: 4px 24px 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; height: 26px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239fa6bc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
 #benchmark-select:hover { border-color: var(--accent-blue); color: var(--text-primary); }
 #benchmark-select:focus { outline: none; border-color: var(--accent-blue); }
-.chart-wrapper.tall { height: 100%; min-height: 350px; position: relative; padding: 10px 20px; background: transparent; }
-.chart-stats-bar { margin: 0; border: none; border-top: 1px solid var(--border-color); background: rgba(15, 20, 35, 0.5); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-.stat-group-1 { padding-right: 24px; border-right: 1px solid var(--border-color); min-width: 140px; flex-shrink: 0; }
-.stat-group-2 { display: flex; gap: 24px; padding-right: 24px; border-right: 1px solid var(--border-color); flex-shrink: 0; }
-.stat-group-3 { display: flex; gap: 32px; flex-grow: 1; justify-content: flex-end; }
+
+/* --- BARRE DE STATS CORRIGÉE (GRID) --- */
+.chart-stats-bar {
+    display: grid;
+    /* MODIF : Grid adaptative pour éviter que ça dépasse */
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    align-items: start;
+    
+    margin: 0; 
+    border: none; 
+    border-top: 1px solid var(--border-color); 
+    background: var(--bg-secondary); /* Uniformisation du fond */
+    padding: 16px 24px; 
+}
+
+/* Groupes de stats */
+.stat-group-1, .stat-group-2 {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    border-right: 1px solid var(--border-color);
+    padding-right: 16px;
+    min-width: auto; /* Supprime la largeur forcée */
+}
+
+.stat-group-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+    padding-left: 16px;
+    border-right: none;
+    justify-content: start;
+}
+
+/* Styles individuels stats */
 .stat { display: flex; flex-direction: column; white-space: nowrap; }
 .stat .label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px; font-weight: 600; }
 .stat .value { font-size: 15px; font-weight: 700; color: var(--text-primary); font-family: 'Inter', monospace; }
@@ -206,7 +224,8 @@
 .stat-group-1 .value { font-size: 22px; margin-bottom: 2px; }
 .stat-group-1 .pct { font-size: 14px; font-weight: 500; }
 
-.section-title-right { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0; }
+
+/* === ELEMENTS INDICES LISTE === */
 .market-card { background: var(--bg-secondary); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; justify-content: space-between; min-height: 80px; flex-shrink: 0; transition: all 0.2s ease; }
 .market-card:hover { border-color: var(--accent-blue); transform: translateY(-2px); }
 .market-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
@@ -222,9 +241,9 @@
 /* === BLOC 3 : NEWS FEEDS (BAS) === */
 .dashboard-feeds-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr; /* 2 colonnes égales */
+    grid-template-columns: 1fr 1fr;
     gap: 24px;
-    height: 500px; /* Hauteur fixe */
+    height: 500px;
 }
 
 .feed-card {
@@ -258,7 +277,6 @@
 .news-ticker-tag { background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px; color: var(--accent-blue); font-weight: 700; font-size: 9px; }
 .btn-icon-small { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 12px; }
 .btn-icon-small:hover { color: var(--text-primary); }
-.twitter-feed-container { background: #000; padding: 0; }
 
 
 /* === MODAL === */
@@ -269,7 +287,27 @@
 @keyframes pulse-text { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
 .loading-text { animation: pulse-text 1.5s infinite; color: var(--text-muted); }
 
-/* RESPONSIVE */
+/* === RESPONSIVE === */
+@media (max-width: 1300px) {
+    /* Passage en 2 colonnes pour les stats graph sur écran moyen */
+    .chart-stats-bar { grid-template-columns: 1fr 1fr; }
+    
+    .stat-group-1, .stat-group-2 {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 12px;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .stat-group-3 {
+        grid-column: span 2;
+        padding-left: 0;
+        padding-top: 12px;
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
 @media (max-width: 1200px) {
     .dashboard-top-section { grid-template-columns: 1fr; } /* Stack sur mobile */
     .dashboard-right-sidebar { position: static; height: auto; }
@@ -279,9 +317,14 @@
     .dashboard-feeds-grid { grid-template-columns: 1fr; height: auto; }
     .feed-card { height: 400px; }
 }
-/* === OPENMOJI ICONS === */
-/* À ajouter dans css/dashboard.css */
 
+@media (max-width: 768px) {
+    .stat-group-3 {
+        grid-template-columns: 1fr 1fr; /* Retour sur 2 lignes mobile */
+    }
+}
+
+/* === ICONS OPENMOJI === */
 .market-icon img {
     width: 24px;
     height: 24px;
@@ -291,4 +334,232 @@
 
 .market-card:hover .market-icon img {
     transform: scale(1.1) rotate(5deg);
+}
+/* ========================================
+   NOUVEAU : LISTES KPI (TOP 3)
+   ======================================== */
+
+/* Conteneur de la liste qui remplace le gros texte */
+.kpi-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+    flex: 1; /* Occupe l'espace restant */
+}
+
+/* Une ligne (un actif) */
+.kpi-list-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.kpi-list-row:last-child {
+    border-bottom: none;
+}
+
+/* Partie gauche (Ticker + Nom) */
+.kpi-row-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+}
+
+/* Badge Ticker */
+.kpi-ticker-badge {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-primary);
+    min-width: 45px;
+    text-align: center;
+}
+
+/* Nom (coupé si trop long) */
+.kpi-row-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-secondary);
+    font-size: 12px;
+    max-width: 100px; 
+}
+
+/* Partie droite (Valeur / %) */
+.kpi-row-right {
+    text-align: right;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Valeur secondaire (ex: montant en € sous le %) */
+.kpi-sub-value {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+    display: block;
+}
+/* === NOUVELLE LIGNE HERO (3 COLONNES) === */
+.dashboard-hero-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr); /* 3 colonnes égales */
+    gap: 16px;
+    margin-bottom: 16px; /* Espace avant la ligne suivante */
+}
+
+/* Réutilisation du style 'summary-card-primary' de investments.css */
+.summary-card-primary {
+    border: 1px solid rgba(59, 130, 246, 0.3) !important;
+    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(59, 130, 246, 0.15) 100%) !important;
+}
+
+/* Responsive : passer à 1 colonne sur mobile */
+@media (max-width: 768px) {
+    .dashboard-hero-row {
+        grid-template-columns: 1fr;
+    }
+}
+/* ========================================
+   TAILLES TEXTE - LIGNE HERO (3 CARTES)
+   ======================================== */
+
+/* 1. Le Titre (ex: Total Value) */
+.dashboard-hero-row .kpi-label {
+    font-size: 13px !important; /* Plus grand (était ~11px) */
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* 2. L'Icône à côté du titre */
+.dashboard-hero-row .kpi-icon {
+    font-size: 16px !important;
+    opacity: 0.7;
+}
+
+/* 3. La Valeur Principale (ex: €30,615.72) */
+.dashboard-hero-row .kpi-value {
+    font-size: 36px !important; /* Beaucoup plus grand (était ~24px) */
+    font-weight: 700;
+    letter-spacing: -1px;
+    margin: 8px 0 6px 0 !important; /* Un peu d'espace autour */
+    line-height: 1.1;
+}
+
+/* 4. Les Sous-titres et Pourcentages (ex: Invested, +11.90%) */
+.dashboard-hero-row .kpi-meta,
+.dashboard-hero-row .kpi-change-pct,
+.dashboard-hero-row .meta-info {
+    font-size: 15px !important; /* Plus lisible (était ~12px) */
+    font-weight: 500;
+}
+
+/* Ajustement spécifique pour le texte "Invested:" pour qu'il soit gris clair */
+#dashboard-invested-subtitle {
+    font-size: 14px !important;
+    color: var(--text-secondary);
+    opacity: 0.9 !important;
+}
+/* DANS css/dashboard.css */
+
+/* Ajustement pour la ligne du bas des cartes indices */
+.market-change-row {
+    margin-top: 4px;
+    align-items: center;
+}
+
+/* Petit badge de statut (Futures/Direct/Clôture) */
+.market-status-label {
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+/* ========================================
+   INTERACTION INDICES & NAVIGATION
+   ======================================== */
+
+/* Rendre les cartes indices interactives */
+.market-card {
+    cursor: pointer;
+    position: relative;
+}
+
+/* Effet de sélection sur la carte active */
+.market-card.active-index {
+    border-color: var(--accent-blue) !important;
+    background: rgba(59, 130, 246, 0.1) !important;
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
+}
+
+/* Bouton pour fermer la vue indice et revenir au portfolio */
+.chart-reset-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-left: 12px;
+}
+
+.chart-reset-btn:hover {
+    background: rgba(239, 68, 68, 0.25);
+    transform: translateY(-1px);
+}
+/* FIXER LA HAUTEUR DU CANVAS POUR ÉVITER LE SAUT DE MISE EN PAGE */
+#historical-portfolio-chart {
+    height: 100% !important;
+    width: 100% !important;
+}
+
+.chart-wrapper.tall {
+    position: relative; /* S'assurer que le wrapper est relatif pour que le canvas absolu fonctionne */
+    flex: 1; /* Conserver l'espace flexible */
+    min-height: 350px; /* Conserver une hauteur minimale de sécurité */
+}
+/* market-card est déjà défini */
+.market-card {
+    /* ... (règles existantes) ... */
+    position: relative; /* Nécessaire si on veut positionner des éléments au survol */
+    overflow: hidden; /* Empêche le débordement des éléments du graphique */
+    min-height: 100px; /* Assure que le graphique a de la place */
+}
+
+/* Conteneur du mini-graphique (Sparkline) */
+.market-chart-mini {
+    position: absolute;
+    bottom: 30px; /* Au-dessus du pied de page */
+    left: 0;
+    width: 100%;
+    height: 30px;
+    opacity: 0.25; /* Rendre le graphique d'arrière-plan discret */
+    transition: opacity 0.2s ease;
+}
+
+.market-card:hover .market-chart-mini {
+    opacity: 0.6; /* Le rendre plus visible au survol */
+}
+
+.market-chart-mini svg polyline {
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    /* On utilise la couleur du stroke déterminée dans JS */
+}
+
+/* Positionnement du prix et du changement au-dessus du graphique */
+.market-price, .market-change-row {
+    position: relative;
+    z-index: 2;
 }

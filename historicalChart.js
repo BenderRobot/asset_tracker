@@ -1,3 +1,5 @@
+// benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/historicalChart.js
+
 // ========================================
 // historicalChart.js - (v51 - Masquage Var Jour hors 1D)
 // ========================================
@@ -25,15 +27,20 @@ export class HistoricalChart {
     this.currentBenchmark = null;
     
     eventBus.addEventListener('showAssetChart', (e) => {
-        this.showAssetChart(e.detail.ticker, e.detail.summary);
+        // Mise à jour de l'état interne pour forcer la mise à jour par 'update'
+        this.currentMode = 'asset'; 
+        this.selectedAssets = [e.detail.ticker];
+        this.update(true, false); 
     });
 
     eventBus.addEventListener('clearAssetChart', () => {
+        // Réinitialisation de l'état pour revenir au mode portefeuille/filtré
         this.currentMode = 'portfolio';
         this.selectedAssets = [];
         this.currentBenchmark = null; 
         const benchmarkSelect = document.getElementById('benchmark-select');
         if (benchmarkSelect) benchmarkSelect.value = '';
+        this.update(true, false); 
     });
   }
 
@@ -216,7 +223,7 @@ export class HistoricalChart {
       let isIndexMode = (this.currentMode === 'index');
       let currentTicker = null;
 
-      // === CAS 1 : MODE INDICE ===
+      // === CAS 1 : MODE INDICE (MODIFIÉ pour récupérer le prix de clôture) ===
       if (isIndexMode && this.selectedAssets.length === 1) {
          isSingleAsset = true;
          currentTicker = this.selectedAssets[0];
@@ -228,6 +235,10 @@ export class HistoricalChart {
 
          graphData = await this.dataManager.calculateIndexData(currentTicker, this.currentPeriod);
          
+         // Récupération du previousClose pour le graphique principal (pour la ligne de référence)
+         const currentPriceData = this.storage.getCurrentPrice(currentTicker);
+         const indexPreviousClose = currentPriceData?.previousClose; 
+         
          if (graphData && graphData.values.length > 0) {
              const currentPrice = graphData.values[graphData.values.length - 1];
              const startPrice = graphData.values[0];
@@ -238,10 +249,14 @@ export class HistoricalChart {
                  totalInvestedEUR: 0, 
                  gainTotal: diff,
                  gainPct: startPrice > 0 ? (diff / startPrice) * 100 : 0,
-                 totalDayChangeEUR: diff, 
-                 dayChangePct: startPrice > 0 ? (diff / startPrice) * 100 : 0
+                 // Utilise les vraies stats de la carte (basées sur indexPreviousClose)
+                 totalDayChangeEUR: indexPreviousClose ? currentPriceData.price - indexPreviousClose : diff,
+                 dayChangePct: indexPreviousClose > 0 ? ((currentPriceData.price - indexPreviousClose) / indexPreviousClose) * 100 : 0
              };
          }
+         
+         // Définir la clôture de la veille pour la ligne de référence du graphique
+         this.lastYesterdayClose = indexPreviousClose;
 
          titleConfig = {
              mode: 'index',
@@ -272,7 +287,7 @@ export class HistoricalChart {
            icon: this.dataManager.isCryptoTicker(currentTicker) ? '₿' : '📊'
          };
 
-      // === CAS 3 : MODE PORTFOLIO GLOBAL ===
+      // === CAS 3 : MODE PORTFOLIO GLOBAL / FILTRÉ ===
       } else {
          titleConfig = this.investmentsPage.getChartTitleConfig();
          const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
@@ -293,11 +308,6 @@ export class HistoricalChart {
          const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
          targetSummary = this.dataManager.calculateSummary(targetHoldings);
          const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
-         
-         if (this.investmentsPage && this.investmentsPage.renderData) {
-             const summaryForKPIs = this.syncSummaryWithChartData({...targetSummary}, graphData);
-             this.investmentsPage.renderData(targetHoldings, summaryForKPIs, targetCashReserve.total);
-         }
       }
       
       if (benchmarkWrapper) benchmarkWrapper.style.display = (isSingleAsset || isIndexMode) ? 'none' : 'block'; 
@@ -314,16 +324,27 @@ export class HistoricalChart {
       if (!graphData || graphData.labels.length === 0) {
         this.showMessage('Pas de données disponibles pour cette période');
       } else {
-        this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker);
+        const chartStats = this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker);
         
-        if (!isIndexMode && this.currentPeriod !== 1) {
-             try {
-                let refData;
-                if (isSingleAsset && currentTicker) refData = await this.dataManager.calculateAssetHistory(currentTicker, 1);
-                else refData = await this.dataManager.calculateHistory(this.storage.getPurchases().filter(p => p.assetType !== 'Cash'), 1);
-                targetSummary = this.syncSummaryWithChartData(targetSummary, refData);
-             } catch(e) {}
+        // --- LOGIQUE DE RENDU DES KPI APRÈS LE GRAPHIQUE (MODIFIÉ) ---
+        if (!isIndexMode && this.investmentsPage && this.investmentsPage.renderData) {
+            
+            // Re-calculer/récupérer les variables nécessaires pour le rendu des KPI
+            const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
+            const targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
+            const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
+            const targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
+            const currentSummary = this.dataManager.calculateSummary(targetHoldings);
+            const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
+
+            const summaryForKPIs = this.syncSummaryWithChartData({...currentSummary}, graphData);
+            
+            // On passe chartStats uniquement si on est en 1D (le graphique est la source de vérité)
+            const statsToPass = (this.currentPeriod === 1 && chartStats.historicalDayChange !== null) ? chartStats : null;
+
+            this.investmentsPage.renderData(targetHoldings, summaryForKPIs, targetCashReserve.total, statsToPass); // <-- PASSAGE DES STATS
         }
+        // --- FIN LOGIQUE DE RENDU DES KPI APRÈS LE GRAPHIQUE ---
       }
 
     } catch (error) {
@@ -440,7 +461,7 @@ export class HistoricalChart {
     }
 
     // Stats
-    const finalYesterdayClose = (isUnitView || isIndexMode) ? null : this.lastYesterdayClose;
+    const finalYesterdayClose = (isUnitView || isIndexMode) ? this.lastYesterdayClose : this.lastYesterdayClose; // Pour les indices, on utilise this.lastYesterdayClose
     const firstIndex = displayValues.findIndex(v => v !== null && !isNaN(v));
     let lastIndex = displayValues.length - 1;
     while (lastIndex >= 0 && (displayValues[lastIndex] === null || isNaN(displayValues[lastIndex]))) lastIndex--;
@@ -475,7 +496,12 @@ export class HistoricalChart {
 
     useTodayVar = vsYesterdayAbs !== null;
 
-    const isPositive = isPerformanceMode ? (perfPct >= 0) : (perfAbs >= 0);
+    // DÉBUT MODIFICATION: La couleur du graphique est alignée sur vsYesterdayAbs (Day P&L)
+    let comparisonValue = isPerformanceMode ? perfAbs : (vsYesterdayAbs !== null ? vsYesterdayAbs : perfAbs);
+
+    const isPositive = isPerformanceMode ? (perfPct >= 0) : (comparisonValue >= 0);
+    // FIN MODIFICATION
+
     let mainChartColor = isPositive ? '#2ecc71' : '#e74c3c'; 
     
     const perfLabel = document.getElementById('performance-label');
@@ -551,8 +577,9 @@ export class HistoricalChart {
 
         datasets.push({ label: label, data: displayValues, borderColor: mainChartColor, backgroundColor: this.hexToRgba(mainChartColor, 0.1), borderWidth: 3, fill: true, tension: 0.3, pointRadius: 0, spanGaps: true });
         
-        if (this.currentPeriod === 1 && !isUnitView && !isIndexMode && referenceClose) {
-            datasets.push({ label: 'Clôture hier', data: Array(graphData.labels.length).fill(referenceClose), borderColor: '#95a5a6', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
+        // MODIFICATION: Inclure isIndexMode dans la condition pour la ligne de clôture
+        if (this.currentPeriod === 1 && !isUnitView && referenceClose) {
+             datasets.push({ label: 'Clôture hier', data: Array(graphData.labels.length).fill(referenceClose), borderColor: '#95a5a6', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
         }
         
         if (isUnitView && graphData.purchasePoints) {

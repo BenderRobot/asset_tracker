@@ -1,3 +1,5 @@
+// benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/app.js
+
 // ========================================
 // app.js - (v11 - Complet avec MarketStatus & Cash)
 // ========================================
@@ -128,11 +130,16 @@ class App {
     }
   }
 
+  // --- START MODIFICATION ---
+  // Suppression de la fonction updateMarketStatus, car son travail est géré ailleurs.
+  /*
   updateMarketStatus() {
     if (this.marketStatus) {
       this.marketStatus.injectStatusBadge('market-status-container');
     }
   }
+  */
+  // --- END MODIFICATION ---
 
   populateAssetTypeAndBrokerSelects() {
     const assetTypeSelect = document.getElementById('asset-type-select');
@@ -319,7 +326,9 @@ class App {
           await this.renderCurrentPage();
       }
       
-      this.updateMarketStatus();
+      // Suppression de l'appel buggé (MarketStatus est géré par startAutoRefresh et ui.js)
+      // this.updateMarketStatus();
+      
       this.showNotification(forceWeekend ? 'Prix de clôture récupérés !' : 'Prix mis à jour', 'success');
     } catch (error) {
       console.error('Erreur refresh:', error);

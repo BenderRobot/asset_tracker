@@ -1,3 +1,5 @@
+// benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/investmentsPage.js
+
 // ========================================
 // investmentsPage.js - (v10 - Fix Status Injection)
 // ========================================
@@ -24,6 +26,7 @@ export class InvestmentsPage {
     this.currentBrokerFilter = '';
     this.currentHoldings = []; 
     this.currentSearchQuery = ''; 
+    this.lastChartStats = null; // <-- NOUVEAU
   }
 
   setHistoricalChart(chartInstance) {
@@ -48,7 +51,7 @@ export class InvestmentsPage {
     }
   }
 
-  renderData(holdings, summary, cashReserveTotal) {
+  renderData(holdings, summary, cashReserveTotal, chartStats = null) { // <-- MODIFIÉ
     this.currentHoldings = holdings;
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
@@ -95,13 +98,29 @@ export class InvestmentsPage {
         <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatPercent(p.dayPct)}</td>
       </tr>
     `).join('') || '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-secondary);">Aucun investissement correspondant.</td></tr>';
+    
+    // --- LOGIQUE D'ÉCRASEMENT DES STATS PAR LE GRAPHIQUE ---
+    // 1. Définir les stats du graphique (pour la persistance si pagination)
+    if (chartStats) this.lastChartStats = chartStats;
+    const effectiveChartStats = chartStats || this.lastChartStats;
+    
+    // 2. Créer un résumé final et appliquer l'écrasement
+    let finalSummary = {...summary}; // Copier le résumé de base
+    
+    // ÉCRASEMENT : Si les stats du graphique existent et sont passées, elles sont la SEULE source de vérité pour la Var. Jour
+    if (effectiveChartStats && effectiveChartStats.historicalDayChange !== null) {
+        finalSummary.totalDayChangeEUR = effectiveChartStats.historicalDayChange;
+        finalSummary.dayChangePct = effectiveChartStats.historicalDayChangePct;
+    }
+    // --- FIN LOGIQUE D'ÉCRASEMENT ---
 
-    // === MODIF : Passage de marketStatus ===
-    this.ui.updatePortfolioSummary(summary, summary.movementsCount, cashReserveTotal, this.marketStatus);
+    // === MODIF : Passage de marketStatus (utilise finalSummary) ===
+    this.ui.updatePortfolioSummary(finalSummary, summary.movementsCount, cashReserveTotal, this.marketStatus); // <-- Utilise finalSummary
 
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
-      this.renderData(this.currentHoldings, summary, cashReserveTotal);
+      // L'appel récursif se fera avec this.lastChartStats qui sera récupéré au début de renderData
+      this.renderData(this.currentHoldings, summary, cashReserveTotal); 
     });
     
     this.ui.populateTickerSelect(this.storage.getPurchases());

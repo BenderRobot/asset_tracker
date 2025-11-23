@@ -1,6 +1,10 @@
+// benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/filters.js
+
 // ========================================
 // filters.js - Filtres avec mise à jour dynamique
 // ========================================
+
+import { eventBus } from './eventBus.js'; // <-- AJOUTÉ
 
 export class FilterManager {
   constructor(storage) {
@@ -112,9 +116,26 @@ export class FilterManager {
     this.triggerFilterChange();
   }
 
+  // MODIFIÉ: Ajout de la logique de vérification du graphique
   triggerFilterChange() {
     if (this.onFilterChangeCallback) {
       this.onFilterChangeCallback();
+    }
+    
+    // LOGIQUE DE MISE À JOUR DU GRAPHIQUE (UNIQUEMENT SUR INVESTMENTS.HTML)
+    if (window.location.pathname.includes('investments.html')) {
+        const count = this.selectedTickers.size;
+        
+        if (count === 1) {
+            const ticker = Array.from(this.selectedTickers)[0];
+            // Émet l'événement que historicalChart.js écoute pour passer en mode actif unique.
+            eventBus.dispatchEvent(new CustomEvent('showAssetChart', { 
+                detail: { ticker: ticker, summary: null } // summary: null est conservé pour la compatibilité
+            }));
+        } else {
+            // Efface le graphique pour revenir au mode portfolio global/filtré si le filtre est désactivé ou a plusieurs actifs
+            eventBus.dispatchEvent(new CustomEvent('clearAssetChart'));
+        }
     }
   }
 

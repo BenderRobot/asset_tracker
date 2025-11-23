@@ -1,3 +1,5 @@
+// benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/api.js
+
 // ========================================
 // api.js - (v20 - Fix 1D Range & Cache)
 // ========================================
@@ -221,6 +223,7 @@ export class PriceAPI {
     for (const ticker of tickers) {
       try {
         const symbol = this.formatTicker(ticker); 
+        // Rétablissement de la requête qui marche pour la carte (contient range=5d)
         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=5d`; 
         
         const proxy = this.corsProxies[this.currentProxyIndex];
@@ -332,8 +335,7 @@ export class PriceAPI {
     // 🔥 FIX 1 : Cache Buster pour forcer le proxy à ignorer son cache
     const noCache = `&_=${Date.now()}`;
 
-    // 🔥 FIX 2 : Pour la vue 5m (1D), on demande "range=5d" au lieu de "2d"
-    // Cela aligne la requête sur celle du header (qui fonctionne) pour récupérer les données récentes
+    // 🔥 FIX 2 : Rétablissement de la requête qui marche pour la carte (contient range=5d)
     if (interval === '5m') 
         yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=5d&interval=5m${noCache}`;
     else if (interval === '15m') 

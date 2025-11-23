@@ -1,5 +1,7 @@
+// benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/dashboardApp.js
+
 // ========================================
-// dashboardApp.js - (Fix Allocation & Espace KPI)
+// dashboardApp.js - (Fix Allocation & Sparkline)
 // ========================================
 
 import { Storage } from './storage.js';
@@ -103,8 +105,19 @@ class DashboardApp {
     initHistoricalChart() {
         try {
             if (this.chart && this.chart.chart) this.chart.chart.destroy();
-            this.chart = new HistoricalChart(this.storage, this.dataManager, null, this.mockPageInterface);
             
+            // Mock InvestmentsPage for HistoricalChart
+            const mockInvestmentsPage = {
+                filterManager: this.mockPageInterface.filterManager,
+                currentSearchQuery: this.mockPageInterface.currentSearchQuery,
+                currentAssetTypeFilter: this.mockPageInterface.currentAssetTypeFilter,
+                currentBrokerFilter: this.mockPageInterface.currentBrokerFilter,
+                getChartTitleConfig: this.mockPageInterface.getChartTitleConfig,
+                renderData: this.mockPageInterface.renderData
+            };
+
+            this.chart = new HistoricalChart(this.storage, this.dataManager, null, mockInvestmentsPage); // Pass mock
+
             const btns = document.querySelectorAll('.chart-controls-inline .period-btn');
             if (btns.length > 0) {
                 btns.forEach(btn => {
@@ -217,7 +230,7 @@ class DashboardApp {
         safeText('dashboard-total-return-pct', pct(data.gainPct));
         setClass('dashboard-total-return-pct', data.gainPct);
         
-        // 3. DAY CHANGE (Initial - sera écrasé par le graph plus tard, mais utile pour le chargement)
+        // 3. DAY CHANGE (Initial - sera écrasé par le graph plus tard, but utile pour le chargement)
         safeText('dashboard-day-change', fmt(data.totalDayChangeEUR));
         safeText('dashboard-day-change-pct', pct(data.dayChangePct));
         setClass('dashboard-day-change-pct', data.totalDayChangeEUR);
@@ -488,9 +501,25 @@ class DashboardApp {
             { ticker: 'EURUSD=X', name: 'EUR / USD', icon: `<img src="${cdnBase}1F4B1.svg" alt="Forex">` }
         ];
 
-        // 1. Récupération des données
+        // 1. Récupération des données et des données HISTORIQUES 1D (intervalle 5m)
         try {
             await this.api.fetchBatchPrices(indices.map(i => i.ticker));
+            
+            // Récupérer l'historique 1D pour tous les indices
+            const historyPromises = indices.map(idx => {
+                // Pour les indices, on utilise une période de 1 jour avec un intervalle de 5m
+                const today = new Date();
+                const endTs = Math.floor(today.getTime() / 1000);
+                const startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60); // 1D + buffer
+                
+                return this.dataManager.api.getHistoricalPricesWithRetry(idx.ticker, startTs, endTs, '5m');
+            });
+            const allHistory = await Promise.all(historyPromises);
+            
+            indices.forEach((idx, i) => {
+                idx.history = allHistory[i];
+            });
+            
         } catch (e) { console.warn("Erreur fetch indices", e); }
 
         // 2. Nettoyage avant remplissage
@@ -507,48 +536,20 @@ class DashboardApp {
             let priceDisplay = '--'; 
             let changeDisplay = '--'; 
             let changeClass = 'neutral'; 
-            
-            // -- Logique de Statut Spécifique par Actif --
             let assetStatus = marketStatus.shortLabel; 
             let dotColor = marketStatus.color;
-
-            // BITCOIN : Toujours ouvert
+            let chartLineHTML = ''; // <-- NOUVEAU
+            
+            // ... (Logique de Statut Spécifique par Actif - inchangée) ...
             if (idx.ticker.includes('BTC')) {
                 assetStatus = '24/7';
                 dotColor = '#10b981'; // Vert
-            } 
-            // FOREX (EUR/USD) : Fermé le weekend, ouvert 24/5
-            else if (idx.ticker.includes('=X')) {
-                if (marketStatus.state === 'CLOSED') {
-                    assetStatus = 'Fermé';
-                    dotColor = '#fbbf24'; // Jaune
-                } else {
-                    assetStatus = 'En direct';
-                    dotColor = '#10b981';
-                }
-            }
-            // S&P 500 / NASDAQ (Futures la nuit/matin, Cash l'après-midi)
-            else if (idx.ticker === '^GSPC' || idx.ticker === '^IXIC') {
-                if (marketStatus.state === 'CLOSED') {
-                    assetStatus = 'Clôture';
-                    dotColor = '#fbbf24';
-                } else if (marketStatus.state === 'OPEN_US') {
-                    assetStatus = 'En direct';
-                    dotColor = '#10b981';
-                } else {
-                    assetStatus = 'Futures'; // Matin ou Nuit
-                    dotColor = '#8b5cf6'; // Violet
-                }
-            }
-            // CAC 40 / EURO STOXX (Cash le jour, Fermé le soir)
-            else if (idx.ticker === '^FCHI' || idx.ticker === '^STOXX50E') {
-                if (marketStatus.state === 'OPEN') {
-                    assetStatus = 'En direct';
-                    dotColor = '#10b981';
-                } else {
-                    assetStatus = 'Clôture'; 
-                    dotColor = '#fbbf24';
-                }
+            } else if (idx.ticker.includes('=X')) {
+                if (marketStatus.state === 'CLOSED') { assetStatus = 'Fermé'; dotColor = '#fbbf24'; } else { assetStatus = 'En direct'; dotColor = '#10b981'; }
+            } else if (idx.ticker === '^GSPC' || idx.ticker === '^IXIC') {
+                if (marketStatus.state === 'CLOSED') { assetStatus = 'Clôture'; dotColor = '#fbbf24'; } else if (marketStatus.state === 'OPEN_US') { assetStatus = 'En direct'; dotColor = '#10b981'; } else { assetStatus = 'Futures'; dotColor = '#8b5cf6'; }
+            } else if (idx.ticker === '^FCHI' || idx.ticker === '^STOXX50E') {
+                if (marketStatus.state === 'OPEN') { assetStatus = 'En direct'; dotColor = '#10b981'; } else { assetStatus = 'Clôture'; dotColor = '#fbbf24'; }
             }
 
             // -- Formatage des Prix --
@@ -574,16 +575,54 @@ class DashboardApp {
                 changeDisplay = `${sign}${change.toFixed(digits)} (${sign}${pct.toFixed(2)}%)`;
                 changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
             }
+            
+            // -- NOUVEAU : Calcul des points du Sparkline --
+            if (idx.history && Object.keys(idx.history).length > 1) {
+                const prices = Object.values(idx.history).map(v => parseFloat(v));
+                
+                if (prices.length > 0) {
+                    const min = Math.min(...prices);
+                    const max = Math.max(...prices);
+                    const range = max - min;
+                    const normalized = prices.map(p => range > 0 ? (p - min) / range : 0.5); // Normalisation [0, 1]
+                    
+                    // On utilise SVG pour le sparkline (plus performant que Chart.js pour 7 cartes)
+                    const svgWidth = 100; // Largeur fixe
+                    const svgHeight = 30; // Hauteur fixe
+                    const points = normalized.map((n, i) => {
+                        const x = (i / (normalized.length - 1)) * svgWidth;
+                        const y = svgHeight - (n * svgHeight); // Inverser l'axe Y
+                        return `${x},${y}`;
+                    }).join(' ');
+
+                    const strokeColor = changeClass === 'stat-positive' ? '#10b981' : '#ef4444';
+                    
+                    chartLineHTML = `
+                        <div class="market-chart-mini" style="height: 30px; margin-top: 8px;">
+                            <svg viewBox="0 0 ${svgWidth} ${svgHeight}" preserveAspectRatio="none" style="width: 100%; height: 100%;">
+                                <polyline fill="none" 
+                                          stroke="${strokeColor}" 
+                                          stroke-width="1.5" 
+                                          points="${points}" />
+                            </svg>
+                        </div>
+                    `;
+                }
+            }
+
 
             // -- Création de l'élément DOM (Carte) --
             const card = document.createElement('div');
             card.className = 'market-card';
+            
             // On ajoute le HTML interne
             card.innerHTML = `
-                <div class="market-header">
+                
+                ${chartLineHTML} <div class="market-header">
                     <span class="market-name">${idx.name}</span>
                     <span class="market-icon">${idx.icon}</span>
                 </div>
+                
                 <div class="market-price">${priceDisplay}</div>
                 
                 <div class="market-change-row" style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-top:4px;">
@@ -607,17 +646,15 @@ class DashboardApp {
 
             // -- INTERACTION AU CLIC --
             card.addEventListener('click', () => {
-                // 1. Gestion visuelle (Retirer la classe active des autres)
+                // 1. Gestion visuelle
                 document.querySelectorAll('.market-card').forEach(c => c.classList.remove('active-index'));
-                // Ajouter la classe active à celle-ci
                 card.classList.add('active-index');
 
-                // 2. Appel au graphique pour afficher l'indice
+                // 2. Appel au graphique
                 if (this.chart) {
                     console.log(`🌍 Affichage Indice : ${idx.name} (${idx.ticker})`);
                     this.chart.showIndex(idx.ticker, idx.name);
                     
-                    // Scroll fluide vers le graphique (optionnel, utile sur mobile)
                     if (window.innerWidth < 768) {
                         const chartSection = document.querySelector('.dashboard-chart-section');
                         if (chartSection) chartSection.scrollIntoView({ behavior: 'smooth' });
