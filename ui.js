@@ -1,5 +1,5 @@
 // ========================================
-// ui.js - (v3 - Best/Worst Day)
+// ui.js - (v4 - Market Status dans Var Today)
 // ========================================
 
 export class UIComponents {
@@ -7,15 +7,9 @@ export class UIComponents {
         this.storage = storage;
     }
 
-    // MODIFICATION : Gère bestDayAsset et worstDayAsset
-    updatePortfolioSummary(summary, movementsCount, cashReserveTotal = 0) {
+    // MODIF : Ajout du paramètre 'marketStatusObj' à la fin
+    updatePortfolioSummary(summary, movementsCount, cashReserveTotal = 0, marketStatusObj = null) {
         
-        // summary contient maintenant :
-        // { ... bestAsset, worstAsset, bestDayAsset, worstDayAsset ... }
-
-        console.log('📊 Résumé Portfolio (Reçu):', summary);
-        console.log('💰 Réserve Cash (Reçu):', cashReserveTotal);
-
         const formatSimple = (value) => {
             if (value === null || value === undefined || isNaN(value)) return '-';
             return value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
@@ -35,21 +29,16 @@ export class UIComponents {
             if (el) el.textContent = value;
         };
 
-        // 1. TOTAL VALUE (Actifs + Cash)
+        // 1. TOTAL VALUE
         const totalValueWithCash = (summary.totalCurrentEUR || 0) + cashReserveTotal;
-        updateHTML('total-current', `
-            ${formatSimple(totalValueWithCash)}
-            <div style="font-size: 14px; font-weight: 400; opacity: 0.7; margin-top: 4px;">
-                Invested: ${formatSimple(summary.totalInvestedEUR)}
-            </div>
-        `);
+        updateHTML('total-current', `${formatSimple(totalValueWithCash)}`);
 
         // 2. TOTAL RETURN
         const gainColor = summary.gainTotal >= 0 ? '#10b981' : '#ef4444';
         updateHTML('total-gain-loss', `<span style="color: ${gainColor}">${formatSimple(summary.gainTotal)}</span>`);
         updateHTML('total-gain-pct', `<span style="color: ${gainColor}">${formatPctSimple(summary.gainPct)}</span>`);
 
-        // 3. VAR TODAY
+        // 3. VAR TODAY + MARKET STATUS
         const dayChangeColor = summary.totalDayChangeEUR >= 0 ? '#10b981' : '#ef4444';
         updateHTML('total-invested', `<span style="color: ${dayChangeColor}">${formatSimple(summary.totalDayChangeEUR)}</span>`);
         
@@ -58,11 +47,39 @@ export class UIComponents {
             avgCostEl.innerHTML = `<span style="color: ${dayChangeColor}">${formatPctSimple(summary.dayChangePct)}</span>`;
         }
 
-        // 4. BEST PERFORMER (TOTAL)
+        // === INJECTION DU BADGE STATUS ===
+        if (marketStatusObj) {
+            // On cible le header de la carte "Var Today" (qui contient l'ID 'total-invested' dans son body)
+            const varTodayValueEl = document.getElementById('total-invested');
+            if (varTodayValueEl) {
+                const card = varTodayValueEl.closest('.summary-card');
+                if (card) {
+                    const header = card.querySelector('.summary-card-label');
+                    if (header) {
+                        // On vérifie si le badge existe déjà pour ne pas le dupliquer
+                        let badge = header.querySelector('.market-status-badge-mini');
+                        if (!badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'market-status-badge-mini';
+                            // Style inline pour l'intégration immédiate
+                            badge.style.cssText = "float: right; font-size: 9px; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;";
+                            header.appendChild(badge);
+                        }
+                        
+                        // Mise à jour du contenu
+                        const status = marketStatusObj.getStatus();
+                        badge.textContent = status.shortLabel;
+                        badge.style.color = status.color;
+                        badge.style.border = `1px solid ${status.color}`;
+                        badge.style.background = `rgba(${status.color === '#10b981' ? '16, 185, 129' : '251, 191, 36'}, 0.1)`;
+                    }
+                }
+            }
+        }
+
+        // ... (Reste de la fonction inchangé : Best/Worst Assets, etc.) ...
         if (summary.bestAsset) {
             const bestColor = summary.bestAsset.gainPct >= 0 ? '#10b981' : '#ef4444';
-            // MODIFICATION : .name au lieu de .ticker
-            // AJOUT : Style pour couper le texte si trop long (...)
             updateHTML('best-asset', `
                 <div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.bestAsset.name}">
                     ${summary.bestAsset.name}
@@ -71,14 +88,10 @@ export class UIComponents {
                     ${formatPctSimple(summary.bestAsset.gainPct)}
                 </div>
             `);
-        } else {
-            updateHTML('best-asset', '-');
-        }
+        } else { updateHTML('best-asset', '-'); }
 
-        // 5. WORST PERFORMER (TOTAL)
         if (summary.worstAsset) {
             const worstColor = summary.worstAsset.gainPct >= 0 ? '#10b981' : '#ef4444';
-            // MODIFICATION : .name au lieu de .ticker
             updateHTML('worst-asset', `
                 <div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.worstAsset.name}">
                     ${summary.worstAsset.name}
@@ -87,14 +100,10 @@ export class UIComponents {
                     ${formatPctSimple(summary.worstAsset.gainPct)}
                 </div>
             `);
-        } else {
-            updateHTML('worst-asset', '-');
-        }
+        } else { updateHTML('worst-asset', '-'); }
         
-        // 6. BEST PERFORMER (DAY)
         if (summary.bestDayAsset) {
             const bestDayColor = summary.bestDayAsset.dayPct >= 0 ? '#10b981' : '#ef4444';
-            // MODIFICATION : .name au lieu de .ticker
             updateHTML('best-day-asset', `
                 <div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.bestDayAsset.name}">
                     ${summary.bestDayAsset.name}
@@ -103,14 +112,10 @@ export class UIComponents {
                     ${formatPctSimple(summary.bestDayAsset.dayPct)}
                 </div>
             `);
-        } else {
-            updateHTML('best-day-asset', '-');
-        }
+        } else { updateHTML('best-day-asset', '-'); }
 
-        // 7. WORST PERFORMER (DAY)
         if (summary.worstDayAsset) {
             const worstDayColor = summary.worstDayAsset.dayPct >= 0 ? '#10b981' : '#ef4444';
-            // MODIFICATION : .name au lieu de .ticker
             updateHTML('worst-day-asset', `
                 <div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.worstDayAsset.name}">
                     ${summary.worstDayAsset.name}
@@ -119,30 +124,12 @@ export class UIComponents {
                     ${formatPctSimple(summary.worstDayAsset.dayPct)}
                 </div>
             `);
-        } else {
-            updateHTML('worst-day-asset', '-');
-        }
+        } else { updateHTML('worst-day-asset', '-'); }
 
-        // 7. AJOUT : WORST PERFORMER (DAY)
-        if (summary.worstDayAsset) {
-            const worstDayColor = summary.worstDayAsset.dayPct >= 0 ? '#10b981' : '#ef4444';
-            updateHTML('worst-day-asset', `
-                <div style="font-size: 14px; font-weight: 600;">${summary.worstDayAsset.ticker}</div>
-                <div style="font-size: 12px; color: ${worstDayColor}; margin-top: 2px;">${formatPctSimple(summary.worstDayAsset.dayPct)}</div>
-            `);
-        } else {
-            updateHTML('worst-day-asset', '-');
-        }
-
-        // Stats simples (pour index.html)
         updateEl('unique-assets', summary.assetsCount);
         updateEl('total-movements', movementsCount);
-        
-        // Cash Reserve (pour les deux pages)
         updateEl('cash-reserve', formatSimple(cashReserveTotal));
     }
-
-    // ... (Reste de ui.js inchangé) ...
     // PAGINATION
     renderPagination(currentPage, totalPages, callback) {
         const paginationEl = document.getElementById('pagination');

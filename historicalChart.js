@@ -1,5 +1,5 @@
 // ========================================
-// historicalChart.js - (v44 - Fix perfClass & Version Stable)
+// historicalChart.js - (v51 - Masquage Var Jour hors 1D)
 // ========================================
 
 import { eventBus } from './eventBus.js';
@@ -14,16 +14,16 @@ export class HistoricalChart {
     this.chart = null;
     this.currentPeriod = 1; 
     this.isLoading = false;
-    this.currentMode = 'portfolio';
+    this.currentMode = 'portfolio'; // 'portfolio', 'asset', ou 'index'
     this.selectedAssets = [];
     this.autoRefreshInterval = null;
     this.lastRefreshTime = null;
     this.lastYesterdayClose = null; 
+    this.customTitle = null; 
     
     this.filterManager = investmentsPage.filterManager;
     this.currentBenchmark = null;
     
-    // Écouteurs d'événements
     eventBus.addEventListener('showAssetChart', (e) => {
         this.showAssetChart(e.detail.ticker, e.detail.summary);
     });
@@ -53,12 +53,15 @@ export class HistoricalChart {
 
   setupPeriodButtons() {
     document.querySelectorAll('.period-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      const newBtn = btn.cloneNode(true);
+      btn.parentNode.replaceChild(newBtn, btn);
+      
+      newBtn.addEventListener('click', (e) => {
         if (this.isLoading) return;
-        const period = btn.dataset.period;
+        const period = newBtn.dataset.period;
         
         document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+        newBtn.classList.add('active');
         
         this.currentPeriod = (period === 'all' ? 'all' : parseInt(period));
         this.changePeriod(this.currentPeriod);
@@ -71,7 +74,9 @@ export class HistoricalChart {
   setupBenchmarkSelector() {
     const benchmarkSelect = document.getElementById('benchmark-select');
     if (benchmarkSelect) {
-        benchmarkSelect.addEventListener('change', (e) => {
+        const newSelect = benchmarkSelect.cloneNode(true);
+        benchmarkSelect.parentNode.replaceChild(newSelect, benchmarkSelect);
+        newSelect.addEventListener('change', (e) => {
             this.currentBenchmark = e.target.value || null;
             this.update(true, false); 
         });
@@ -110,11 +115,40 @@ export class HistoricalChart {
     }
   }
 
+  async loadPageWithCacheFirst() {
+      return this.update(true, false);
+  }
+
+  async showIndex(ticker, name) {
+      if (this.isLoading) return;
+      this.currentMode = 'index';
+      this.selectedAssets = [ticker];
+      this.customTitle = { label: name, icon: '🌎' }; 
+      
+      const headerControls = document.querySelector('.header-controls');
+      if (headerControls && !document.getElementById('chart-back-btn')) {
+          const btn = document.createElement('div');
+          btn.id = 'chart-back-btn';
+          btn.className = 'chart-reset-btn';
+          btn.innerHTML = '<i class="fas fa-times"></i> Fermer';
+          btn.onclick = () => {
+              this.currentMode = 'portfolio';
+              this.selectedAssets = [];
+              this.customTitle = null;
+              btn.remove();
+              document.querySelectorAll('.market-card').forEach(c => c.classList.remove('active-index'));
+              this.update(true, true);
+          };
+          headerControls.insertBefore(btn, headerControls.firstChild);
+      }
+      
+      await this.update(true, true);
+  }
+
   async showAssetChart(ticker, summary = null) {
     if (this.isLoading) return;
     this.currentMode = 'asset'; 
     this.selectedAssets = [ticker];
-    this.isCryptoOrGlobal = this.dataManager.isCryptoTicker(ticker); 
     
     const benchmarkWrapper = document.getElementById('benchmark-wrapper');
     if (benchmarkWrapper) benchmarkWrapper.style.display = 'none';
@@ -159,160 +193,119 @@ export class HistoricalChart {
       return summary;
   }
 
-  async loadPageWithCacheFirst() {
-    if (this.isLoading) return;
-    this.isLoading = true;
-    this.currentMode = 'portfolio';
-    this.selectedAssets = [];
-    const graphLoader = document.getElementById('chart-loading');
-    const canvas = document.getElementById('historical-portfolio-chart');
-    const benchmarkWrapper = document.getElementById('benchmark-wrapper');
-    if (graphLoader) graphLoader.style.display = 'flex';
-
-    try {
-      const contextPurchases = this.getFilteredPurchasesFromPage();
-      const assetPurchases = contextPurchases.filter(p => p.assetType !== 'Cash');
-      const cashPurchases = contextPurchases.filter(p => p.assetType === 'Cash');
-
-      if (assetPurchases.length === 0 && cashPurchases.length === 0) {
-          this.showMessage('Aucun achat correspondant aux filtres');
-          this.investmentsPage.renderData([], { totalInvestedEUR: 0, totalCurrentEUR: 0, totalDayChangeEUR: 0, gainTotal: 0, gainPct: 0, dayChangePct: 0, assetsCount: 0, movementsCount: 0 }, 0);
-          this.isLoading = false;
-          if (graphLoader) graphLoader.style.display = 'none';
-          return;
-      }
-      
-      const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
-      if (tickers.length > 0) await this.dataManager.api.fetchBatchPrices(tickers);
-      
-      const titleConfig = this.investmentsPage.getChartTitleConfig();
-      let targetAssetPurchases = assetPurchases;
-      let targetCashPurchases = cashPurchases;
-      const isSingleAssetMode = (titleConfig.mode === 'asset');
-      if (benchmarkWrapper) benchmarkWrapper.style.display = isSingleAssetMode ? 'none' : 'block';
-
-      let currentTicker = null;
-      if (isSingleAssetMode) {
-         currentTicker = this.filterManager.getSelectedTickers().values().next().value;
-         targetAssetPurchases = assetPurchases.filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
-         targetCashPurchases = []; 
-      }
-      
-      const contextHoldings = this.dataManager.calculateHoldings(assetPurchases);
-      const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
-      let targetSummary = this.dataManager.calculateSummary(targetHoldings); 
-      const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
-      
-      try {
-        let graphData;
-        if (isSingleAssetMode) {
-            graphData = await this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod);
-        } else {
-            graphData = await this.dataManager.calculateHistory(targetAssetPurchases, this.currentPeriod);
-        }
-        this.lastYesterdayClose = graphData.yesterdayClose;
-        if (!graphData || graphData.labels.length === 0) {
-             this.showMessage('Pas de données graphiques disponibles.');
-        } else {
-             this.renderChart(canvas, graphData, targetSummary, titleConfig, null, currentTicker);
-             let referenceData = graphData;
-             if (this.currentPeriod !== 1) {
-                 if (isSingleAssetMode) {
-                     referenceData = await this.dataManager.calculateAssetHistory(currentTicker, 1);
-                 } else {
-                     referenceData = await this.dataManager.calculateHistory(targetAssetPurchases, 1);
-                 }
-             }
-             targetSummary = this.syncSummaryWithChartData(targetSummary, referenceData);
-        }
-      } catch (e) {
-        console.error('Erreur Graph Cache', e);
-      } finally {
-        if (graphLoader) graphLoader.style.display = 'none';
-      }
-      this.investmentsPage.renderData(contextHoldings, targetSummary, targetCashReserve.total);
-    } catch (e) {
-      console.error('Erreur chargement', e);
-      this.showMessage('Erreur de chargement', 'error');
-      if (graphLoader) graphLoader.style.display = 'none';
-    } finally {
-      this.isLoading = false;
-    }
-  }
-
   async update(showLoading = true, forceApi = true) {
     if (this.isLoading) return;
     const canvas = document.getElementById('historical-portfolio-chart');
     if (!canvas) return;
+    
     this.isLoading = true;
     const loading = document.getElementById('chart-loading');
     const info = document.getElementById('chart-info');
     const benchmarkWrapper = document.getElementById('benchmark-wrapper');
+    
     if (showLoading) {
       if (loading) loading.style.display = 'flex'; 
       if (info) info.style.display = 'none';
     }
 
     try {
-      const contextPurchasesNoTickerFilter = this.getFilteredPurchasesFromPage(true);
-      const contextAssetPurchases = contextPurchasesNoTickerFilter.filter(p => p.assetType !== 'Cash');
-      let targetAssetPurchases;
-      let targetCashPurchases;
+      let graphData;
+      let targetSummary = {};
       let titleConfig;
       let isSingleAsset = false;
-      let currentTicker = null; 
+      let isIndexMode = (this.currentMode === 'index');
+      let currentTicker = null;
 
-      if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
+      // === CAS 1 : MODE INDICE ===
+      if (isIndexMode && this.selectedAssets.length === 1) {
          isSingleAsset = true;
          currentTicker = this.selectedAssets[0];
-         const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === currentTicker.toUpperCase())?.name || currentTicker;
+         
+         if (forceApi) {
+             this.lastRefreshTime = Date.now();
+             await this.dataManager.api.fetchBatchPrices([currentTicker]);
+         }
+
+         graphData = await this.dataManager.calculateIndexData(currentTicker, this.currentPeriod);
+         
+         if (graphData && graphData.values.length > 0) {
+             const currentPrice = graphData.values[graphData.values.length - 1];
+             const startPrice = graphData.values[0];
+             const diff = currentPrice - startPrice;
+             
+             targetSummary = {
+                 totalCurrentEUR: currentPrice,
+                 totalInvestedEUR: 0, 
+                 gainTotal: diff,
+                 gainPct: startPrice > 0 ? (diff / startPrice) * 100 : 0,
+                 totalDayChangeEUR: diff, 
+                 dayChangePct: startPrice > 0 ? (diff / startPrice) * 100 : 0
+             };
+         }
+
+         titleConfig = {
+             mode: 'index',
+             label: this.customTitle ? this.customTitle.label : currentTicker,
+             icon: '🌎'
+         };
+
+      // === CAS 2 : MODE ACTIF UNIQUE ===
+      } else if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
+         isSingleAsset = true;
+         currentTicker = this.selectedAssets[0];
+         
+         const targetAssetPurchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
+         
+         if (forceApi) {
+             this.lastRefreshTime = Date.now();
+             await this.dataManager.api.fetchBatchPrices([currentTicker]);
+         }
+
+         graphData = await this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod);
+         const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
+         targetSummary = this.dataManager.calculateSummary(targetHoldings);
+         
+         const name = targetAssetPurchases[0]?.name || currentTicker;
          titleConfig = {
            mode: 'asset',
            label: `${currentTicker} • ${name}`,
            icon: this.dataManager.isCryptoTicker(currentTicker) ? '₿' : '📊'
          };
-         targetAssetPurchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
-         targetCashPurchases = [];
+
+      // === CAS 3 : MODE PORTFOLIO GLOBAL ===
       } else {
          titleConfig = this.investmentsPage.getChartTitleConfig();
          const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
-         targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
-         targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
+         const targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
+         const targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
+         
          if (titleConfig.mode === 'asset') {
              isSingleAsset = true;
              currentTicker = this.filterManager.getSelectedTickers().values().next().value;
          }
-      }
-      
-      if (benchmarkWrapper) benchmarkWrapper.style.display = isSingleAsset ? 'none' : 'block'; 
-      
-      const contextTickers = new Set(contextAssetPurchases.map(p => p.ticker.toUpperCase()));
-      const targetTickers = new Set(targetAssetPurchases.map(p => p.ticker.toUpperCase()));
-      let allTickers = [...new Set([...contextTickers, ...targetTickers])];
-      if (this.currentBenchmark && !isSingleAsset) allTickers.push(this.currentBenchmark);
-      allTickers = [...new Set(allTickers)];
-      
-      if (forceApi) {
-          this.lastRefreshTime = Date.now();
-          await this.dataManager.api.fetchBatchPrices(allTickers);
-      }
-      
-      let graphData;
-      if (isSingleAsset && currentTicker) {
-         graphData = await this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod);
-      } else {
-         graphData = await this.dataManager.calculateHistory(targetAssetPurchases, this.currentPeriod);
-      }
+         
+         if (forceApi) {
+             const tickers = [...new Set(targetAssetPurchases.map(p => p.ticker.toUpperCase()))];
+             if (tickers.length > 0) await this.dataManager.api.fetchBatchPrices(tickers);
+         }
 
-      const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
-      let targetSummary = this.dataManager.calculateSummary(targetHoldings);
-      const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
-      const contextHoldings = this.dataManager.calculateHoldings(contextAssetPurchases);
+         graphData = await this.dataManager.calculateHistory(targetAssetPurchases, this.currentPeriod);
+         const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
+         targetSummary = this.dataManager.calculateSummary(targetHoldings);
+         const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
+         
+         if (this.investmentsPage && this.investmentsPage.renderData) {
+             const summaryForKPIs = this.syncSummaryWithChartData({...targetSummary}, graphData);
+             this.investmentsPage.renderData(targetHoldings, summaryForKPIs, targetCashReserve.total);
+         }
+      }
+      
+      if (benchmarkWrapper) benchmarkWrapper.style.display = (isSingleAsset || isIndexMode) ? 'none' : 'block'; 
       
       this.lastYesterdayClose = graphData.yesterdayClose;
 
       let benchmarkData = null;
-      if (this.currentBenchmark && !isSingleAsset) {
+      if (this.currentBenchmark && !isSingleAsset && !isIndexMode) {
           const { startTs, endTs } = this.getStartEndTs(this.currentPeriod);
           const interval = this.dataManager.getIntervalForPeriod(this.currentPeriod);
           benchmarkData = await this.dataManager.api.getHistoricalPricesWithRetry(this.currentBenchmark, startTs, endTs, interval);
@@ -323,22 +316,15 @@ export class HistoricalChart {
       } else {
         this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker);
         
-        let referenceDataForSummary = graphData;
-        if (this.currentPeriod !== 1) {
-            try {
-                if (isSingleAsset && currentTicker) {
-                   referenceDataForSummary = await this.dataManager.calculateAssetHistory(currentTicker, 1);
-                } else {
-                   referenceDataForSummary = await this.dataManager.calculateHistory(targetAssetPurchases, 1);
-                }
-            } catch (e) {
-                console.warn("Fallback Summary: Impossible de fetcher la 1D", e);
-            }
+        if (!isIndexMode && this.currentPeriod !== 1) {
+             try {
+                let refData;
+                if (isSingleAsset && currentTicker) refData = await this.dataManager.calculateAssetHistory(currentTicker, 1);
+                else refData = await this.dataManager.calculateHistory(this.storage.getPurchases().filter(p => p.assetType !== 'Cash'), 1);
+                targetSummary = this.syncSummaryWithChartData(targetSummary, refData);
+             } catch(e) {}
         }
-        targetSummary = this.syncSummaryWithChartData(targetSummary, referenceDataForSummary);
       }
-      
-      this.investmentsPage.renderData(contextHoldings, targetSummary, targetCashReserve.total);
 
     } catch (error) {
       console.error('Erreur graphique (update):', error);
@@ -352,6 +338,7 @@ export class HistoricalChart {
   getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
       const searchQuery = this.investmentsPage.currentSearchQuery;
       let purchases = this.storage.getPurchases();
+      
       if (searchQuery) {
           const q = searchQuery.toLowerCase();
           purchases = purchases.filter(p => p.ticker.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
@@ -412,9 +399,9 @@ export class HistoricalChart {
 
     let vsYesterdayAbs = null;
     let vsYesterdayPct = null;
-    let useTodayVar = false; // Variable restaurée
+    let useTodayVar = false;
 
-    // Titre
+    // Titre & Icone
     const titleText = document.getElementById('chart-title-text');
     const titleIcon = document.getElementById('chart-title-icon');
     if (titleText && titleIcon && titleConfig) {
@@ -425,19 +412,23 @@ export class HistoricalChart {
         else if (titleConfig.icon === '📊') color = '#2ecc71';
         else if (titleConfig.icon === '🌍') color = '#8e44ad';
         else if (titleConfig.icon === '🏦') color = '#8b5cf6';
+        else if (titleConfig.icon === '🌎') color = '#3b82f6'; 
         titleIcon.style.color = color;
     }
     
     const viewToggle = document.getElementById('view-toggle');
     const activeView = viewToggle?.querySelector('.toggle-btn.active')?.dataset.view || 'global';
+    
     const isSingleAsset = (titleConfig && titleConfig.mode === 'asset');
+    const isIndexMode = (titleConfig && titleConfig.mode === 'index');
     const isUnitView = isSingleAsset && activeView === 'unit';
     
-    const displayValues = isUnitView ? graphData.unitPrices : graphData.values;
-    const isPerformanceMode = (benchmarkData && !isUnitView);
+    const displayValues = (isUnitView) ? graphData.unitPrices : graphData.values; 
+    
+    const isPerformanceMode = (benchmarkData && !isUnitView && !isIndexMode);
 
     let avgPrice = 0;
-    if (currentTicker) {
+    if (currentTicker && !isIndexMode) {
          const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
          let totalInvested = 0;
          let totalQty = 0;
@@ -449,28 +440,27 @@ export class HistoricalChart {
     }
 
     // Stats
-    const finalYesterdayClose = isUnitView ? null : this.lastYesterdayClose;
+    const finalYesterdayClose = (isUnitView || isIndexMode) ? null : this.lastYesterdayClose;
     const firstIndex = displayValues.findIndex(v => v !== null && !isNaN(v));
     let lastIndex = displayValues.length - 1;
     while (lastIndex >= 0 && (displayValues[lastIndex] === null || isNaN(displayValues[lastIndex]))) lastIndex--;
 
     let perfAbs = 0, perfPct = 0, priceStart = 0, priceEnd = 0, priceHigh = -Infinity, priceLow = Infinity;
-    const decimals = isUnitView ? 4 : 2;
+    const decimals = (isUnitView || isIndexMode) ? 4 : 2;
 
     if (firstIndex >= 0 && lastIndex >= 0) {
-      const statsSource = isUnitView ? graphData.unitPrices : graphData.values;
-      priceStart = statsSource[firstIndex];
-      priceEnd = statsSource[lastIndex]; 
+      priceStart = displayValues[firstIndex];
+      priceEnd = displayValues[lastIndex]; 
       perfAbs = priceEnd - priceStart;
 
-      if (graphData.twr && graphData.twr.length > lastIndex) {
+      if (!isIndexMode && !isUnitView && graphData.twr && graphData.twr.length > lastIndex) {
           const twrStart = graphData.twr[firstIndex] || 1.0;
           const twrEnd = graphData.twr[lastIndex];
           perfPct = ((twrEnd - twrStart) / twrStart) * 100;
       } else {
           perfPct = priceStart !== 0 ? (perfAbs / priceStart) * 100 : 0;
       }
-      statsSource.forEach(v => { if (v !== null && !isNaN(v)) { priceHigh = Math.max(priceHigh, v); priceLow = Math.min(priceLow, v); } });
+      displayValues.forEach(v => { if (v !== null && !isNaN(v)) { priceHigh = Math.max(priceHigh, v); priceLow = Math.min(priceLow, v); } });
     }
 
     let referenceClose = finalYesterdayClose;
@@ -483,17 +473,17 @@ export class HistoricalChart {
       vsYesterdayPct = referenceClose !== 0 ? (vsYesterdayAbs / referenceClose) * 100 : 0;
     }
 
-    useTodayVar = vsYesterdayAbs !== null; // Assignation
+    useTodayVar = vsYesterdayAbs !== null;
 
-    // Couleurs
     const isPositive = isPerformanceMode ? (perfPct >= 0) : (perfAbs >= 0);
     let mainChartColor = isPositive ? '#2ecc71' : '#e74c3c'; 
     
-    // Header
     const perfLabel = document.getElementById('performance-label');
     const perfPercent = document.getElementById('performance-percent');
+    
     if(perfLabel) {
-        perfLabel.textContent = `${perfAbs > 0 ? '+' : ''}${perfAbs.toFixed(2)} €`;
+        const currencySymbol = (isIndexMode) ? '' : '€';
+        perfLabel.textContent = `${perfAbs > 0 ? '+' : ''}${perfAbs.toFixed(decimals)} ${currencySymbol}`;
         perfLabel.className = 'value ' + (isPositive ? 'positive' : 'negative');
     }
     if (perfPercent) {
@@ -501,7 +491,6 @@ export class HistoricalChart {
         perfPercent.className = 'pct ' + (isPositive ? 'positive' : 'negative');
     }
     
-    // Datasets
     const datasets = [];
     
     if (isPerformanceMode) {
@@ -512,7 +501,7 @@ export class HistoricalChart {
             else portfolioData.push(((graphData.twr[i] - startTWR) / startTWR) * 100);
         }
         datasets.push({ label: 'Performance Portfolio (%)', data: portfolioData, borderColor: mainChartColor, backgroundColor: this.hexToRgba(mainChartColor, 0.1), borderWidth: 2, fill: true, pointRadius: 0, tension: 0.3 });
-
+        
         const benchData = [];
         const benchTs = Object.keys(benchmarkData).map(Number).sort((a, b) => a - b);
         let startBenchPrice = null;
@@ -552,86 +541,79 @@ export class HistoricalChart {
         datasets.push({ label: 'Base 0%', data: Array(graphData.labels.length).fill(0), borderColor: 'rgba(255, 255, 255, 0.2)', borderWidth: 1, borderDash: [5, 5], fill: false, pointRadius: 0 });
 
     } else {
-        datasets.push({ label: 'Investi (€)', data: graphData.invested, borderColor: '#3b82f6', backgroundColor: 'transparent', borderWidth: 2, fill: false, tension: 0.1, pointRadius: 0, borderDash: [5, 5], hidden: true, spanGaps: true });
-        datasets.push({ label: isUnitView ? 'Prix unitaire (€)' : 'Valeur Portfolio (€)', data: displayValues, borderColor: mainChartColor, backgroundColor: this.hexToRgba(mainChartColor, 0.1), borderWidth: 3, fill: true, tension: 0.3, pointRadius: 0, spanGaps: true });
+        if (!isIndexMode && !isUnitView) {
+             datasets.push({ label: 'Investi (€)', data: graphData.invested, borderColor: '#3b82f6', backgroundColor: 'transparent', borderWidth: 2, fill: false, tension: 0.1, pointRadius: 0, borderDash: [5, 5], hidden: true, spanGaps: true });
+        }
         
-        if (this.currentPeriod === 1 && !isUnitView && referenceClose) {
+        let label = 'Valeur Portfolio (€)';
+        if (isUnitView) label = 'Prix unitaire (€)';
+        if (isIndexMode) label = 'Cours';
+
+        datasets.push({ label: label, data: displayValues, borderColor: mainChartColor, backgroundColor: this.hexToRgba(mainChartColor, 0.1), borderWidth: 3, fill: true, tension: 0.3, pointRadius: 0, spanGaps: true });
+        
+        if (this.currentPeriod === 1 && !isUnitView && !isIndexMode && referenceClose) {
             datasets.push({ label: 'Clôture hier', data: Array(graphData.labels.length).fill(referenceClose), borderColor: '#95a5a6', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
         }
+        
         if (isUnitView && graphData.purchasePoints) {
             datasets.push({ type: 'line', label: 'Points d\'achat', data: graphData.purchasePoints, backgroundColor: '#FFFFFF', borderColor: '#3b82f6', borderWidth: 2, pointRadius: 5, pointHoverRadius: 8, showLine: false, parsing: { yAxisKey: 'y' } });
         }
         if (isUnitView && currentTicker && avgPrice > 0) {
-            datasets.push({ label: 'PRU (Prix Moyen)', data: Array(graphData.labels.length).fill(avgPrice), borderColor: '#FF9F43', borderWidth: 2, borderDash: [10, 5], fill: false, pointRadius: 0, pointStyle: 'circle', order: 10 });
+            datasets.push({ label: 'PRU', data: Array(graphData.labels.length).fill(avgPrice), borderColor: '#FF9F43', borderWidth: 2, borderDash: [10, 5], fill: false, pointRadius: 0, pointStyle: 'circle', order: 10 });
         }
     }
 
-    // === MISE À JOUR DES LABELS CONTEXTUELS ===
     const group2 = document.querySelector('.stat-group-2');
     if (group2) {
         const statDayVar = document.getElementById('stat-day-var');
         const statYesterdayClose = document.getElementById('stat-yesterday-close');
         let statUnitPrice = document.getElementById('stat-unit-price-display');
         let statPru = document.getElementById('stat-pru-display');
-        if (!statUnitPrice) { statUnitPrice = document.createElement('div'); statUnitPrice.className = 'stat'; statUnitPrice.id = 'stat-unit-price-display'; statUnitPrice.style.display = 'none'; statUnitPrice.innerHTML = `<span class="label">PRIX ACTUEL</span><span class="value">0.00 €</span>`; group2.appendChild(statUnitPrice); }
-        if (!statPru) { statPru = document.createElement('div'); statPru.className = 'stat'; statPru.id = 'stat-pru-display'; statPru.style.display = 'none'; statPru.innerHTML = `<span class="label">PRU (MOYEN)</span><span class="value">0.00 €</span>`; group2.appendChild(statPru); }
+        
+        if (!statUnitPrice) { statUnitPrice = document.createElement('div'); statUnitPrice.className = 'stat'; statUnitPrice.id = 'stat-unit-price-display'; statUnitPrice.style.display = 'none'; statUnitPrice.innerHTML = `<span class="label">PRIX ACTUEL</span><span class="value">0.00</span>`; group2.appendChild(statUnitPrice); }
+        if (!statPru) { statPru = document.createElement('div'); statPru.className = 'stat'; statPru.id = 'stat-pru-display'; statPru.style.display = 'none'; statPru.innerHTML = `<span class="label">PRU</span><span class="value">0.00</span>`; group2.appendChild(statPru); }
 
         const priceStartEl = document.getElementById('price-start');
         const priceEndEl = document.getElementById('price-end');
         const priceHighEl = document.getElementById('price-high');
         const priceLowEl = document.getElementById('price-low');
 
-        if (isPerformanceMode) {
-            group2.style.display = 'none';
+        if(priceStartEl) { priceStartEl.previousElementSibling.textContent = "DÉBUT"; priceStartEl.textContent = `${priceStart.toFixed(decimals)}`; priceStartEl.className = 'value'; }
+        if(priceEndEl) { priceEndEl.previousElementSibling.textContent = "FIN"; priceEndEl.textContent = `${priceEnd.toFixed(decimals)}`; priceEndEl.className = 'value'; }
+        if(priceHighEl) { priceHighEl.previousElementSibling.textContent = "HAUT"; priceHighEl.textContent = `${priceHigh.toFixed(decimals)}`; priceHighEl.className = `value positive`; }
+        if(priceLowEl) { priceLowEl.previousElementSibling.textContent = "BAS"; priceLowEl.textContent = `${priceLow.toFixed(decimals)}`; priceLowEl.className = `value negative`; }
+
+        if (isIndexMode || isUnitView) {
+            group2.style.display = 'flex'; 
+            if(statDayVar) statDayVar.style.display = 'none';
+            if(statYesterdayClose) statYesterdayClose.style.display = 'none';
             
-            if(priceStartEl) {
-                priceStartEl.previousElementSibling.textContent = "PERF. PORTFOLIO";
-                const finalPortPct = datasets[0].data[datasets[0].data.length -1] || 0;
-                priceStartEl.textContent = `${finalPortPct > 0 ? '+' : ''}${finalPortPct.toFixed(2)} %`;
-                priceStartEl.className = `value ${finalPortPct >= 0 ? 'positive' : 'negative'}`;
+            if(statUnitPrice) { 
+                statUnitPrice.style.display = 'flex'; 
+                statUnitPrice.querySelector('.value').textContent = priceEnd !== null ? `${priceEnd.toFixed(decimals)}` : '-'; 
             }
-            if(priceEndEl) {
-                priceEndEl.previousElementSibling.textContent = "PERF. BENCHMARK";
-                const finalBenchPct = datasets[1].data[datasets[1].data.length -1] || 0;
-                priceEndEl.textContent = `${finalBenchPct > 0 ? '+' : ''}${finalBenchPct.toFixed(2)} %`;
-                priceEndEl.className = `value ${finalBenchPct >= 0 ? 'positive' : 'negative'}`;
+            if(statPru) {
+                if (!isIndexMode) {
+                    statPru.style.display = 'flex'; 
+                    statPru.querySelector('.value').textContent = `${avgPrice.toFixed(4)} €`; 
+                    statPru.querySelector('.value').style.color = '#FF9F43';
+                } else {
+                    statPru.style.display = 'none';
+                }
             }
-            if(priceHighEl) {
-                priceHighEl.previousElementSibling.textContent = "ALPHA";
-                const finalPortPct = datasets[0].data[datasets[0].data.length -1] || 0;
-                const finalBenchPct = datasets[1].data[datasets[1].data.length -1] || 0;
-                const alpha = finalPortPct - finalBenchPct;
-                priceHighEl.textContent = `${alpha > 0 ? '+' : ''}${alpha.toFixed(2)} %`;
-                priceHighEl.className = `value ${alpha >= 0 ? 'positive' : 'negative'}`;
-            }
-            if(priceLowEl) {
-                priceLowEl.previousElementSibling.textContent = "HAUT (PORTFOLIO)";
-                const validData = datasets[0].data.filter(v => v !== null);
-                const maxVal = validData.length ? Math.max(...validData) : 0;
-                priceLowEl.textContent = `${maxVal > 0 ? '+' : ''}${maxVal.toFixed(2)} %`;
-                priceLowEl.className = `value ${maxVal >= 0 ? 'positive' : 'negative'}`;
-            }
-
         } else {
-            // Reset Labels Standards
-            if(priceStartEl) { priceStartEl.previousElementSibling.textContent = "DÉBUT"; priceStartEl.textContent = `${priceStart.toFixed(decimals)} €`; priceStartEl.className = 'value'; }
-            if(priceEndEl) { priceEndEl.previousElementSibling.textContent = "FIN"; priceEndEl.textContent = `${priceEnd.toFixed(decimals)} €`; priceEndEl.className = 'value'; }
-            if(priceHighEl) { priceHighEl.previousElementSibling.textContent = "HAUT"; priceHighEl.textContent = `${priceHigh.toFixed(decimals)} €`; priceHighEl.className = `value positive`; }
-            if(priceLowEl) { priceLowEl.previousElementSibling.textContent = "BAS"; priceLowEl.textContent = `${priceLow.toFixed(decimals)} €`; priceLowEl.className = `value negative`; }
-
-            if (isUnitView) {
-                group2.style.display = 'flex'; 
-                if(statDayVar) statDayVar.style.display = 'none';
-                if(statYesterdayClose) statYesterdayClose.style.display = 'none';
-                if(statUnitPrice) { statUnitPrice.style.display = 'flex'; statUnitPrice.querySelector('.value').textContent = priceEnd !== null ? `${priceEnd.toFixed(4)} €` : '-'; }
-                if(statPru) { statPru.style.display = 'flex'; statPru.querySelector('.value').textContent = `${avgPrice.toFixed(4)} €`; statPru.querySelector('.value').style.color = '#FF9F43'; }
+            // Mode Portfolio Global
+            
+            // === MODIFICATION ICI : On n'affiche les stats journalières que si période = 1 ===
+            if (this.currentPeriod !== 1) {
+                group2.style.display = 'none';
             } else {
+                group2.style.display = 'flex';
+                
                 if(statUnitPrice) statUnitPrice.style.display = 'none';
                 if(statPru) statPru.style.display = 'none';
-                const is1DView = (this.currentPeriod === 1);
-                group2.style.display = (is1DView) ? 'flex' : 'none'; 
+                
                 if (useTodayVar && statDayVar) {
-                    // === FIX perfClass => dayClass ===
                     let dayClass = 'neutral';
                     if (vsYesterdayAbs > 0.001) dayClass = 'positive';
                     else if (vsYesterdayAbs < -0.001) dayClass = 'negative';
@@ -653,25 +635,27 @@ export class HistoricalChart {
     }
     
     const unitPriceRow = document.getElementById('unit-price-row');
-    if (isSingleAsset) {
-      if(viewToggle) viewToggle.style.display = 'flex';
-      if(unitPriceRow) unitPriceRow.style.display = 'none'; 
+    if (isSingleAsset && !isIndexMode) {
+      if(viewToggle) {
+          viewToggle.style.display = 'flex';
+          viewToggle.querySelectorAll('.toggle-btn').forEach(btn => {
+              btn.onclick = (e) => {
+                  if (btn.classList.contains('active')) return;
+                  viewToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+                  btn.classList.add('active');
+                  this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData, currentTicker);
+              };
+          });
+      }
     } else {
       if(viewToggle) viewToggle.style.display = 'none';
-      if(unitPriceRow) unitPriceRow.style.display = 'none';
     }
-    viewToggle?.querySelectorAll('.toggle-btn').forEach(btn => {
-      btn.onclick = () => {
-        if (btn.classList.contains('active')) return;
-        viewToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData, currentTicker); 
-      };
-    });
     
     const unitPriceEl = document.getElementById('unit-price');
-    if (unitPriceEl && isUnitView && priceEnd !== null) unitPriceEl.textContent = `${priceEnd.toFixed(4)} €`;
-    document.getElementById('last-update').textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    if (unitPriceEl && (isUnitView || isIndexMode) && priceEnd !== null) unitPriceEl.textContent = `${priceEnd.toFixed(decimals)}`;
+    
+    const dateEl = document.getElementById('last-update');
+    if(dateEl) dateEl.textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
     this.chart = new Chart(ctx, {
       type: 'line', 
@@ -681,11 +665,11 @@ export class HistoricalChart {
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false, hoverRadius: 12 },
         plugins: {
-          legend: { position: 'top', labels: { usePointStyle: true, padding: 20 } },
+          legend: { position: 'top', labels: { usePointStyle: true, padding: 20, color: '#fff' } },
           tooltip: {
             mode: 'index', 
             intersect: false, 
-            backgroundColor: 'rgba(0,0,0,0.85)', 
+            backgroundColor: 'rgba(0,0,0,0.9)', 
             padding: 12,
             titleFont: { weight: 'bold' },
             displayColors: false, 
@@ -709,8 +693,9 @@ export class HistoricalChart {
                         }
                     } else {
                         if (ctx.parsed.y !== null) {
-                            const val = ctx.parsed.y.toFixed(2);
-                            lines.push(`🟢 ${isUnitView ? 'Prix unitaire' : 'Valeur Portfolio'} : ${val} €`);
+                            const val = ctx.parsed.y.toFixed(decimals);
+                            const label = isIndexMode ? 'Cours' : (isUnitView ? 'Prix' : 'Valeur');
+                            lines.push(`🟢 ${label} : ${val} ${isIndexMode ? '' : '€'}`);
                         }
                         if (isUnitView && currentTicker && avgPrice > 0) {
                             lines.push(`🟠 PRU : ${avgPrice.toFixed(4)} €`);
@@ -729,21 +714,16 @@ export class HistoricalChart {
         scales: {
           x: { 
             display: true,
-            ticks: { 
-              maxRotation: 0, 
-              autoSkip: true, 
-              maxTicksLimit: (this.currentPeriod === 1 || this.currentPeriod === 2) ? 8 : 10,
-              color: '#888'
-            },
-            grid: { color: 'rgba(200, 200, 200, 0.1)' }
+            ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8, color: '#888' },
+            grid: { color: 'rgba(255, 255, 255, 0.05)' }
           },
           y: { 
             display: true,
             ticks: { 
-              callback: (value) => isPerformanceMode ? `${value}%` : `${value.toLocaleString('fr-FR')} €`,
+              callback: (value) => isPerformanceMode ? `${value}%` : `${value.toLocaleString('fr-FR')}`,
               color: '#888'
             },
-            grid: { color: 'rgba(200, 200, 200, 0.1)' }
+            grid: { color: 'rgba(255, 255, 255, 0.05)' }
           }
         }
       }

@@ -60,23 +60,61 @@
                 
                 <div class="dashboard-left-column">
                     
-                    <div class="dashboard-kpi-grid-v2">
-                        <div class="kpi-card kpi-hero">
-                            <div class="kpi-header"><span class="kpi-label">Total Value</span><i class="fas fa-wallet kpi-icon"></i></div>
-                            <div class="kpi-value" id="dashboard-total-value">€0.00</div>
-                            <div class="kpi-meta"><span id="dashboard-total-return" class="kpi-change">€0.00</span><span id="dashboard-total-return-pct" class="kpi-change-pct">(0.00%)</span></div>
-                        </div>
-                        <div class="kpi-card kpi-hero">
-                            <div class="kpi-header"><span class="kpi-label">Day Change</span><i class="fas fa-chart-line kpi-icon"></i></div>
-                            <div class="kpi-value" id="dashboard-day-change">€0.00</div>
-                            <div class="kpi-meta"><span id="dashboard-day-change-pct" class="kpi-change-pct">(0.00%)</span></div>
-                        </div>
-                        <div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Top Gainer</span><i class="fas fa-arrow-trend-up kpi-icon"></i></div><div class="kpi-name-large" id="dashboard-top-gainer-name">-</div><div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span></div></div>
-                        <div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Top Loser</span><i class="fas fa-arrow-trend-down kpi-icon"></i></div><div class="kpi-name-large" id="dashboard-top-loser-name">-</div><div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span></div></div>
-                        <div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Top Sector</span><i class="fas fa-industry kpi-icon"></i></div><div class="kpi-name-large" id="dashboard-top-sector">-</div></div>
-                        <div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Asset Allocation</span><i class="fas fa-chart-pie kpi-icon"></i></div><div id="dashboard-allocation-container"></div></div>
-                    </div>
+                    <div class="dashboard-hero-row">
+						<div class="kpi-card summary-card-primary">
+							<div class="kpi-header">
+								<span class="kpi-label">Total Value</span>
+								<i class="fas fa-wallet kpi-icon"></i>
+							</div>
+							<div class="kpi-value" id="dashboard-total-value">€0.00</div>
+							<div class="kpi-meta">
+								<span id="dashboard-invested-subtitle" class="meta-info" style="font-size: 12px; opacity: 0.7;">Invested: €0.00</span>
+							</div>
+						</div>
 
+						<div class="kpi-card">
+							<div class="kpi-header">
+								<span class="kpi-label">Total Return</span>
+								<i class="fas fa-percentage kpi-icon"></i>
+							</div>
+							<div class="kpi-value" id="dashboard-total-return">€0.00</div>
+							<div class="kpi-meta">
+								<span id="dashboard-total-return-pct" class="kpi-change-pct">(0.00%)</span>
+							</div>
+						</div>
+
+						<div class="kpi-card">
+							<div class="kpi-header">
+								<span class="kpi-label">Var Today</span>
+								<i class="fas fa-chart-line kpi-icon"></i>
+							</div>
+							<div class="kpi-value" id="dashboard-day-change">€0.00</div>
+							<div class="kpi-meta">
+								<span id="dashboard-day-change-pct" class="kpi-change-pct">(0.00%)</span>
+							</div>
+						</div>
+					</div>
+
+					<div class="dashboard-kpi-grid-v2">
+						<div class="kpi-card">
+							<div class="kpi-header"><span class="kpi-label">Top Gainer</span><i class="fas fa-arrow-trend-up kpi-icon"></i></div>
+							<div class="kpi-name-large" id="dashboard-top-gainer-name">-</div>
+							<div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span></div>
+						</div>
+						<div class="kpi-card">
+							<div class="kpi-header"><span class="kpi-label">Top Loser</span><i class="fas fa-arrow-trend-down kpi-icon"></i></div>
+							<div class="kpi-name-large" id="dashboard-top-loser-name">-</div>
+							<div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span></div>
+						</div>
+						<div class="kpi-card">
+							<div class="kpi-header"><span class="kpi-label">Top Sector</span><i class="fas fa-industry kpi-icon"></i></div>
+							<div class="kpi-name-large" id="dashboard-top-sector">-</div>
+						</div>
+						<div class="kpi-card">
+							<div class="kpi-header"><span class="kpi-label">Asset Allocation</span><i class="fas fa-chart-pie kpi-icon"></i></div>
+							<div id="dashboard-allocation-container"></div>
+						</div>
+					</div>
                     <div class="dashboard-chart-section">
                         <div class="chart-header-mini">
                             <div class="title-mini">
@@ -121,15 +159,16 @@
 
                 </div>
 
-                <div class="dashboard-right-sidebar">
-                    <div class="dashboard-indices-panel-full">
-                        <h3 class="section-title-right">Indices & Futures</h3>
+                <div class="dashboard-indices-panel-full">
+					<div class="indices-header">
+						<h3 class="section-title-right">Indices & Futures</h3>
 						<div id="market-status-container"></div>
-                        <div id="market-overview-container" class="indices-list">
-                            <div class="market-loading">Loading...</div>
-                        </div>
-                    </div>
-                </div>
+					</div>
+					
+					<div id="market-overview-container" class="indices-list">
+						<div class="market-loading">Loading...</div>
+					</div>
+				</div>
 
             </div>
 

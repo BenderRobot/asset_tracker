@@ -1,5 +1,5 @@
 // ========================================
-// dataManager.js - (v25 - Ajout Calcul TWR)
+// dataManager.js - (v8 - Ajout support Indices)
 // ========================================
 
 import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js'; 
@@ -11,8 +11,6 @@ export class DataManager {
         this.api = api;
     }
 
-    // ... (calculateCashReserve, calculateHoldings, calculateSummary, calculateEnrichedPurchases, generateFullReport inchangés) ...
-    
     calculateCashReserve(allPurchases) {
         const cashMovements = allPurchases.filter(p => p.assetType === 'Cash');
         const byBroker = {};
@@ -94,14 +92,13 @@ export class DataManager {
         return enriched;
     }
 
-calculateSummary(holdings) {
+    calculateSummary(holdings) {
         let totalInvestedEUR = 0;
         let totalCurrentEUR = 0;
         let totalDayChangeEUR = 0;
         const assetTotalPerformances = [];
         const assetDayPerformances = [];
         
-        // Pour le calcul des secteurs
         const sectorStats = {}; 
 
         holdings.forEach(asset => {
@@ -109,7 +106,6 @@ calculateSummary(holdings) {
             totalCurrentEUR += asset.currentValue || 0;
             totalDayChangeEUR += asset.dayChange || 0;
 
-            // Calcul par secteur
             const type = asset.assetType || 'Other';
             if (!sectorStats[type]) {
                 sectorStats[type] = { value: 0, name: type };
@@ -121,7 +117,9 @@ calculateSummary(holdings) {
                     ticker: asset.ticker,
                     name: asset.name,
                     gainPct: asset.gainPct || 0,
-                    gain: asset.gainEUR || 0
+                    gain: asset.gainEUR || 0,
+                    currentValue: asset.currentValue,
+                    currentPrice: asset.currentPrice
                 });
                 
                 assetDayPerformances.push({
@@ -133,7 +131,6 @@ calculateSummary(holdings) {
             }
         });
 
-        // Trouver le Top Sector
         let bestSector = { name: '-', value: 0, pct: 0 };
         if (totalCurrentEUR > 0) {
             let maxVal = -1;
@@ -176,11 +173,12 @@ calculateSummary(holdings) {
             worstAsset,
             bestDayAsset,
             worstDayAsset,
-            topSector: bestSector, // Maintenant un objet complet
+            topSector: bestSector,
             assetsCount: holdings.length,
             movementsCount: holdings.reduce((sum, h) => sum + h.purchases.length, 0)
         };
     }
+
     calculateEnrichedPurchases(filteredPurchases) {
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
         
@@ -257,6 +255,7 @@ calculateSummary(holdings) {
             generatedAt: new Date().toISOString()
         };
     }
+
     calculateDiversification(holdings) {
         const herfindahl = holdings.reduce((sum, asset) => sum + Math.pow(asset.weight / 100, 2), 0);
         const effectiveAssets = herfindahl > 0 ? 1 / herfindahl : 0;
@@ -296,11 +295,48 @@ calculateSummary(holdings) {
     
     async calculateAssetHistory(ticker, days) {
         const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
-        if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [] };
+        if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [] };
         return this.calculateGenericHistory(purchases, days, true);
     }
 
-    // === FONCTION COEUR (Avec Calcul TWR) ===
+    // === NOUVEAU : Calcul pour un Indice pur (Pour le Dashboard) ===
+    async calculateIndexData(ticker, days) {
+        const interval = this.getIntervalForPeriod(days);
+        
+        const today = new Date();
+        const endTs = Math.floor(today.getTime() / 1000);
+        let startTs;
+        
+        if (days === 1) startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60); 
+        else if (days === 7) startTs = endTs - (7 * 24 * 60 * 60);
+        else if (days === 30) startTs = endTs - (30 * 24 * 60 * 60);
+        else if (days === 90) startTs = endTs - (90 * 24 * 60 * 60);
+        else if (days === 365) startTs = endTs - (365 * 24 * 60 * 60);
+        else startTs = endTs - (365 * 24 * 60 * 60); 
+
+        // Récupération API
+        const hist = await this.api.getHistoricalPricesWithRetry(ticker, startTs, endTs, interval);
+        
+        const sortedTs = Object.keys(hist).map(Number).sort((a, b) => a - b);
+        const labels = [];
+        const values = [];
+        const labelFn = this.getLabelFormat(days);
+        
+        sortedTs.forEach(ts => {
+            labels.push(labelFn(ts * 1000));
+            values.push(hist[ts]);
+        });
+
+        return {
+            labels: labels,
+            values: values,
+            invested: [],
+            unitPrices: values,
+            purchasePoints: [],
+            yesterdayClose: values.length > 0 ? values[0] : 0
+        };
+    }
+
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
 
@@ -423,7 +459,7 @@ calculateSummary(holdings) {
         const values = [];
         const unitPrices = [];
         const purchasePoints = [];
-        const twr = []; // === NOUVEAU TABLEAU TWR ===
+        const twr = []; 
         
         const allTimestamps = new Set();
         historicalDataMap.forEach(hist => {
@@ -489,17 +525,15 @@ calculateSummary(holdings) {
             }
         }
         
-        // === VARIABLES POUR CALCUL TWR ===
-        let previousTotalValue = 0; // Valeur de la veille
-        let currentTWR = 1.0;       // TWR cumulé (Base 1)
+        let previousTotalValue = 0;
+        let currentTWR = 1.0;       
         
         for (let i = 0; i < displayTimestamps.length; i++) {
             const ts = displayTimestamps[i];
             let tsChangedInvested = false;
             const prevTs = (i === 0) ? displayStartUTC.getTime() - 1 : displayTimestamps[i - 1];
 
-            // 1. Mise à jour des quantités (Achats/Ventes)
-            let cashFlow = 0; // Flux de trésorerie sur cette période
+            let cashFlow = 0; 
             
             for (const [t, buyList] of assetMap.entries()) {
                 for (const buy of buyList) {
@@ -507,13 +541,12 @@ calculateSummary(holdings) {
                         assetQuantities.set(t, assetQuantities.get(t) + buy.quantity);
                         const flow = buy.price * buy.quantity;
                         assetInvested.set(t, assetInvested.get(t) + flow);
-                        cashFlow += flow; // On enregistre le flux
+                        cashFlow += flow; 
                         tsChangedInvested = true;
                     }
                 }
             }
 
-            // 2. Calcul Valeur Totale
             let currentTsTotalValue = 0;
             let totalInvested = 0;
             let hasAtLeastOnePrice = false;
@@ -543,16 +576,12 @@ calculateSummary(holdings) {
                 }
             }
             
-            // 3. Calcul TWR (Time-Weighted Return)
-            // TWR isole la performance du marché en ignorant les cashflows
             if (i > 0 && previousTotalValue > 0) {
-                // Formule : (Valeur Fin - CashFlow) / Valeur Début
-                // On retire le cashflow de la valeur finale pour voir la "performance pure" du capital qui était là au début
                 const periodReturn = (currentTsTotalValue - cashFlow - previousTotalValue) / previousTotalValue;
                 currentTWR = currentTWR * (1 + periodReturn);
             }
             twr.push(currentTWR);
-            previousTotalValue = currentTsTotalValue; // Prépare pour le tour suivant
+            previousTotalValue = currentTsTotalValue;
 
             const label = labelFormat(ts);
             labels.push(label);
@@ -611,11 +640,10 @@ calculateSummary(holdings) {
             unitPrices, 
             purchasePoints,
             timestamps: displayTimestamps,
-            twr // Ajouté à l'objet de retour
+            twr 
         };
     }
 
-    // ... (getIntervalForPeriod, getLabelFormat, getLastTradingDay, isCryptoTicker, formatTicker, findClosestPrice inchangés) ...
 	getIntervalForPeriod(days) {
 		if (days === 1) return '5m';
 		if (days === 2) return '15m';

@@ -1,65 +1,44 @@
 // ========================================
-// app.js - Application principale (Câblage "Zéro Incohérence")
+// app.js - (v11 - Complet avec MarketStatus & Cash)
 // ========================================
 import { Storage } from './storage.js';
-import { PriceAPI } from './api.js?v=4'; // v4 (inchangé)
+import { PriceAPI } from './api.js?v=4';
 import { UIComponents } from './ui.js';
 import { FilterManager } from './filters.js';
-
-// === CORRECTION : Mise à jour des versions ===
 import { AchatsPage } from './achatsPage.js?v=6';
-// On passe tout ce qui est lié au graphique en v9
 import { InvestmentsPage } from './investmentsPage.js?v=9';
 import { HistoricalChart } from './historicalChart.js?v=9';
-import { DataManager } from './dataManager.js?v=7'; // v7 est OK
-// ===========================================
-
-import { initMarketStatus } from './marketStatus.js?v=2';
+import { DataManager } from './dataManager.js?v=7';
+import { initMarketStatus } from './marketStatus.js?v=3'; // Import corrigé
 import { ASSET_TYPES, BROKERS, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED } from './config.js';
-
 
 class App {
   constructor() {
     this.storage = new Storage();
     this.api = new PriceAPI(this.storage); 
-	this.brokersList = BROKERS; // <-- Conservé pour 'populate'
-    // === LE BON CÂBLAGE ===
+    this.brokersList = BROKERS;
     this.dataManager = new DataManager(this.storage, this.api); 
     this.ui = new UIComponents(this.storage);
     this.filterManager = new FilterManager(this.storage);
+    
+    // Initialisation du statut marché via la fonction helper
     this.marketStatus = initMarketStatus(this.storage);
 
-    // ==========================================================
-    // === CORRECTION : dataManager est maintenant passé ===
-    // ==========================================================
-    this.achatsPage = new AchatsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager);
-    // ==========================================================
-    
-    // On passe 'this.brokersList' pour que 'getChartTitleConfig' fonctionne
-    this.investmentsPage = new InvestmentsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager, this.brokersList); 
+    // On passe marketStatus aux pages
+    this.achatsPage = new AchatsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager, this.marketStatus);
+    this.investmentsPage = new InvestmentsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager, this.brokersList, this.marketStatus); 
 
     if (this.isInvestmentsPage()) { 
-      // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
-      this.historicalChart = new HistoricalChart(
-          this.storage, 
-          this.dataManager, 
-          this.ui, 
-          this.investmentsPage // Le graphique a besoin de la page (pour getChartTitleConfig)
-      ); 
-      // ==========================================
-      
-      // === INJECTION DE DÉPENDANCE ===
-      // On "injecte" le graphique dans la page pour qu'elle puisse l'appeler
+      this.historicalChart = new HistoricalChart(this.storage, this.dataManager, this.ui, this.investmentsPage); 
       this.investmentsPage.setHistoricalChart(this.historicalChart);
-      // ==========================================
     }
-    // === FIN CÂBLAGE ===
 
     this.searchQuery = '';
     this.isRefreshing = false;
     this.autoRefreshTimer = null;
   }
-	async setupCashFormListener() {
+
+  async setupCashFormListener() {
     const form = document.getElementById('cash-form');
     if (!form) return;
 
@@ -72,12 +51,11 @@ class App {
             const finalAmount = (type === 'Retrait' ? -amount : amount);
 
             const cashMovement = {
-                // Nous réutilisons la structure existante
                 ticker: 'CASH',
-                name: type, // "Dépôt" ou "Retrait"
-                price: finalAmount, // Le montant (positif ou négatif)
+                name: type, 
+                price: finalAmount, 
                 date: document.getElementById('cash-date').value,
-                quantity: 1, // Quantité fixe
+                quantity: 1, 
                 currency: 'EUR',
                 assetType: 'Cash',
                 broker: document.getElementById('cash-broker').value
@@ -91,7 +69,6 @@ class App {
             this.storage.addPurchase(cashMovement);
             form.reset();
 
-            // Rafraîchir la page des transactions
             await this.achatsPage.render(this.searchQuery);
             this.showNotification('Mouvement de cash ajouté', 'success');
 
@@ -100,58 +77,43 @@ class App {
             alert('Erreur: ' + error.message);
         }
     });
-}
+  }
+
   async init() {
     console.log('Initialisation de l\'application...'); 
 
-    // Afficher l'état du marché
-	this.marketStatus.startAutoRefresh('market-status-container', 'full');
-    // AJOUT : Charger le taux de change AVANT tout calcul
+    // Démarrer l'auto-refresh du statut marché (badge header)
+    this.marketStatus.startAutoRefresh('market-status-container', 'full');
+    
     await this.initConversionRates();
 
     this.storage.cleanExpiredCache();
     this.filterManager.updateTickerFilter(() => this.renderCurrentPage());
 
-    // Peupler les selects d'asset type et broker
     this.populateAssetTypeAndBrokerSelects();
 
-    // ==========================================================
-    // === MODIFICATION : renderCurrentPage s'occupe de tout ===
-    // ==========================================================
     await this.renderCurrentPage(); 
-    // ==========================================================
 
     this.setupEventListeners();
 
-    // Ajouter le bouton spécial weekend si nécessaire
     this.addWeekendRefreshButton();
 
-    // ==========================================================
-    // === MODIFICATION : On déplace l'init du graphique ici ===
-    // ==========================================================
     if (this.historicalChart) { 
       this.historicalChart.setupPeriodButtons();
       this.historicalChart.startAutoRefresh(); 
     }
-    // ==========================================================
 
-    // Démarrer le rafraîchissement automatique
     this.startAutoRefresh();
     console.log('Application prête');
   }
 
   async initConversionRates() {
-    console.log('Initialisation du taux de change...');
     const pair = 'USD_TO_EUR';
     const cachedRate = this.storage.getConversionRate(pair);
 
-    if (cachedRate) {
-        console.log(`Taux de change (cache): 1 USD = ${cachedRate} EUR`);
-        return; // Le cache est valide (moins de 24h)
-    }
+    if (cachedRate) return; 
 
     try {
-        // Appel direct à CoinGecko (simple, pas besoin de l'artillerie de api.js)
         const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=usd&vs_currencies=eur');
         if (!res.ok) throw new Error('Réponse API invalide');
         
@@ -160,13 +122,9 @@ class App {
 
         if (rate) {
             this.storage.setConversionRate(pair, rate);
-            console.log(`Taux de change (API): 1 USD = ${rate} EUR`);
-        } else {
-            throw new Error('Format de données invalide');
         }
     } catch (error) {
-        console.error('Échec de la récupération du taux de change:', error.message);
-        this.showNotification('Taux de change indisponible, utilisation du taux de secours.', 'error');
+        console.error('Échec taux de change:', error.message);
     }
   }
 
@@ -196,11 +154,11 @@ class App {
         BROKERS.map(broker => `<option value="${broker.value}">${broker.label}</option>`).join('');
     }
 
-	const cashBrokerSelect = document.getElementById('cash-broker');
-	if (cashBrokerSelect) {
-	  cashBrokerSelect.innerHTML = '<option value="">Select Broker</option>' +
-		BROKERS.map(broker => `<option value="${broker.value}">${broker.label}</option>`).join('');
-	}
+    const cashBrokerSelect = document.getElementById('cash-broker');
+    if (cashBrokerSelect) {
+      cashBrokerSelect.innerHTML = '<option value="">Select Broker</option>' +
+        BROKERS.map(broker => `<option value="${broker.value}">${broker.label}</option>`).join('');
+    }
   }
 
   isAchatsPage() {
@@ -217,7 +175,6 @@ class App {
     if (this.isAchatsPage()) {
       await this.achatsPage.render(this.searchQuery);
     } else if (this.isInvestmentsPage()) {
-      // On passe la query à la page, qui la stockera
       await this.investmentsPage.render(this.searchQuery); 
     }
   }
@@ -277,10 +234,10 @@ class App {
         this.filterManager.setBrokerFilter(e.target.value);
       });
     }
-	this.achatsPage.setupTabs();
+    this.achatsPage.setupTabs();
     this.achatsPage.setupSorting();
     this.setupCSVListeners();
-	this.setupCashFormListener();
+    this.setupCashFormListener();
   }
 
   setupInvestmentsPageListeners() {
@@ -288,7 +245,6 @@ class App {
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         this.searchQuery = e.target.value;
-        // On passe la query à la page
         this.investmentsPage.render(this.searchQuery);
       });
     }
@@ -301,7 +257,7 @@ class App {
     }
 
     this.investmentsPage.setupSorting();
-    this.investmentsPage.setupFilters(); // La page gère son propre bouton "Clear"
+    this.investmentsPage.setupFilters(); 
   }
 
   async addPurchase() {
@@ -352,15 +308,9 @@ class App {
     }
 
     try {
-      // ==========================================================
-      // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
-      // ==========================================================
-      
       if (this.isInvestmentsPage() && this.historicalChart) {
-          console.log('Rafraîchissement déclenché... Le graphique prend la main.');
-          await this.historicalChart.update(true, true); // (showLoading = true, forceApi = true)
+          await this.historicalChart.update(true, true);
       } else {
-          // Comportement normal pour les autres pages
           const purchases = this.storage.getPurchases();
           const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
           if (tickers.length > 0) {
@@ -368,10 +318,8 @@ class App {
           }
           await this.renderCurrentPage();
       }
-      // ==========================================================
       
       this.updateMarketStatus();
-
       this.showNotification(forceWeekend ? 'Prix de clôture récupérés !' : 'Prix mis à jour', 'success');
     } catch (error) {
       console.error('Erreur refresh:', error);
@@ -471,22 +419,15 @@ class App {
     const fileNameSpan = document.getElementById('file-name');
 
     try {
-      // Mettre à jour l'UI pour montrer le chargement
       if (importBtn) {
         importBtn.disabled = true;
         importBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Import...';
       }
 
-      // Lire le fichier (rapide)
       const text = await file.text();
-      
-      // Démarrer le Worker (doit être au même niveau que app.js)
       const worker = new Worker('./csvWorker.js');
-      
-      // Envoyer le texte au worker
       worker.postMessage(text);
 
-      // Attendre la réponse (se fait en arrière-plan)
       const result = await new Promise((resolve, reject) => {
         worker.onmessage = (e) => {
           if (e.data.error) {
@@ -500,9 +441,8 @@ class App {
         };
       });
       
-      worker.terminate(); // Tuer le worker après le travail
+      worker.terminate(); 
 
-      // Nous avons la réponse !
       const { purchases, count } = result;
 
       if (count > 0) {
@@ -511,7 +451,6 @@ class App {
         });
       }
 
-      // Mettre à jour l'UI principale (exactement comme avant)
       this.filterManager.updateTickerFilter(() => this.renderCurrentPage());
       await this.achatsPage.render(this.searchQuery);
       this.showNotification(`${count} transactions importées`, 'success');
@@ -523,13 +462,13 @@ class App {
       alert('Erreur import: ' + error.message);
       this.showNotification('Échec de l\'importation', 'error');
     } finally {
-      // Restaurer le bouton
       if (importBtn) {
         importBtn.disabled = false;
         importBtn.innerHTML = originalBtnText;
       }
     }
   }
+
   exportCSV() {
     const purchases = this.storage.getPurchases();
     if (!purchases.length) return alert('Aucune transaction');
@@ -577,12 +516,11 @@ class App {
     const marketOpen = this.storage.isMarketOpen();
     if (marketOpen) {
       console.log(`Rafraîchissement auto toutes les ${AUTO_REFRESH_INTERVAL / 60000} min`);
-      this.autoRefreshPrices(); // Lancement immédiat
+      this.autoRefreshPrices();
       this.autoRefreshTimer = setInterval(() => this.autoRefreshPrices(), AUTO_REFRESH_INTERVAL);
     } else {
       console.log('Marché fermé - Rafraîchissement en pause');
       this.autoRefreshTimer = setInterval(() => {
-        // Vérifie toutes les 30min si le marché a ouvert
         if (this.storage.isMarketOpen()) {
           this.stopAutoRefresh();
           this.startAutoRefresh();
@@ -602,29 +540,21 @@ class App {
     if (this.isRefreshing) return;
     console.log('Rafraîchissement auto...');
     try {
-      // ==========================================================
-      // === MODIFICATION "ZÉRO INCOHÉRENCE" ===
       if (this.isInvestmentsPage() && this.historicalChart) {
-          await this.historicalChart.silentUpdate(); // Le graphique gère tout
+          await this.historicalChart.silentUpdate();
       } else {
-          // Comportement normal pour les autres pages
           const tickers = [...new Set(this.storage.getPurchases().map(p => p.ticker.toUpperCase()))];
           await this.api.fetchBatchPrices(tickers);
           await this.renderCurrentPage();
       }
-      // ==========================================================
-
     } catch (error) {
       console.error('Erreur auto-refresh:', error);
     }
   }
 }
 
-// === INITIALISATION ===
 (async () => {
   const app = new App();
-  // MODIFICATION : On supprime la variable globale
-  // window.app = app; 
   try {
     await app.init();
   } catch (error) {
