@@ -72,92 +72,103 @@
     <main class="main-content">
         <div class="container">
             
-            <div class="add-transaction-card">
-                <div class="tabs-header">
-                    <button class="tab-btn active" data-tab="asset">
-                        <i class="fas fa-chart-line tab-icon"></i> Actif
-                    </button>
-                    <button class="tab-btn" data-tab="cash">
-                        <i class="fas fa-wallet tab-icon"></i> Cash
-                    </button>
-                    <button class="tab-btn" data-tab="data">
-                        <i class="fas fa-database tab-icon"></i> Données
-                    </button>
-                </div>
+            <!-- NOUVEAU CONTENEUR MASQUÉ (Wrapper) -->
+            <div id="add-transaction-wrapper" class="hidden-wrapper">
+                <!-- CARTE PRINCIPALE RESTAURÉE (Le CSS dépend de cet élément) -->
+                <div class="add-transaction-card">
+                    <div class="tabs-header">
+                        <button class="tab-btn active" data-tab="asset">
+                            <i class="fas fa-chart-line tab-icon"></i> Actif
+                        </button>
+                        <button class="tab-btn" data-tab="cash">
+                            <i class="fas fa-wallet tab-icon"></i> Cash
+                        </button>
+                        <button class="tab-btn" data-tab="data">
+                            <i class="fas fa-database tab-icon"></i> Données
+                        </button>
+                    </div>
 
-                <div id="tab-asset" class="tab-content active">
-                    <form id="purchase-form" class="purchase-form-grid">
-                        <input type="text" id="ticker" placeholder="Ticker (e.g. AAPL)" required>
-                        <input type="text" id="name" placeholder="Nom de l'entreprise" required>
-                        
-                        <div class="form-group-inline">
-                            <input type="number" id="price" placeholder="Prix unitaire" step="any" required>
-                            <select id="currency-select" required>
-                                <option value="EUR">EUR (€)</option>
-                                <option value="USD">USD ($)</option>
+                    <div id="tab-asset" class="tab-content active">
+                        <form id="purchase-form" class="purchase-form-grid">
+                            <input type="text" id="ticker" placeholder="Ticker (e.g. AAPL)" required>
+                            <input type="text" id="name" placeholder="Nom de l'entreprise" required>
+                            
+                            <div class="form-group-inline">
+                                <input type="number" id="price" placeholder="Prix unitaire" step="any" required>
+                                <select id="currency-select" required>
+                                    <option value="EUR">EUR (€)</option>
+                                    <option value="USD">USD ($)</option>
+                                </select>
+                            </div>
+                            
+                            <input type="date" id="date" required>
+                            <input type="number" id="quantity" placeholder="Quantité" step="any" required>
+                            
+                            <select id="asset-type-select" required>
+                                <option value="">Type d'actif...</option>
                             </select>
-                        </div>
-                        
-                        <input type="date" id="date" required>
-                        <input type="number" id="quantity" placeholder="Quantité" step="any" required>
-                        
-                        <select id="asset-type-select" required>
-                            <option value="">Type d'actif...</option>
-                        </select>
-                        
-                        <select id="broker-select" required>
-                            <option value="">Courtier...</option>
-                        </select>
-                        
-                        <button type="submit" class="btn-submit">Ajouter la transaction</button>
-                    </form>
-                </div>
+                            
+                            <select id="broker-select" required>
+                                <option value="">Courtier...</option>
+                            </select>
+                            
+                            <button type="submit" class="btn-submit">Add transaction</button>
+                        </form>
+                    </div>
 
-                <div id="tab-cash" class="tab-content">
-                    <form id="cash-form" class="purchase-form-grid">
-                        <select id="cash-type" required>
-                            <option value="Dépôt">Dépôt (J'ajoute du cash)</option>
-                            <option value="Retrait">Retrait (Je retire du cash)</option>
-                        </select>
-                        
-                        <select id="cash-broker" required>
-                            <option value="">Courtier...</option>
-                        </select>
-                        
-                        <input type="number" id="cash-amount" placeholder="Montant (€)" step="0.01" required>
-                        
-                        <input type="date" id="cash-date" required>
+                    <div id="tab-cash" class="tab-content">
+                        <form id="cash-form" class="purchase-form-grid">
+                            <select id="cash-type" required>
+                                <option value="Dépôt">Dépôt (J'ajoute du cash)</option>
+                                <option value="Retrait">Retrait (Je retire du cash)</option>
+                            </select>
+                            
+                            <select id="cash-broker" required>
+                                <option value="">Courtier...</option>
+                            </select>
+                            
+                            <input type="number" id="cash-amount" placeholder="Montant (€)" step="0.01" required>
+                            
+                            <input type="date" id="cash-date" required>
 
-                        <input type="text" id="cash-currency" value="EUR" hidden>
-                        <input type="text" id="cash-asset-type" value="Cash" hidden>
+                            <input type="text" id="cash-currency" value="EUR" hidden>
+                            <input type="text" id="cash-asset-type" value="Cash" hidden>
 
-                        <button type="submit" class="btn-submit">Enregistrer le mouvement</button>
-                    </form>
-                </div>
+                            <button type="submit" class="btn-submit">Enregistrer le mouvement</button>
+                        </form>
+                    </div>
 
-                <div id="tab-data" class="tab-content">
-                    <div class="data-grid">
-                        <div class="file-input-group">
-                            <input type="file" id="csv-file" accept=".csv" hidden>
-                            <button type="button" id="choose-file-btn" class="btn-secondary">
-                                <i class="fas fa-folder-open"></i> Choisir CSV
+                    <div id="tab-data" class="tab-content">
+                        <div class="data-grid">
+                            <div class="file-input-group">
+                                <input type="file" id="csv-file" accept=".csv" hidden>
+                                <button type="button" id="choose-file-btn" class="btn-secondary">
+                                    <i class="fas fa-folder-open"></i> Choisir CSV
+                                </button>
+                                <span id="file-name" class="file-name">Aucun fichier choisi</span>
+                            </div>
+
+                            <button id="import-csv" class="btn-primary btn-import">
+                                <i class="fas fa-upload"></i> Importer
                             </button>
-                            <span id="file-name" class="file-name">Aucun fichier choisi</span>
+                            
+                            <button id="export-csv" class="btn-secondary btn-export">
+                                <i class="fas fa-download"></i> Exporter CSV
+                            </button>
                         </div>
-
-                        <button id="import-csv" class="btn-primary btn-import">
-                            <i class="fas fa-upload"></i> Importer
-                        </button>
-                        
-                        <button id="export-csv" class="btn-secondary btn-export">
-                            <i class="fas fa-download"></i> Exporter CSV
-                        </button>
                     </div>
                 </div>
             </div>
 
-            <h2>All Transactions</h2>
-            
+            <!-- NOUVEL EN-TÊTE AVEC BOUTON DE BASCULE -->
+            <div class="main-header">
+                <h2>📋 All Transactions</h2>
+                <button id="toggle-add-btn" class="btn-primary">
+                    <i class="fas fa-plus"></i> Add
+
+                </button>
+            </div>
+
             <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
                 <input type="text" id="search-input" placeholder="Search ticker, name or date..." style="flex: 1; min-width: 250px;">
                 <div id="ticker-filter-dropdown"></div>

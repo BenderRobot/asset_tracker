@@ -200,16 +200,41 @@
 
     <div class="modal-overlay" id="news-modal" style="display: none;">
         <div class="modal-content news-modal-content">
-            <div class="modal-header">
-                <div class="news-modal-ticker" id="modal-news-ticker">TICKER</div>
-                <button class="modal-close" id="close-news-modal">×</button>
+            <div class="modal-header" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; width: 100%;">
+                    <div class="news-modal-ticker" id="modal-news-ticker">TICKER</div>
+                    <button class="modal-close" id="close-news-modal">×</button>
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 500;" id="modal-news-pubdate">
+                    <!-- DATE ET HEURE DE PUBLICATION -->
+                </div>
             </div>
             <div class="modal-body">
                 <h3 id="modal-news-title" style="margin-bottom: 16px; line-height: 1.4;">Titre</h3>
-                <div class="news-ai-badge"><i class="fas fa-robot"></i> Résumé Gemini AI</div>
+                
+                <div class="ai-summary-header">
+                    <div class="news-ai-badge"><i class="fas fa-robot"></i> Résumé Gemini AI</div>
+                    <button class="ai-context-btn" id="analyze-context-btn" title="Pourquoi cette news est-elle importante ?">
+                        <i class="fas fa-question-circle"></i>
+                    </button>
+                </div>
+
                 <div id="modal-news-summary" class="news-summary-text">Chargement...</div>
+                
+                <!-- NOUVEAU CONTENEUR POUR L'ANALYSE DE CONTEXTE -->
+                <div id="modal-news-context" class="news-context-box" style="display:none;">
+                    <div class="context-header">
+                        <i class="fas fa-lightbulb context-icon"></i>
+                        <span class="context-title">Pourquoi est-ce important pour mon portefeuille ?</span>
+                    </div>
+                    <div id="modal-context-content" class="context-content">
+                        <!-- Le contenu sera injecté ici -->
+                    </div>
+                </div>
+                <!-- FIN NOUVEAU CONTENEUR -->
+
                 <div style="margin-top: 24px; text-align: right;">
-                    <a href="#" id="modal-news-link" target="_blank" class="btn-primary" style="font-size: 12px; padding: 8px 16px;">Lire l'article complet</a>
+                    <a href="#" id="modal-news-link" target="_blank" class="btn-primary" style="font-size: 14px; padding: 12px 24px;">Lire l'article complet</a>
                 </div>
             </div>
         </div>

@@ -297,9 +297,12 @@ export class PriceAPI {
     let formatted = this.formatTicker(ticker); 
     
     // === FIX HYBRIDE GOLD ETF ===
-    if (formatted === 'GOLD.PA' && ['5m', '15m', '90m'].includes(interval)) {
-        console.log('🔀 Switch Gold: Utilisation de GOLD-EUR.PA pour les données intraday');
-        formatted = 'GOLD-EUR.PA';
+    const longIntervals = ['1d', '1wk', '1mo', '3mo', '6mo', '1y'];
+    
+    // Le ticker par défaut sera GOLD-EUR.PA (d'après config.js)
+    if (formatted === 'GOLD-EUR.PA' && longIntervals.includes(interval)) {
+        console.log('🔀 Switch Gold: Utilisation de GOLD.PA pour les longues périodes (API historique)');
+        formatted = 'GOLD.PA'; // <-- Revenir à l'ancien ticker pour les longues périodes
     }
 	
     // Détection Crypto améliorée

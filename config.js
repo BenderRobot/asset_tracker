@@ -5,7 +5,7 @@
 export const RAPIDAPI_KEY = '900cd83ff7msh970062bff547634p1d444bjsn67326eb30d74';
 
 // AJOUTEZ VOTRE CLÉ ICI UNE FOIS POUR TOUTES
-export const GEMINI_API_KEY = 'AIzaSyCSFjArNaC35wbZLLGXOlPEO4HJO7hN7pw';
+export const GEMINI_API_KEY = 'AIzaSyA5AMfi3XSJUatQQRemS9L7oG1Jumj67Ao';
 export const FINNHUB_API_KEY = 'd447bqhr01qge0d0spfgd447bqhr01qge0d0spg0';
 
 // CACHE : Durées différentes selon type d'actif
@@ -29,7 +29,7 @@ export const YAHOO_MAP = {
   'TL0': 'TL0.F', 'TKE': 'TKE.F', 'M4I': 'M4I.F', 'ABEA': 'ABEA.F',
   'CSPX': 'CSPX.AS', 'CNDX': 'CNDX.AS', '3ZU0': '3ZU0.F', '1170': '1170.F',
   '9D5': '9D5.F', 'GXG': 'GXG.F', 'BKSY': 'BKSY',
-  'GOLD-ETFP': 'GOLD.PA',
+  'GOLD-ETFP': 'GOLD-EUR.PA',
   'AL2SI': 'AL2SI.PA', 'SU': 'SU.PA', 'ESE': 'ESE.PA', 'EUEA': 'EUEA.AS', 'STEC': 'STEC.AS',
   'CSPXUS': 'CSPX.AS', 'S&P500': 'CSPX.AS', 'SPY': 'SPY', 'VOO': 'VOO', 'CSPX.F': 'CSPX.AS',
   'BTC': 'BTC-EUR'

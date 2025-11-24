@@ -1,7 +1,7 @@
 // benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/investmentsPage.js
 
 // ========================================
-// investmentsPage.js - (v10 - Fix Status Injection)
+// investmentsPage.js - (v11 - Chargement Non-Bloquant)
 // ========================================
 
 import { PAGE_SIZE } from './config.js';
@@ -33,23 +33,66 @@ export class InvestmentsPage {
     this.historicalChart = chartInstance;
   }
 
-  async render(searchQuery = '') {
+  async render(searchQuery = '', fetchPrices = true) {
     this.currentSearchQuery = searchQuery;
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
     
     tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Chargement des données...</td></tr>';
     
-    if (this.historicalChart) {
-      await this.historicalChart.loadPageWithCacheFirst(); 
+    if (fetchPrices) {
+        // En mode bloquant, nous devons récupérer les prix avant de charger le graphique
+        const purchases = this.storage.getPurchases();
+        const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+        if (tickers.length > 0) {
+           await this.api.fetchBatchPrices(tickers);
+        }
+        
+        if (this.historicalChart) {
+          await this.historicalChart.loadPageWithCacheFirst(); 
+        }
     } else {
-        this.renderData([], { 
-            totalInvestedEUR: 0, totalCurrentEUR: 0, totalDayChangeEUR: 0, 
-            gainTotal: 0, gainPct: 0, dayChangePct: 0, 
-            assetsCount: 0, movementsCount: 0 
-        }, 0);
+         // En mode non-bloquant, on affiche tout de suite avec les données en cache
+         if (this.historicalChart) {
+            // Afficher le graphique avec le cache (paramètres non-bloquants)
+            await this.historicalChart.update(false, false); 
+         } else {
+             // Rendre les données du tableau immédiatement
+             const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
+             const targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
+             const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
+             const targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
+             const currentSummary = this.dataManager.calculateSummary(targetHoldings);
+             const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
+
+             this.renderData(targetHoldings, currentSummary, targetCashReserve.total);
+         }
     }
   }
+
+  getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
+      const searchQuery = this.currentSearchQuery;
+      let purchases = this.storage.getPurchases();
+      
+      if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          purchases = purchases.filter(p => p.ticker.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
+      }
+      if (!ignoreTickerFilter) {
+          const selectedTickers = this.filterManager.getSelectedTickers();
+          if (selectedTickers.size > 0) {
+              purchases = purchases.filter(p => selectedTickers.has(p.ticker.toUpperCase()));
+          }
+      }
+      if (this.currentAssetTypeFilter) {
+          purchases = purchases.filter(p => (p.assetType || 'Stock') === this.currentAssetTypeFilter);
+      }
+      if (this.currentBrokerFilter) {
+          purchases = purchases.filter(p => (p.broker || 'RV-CT') === this.currentBrokerFilter);
+      }
+      return purchases;
+  }
+
 
   renderData(holdings, summary, cashReserveTotal, chartStats = null) { // <-- MODIFIÉ
     this.currentHoldings = holdings;
@@ -83,21 +126,26 @@ export class InvestmentsPage {
     if (this.currentPage > totalPages) this.currentPage = totalPages;
     const pageItems = filteredHoldings.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
 
-    tbody.innerHTML = pageItems.map(p => `
-      <tr class="asset-row" data-ticker="${p.ticker}" data-avgprice="${p.avgPrice}">
-        <td><strong>${p.ticker}</strong></td>
-        <td>${p.name}</td>
-        <td>${formatQuantity(p.quantity)}</td>
-        <td>${formatCurrency(p.avgPrice, 'EUR')}</td>
-        <td>${formatCurrency(p.invested, 'EUR')}</td>
-        <td>${formatCurrency(p.currentPrice, 'EUR')}</td>
-        <td>${formatCurrency(p.currentValue, 'EUR')}</td>
-        <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatCurrency(p.gainEUR, 'EUR')}</td>
-        <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatPercent(p.gainPct)}</td>
-        <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatCurrency(p.dayChange, 'EUR')}</td>
-        <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatPercent(p.dayPct)}</td>
-      </tr>
-    `).join('') || '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-secondary);">Aucun investissement correspondant.</td></tr>';
+    tbody.innerHTML = pageItems.map(p => {
+        const isSelected = selectedTickers.has(p.ticker.toUpperCase());
+        const selectedClass = isSelected ? 'selected' : '';
+        
+        return `
+            <tr class="asset-row ${selectedClass}" data-ticker="${p.ticker}" data-avgprice="${p.avgPrice}">
+                <td><strong>${p.ticker}</strong></td>
+                <td>${p.name}</td>
+                <td>${formatQuantity(p.quantity)}</td>
+                <td>${formatCurrency(p.avgPrice, 'EUR')}</td>
+                <td>${formatCurrency(p.invested, 'EUR')}</td>
+                <td>${formatCurrency(p.currentPrice, 'EUR')}</td>
+                <td>${formatCurrency(p.currentValue, 'EUR')}</td>
+                <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatCurrency(p.gainEUR, 'EUR')}</td>
+                <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatPercent(p.gainPct)}</td>
+                <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatCurrency(p.dayChange, 'EUR')}</td>
+                <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatPercent(p.dayPct)}</td>
+            </tr>
+        `;
+    }).join('') || '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-secondary);">Aucun investissement correspondant.</td></tr>';
     
     // --- LOGIQUE D'ÉCRASEMENT DES STATS PAR LE GRAPHIQUE ---
     // 1. Définir les stats du graphique (pour la persistance si pagination)

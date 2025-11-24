@@ -27,7 +27,7 @@ export class FilterManager {
     
     const sorted = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     const count = this.selectedTickers.size;
-    const buttonText = count === 0 ? 'Tous les actifs' : `${count} actif${count > 1 ? 's' : ''}`;
+    const buttonText = count === 0 ? 'All Assets' : `${count} actif${count > 1 ? 's' : ''}`;
     
     container.innerHTML = `
       <div style="position:relative;display:inline-block;">

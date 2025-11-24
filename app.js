@@ -1,7 +1,7 @@
 // benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/app.js
 
 // ========================================
-// app.js - (v11 - Complet avec MarketStatus & Cash)
+// app.js - (v12 - Chargement Non-Bloquant)
 // ========================================
 import { Storage } from './storage.js';
 import { PriceAPI } from './api.js?v=4';
@@ -56,7 +56,7 @@ class App {
                 ticker: 'CASH',
                 name: type, 
                 price: finalAmount, 
-                date: document.getElementById('cash-date').value,
+                date: document.getElementById('date').value, // Utiliser la date du formulaire Actif
                 quantity: 1, 
                 currency: 'EUR',
                 assetType: 'Cash',
@@ -84,9 +84,7 @@ class App {
   async init() {
     console.log('Initialisation de l\'application...'); 
 
-    // Démarrer l'auto-refresh du statut marché (badge header)
-    this.marketStatus.startAutoRefresh('market-status-container', 'full');
-    
+    // 1. Initialiser le taux de conversion (rapide)
     await this.initConversionRates();
 
     this.storage.cleanExpiredCache();
@@ -94,7 +92,8 @@ class App {
 
     this.populateAssetTypeAndBrokerSelects();
 
-    await this.renderCurrentPage(); 
+    // 2. RENDER INITIAL RAPIDE (AVEC DONNÉES EN CACHE OU VALEURS PAR DÉFAUT)
+    await this.renderCurrentPage(false); // <-- NE PAS FORCER LE REFRESH
 
     this.setupEventListeners();
 
@@ -104,9 +103,22 @@ class App {
       this.historicalChart.setupPeriodButtons();
       this.historicalChart.startAutoRefresh(); 
     }
-
+    
+    // 3. LANCER LE REFRESH DES PRIX EN ARRIÈRE-PLAN (NON-BLOQUANT)
+    console.log('Lancement du rafraîchissement des prix en arrière-plan...');
+    this.refreshPrices().then(() => {
+        console.log('Mise à jour des prix terminée. Le tableau est mis à jour.');
+        // On relance le render pour afficher les prix à jour
+        this.renderCurrentPage(false); 
+    }).catch(error => {
+        console.error('Erreur lors du rafraîchissement initial non-bloquant:', error);
+    });
+    
+    // Démarrer l'auto-refresh du statut marché (badge header)
+    this.marketStatus.startAutoRefresh('market-status-container', 'full');
     this.startAutoRefresh();
-    console.log('Application prête');
+
+    console.log('Application prête (Chargement rapide du tableau effectué)');
   }
 
   async initConversionRates() {
@@ -129,17 +141,6 @@ class App {
         console.error('Échec taux de change:', error.message);
     }
   }
-
-  // --- START MODIFICATION ---
-  // Suppression de la fonction updateMarketStatus, car son travail est géré ailleurs.
-  /*
-  updateMarketStatus() {
-    if (this.marketStatus) {
-      this.marketStatus.injectStatusBadge('market-status-container');
-    }
-  }
-  */
-  // --- END MODIFICATION ---
 
   populateAssetTypeAndBrokerSelects() {
     const assetTypeSelect = document.getElementById('asset-type-select');
@@ -178,22 +179,51 @@ class App {
     return window.location.pathname.includes('investments.html'); 
   }
 
-  async renderCurrentPage() { 
+  async renderCurrentPage(fetchPrices = true) { 
     if (this.isAchatsPage()) {
-      await this.achatsPage.render(this.searchQuery);
+      await this.achatsPage.render(this.searchQuery, fetchPrices); // <-- PASSER LE FLAG
     } else if (this.isInvestmentsPage()) {
-      await this.investmentsPage.render(this.searchQuery); 
+      await this.investmentsPage.render(this.searchQuery, fetchPrices); // <-- PASSER LE FLAG
     }
   }
 
   setupEventListeners() {
     if (this.isAchatsPage()) {
       this.setupAchatsPageListeners();
+      this.setupToggleListener(); // Garde la fonction de bascule
     }
     if (this.isInvestmentsPage()) {
       this.setupInvestmentsPageListeners();
     }
   }
+
+  // Fonction de bascule (non modifiée, elle est OK)
+  setupToggleListener() {
+    const toggleBtn = document.getElementById('toggle-add-btn');
+    const wrapper = document.getElementById('add-transaction-wrapper');
+    if (!toggleBtn || !wrapper) return;
+
+    // Initialisation du texte du bouton (important car le bloc est masqué par défaut)
+    toggleBtn.innerHTML = '<i class="fas fa-plus"></i> Add';
+
+    toggleBtn.addEventListener('click', () => {
+      const isExpanded = wrapper.classList.toggle('expanded');
+      
+      // Mise à jour du texte du bouton et de l'icône
+      const icon = toggleBtn.querySelector('i');
+      if (isExpanded) {
+        window.scrollTo({ top: 0, behavior: 'smooth' }); 
+        toggleBtn.textContent = 'Close';
+        icon.className = 'fas fa-times';
+        toggleBtn.prepend(icon);
+      } else {
+        toggleBtn.textContent = 'Add';
+        icon.className = 'fas fa-plus';
+        toggleBtn.prepend(icon);
+      }
+    });
+  }
+
 
   setupAchatsPageListeners() {
     const form = document.getElementById('purchase-form');
@@ -215,7 +245,7 @@ class App {
     const refreshBtn = document.getElementById('refresh-prices');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
-        await this.refreshPrices();
+        await this.refreshPrices(false, true); // Forcer le refresh API
       });
     }
 
@@ -259,7 +289,7 @@ class App {
     const refreshBtn = document.getElementById('refresh-prices');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
-        await this.refreshPrices();
+        await this.refreshPrices(false, true);
       });
     }
 
@@ -300,34 +330,29 @@ class App {
     }
   }
 
-  async refreshPrices(forceWeekend = false) {
+  async refreshPrices(forceWeekend = false, showLoading = true) {
     if (this.isRefreshing) return;
 
     this.isRefreshing = true;
     const btn = document.getElementById('refresh-prices');
     const originalText = btn?.textContent;
 
-    const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
-
-    if (btn) {
+    if (showLoading && btn) {
       btn.disabled = true;
-      btn.textContent = forceWeekend ? 'Récupération douce...' : isWeekend ? 'Weekend Mode...' : 'Refreshing...';
+      btn.textContent = 'Refreshing...';
     }
 
     try {
       if (this.isInvestmentsPage() && this.historicalChart) {
-          await this.historicalChart.update(true, true);
+          await this.historicalChart.update(showLoading, true);
       } else {
           const purchases = this.storage.getPurchases();
           const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
           if (tickers.length > 0) {
              await this.api.fetchBatchPrices(tickers, forceWeekend); 
           }
-          await this.renderCurrentPage();
+          await this.renderCurrentPage(false); // Rendre avec les nouveaux prix
       }
-      
-      // Suppression de l'appel buggé (MarketStatus est géré par startAutoRefresh et ui.js)
-      // this.updateMarketStatus();
       
       this.showNotification(forceWeekend ? 'Prix de clôture récupérés !' : 'Prix mis à jour', 'success');
     } catch (error) {
@@ -335,7 +360,7 @@ class App {
       this.showNotification('Erreur de mise à jour', 'error');
     } finally {
       this.isRefreshing = false;
-      if (btn) {
+      if (showLoading && btn) {
         btn.disabled = false;
         btn.textContent = originalText;
       }
@@ -389,7 +414,7 @@ class App {
             `Continuer ?`
           );
           if (confirm) {
-            await this.refreshPrices(true);
+            await this.refreshPrices(true, true);
             forceBtn.remove();
           }
         });
@@ -462,6 +487,7 @@ class App {
 
       this.filterManager.updateTickerFilter(() => this.renderCurrentPage());
       await this.achatsPage.render(this.searchQuery);
+
       this.showNotification(`${count} transactions importées`, 'success');
 
       fileInput.value = '';
@@ -473,7 +499,7 @@ class App {
     } finally {
       if (importBtn) {
         importBtn.disabled = false;
-        importBtn.innerHTML = originalBtnText;
+        btn.innerHTML = originalBtnText; // Utilisez la variable originale
       }
     }
   }
@@ -552,9 +578,10 @@ class App {
       if (this.isInvestmentsPage() && this.historicalChart) {
           await this.historicalChart.silentUpdate();
       } else {
-          const tickers = [...new Set(this.storage.getPurchases().map(p => p.ticker.toUpperCase()))];
+          const purchases = this.storage.getPurchases();
+          const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
           await this.api.fetchBatchPrices(tickers);
-          await this.renderCurrentPage();
+          await this.renderCurrentPage(false);
       }
     } catch (error) {
       console.error('Erreur auto-refresh:', error);

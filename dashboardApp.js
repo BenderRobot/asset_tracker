@@ -1,7 +1,7 @@
 // benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/dashboardApp.js
 
 // ========================================
-// dashboardApp.js - (Fix Allocation & Sparkline)
+// dashboardApp.js - (Final Fix: Ajout Contextualisation Gemini)
 // ========================================
 
 import { Storage } from './storage.js';
@@ -9,8 +9,7 @@ import { PriceAPI } from './api.js?v=4';
 import { MarketStatus } from './marketStatus.js?v=2';
 import { DataManager } from './dataManager.js?v=7';
 import { HistoricalChart } from './historicalChart.js?v=9';
-
-const GEMINI_API_KEY = "AIzaSyCSFjArNaC35wbZLLGXOlPEO4HJO7hN7pw"; 
+import { GEMINI_API_KEY } from './config.js'; // <--- FIX: Import de la clé API depuis config.js
 
 class DashboardApp {
     constructor() {
@@ -35,12 +34,12 @@ class DashboardApp {
         };
 
         this.chart = null;
-        this.corsProxies = [
-            'https://api.allorigins.win/raw?url=',
+        this.corsProxies = [ // <--- FIX: Correction de la liste des proxies pour la stabilité RSS
             'https://corsproxy.io/?',
-            'https://api.codetabs.com/v1/proxy?quest='
+            'https://api.codetabs.com/v1/proxy?quest=',
+            'https://proxy.cors.sh/' // Nouveau proxy de secours
         ];
-
+        this.currentProxyIndex = 0;
         this.init();
     }
 
@@ -88,18 +87,69 @@ class DashboardApp {
         const closeBtn = document.getElementById('close-news-modal');
         const modal = document.getElementById('news-modal');
         const refreshPortfolioBtn = document.getElementById('refresh-portfolio-news');
+        const analyzeContextBtn = document.getElementById('analyze-context-btn'); // <--- NOUVEAU
 
         if (refreshPortfolioBtn) refreshPortfolioBtn.addEventListener('click', () => this.loadPortfolioNews());
         
         const closeModal = () => {
             if (modal) {
                 modal.classList.remove('show');
+                // Masquer le bloc de contexte quand on ferme le modal
+                const contextBox = document.getElementById('modal-news-context');
+                if (contextBox) contextBox.style.display = 'none';
                 setTimeout(() => { modal.style.display = 'none'; }, 300);
             }
         };
 
         if(closeBtn) closeBtn.onclick = closeModal;
         if(modal) modal.onclick = (e) => { if(e.target === modal) closeModal(); };
+        
+        // Gérer le clic sur le bouton d'analyse contextuelle (hors openNewsModal)
+        if(analyzeContextBtn) analyzeContextBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.handleContextAnalysis();
+        });
+    }
+    
+    // NOUVELLE MÉTHODE : Gérer l'analyse contextuelle après le clic sur le bouton
+    handleContextAnalysis() {
+        const contextBox = document.getElementById('modal-news-context');
+        const contextContent = document.getElementById('modal-context-content');
+        
+        if (!contextBox || !contextContent) return;
+
+        // 1. Récupérer les données du dernier item ouvert
+        const newsItem = this.currentModalNewsItem;
+        const currentSummary = this.currentGeminiSummary; // Le résumé principal déjà généré
+        
+        if (!newsItem || !currentSummary) {
+            contextContent.innerHTML = 'Impossible de trouver le résumé principal pour l\'analyse.';
+            contextBox.style.display = 'block';
+            setTimeout(() => contextBox.classList.add('show'), 10);
+            return;
+        }
+
+        // 2. Vérifier si l'analyse est déjà affichée et basculer l'affichage
+        if (contextBox.style.display === 'block') {
+            contextBox.classList.remove('show');
+            setTimeout(() => contextBox.style.display = 'none', 300);
+            return;
+        }
+
+        // 3. Afficher l'état de chargement et le conteneur
+        contextBox.style.display = 'block';
+        contextBox.classList.remove('show');
+        contextContent.innerHTML = '<span class="loading-text">💡 Gemini contextualise...</span>';
+        setTimeout(() => contextBox.classList.add('show'), 10);
+
+        // 4. Lancer la seconde requête Gemini
+        this.fetchGeminiContext(newsItem.title, currentSummary)
+            .then(contextSummary => {
+                contextContent.innerHTML = contextSummary;
+            })
+            .catch(error => {
+                contextContent.innerHTML = "Échec de l'analyse contextuelle.";
+            });
     }
 
     initHistoricalChart() {
@@ -163,12 +213,10 @@ class DashboardApp {
             const cashReserve = this.dataManager.calculateCashReserve(cashPurchases);
             
             this.renderKPIs(summary, cashReserve.total, holdings);
-            // === CORRECTION : La fonction est bien appelée ici ===
             this.renderAllocation(holdings, summary.totalCurrentEUR); 
         } catch (error) { console.error("Erreur chargement portfolio:", error); }
     }
 
-    // === CORRECTION : RÉINTÉGRATION DE RENDER ALLOCATION ===
     renderAllocation(holdings, totalValue) {
         const container = document.getElementById('dashboard-allocation-container');
         if (!container || totalValue === 0) return;
@@ -222,7 +270,6 @@ class DashboardApp {
 
         // 1. TOTAL VALUE
         safeText('dashboard-total-value', fmt(data.totalCurrentEUR + cashTotal));
-        // AJOUT : Mise à jour du sous-titre "Invested"
         safeText('dashboard-invested-subtitle', `Invested: ${fmt(data.totalInvestedEUR)}`);
 
         // 2. TOTAL RETURN
@@ -235,7 +282,6 @@ class DashboardApp {
         safeText('dashboard-day-change-pct', pct(data.dayChangePct));
         setClass('dashboard-day-change-pct', data.totalDayChangeEUR);
 
-        // ... (Reste du code pour les listes Top Gainer/Loser inchangé) ...
         const topGainers = [...holdings].sort((a, b) => b.gainPct - a.gainPct).slice(0, 3);
         this.injectListIntoCard('dashboard-top-gainer-name', topGainers, 'gainer');
 
@@ -249,7 +295,6 @@ class DashboardApp {
         if(sectorTitle) sectorTitle.textContent = 'Top Holdings';
     }
 
-    // === MODIFICATION : SUPPRESSION DES TICKERS ===
     injectListIntoCard(elementId, items, type) {
         const targetEl = document.getElementById(elementId);
         if (!targetEl) return;
@@ -298,6 +343,13 @@ class DashboardApp {
         
         card.insertAdjacentHTML('beforeend', listHTML);
     }
+    
+    // NOUVELLE FONCTION DE NETTOYAGE DU TEXTE POUR LE PROMPT GEMINI
+    cleanText(text) {
+        if (typeof text !== 'string') return '';
+        // Échappe les apostrophes et guillemets pour éviter les problèmes de parsing JSON/JS
+        return text.replace(/'/g, "\\'").replace(/"/g, '\\"'); 
+    }
 
     async loadPortfolioNews() {
         const container = document.getElementById('news-portfolio-container');
@@ -313,16 +365,28 @@ class DashboardApp {
         }
 
         const promises = [];
-        const selected = uniqueNames.sort(() => 0.5 - Math.random()).slice(0, 4);
-        selected.forEach(name => promises.push(this.fetchGoogleRSS(`${name} actualité financière`)));
+        // MODIFICATION: Recherche sur TOUS les actifs, pas seulement 8
+        const selected = uniqueNames; 
+        
+        // MODIFICATION: Limite la recherche à UN seul article par actif (pour la fraîcheur)
+        selected.forEach(name => promises.push(this.fetchGoogleRSS(`${name} actualité financière`, 1)));
 
         try {
             const results = await Promise.all(promises);
-            const allNews = results.flat().sort((a, b) => b.datetime - a.datetime);
-            this.portfolioNews = this.deduplicateNews(allNews).slice(0, 15);
+            const allNews = results.flat();
+            
+            // 1. Déduplication
+            const uniqueNews = this.deduplicateNews(allNews);
+
+            // 2. Tri par date (plus récent d'abord)
+            uniqueNews.sort((a, b) => b.datetime - a.datetime);
+            
+            // 3. Limite de l'affichage
+            this.portfolioNews = uniqueNews.slice(0, 25); // Afficher plus si disponibles
+            
             this.renderNewsList(container, this.portfolioNews, 'portfolio');
         } catch (e) {
-            container.innerHTML = '<div style="padding:20px; text-align:center; color:#ef4444">Erreur</div>';
+            container.innerHTML = '<div style="padding:20px; text-align:center; color:#ef4444">Erreur';
         }
     }
 
@@ -332,7 +396,7 @@ class DashboardApp {
         container.innerHTML = '<div style="padding:20px; text-align:center; color:#666"><i class="fas fa-circle-notch fa-spin"></i></div>';
 
         const topics = ["Marchés Bourse Paris", "Wall Street économie", "Crypto Bitcoin actu", "Inflation BCE Fed"];
-        const promises = topics.map(t => this.fetchGoogleRSS(t));
+        const promises = topics.map(t => this.fetchGoogleRSS(t, 4)); // Récupère 4 articles par sujet macro
 
         try {
             const results = await Promise.all(promises);
@@ -344,7 +408,8 @@ class DashboardApp {
         }
     }
 
-    async fetchGoogleRSS(query) {
+    // Modification de la signature pour prendre une limite de nouvelles
+    async fetchGoogleRSS(query, limit = 1) { // MODIFICATION: Ajout de 'limit'
         const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=fr&gl=FR&ceid=FR:fr`;
         for (const proxy of this.corsProxies) {
             try {
@@ -352,9 +417,11 @@ class DashboardApp {
                 if (response.ok) {
                     const str = await response.text();
                     const data = new window.DOMParser().parseFromString(str, "text/xml");
-                    return Array.from(data.querySelectorAll("item")).slice(0, 3).map(item => {
+                    // MODIFICATION: Utilise la nouvelle limite
+                    return Array.from(data.querySelectorAll("item")).slice(0, limit).map(item => { 
                         const pubDate = item.querySelector("pubDate")?.textContent;
                         const fullTitle = item.querySelector("title")?.textContent || "";
+                        const description = item.querySelector("description")?.textContent || ""; // <--- Récupère la description
                         const parts = fullTitle.split(" - ");
                         const source = parts.length > 1 ? parts.pop() : "Google";
                         return {
@@ -363,7 +430,8 @@ class DashboardApp {
                             title: parts.join(" - "),
                             source: source,
                             url: item.querySelector("link")?.textContent,
-                            datetime: pubDate ? new Date(pubDate).getTime() / 1000 : Date.now() / 1000
+                            datetime: pubDate ? new Date(pubDate).getTime() / 1000 : Date.now() / 1000,
+                            fullDescription: description // <--- Ajouté
                         };
                     });
                 }
@@ -377,15 +445,20 @@ class DashboardApp {
             container.innerHTML = '<div style="padding:20px; text-align:center; color:#666">Aucune news</div>';
             return;
         }
-        container.innerHTML = newsData.map((n, i) => `
-            <div class="news-item-compact" data-type="${type}" data-index="${i}">
-                <div class="news-meta-row">
-                    <span class="news-ticker-tag" style="color:${this.getColorFor(n.ticker)}">${n.ticker}</span>
-                    <span>${this.timeSince(n.datetime)}</span>
+        container.innerHTML = newsData.map((n, i) => {
+            // Nouvelle fonction pour formater la date pour l'affichage en liste
+            const formattedDate = this.formatFullDateTime(n.datetime * 1000); 
+
+            return `
+                <div class="news-item-compact" data-type="${type}" data-index="${i}">
+                    <div class="news-meta-row">
+                        <span class="news-ticker-tag" style="color:${this.getColorFor(n.ticker)}">${n.ticker}</span>
+                        <span>${formattedDate}</span> <!-- AFFICHAGE DATE/HEURE -->
+                    </div>
+                    <div class="news-title-compact">${n.title}</div>
                 </div>
-                <div class="news-title-compact">${n.title}</div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 
         container.querySelectorAll('.news-item-compact').forEach(item => {
             item.addEventListener('click', () => {
@@ -414,6 +487,23 @@ class DashboardApp {
         const modal = document.getElementById('news-modal');
         if(!modal) return;
 
+        // Stocker l'item pour l'analyse contextuelle
+        this.currentModalNewsItem = newsItem; 
+        this.currentGeminiSummary = null;
+
+        // Cacher la boîte de contexte par défaut
+        const contextBox = document.getElementById('modal-news-context');
+        if (contextBox) {
+            contextBox.classList.remove('show');
+            contextBox.style.display = 'none';
+        }
+        
+        // AFFICHAGE DATE DANS LE MODAL
+        const pubDateEl = document.getElementById('modal-news-pubdate');
+        if (pubDateEl) {
+             pubDateEl.textContent = this.formatFullDateTime(newsItem.datetime * 1000, true);
+        }
+
         document.getElementById('modal-news-ticker').textContent = newsItem.ticker;
         document.getElementById('modal-news-ticker').style.backgroundColor = this.getColorFor(newsItem.ticker);
         document.getElementById('modal-news-title').textContent = newsItem.title;
@@ -426,22 +516,31 @@ class DashboardApp {
         setTimeout(() => { modal.classList.add('show'); }, 10);
 
         try {
-            const summary = await this.fetchGeminiSummary(newsItem.title, newsItem.name);
+            const description = newsItem.fullDescription || '';
+            const summary = await this.fetchGeminiSummary(newsItem.title, newsItem.name, description);
+            this.currentGeminiSummary = summary; // Stocker le résumé principal
             summaryDiv.innerHTML = summary;
         } catch (error) {
             summaryDiv.innerHTML = "Analyse indisponible.";
         }
     }
 
-    async fetchGeminiSummary(title, companyName) {
+    async fetchGeminiSummary(title, companyName, fullDescription = null) {
         if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 20) {
             await new Promise(r => setTimeout(r, 500));
             return `<strong>Mode Démo :</strong> Clé API manquante.`;
         }
 
-        const models = ['gemini-1.5-flash', 'gemini-pro'];
-        const prompt = `Tu es un analyste financier. Résume cette news en français (max 2 phrases). Titre: "${title}". Sujet: ${companyName}`;
-
+        const models = ['gemini-2.5-flash'];
+        
+        let basePrompt = `Tu es un analyste financier. Résume cette news en français (max 2 phrases). Titre: "${this.cleanText(title)}". Sujet: ${this.cleanText(companyName)}`;
+        
+        if (fullDescription && fullDescription.length > 5) {
+            basePrompt += `. Description/extrait de l'article: "${this.cleanText(fullDescription)}"`;
+        }
+        
+        const prompt = basePrompt;
+        
         for (const model of models) {
             try {
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
@@ -461,14 +560,57 @@ class DashboardApp {
         }
         return "IA indisponible.";
     }
+    
+    // NOUVELLE FONCTION : Analyse Contextuelle (Pourquoi c'est important)
+    async fetchGeminiContext(title, summary) {
+        if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 20) {
+            return `<strong>Mode Démo :</strong> Clé API manquante.`;
+        }
 
-    timeSince(timestamp) {
-        const seconds = Math.floor((new Date() - (timestamp * 1000)) / 1000);
-        let interval = seconds / 3600;
-        if (interval > 1) return Math.floor(interval) + "h";
-        interval = seconds / 60;
-        if (interval > 1) return Math.floor(interval) + "m";
-        return "Now";
+        const models = ['gemini-2.5-flash'];
+        
+        // MODIFICATION ICI: Consigne plus SMART et plus longue
+        const prompt = `Agis comme un analyste financier chevronné. En te basant sur le résumé ci-dessous, rédige une analyse percutante de 1 à 3 phrases expliquant clairement l'impact potentiel (opportunité ou risque) de cette nouvelle sur la valeur future de l'actif pour un investisseur. Utilise un langage précis (ex: "signal de pression à la baisse", "confirme une tendance haussière", "justifie une attention accrue").
+        Titre de la nouvelle: "${this.cleanText(title)}". 
+        Résumé fourni: "${this.cleanText(summary)}".`;
+        
+        for (const model of models) {
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.candidates && data.candidates[0].content) {
+                        let text = data.candidates[0].content.parts[0].text;
+                        return text.replace(/\n/g, '<br>').replace(/\*\*/g, '<strong>'); // Permet les mises en gras et les sauts de ligne
+                    }
+                }
+            } catch (e) { console.warn(e); }
+        }
+        return "Analyse de l'impact indisponible.";
+    }
+
+    // MODIFIÉ: Maintenant formate la date complète (JJ/MM/AAAA HH:MM)
+    formatFullDateTime(timestamp, includeTime = true) {
+        const date = new Date(timestamp);
+        
+        const options = { 
+            day: '2-digit', 
+            month: 'short',
+            year: 'numeric' 
+        };
+
+        if (includeTime) {
+             options.hour = '2-digit';
+             options.minute = '2-digit';
+        }
+
+        // Utilise toLocaleString pour un format lisible en français
+        return date.toLocaleString('fr-FR', options);
     }
 
     getColorFor(ticker) {

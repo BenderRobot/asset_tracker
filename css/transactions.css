@@ -1,7 +1,3 @@
-/* ========================================
-   TRANSACTIONS.CSS - Styles pour index.html
-   ======================================== */
-
 /* === FORMULAIRE D'AJOUT === */
 .purchase-form-grid {
     display: grid;
@@ -303,4 +299,28 @@ input[type="checkbox"] {
 
 @media (max-width: 768px) {
     .data-grid { grid-template-columns: 1fr; }
+}
+
+/* ========================================
+   NOUVEAUX STYLES DE BASCULE (Toggle)
+   ======================================== */
+.main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.hidden-wrapper {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.5s ease-in-out, opacity 0.3s ease;
+    margin-bottom: 0; 
+}
+
+.hidden-wrapper.expanded {
+    max-height: 800px;
+    opacity: 1;
+    margin-bottom: 24px;
 }
