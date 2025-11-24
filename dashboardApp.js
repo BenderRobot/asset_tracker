@@ -456,7 +456,7 @@ class DashboardApp {
 
         const prompt = `Tu es un analyste financier. Résume cette news en français (max 2 phrases). Titre: "${this.cleanText(title)}". Sujet: ${this.cleanText(companyName)}${fullDescription ? `. Description: "${this.cleanText(fullDescription)}"` : ''}`;
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         try {
             const response = await fetch(url, {
                 method: 'POST',
@@ -478,7 +478,7 @@ class DashboardApp {
 
         const prompt = `Agis comme un analyste financier chevronné. En te basant sur ce résumé, explique en 1 à 3 phrases l'impact potentiel (opportunité ou risque) de cette nouvelle sur l'actif concerné.\nTitre: "${this.cleanText(title)}"\nRésumé: "${this.cleanText(summary)}"`;
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         try {
             const response = await fetch(url, {
                 method: 'POST',

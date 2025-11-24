@@ -1,0 +1,158 @@
+/* ========================================
+   news-clean.css → Version PARFAITE (couleurs fixes + hauteur identique)
+   ======================================== */
+
+.news-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.news-header h2 {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.news-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+#filter-feed-select {
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    min-width: 160px;
+}
+
+.news-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 20px;
+    padding: 8px 0;
+}
+
+.news-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    height: 100%;               /* <-- IMPORTANT : même hauteur */
+}
+
+.news-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+    border-color: var(--accent-blue);
+}
+
+.news-card-header {
+    padding: 14px 18px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.source-tag {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: white !important;
+}
+
+/* COULEURS UNIQUES ET FIXES PAR SOURCE (plus jamais de gris) */
+.source-tag[data-source="CNBC"] { background: #00a857; }
+.source-tag[data-source="The Wall Street Journal"] { background: #2b2d42; }
+.source-tag[data-source="MarketWatch"] { background: #00b88d; }
+.source-tag[data-source="Bloomberg"] { background: #f9c74f; color: black !important; }
+.source-tag[data-source="Investor's Business Daily"] { background: #e63946; }
+.source-tag[data-source="Investopedia"] { background: #2a9d8f; }
+.source-tag[data-source="Reuters"] { background: #ff6b35; }
+.source-tag[data-source="Les Échos"] { background: #e63946; }
+.source-tag[data-source="Boursorama"] { background: #06d6a0; color: black !important; }
+.source-tag[data-source="Le Figaro Éco"] { background: #1d3557; }
+.source-tag[data-source="Financial Times"] { background: #9d4a00; }
+.source-tag[data-source="CoinDesk"] { background: #3366ff; }
+.source-tag[data-source="Zonebourse"] { background: #7209b7; }
+
+/* Fallback si source inconnue */
+.source-tag { background: #555; }
+
+.feed-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.news-card-title {
+    padding: 10px 18px 0;
+    font-size: 15.5px;
+    font-weight: 600;
+    line-height: 1.45;
+    color: var(--text-primary);
+    flex-grow: 1;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.news-card-footer {
+    padding: 12px 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    border-top: 1px dashed var(--border-color);
+    margin-top: auto;           /* <-- pousse le footer en bas */
+    flex-shrink: 0;
+}
+
+.news-card-footer i {
+    color: var(--accent-blue);
+    opacity: 0.7;
+    transition: 0.2s;
+}
+
+.news-card:hover .news-card-footer i {
+    opacity: 1;
+}
+
+.loading {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 80px 20px;
+    font-size: 18px;
+    color: var(--text-muted);
+}
+
+.loading i {
+    font-size: 42px;
+    margin-bottom: 16px;
+    color: var(--accent-blue);
+}
+
+@media (max-width: 768px) {
+    .news-grid { grid-template-columns: 1fr; }
+    .news-header { flex-direction: column; align-items: stretch; }
+    .news-actions { justify-content: space-between; }
+}
