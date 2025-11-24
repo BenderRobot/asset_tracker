@@ -67,7 +67,7 @@ export class UIComponents {
                         }
                         
                         // Mise à jour du contenu
-                        const status = marketStatusObj.getStatus();
+                        const status = marketStatusObj.getGlobalStatus();
                         badge.textContent = status.shortLabel;
                         badge.style.color = status.color;
                         badge.style.border = `1px solid ${status.color}`;

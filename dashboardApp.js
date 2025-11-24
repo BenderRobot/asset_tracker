@@ -518,58 +518,69 @@ class DashboardApp {
 
 		// CDN OpenMoji (fiable, rapide, pas de CORS)
 		const cdn = "https://cdn.jsdelivr.net/npm/openmoji@14.0.0/color/svg/";
-
 		const indices = [
-			{ ticker: '^GSPC',     name: 'S&P 500',        icon: `${cdn}1F1FA-1F1F8.svg` },  // USA
-			{ ticker: '^IXIC',     name: 'NASDAQ 100',     icon: `${cdn}1F4BB.svg` },        // Laptop
-			{ ticker: '^FCHI',     name: 'CAC 40',         icon: `${cdn}1F1EB-1F1F7.svg` },  // France
-			{ ticker: '^STOXX50E', name: 'EURO STOXX 50',   icon: `${cdn}1F1EA-1F1FA.svg` },  // EU
-			{ ticker: 'BTC-EUR',   name: 'BITCOIN',        icon: '₿' },                         // Émoji natif
-			{ ticker: 'GC=F',      name: 'OR (GOLD)',      icon: `${cdn}1FA99.svg` },        // Lingot
-			{ ticker: 'EURUSD=X',  name: 'EUR / USD',      icon: `${cdn}1F4B1.svg` }         // Money Exchange
+			{ ticker: '^GSPC',     name: 'S&P 500',        icon: `${cdn}1F1FA-1F1F8.svg` },
+			{ ticker: '^IXIC',     name: 'NASDAQ 100',     icon: `${cdn}1F4BB.svg` },
+			{ ticker: '^FCHI',     name: 'CAC 40',         icon: `${cdn}1F1EB-1F1F7.svg` },
+			{ ticker: '^STOXX50E', name: 'EURO STOXX 50',  icon: `${cdn}1F1EA-1F1FA.svg` },
+			{ ticker: 'BTC-EUR',   name: 'BITCOIN',        icon: '₿' },
+			{ ticker: 'GC=F',      name: 'OR (GOLD)',      icon: `${cdn}1FA99.svg` },
+			{ ticker: 'EURUSD=X',  name: 'EUR / USD',      icon: `${cdn}1F4B1.svg` }
 		];
 
-		try { await this.api.fetchBatchPrices(indices.map(i => i.ticker)); } catch (e) {}
+		//Force le rafraîchissement des prix (bypass cache)
+		// try {
+			// await this.api.fetchBatchPrices(indices.map(i => i.ticker), true);
+		// } catch (e) {
+			// console.warn('fetchBatchPrices failed:', e);
+		// }
 
 		container.innerHTML = '';
 
 		for (const idx of indices) {
-			const data = this.storage.getCurrentPrice(idx.ticker) || {};
-			const price = data.price || 0;
-			const prev = data.previousClose || price;
+			const data   = this.storage.getCurrentPrice(idx.ticker) || {};
+			const price  = data.price || 0;
+			const prev   = data.previousClose || price;
 			const change = price - prev;
-			const pct = prev ? (change / prev) * 100 : 0;
+			const pct    = prev ? (change / prev) * 100 : 0;
 
-			const priceStr = idx.ticker.includes('BTC') ? Math.round(price).toLocaleString('fr') + ' €' :
-							idx.ticker === 'EURUSD=X' ? price.toFixed(4) : price.toFixed(2);
+			const priceStr = idx.ticker.includes('BTC')
+				? Math.round(price).toLocaleString('fr') + ' €'
+				: idx.ticker === 'EURUSD=X'
+					? price.toFixed(4)
+					: price.toFixed(2);
 
-			const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+			const changeStr  = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
 			const changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
-
 			const assetStatus = this.marketStatus.getAssetStatus(idx.ticker);
 			const statusLabel = assetStatus.label;
 			const statusColor = assetStatus.color;
 
-			// SPARKLINE EN FOND → PLUS VISIBLE & PLUS BEAU
+			// ————— SPARKLINE EN FOND —————
 			let sparklineBg = '';
 			try {
-				const hist = await this.api.getHistoricalPricesWithRetry(
+				const hist   = await this.api.getHistoricalPricesWithRetry(
 					idx.ticker,
-					Math.floor((Date.now() - 48*60*60*1000)/1000),
-					Math.floor(Date.now()/1000),
+					Math.floor((Date.now() - 48 * 60 * 60 * 1000) / 1000),
+					Math.floor(Date.now() / 1000),
 					'5m'
 				);
 				const values = Object.values(hist);
-				if (values.length > 5) {
-					const min = Math.min(...values), max = Math.max(...values);
-					const range = max - min || 1;
-					const points = values.map((v, i) => {
-						const x = (i / (values.length - 1)) * 100;
-						const y = 88 - ((v - min) / range) * 70;
-						return `${x},${y}`;
-					}).join(' ');
 
-					const color = change >= 0 ? '#10b981' : '#ef4444'; // Couleurs vives
+				if (values.length > 5) {
+					const min   = Math.min(...values);
+					const max   = Math.max(...values);
+					const range = max - min || 1;
+
+					const points = values
+						.map((v, i) => {
+							const x = (i / (values.length - 1)) * 100;
+							const y = 88 - ((v - min) / range) * 70;
+							return `${x},${y}`;
+						})
+						.join(' ');
+
+					const color  = change >= 0 ? '#10b981' : '#ef4444';
 					const gradId = `grad-${idx.ticker.replace(/[^a-z]/gi, '')}`;
 
 					sparklineBg = `
@@ -577,24 +588,26 @@ class DashboardApp {
 							<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%; height:100%;">
 								<defs>
 									<linearGradient id="${gradId}" x1="0%" y1="100%" x2="0%" y2="0%">
-										<stop offset="0%" stop-color="${color}" stop-opacity="0.7"/>
-										<stop offset="60%" stop-color="${color}" stop-opacity="0.25"/>
+										<stop offset="0%"   stop-color="${color}" stop-opacity="0.7"/>
+										<stop offset="60%"  stop-color="${color}" stop-opacity="0.25"/>
 										<stop offset="100%" stop-color="${color}" stop-opacity="0.05"/>
 									</linearGradient>
 								</defs>
 								<polyline fill="none" stroke="${color}" stroke-width="1.6" points="${points}"/>
 								<polygon fill="url(#${gradId})" points="${points},100,100,100,0"/>
 							</svg>
-						</div>
-					`;
+						</div>`;
 				}
-			} catch (e) {}
+			} catch (e) {
+				// Sparkline échouée → on ignore silencieusement
+			}
 
-			// Icône (SVG ou emoji)
-			const iconHTML = idx.icon.includes('http') 
+			// ————— ICÔNE —————
+			const iconHTML = idx.icon.includes('http')
 				? `<img src="${idx.icon}" alt="" style="width:26px; height:26px; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">`
 				: `<span style="font-size:28px; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6));">${idx.icon}</span>`;
 
+			// ————— CARTE —————
 			const card = document.createElement('div');
 			card.className = 'market-card';
 			card.style.cssText = `
@@ -602,7 +615,7 @@ class DashboardApp {
 				overflow:hidden;
 				border-radius:12px;
 				background:#0f172a;
-				height:112px;               /* Hauteur fixe → plus compact */
+				height:112px;
 				display:flex;
 				flex-direction:column;
 				justify-content:space-between;
@@ -627,19 +640,29 @@ class DashboardApp {
 				</div>
 			`;
 
-			card.onclick = () => {
+			// ————— CLIC SUR LA CARTE —————
+			card.onclick = async () => {
 				document.querySelectorAll('.market-card').forEach(c => c.classList.remove('active-index'));
 				card.classList.add('active-index');
-				if (this.chart) this.chart.showIndex(idx.ticker, idx.name);
+
+				// Refresh immédiat du ticker cliqué
+				await this.api.fetchBatchPrices([idx.ticker], true);
+				this.loadMarketIndices();
+
+				if (this.chart) {
+					this.chart.showIndex(idx.ticker, idx.name);
+				}
+
 				if (window.innerWidth < 768) {
-					document.querySelector('.dashboard-chart-section')?.scrollIntoView({behavior:'smooth'});
+					document.querySelector('.dashboard-chart-section')?.scrollIntoView({ behavior: 'smooth' });
 				}
 			};
 
 			container.appendChild(card);
 		}
-}
-    refreshDashboard() {
+	}
+	
+	refreshDashboard() {
         this.loadPortfolioData();
         if (this.chart) this.chart.update(false, true);
         this.loadMarketIndices();

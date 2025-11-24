@@ -301,41 +301,58 @@ export class DataManager {
 
     // === NOUVEAU : Calcul pour un Indice pur (Pour le Dashboard) ===
     async calculateIndexData(ticker, days) {
-        const interval = this.getIntervalForPeriod(days);
-        
-        const today = new Date();
-        const endTs = Math.floor(today.getTime() / 1000);
-        let startTs;
-        
-        if (days === 1) startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60); 
-        else if (days === 7) startTs = endTs - (7 * 24 * 60 * 60);
-        else if (days === 30) startTs = endTs - (30 * 24 * 60 * 60);
-        else if (days === 90) startTs = endTs - (90 * 24 * 60 * 60);
-        else if (days === 365) startTs = endTs - (365 * 24 * 60 * 60);
-        else startTs = endTs - (365 * 24 * 60 * 60); 
+		const interval = this.getIntervalForPeriod(days);
+		
+		const today = new Date();
+		// Utiliser todayUTC pour être cohérent avec calculateGenericHistory
+		const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
+		const endTs = Math.floor(todayUTC.getTime() / 1000); 
+		
+		let startTs;
+		
+		// Maintien de la logique de calcul de startTs (légère correction pour les jours)
+		if (days === 1) { 
+			// 1 jour + 2h de buffer
+			startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60); 
+		} else if (days === 7) {
+			startTs = endTs - (7 * 24 * 60 * 60);
+		} else if (days === 30) {
+			startTs = endTs - (30 * 24 * 60 * 60);
+		} else if (days === 90) {
+			startTs = endTs - (90 * 24 * 60 * 60);
+		} else if (days === 365) {
+			startTs = endTs - (365 * 24 * 60 * 60);
+		} else {
+			startTs = endTs - (365 * 24 * 60 * 60); 
+		}
 
-        // Récupération API
-        const hist = await this.api.getHistoricalPricesWithRetry(ticker, startTs, endTs, interval);
-        
-        const sortedTs = Object.keys(hist).map(Number).sort((a, b) => a - b);
-        const labels = [];
-        const values = [];
-        const labelFn = this.getLabelFormat(days);
-        
-        sortedTs.forEach(ts => {
-            labels.push(labelFn(ts * 1000));
-            values.push(hist[ts]);
-        });
+		// Récupération API
+		const hist = await this.api.getHistoricalPricesWithRetry(ticker, startTs, endTs, interval);
+		
+		const sortedTs = Object.keys(hist).map(Number).sort((a, b) => a - b);
+		const labels = [];
+		const values = [];
+		const labelFn = this.getLabelFormat(days);
+		
+		sortedTs.forEach(ts => {
+			labels.push(labelFn(ts * 1000));
+			values.push(hist[ts]);
+		});
 
-        return {
-            labels: labels,
-            values: values,
-            invested: [],
-            unitPrices: values,
-            purchasePoints: [],
-            yesterdayClose: values.length > 0 ? values[0] : 0
-        };
-    }
+		// MODIFICATION CLÉ: Remplacer l'ouverture de la période par la vraie clôture de la veille du cache.
+		const priceData = this.storage.getCurrentPrice(ticker);
+		const trueYesterdayClose = priceData?.previousClose || null;
+
+		return {
+			labels: labels,
+			values: values,
+			invested: [],
+			unitPrices: values,
+			purchasePoints: [],
+			// Utilisation de la vraie clôture de la veille (null si non trouvé)
+			yesterdayClose: trueYesterdayClose
+		};
+	}
 
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
