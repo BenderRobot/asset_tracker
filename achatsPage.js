@@ -1,5 +1,5 @@
 // ========================================
-// achatsPage.js - (v8 - Avec Gestion des Onglets)
+// achatsPage.js - (v8 - Avec Gestion des Onglets, MODIFIÉ pour chargement NON-BLOQUANT)
 // ========================================
 import { PAGE_SIZE, BROKERS } from './config.js';
 import { formatCurrency, formatPercent, formatDate, formatQuantity } from './utils.js';
@@ -21,7 +21,7 @@ export class AchatsPage {
     this.submitHandler = null;
   }
 
-  async render(searchQuery = '') {
+  async render(searchQuery = '', fetchPrices = false) {
     const tbody = document.querySelector('#purchases-table tbody');
     if (!tbody) return;
 
@@ -34,9 +34,9 @@ export class AchatsPage {
     const assetPurchases = filtered.filter(p => p.assetType !== 'Cash');
     const cashMovements = filtered.filter(p => p.assetType === 'Cash');
 
-    // 3. Rafraîchir les prix UNIQUEMENT pour les actifs
-    const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
-    await this.api.fetchBatchPrices(tickers, true);
+    // 3. Rafraîchir les prix UNIQUEMENT pour les actifs (L'APP.JS S'EN CHARGE MAINTENANT EN FOND)
+    // const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
+    // await this.api.fetchBatchPrices(tickers, true); // <--- LIGNE SUPPRIMÉE
 
     // 4. Enrichir les deux listes séparément
     const enrichedAssets = this.dataManager.calculateEnrichedPurchases(assetPurchases);

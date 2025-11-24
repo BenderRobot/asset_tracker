@@ -137,7 +137,7 @@ export class HistoricalChart {
           const btn = document.createElement('div');
           btn.id = 'chart-back-btn';
           btn.className = 'chart-reset-btn';
-          btn.innerHTML = '<i class="fas fa-times"></i> Fermer';
+          btn.innerHTML = '<i class="fas fa-times"></i> Close';
           btn.onclick = () => {
               this.currentMode = 'portfolio';
               this.selectedAssets = [];

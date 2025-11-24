@@ -213,11 +213,11 @@ class App {
       const icon = toggleBtn.querySelector('i');
       if (isExpanded) {
         window.scrollTo({ top: 0, behavior: 'smooth' }); 
-        toggleBtn.textContent = 'Close';
+        toggleBtn.textContent = ' Close';
         icon.className = 'fas fa-times';
         toggleBtn.prepend(icon);
       } else {
-        toggleBtn.textContent = 'Add';
+        toggleBtn.textContent = ' Add';
         icon.className = 'fas fa-plus';
         toggleBtn.prepend(icon);
       }

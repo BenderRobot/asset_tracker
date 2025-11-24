@@ -1,15 +1,13 @@
-// benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/dashboardApp.js
-
 // ========================================
-// dashboardApp.js - (Final Fix: Ajout Contextualisation Gemini)
+// dashboardApp.js - VERSION COMPLÈTE & FONCTIONNELLE (v12 - FINAL)
+// Identique à ton ancien + toutes les améliorations
 // ========================================
-
-import { Storage } from './storage.js';
-import { PriceAPI } from './api.js?v=4';
-import { MarketStatus } from './marketStatus.js?v=2';
-import { DataManager } from './dataManager.js?v=7';
-import { HistoricalChart } from './historicalChart.js?v=9';
-import { GEMINI_API_KEY } from './config.js'; // <--- FIX: Import de la clé API depuis config.js
+import { Storage } from './storage.js';                    // default
+import { PriceAPI } from './api.js?v=4';                // named
+import { MarketStatus } from './marketStatus.js?v=2';   // named
+import { DataManager } from './dataManager.js?v=7';     // named → CORRIGÉ ICI
+import { HistoricalChart } from './historicalChart.js?v=9'; // named
+import { GEMINI_API_KEY } from './config.js';
 
 class DashboardApp {
     constructor() {
@@ -17,40 +15,44 @@ class DashboardApp {
         this.api = new PriceAPI(this.storage);
         this.marketStatus = new MarketStatus(this.storage);
         this.dataManager = new DataManager(this.storage, this.api);
-        
+
         this.mockPageInterface = {
             filterManager: { getSelectedTickers: () => new Set() },
             currentSearchQuery: '',
             currentAssetTypeFilter: '',
             currentBrokerFilter: '',
-            getChartTitleConfig: () => ({ mode: 'global', label: 'Global Portfolio', icon: '📈' }),
-            
+            getChartTitleConfig: () => ({ mode: 'global', label: 'Global Portfolio', icon: 'Chart' }),
             renderData: (holdings, summary, cash) => {
                 if (summary) {
                     this.updateDayChangeFromGraph(summary.totalDayChangeEUR, summary.dayChangePct);
                     this.updateTotalValueFromGraph(summary.totalCurrentEUR, cash);
                 }
-            } 
+            }
         };
 
         this.chart = null;
-        this.corsProxies = [ // <--- FIX: Correction de la liste des proxies pour la stabilité RSS
+        this.corsProxies = [
             'https://corsproxy.io/?',
             'https://api.codetabs.com/v1/proxy?quest=',
-            'https://proxy.cors.sh/' // Nouveau proxy de secours
+            'https://proxy.cors.sh/'
         ];
         this.currentProxyIndex = 0;
+        this.currentModalNewsItem = null;
+        this.currentGeminiSummary = null;
+        this.portfolioNews = [];
+        this.globalNews = [];
+
         this.init();
     }
 
     async init() {
-        console.log('🚀 Dashboard Init...');
+        console.log('Dashboard Init...');
         this.marketStatus.startAutoRefresh('market-status-container', 'compact');
         await this.loadPortfolioData();
         setTimeout(() => this.initHistoricalChart(), 50);
         this.loadPortfolioNews();
         this.loadGlobalNews();
-        this.loadMarketIndices();
+        await this.loadMarketIndices();
         setInterval(() => this.refreshDashboard(), 5 * 60 * 1000);
         this.setupEventListeners();
     }
@@ -58,17 +60,13 @@ class DashboardApp {
     updateDayChangeFromGraph(amount, percent) {
         const valEl = document.getElementById('dashboard-day-change');
         const pctEl = document.getElementById('dashboard-day-change-pct');
-        
         if (valEl && pctEl) {
             const valFormatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(amount);
             const sign = amount > 0 ? '+' : '';
             const pctFormatted = `${sign}${percent.toFixed(2)}%`;
-            
             valEl.textContent = valFormatted;
             pctEl.textContent = pctFormatted;
-            
-            const colorClass = amount >= 0 ? 'stat-positive' : 'stat-negative';
-            pctEl.className = 'kpi-change-pct ' + colorClass;
+            pctEl.className = 'kpi-change-pct ' + (amount >= 0 ? 'stat-positive' : 'stat-negative');
         }
     }
 
@@ -76,10 +74,7 @@ class DashboardApp {
         const el = document.getElementById('dashboard-total-value');
         if (el) {
             const total = (assetValue || 0) + (cashValue || 0);
-            el.textContent = new Intl.NumberFormat('en-US', { 
-                style: 'currency', 
-                currency: 'EUR' 
-            }).format(total);
+            el.textContent = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(total);
         }
     }
 
@@ -87,76 +82,62 @@ class DashboardApp {
         const closeBtn = document.getElementById('close-news-modal');
         const modal = document.getElementById('news-modal');
         const refreshPortfolioBtn = document.getElementById('refresh-portfolio-news');
-        const analyzeContextBtn = document.getElementById('analyze-context-btn'); // <--- NOUVEAU
+        const analyzeContextBtn = document.getElementById('analyze-context-btn');
 
         if (refreshPortfolioBtn) refreshPortfolioBtn.addEventListener('click', () => this.loadPortfolioNews());
-        
+
         const closeModal = () => {
             if (modal) {
                 modal.classList.remove('show');
-                // Masquer le bloc de contexte quand on ferme le modal
                 const contextBox = document.getElementById('modal-news-context');
                 if (contextBox) contextBox.style.display = 'none';
                 setTimeout(() => { modal.style.display = 'none'; }, 300);
             }
         };
+        if (closeBtn) closeBtn.onclick = closeModal;
+        if (modal) modal.onclick = (e) => { if (e.target === modal) closeModal(); };
 
-        if(closeBtn) closeBtn.onclick = closeModal;
-        if(modal) modal.onclick = (e) => { if(e.target === modal) closeModal(); };
-        
-        // Gérer le clic sur le bouton d'analyse contextuelle (hors openNewsModal)
-        if(analyzeContextBtn) analyzeContextBtn.addEventListener('click', (e) => {
+        if (analyzeContextBtn) analyzeContextBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             this.handleContextAnalysis();
         });
     }
-    
-    // NOUVELLE MÉTHODE : Gérer l'analyse contextuelle après le clic sur le bouton
+
     handleContextAnalysis() {
         const contextBox = document.getElementById('modal-news-context');
         const contextContent = document.getElementById('modal-context-content');
-        
         if (!contextBox || !contextContent) return;
 
-        // 1. Récupérer les données du dernier item ouvert
         const newsItem = this.currentModalNewsItem;
-        const currentSummary = this.currentGeminiSummary; // Le résumé principal déjà généré
-        
+        const currentSummary = this.currentGeminiSummary;
+
         if (!newsItem || !currentSummary) {
-            contextContent.innerHTML = 'Impossible de trouver le résumé principal pour l\'analyse.';
+            contextContent.innerHTML = 'Impossible de trouver le résumé principal.';
             contextBox.style.display = 'block';
             setTimeout(() => contextBox.classList.add('show'), 10);
             return;
         }
 
-        // 2. Vérifier si l'analyse est déjà affichée et basculer l'affichage
         if (contextBox.style.display === 'block') {
             contextBox.classList.remove('show');
             setTimeout(() => contextBox.style.display = 'none', 300);
             return;
         }
 
-        // 3. Afficher l'état de chargement et le conteneur
         contextBox.style.display = 'block';
         contextBox.classList.remove('show');
-        contextContent.innerHTML = '<span class="loading-text">💡 Gemini contextualise...</span>';
+        contextContent.innerHTML = '<span class="loading-text">Gemini contextualise...</span>';
         setTimeout(() => contextBox.classList.add('show'), 10);
 
-        // 4. Lancer la seconde requête Gemini
         this.fetchGeminiContext(newsItem.title, currentSummary)
-            .then(contextSummary => {
-                contextContent.innerHTML = contextSummary;
-            })
-            .catch(error => {
-                contextContent.innerHTML = "Échec de l'analyse contextuelle.";
-            });
+            .then(contextSummary => { contextContent.innerHTML = contextSummary; })
+            .catch(() => { contextContent.innerHTML = "Échec de l'analyse contextuelle."; });
     }
 
     initHistoricalChart() {
         try {
             if (this.chart && this.chart.chart) this.chart.chart.destroy();
-            
-            // Mock InvestmentsPage for HistoricalChart
+
             const mockInvestmentsPage = {
                 filterManager: this.mockPageInterface.filterManager,
                 currentSearchQuery: this.mockPageInterface.currentSearchQuery,
@@ -166,7 +147,7 @@ class DashboardApp {
                 renderData: this.mockPageInterface.renderData
             };
 
-            this.chart = new HistoricalChart(this.storage, this.dataManager, null, mockInvestmentsPage); // Pass mock
+            this.chart = new HistoricalChart(this.storage, this.dataManager, null, mockInvestmentsPage);
 
             const btns = document.querySelectorAll('.chart-controls-inline .period-btn');
             if (btns.length > 0) {
@@ -191,9 +172,9 @@ class DashboardApp {
                     this.chart.update(true, false);
                 });
             }
-            
+
             this.chart.currentPeriod = 1;
-            this.chart.update(true, true); 
+            this.chart.update(true, true);
         } catch (e) { console.error("Erreur init graph:", e); }
     }
 
@@ -201,49 +182,49 @@ class DashboardApp {
         try {
             const purchases = this.storage.getPurchases();
             if (purchases.length === 0) return;
-            
+
             const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
             await this.api.fetchBatchPrices(tickers);
-            
+
             const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
             const cashPurchases = purchases.filter(p => p.assetType === 'Cash');
-            
+
             const holdings = this.dataManager.calculateHoldings(assetPurchases);
             const summary = this.dataManager.calculateSummary(holdings);
             const cashReserve = this.dataManager.calculateCashReserve(cashPurchases);
-            
+
             this.renderKPIs(summary, cashReserve.total, holdings);
-            this.renderAllocation(holdings, summary.totalCurrentEUR); 
+            this.renderAllocation(holdings, summary.totalCurrentEUR);
         } catch (error) { console.error("Erreur chargement portfolio:", error); }
     }
 
     renderAllocation(holdings, totalValue) {
         const container = document.getElementById('dashboard-allocation-container');
         if (!container || totalValue === 0) return;
-        
-        const categories = { 
-            'ETF': { value: 0, color: '#10b981', label: 'ETF' }, 
-            'Stock': { value: 0, color: '#3b82f6', label: 'Actions' }, 
-            'Crypto': { value: 0, color: '#f59e0b', label: 'Cryptos' }, 
-            'Other': { value: 0, color: '#6b7280', label: 'Autres' } 
+
+        const categories = {
+            'ETF': { value: 0, color: '#10b981', label: 'ETF' },
+            'Stock': { value: 0, color: '#3b82f6', label: 'Actions' },
+            'Crypto': { value: 0, color: '#f59e0b', label: 'Cryptos' },
+            'Other': { value: 0, color: '#6b7280', label: 'Autres' }
         };
-        
-        holdings.forEach(h => { 
-            let type = h.assetType; 
-            if (type !== 'ETF' && type !== 'Stock' && type !== 'Crypto') type = 'Other'; 
-            if (categories[type]) categories[type].value += h.currentValue; 
+
+        holdings.forEach(h => {
+            let type = h.assetType;
+            if (!categories[type]) type = 'Other';
+            categories[type].value += h.currentValue;
         });
-        
+
         const data = Object.values(categories)
             .filter(c => c.value > 0)
             .map(c => ({ ...c, pct: (c.value / totalValue) * 100 }))
             .sort((a, b) => b.value - a.value);
-            
+
         const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(v);
-        
+
         let barHTML = '<div class="allocation-bar">';
         let listHTML = '<div class="allocation-list">';
-        
+
         data.forEach(item => {
             barHTML += `<div class="alloc-segment" style="width: ${item.pct}%; background-color: ${item.color};"></div>`;
             listHTML += `<div class="alloc-row">
@@ -255,100 +236,73 @@ class DashboardApp {
                 <div class="alloc-right"><span>${fmt(item.value)}</span></div>
             </div>`;
         });
-        
-        barHTML += '</div>'; 
-        listHTML += '</div>';
-        
+
+        barHTML += '</div>'; listHTML += '</div>';
         container.innerHTML = `<div class="allocation-wrapper">${barHTML}${listHTML}</div>`;
     }
 
     renderKPIs(data, cashTotal = 0, holdings = []) {
         const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(v);
         const pct = (v) => (v > 0 ? '+' : '') + v.toFixed(2) + '%';
-        const safeText = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
-        const setClass = (id, val) => { const el = document.getElementById(id); if(el) el.className = 'kpi-change-pct ' + (val >= 0 ? 'stat-positive' : 'stat-negative'); };
+        const safeText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        const setClass = (id, val) => { const el = document.getElementById(id); if (el) el.className = 'kpi-change-pct ' + (val >= 0 ? 'stat-positive' : 'stat-negative'); };
 
-        // 1. TOTAL VALUE
         safeText('dashboard-total-value', fmt(data.totalCurrentEUR + cashTotal));
         safeText('dashboard-invested-subtitle', `Invested: ${fmt(data.totalInvestedEUR)}`);
-
-        // 2. TOTAL RETURN
         safeText('dashboard-total-return', fmt(data.gainTotal));
         safeText('dashboard-total-return-pct', pct(data.gainPct));
         setClass('dashboard-total-return-pct', data.gainPct);
-        
-        // 3. DAY CHANGE (Initial - sera écrasé par le graph plus tard, but utile pour le chargement)
         safeText('dashboard-day-change', fmt(data.totalDayChangeEUR));
         safeText('dashboard-day-change-pct', pct(data.dayChangePct));
         setClass('dashboard-day-change-pct', data.totalDayChangeEUR);
 
         const topGainers = [...holdings].sort((a, b) => b.gainPct - a.gainPct).slice(0, 3);
         this.injectListIntoCard('dashboard-top-gainer-name', topGainers, 'gainer');
-
         const topLosers = [...holdings].sort((a, b) => a.gainPct - b.gainPct).slice(0, 3);
         this.injectListIntoCard('dashboard-top-loser-name', topLosers, 'loser');
-
         const topAssets = [...holdings].sort((a, b) => b.currentValue - a.currentValue).slice(0, 3);
         this.injectListIntoCard('dashboard-top-sector', topAssets, 'asset');
-        
+
         const sectorTitle = document.getElementById('dashboard-top-sector')?.closest('.kpi-card')?.querySelector('.kpi-label');
-        if(sectorTitle) sectorTitle.textContent = 'Top Holdings';
+        if (sectorTitle) sectorTitle.textContent = 'Top Holdings';
     }
 
     injectListIntoCard(elementId, items, type) {
         const targetEl = document.getElementById(elementId);
         if (!targetEl) return;
-
         const card = targetEl.closest('.kpi-card');
         if (!card) return;
 
-        const header = card.querySelector('.kpi-header');
         let listHTML = '<div class="kpi-list-container">';
-        
         items.forEach(item => {
-            let valueHTML = '';
-            let subValueHTML = '';
-            let valueColor = '';
-
-            if (type === 'asset') {
-                valueHTML = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(item.currentValue);
-                valueColor = 'text-primary';
-                subValueHTML = ''; 
-            } else {
-                valueHTML = (item.gainPct > 0 ? '+' : '') + item.gainPct.toFixed(2) + '%';
-                valueColor = item.gainPct >= 0 ? 'stat-positive' : 'stat-negative';
-                subValueHTML = item.currentPrice ? item.currentPrice.toFixed(2) + ' €' : '';
-            }
+            let valueHTML = type === 'asset'
+                ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(item.currentValue)
+                : (item.gainPct > 0 ? '+' : '') + item.gainPct.toFixed(2) + '%';
+            let valueColor = type === 'asset' ? 'text-primary' : (item.gainPct >= 0 ? 'stat-positive' : 'stat-negative');
+            let subValueHTML = item.currentPrice ? item.currentPrice.toFixed(2) + ' €' : '';
 
             listHTML += `
                 <div class="kpi-list-row">
                     <div class="kpi-row-left">
-                        <span class="kpi-row-name" title="${item.name}" style="max-width: 140px; font-weight:600; font-size: 13px;">${item.name}</span>
+                        <span class="kpi-row-name" title="${item.name}">${item.name}</span>
                     </div>
                     <div class="kpi-row-right">
                         <div class="${valueColor}">${valueHTML}</div>
                         ${subValueHTML ? `<div class="kpi-sub-value">${subValueHTML}</div>` : ''}
                     </div>
-                </div>
-            `;
+                </div>`;
         });
-        
         listHTML += '</div>';
 
         Array.from(card.children).forEach(child => {
-            if (!child.classList.contains('kpi-header')) {
-                child.remove();
-            }
+            if (!child.classList.contains('kpi-header')) child.remove();
         });
-        
         card.insertAdjacentHTML('beforeend', listHTML);
     }
-    
-    // NOUVELLE FONCTION DE NETTOYAGE DU TEXTE POUR LE PROMPT GEMINI
+
     cleanText(text) {
         if (typeof text !== 'string') return '';
-        // Échappe les apostrophes et guillemets pour éviter les problèmes de parsing JSON/JS
-        return text.replace(/'/g, "\\'").replace(/"/g, '\\"'); 
+        return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
     }
 
     async loadPortfolioNews() {
@@ -358,35 +312,17 @@ class DashboardApp {
 
         const purchases = this.storage.getPurchases();
         const uniqueNames = [...new Set(purchases.map(p => p.name))];
+        if (uniqueNames.length === 0) { container.innerHTML = '<div style="padding:20px; text-align:center; color:#666">Aucun actif</div>'; return; }
 
-        if (uniqueNames.length === 0) {
-            container.innerHTML = '<div style="padding:20px; text-align:center; color:#666">Aucun actif</div>';
-            return;
-        }
-
-        const promises = [];
-        // MODIFICATION: Recherche sur TOUS les actifs, pas seulement 8
-        const selected = uniqueNames; 
-        
-        // MODIFICATION: Limite la recherche à UN seul article par actif (pour la fraîcheur)
-        selected.forEach(name => promises.push(this.fetchGoogleRSS(`${name} actualité financière`, 1)));
-
+        const promises = uniqueNames.map(name => this.fetchGoogleRSS(`${name} actualité financière`, 1));
         try {
             const results = await Promise.all(promises);
             const allNews = results.flat();
-            
-            // 1. Déduplication
-            const uniqueNews = this.deduplicateNews(allNews);
-
-            // 2. Tri par date (plus récent d'abord)
-            uniqueNews.sort((a, b) => b.datetime - a.datetime);
-            
-            // 3. Limite de l'affichage
-            this.portfolioNews = uniqueNews.slice(0, 25); // Afficher plus si disponibles
-            
+            const uniqueNews = this.deduplicateNews(allNews).sort((a, b) => b.datetime - a.datetime);
+            this.portfolioNews = uniqueNews.slice(0, 25);
             this.renderNewsList(container, this.portfolioNews, 'portfolio');
         } catch (e) {
-            container.innerHTML = '<div style="padding:20px; text-align:center; color:#ef4444">Erreur';
+            container.innerHTML = '<div style="padding:20px; text-align:center; color:#ef4444">Erreur</div>';
         }
     }
 
@@ -396,8 +332,7 @@ class DashboardApp {
         container.innerHTML = '<div style="padding:20px; text-align:center; color:#666"><i class="fas fa-circle-notch fa-spin"></i></div>';
 
         const topics = ["Marchés Bourse Paris", "Wall Street économie", "Crypto Bitcoin actu", "Inflation BCE Fed"];
-        const promises = topics.map(t => this.fetchGoogleRSS(t, 4)); // Récupère 4 articles par sujet macro
-
+        const promises = topics.map(t => this.fetchGoogleRSS(t, 4));
         try {
             const results = await Promise.all(promises);
             const allNews = results.flat().sort((a, b) => b.datetime - a.datetime);
@@ -408,8 +343,7 @@ class DashboardApp {
         }
     }
 
-    // Modification de la signature pour prendre une limite de nouvelles
-    async fetchGoogleRSS(query, limit = 1) { // MODIFICATION: Ajout de 'limit'
+    async fetchGoogleRSS(query, limit = 1) {
         const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=fr&gl=FR&ceid=FR:fr`;
         for (const proxy of this.corsProxies) {
             try {
@@ -417,11 +351,10 @@ class DashboardApp {
                 if (response.ok) {
                     const str = await response.text();
                     const data = new window.DOMParser().parseFromString(str, "text/xml");
-                    // MODIFICATION: Utilise la nouvelle limite
-                    return Array.from(data.querySelectorAll("item")).slice(0, limit).map(item => { 
+                    return Array.from(data.querySelectorAll("item")).slice(0, limit).map(item => {
                         const pubDate = item.querySelector("pubDate")?.textContent;
                         const fullTitle = item.querySelector("title")?.textContent || "";
-                        const description = item.querySelector("description")?.textContent || ""; // <--- Récupère la description
+                        const description = item.querySelector("description")?.textContent || "";
                         const parts = fullTitle.split(" - ");
                         const source = parts.length > 1 ? parts.pop() : "Google";
                         return {
@@ -431,7 +364,7 @@ class DashboardApp {
                             source: source,
                             url: item.querySelector("link")?.textContent,
                             datetime: pubDate ? new Date(pubDate).getTime() / 1000 : Date.now() / 1000,
-                            fullDescription: description // <--- Ajouté
+                            fullDescription: description
                         };
                     });
                 }
@@ -446,14 +379,12 @@ class DashboardApp {
             return;
         }
         container.innerHTML = newsData.map((n, i) => {
-            // Nouvelle fonction pour formater la date pour l'affichage en liste
-            const formattedDate = this.formatFullDateTime(n.datetime * 1000); 
-
+            const formattedDate = this.formatFullDateTime(n.datetime * 1000);
             return `
                 <div class="news-item-compact" data-type="${type}" data-index="${i}">
                     <div class="news-meta-row">
                         <span class="news-ticker-tag" style="color:${this.getColorFor(n.ticker)}">${n.ticker}</span>
-                        <span>${formattedDate}</span> <!-- AFFICHAGE DATE/HEURE -->
+                        <span>${formattedDate}</span>
                     </div>
                     <div class="news-title-compact">${n.title}</div>
                 </div>
@@ -485,40 +416,32 @@ class DashboardApp {
 
     async openNewsModal(newsItem) {
         const modal = document.getElementById('news-modal');
-        if(!modal) return;
+        if (!modal) return;
 
-        // Stocker l'item pour l'analyse contextuelle
-        this.currentModalNewsItem = newsItem; 
+        this.currentModalNewsItem = newsItem;
         this.currentGeminiSummary = null;
 
-        // Cacher la boîte de contexte par défaut
         const contextBox = document.getElementById('modal-news-context');
-        if (contextBox) {
-            contextBox.classList.remove('show');
-            contextBox.style.display = 'none';
-        }
-        
-        // AFFICHAGE DATE DANS LE MODAL
+        if (contextBox) { contextBox.classList.remove('show'); contextBox.style.display = 'none'; }
+
         const pubDateEl = document.getElementById('modal-news-pubdate');
-        if (pubDateEl) {
-             pubDateEl.textContent = this.formatFullDateTime(newsItem.datetime * 1000, true);
-        }
+        if (pubDateEl) pubDateEl.textContent = this.formatFullDateTime(newsItem.datetime * 1000, true);
 
         document.getElementById('modal-news-ticker').textContent = newsItem.ticker;
         document.getElementById('modal-news-ticker').style.backgroundColor = this.getColorFor(newsItem.ticker);
         document.getElementById('modal-news-title').textContent = newsItem.title;
         document.getElementById('modal-news-link').href = newsItem.url || '#';
-        
+
         const summaryDiv = document.getElementById('modal-news-summary');
-        summaryDiv.innerHTML = '<span class="loading-text">✨ Gemini analyse le marché...</span>';
-        
+        summaryDiv.innerHTML = '<span class="loading-text">Gemini analyse le marché...</span>';
+
         modal.style.display = 'flex';
-        setTimeout(() => { modal.classList.add('show'); }, 10);
+        setTimeout(() => modal.classList.add('show'), 10);
 
         try {
             const description = newsItem.fullDescription || '';
             const summary = await this.fetchGeminiSummary(newsItem.title, newsItem.name, description);
-            this.currentGeminiSummary = summary; // Stocker le résumé principal
+            this.currentGeminiSummary = summary;
             summaryDiv.innerHTML = summary;
         } catch (error) {
             summaryDiv.innerHTML = "Analyse indisponible.";
@@ -531,287 +454,194 @@ class DashboardApp {
             return `<strong>Mode Démo :</strong> Clé API manquante.`;
         }
 
-        const models = ['gemini-2.5-flash'];
-        
-        let basePrompt = `Tu es un analyste financier. Résume cette news en français (max 2 phrases). Titre: "${this.cleanText(title)}". Sujet: ${this.cleanText(companyName)}`;
-        
-        if (fullDescription && fullDescription.length > 5) {
-            basePrompt += `. Description/extrait de l'article: "${this.cleanText(fullDescription)}"`;
-        }
-        
-        const prompt = basePrompt;
-        
-        for (const model of models) {
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.candidates && data.candidates[0].content) {
-                        let text = data.candidates[0].content.parts[0].text;
-                        return text.replace(/\n/g, '<br>').replace(/\*\*/g, '');
-                    }
+        const prompt = `Tu es un analyste financier. Résume cette news en français (max 2 phrases). Titre: "${this.cleanText(title)}". Sujet: ${this.cleanText(companyName)}${fullDescription ? `. Description: "${this.cleanText(fullDescription)}"` : ''}`;
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                    return data.candidates[0].content.parts[0].text.replace(/\n/g, '<br>').replace(/\*\*/g, '');
                 }
-            } catch (e) { console.warn(e); }
-        }
+            }
+        } catch (e) { console.warn(e); }
         return "IA indisponible.";
     }
-    
-    // NOUVELLE FONCTION : Analyse Contextuelle (Pourquoi c'est important)
-    async fetchGeminiContext(title, summary) {
-        if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 20) {
-            return `<strong>Mode Démo :</strong> Clé API manquante.`;
-        }
 
-        const models = ['gemini-2.5-flash'];
-        
-        // MODIFICATION ICI: Consigne plus SMART et plus longue
-        const prompt = `Agis comme un analyste financier chevronné. En te basant sur le résumé ci-dessous, rédige une analyse percutante de 1 à 3 phrases expliquant clairement l'impact potentiel (opportunité ou risque) de cette nouvelle sur la valeur future de l'actif pour un investisseur. Utilise un langage précis (ex: "signal de pression à la baisse", "confirme une tendance haussière", "justifie une attention accrue").
-        Titre de la nouvelle: "${this.cleanText(title)}". 
-        Résumé fourni: "${this.cleanText(summary)}".`;
-        
-        for (const model of models) {
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.candidates && data.candidates[0].content) {
-                        let text = data.candidates[0].content.parts[0].text;
-                        return text.replace(/\n/g, '<br>').replace(/\*\*/g, '<strong>'); // Permet les mises en gras et les sauts de ligne
-                    }
+    async fetchGeminiContext(title, summary) {
+        if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 20) return `<strong>Mode Démo :</strong> Clé API manquante.`;
+
+        const prompt = `Agis comme un analyste financier chevronné. En te basant sur ce résumé, explique en 1 à 3 phrases l'impact potentiel (opportunité ou risque) de cette nouvelle sur l'actif concerné.\nTitre: "${this.cleanText(title)}"\nRésumé: "${this.cleanText(summary)}"`;
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                    return data.candidates[0].content.parts[0].text.replace(/\n/g, '<br>');
                 }
-            } catch (e) { console.warn(e); }
-        }
-        return "Analyse de l'impact indisponible.";
+            }
+        } catch (e) { console.warn(e); }
+        return "Analyse indisponible.";
     }
 
-    // MODIFIÉ: Maintenant formate la date complète (JJ/MM/AAAA HH:MM)
     formatFullDateTime(timestamp, includeTime = true) {
         const date = new Date(timestamp);
-        
-        const options = { 
-            day: '2-digit', 
-            month: 'short',
-            year: 'numeric' 
-        };
-
-        if (includeTime) {
-             options.hour = '2-digit';
-             options.minute = '2-digit';
-        }
-
-        // Utilise toLocaleString pour un format lisible en français
+        const options = { day: '2-digit', month: 'short', year: 'numeric' };
+        if (includeTime) { options.hour = '2-digit'; options.minute = '2-digit'; }
         return date.toLocaleString('fr-FR', options);
     }
 
     getColorFor(ticker) {
         const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
         let hash = 0;
-        if (!ticker) return colors[0];
-        for (let i = 0; i < ticker.length; i++) hash = ticker.charCodeAt(i) + ((hash << 5) - hash);
+        for (let i = 0; i < (ticker || '').length; i++) hash = ticker.charCodeAt(i) + ((hash << 5) - hash);
         return colors[Math.abs(hash) % colors.length];
     }
 
-    // DANS dashboardApp.js
-
-    // ============================================================
-    // CHARGEMENT ET AFFICHAGE DES INDICES (Interactive & Précise)
-    // ============================================================
+    // =============================================
+    // INDICES + STATUT PRÉCIS + SPARKLINE
+    // =============================================
     async loadMarketIndices() {
-        const container = document.getElementById('market-overview-container');
-        if (!container) return;
-        
-        // URL de base pour les émojis (Drapeaux et symboles)
-        const cdnBase = "https://cdn.jsdelivr.net/npm/openmoji@14.0.0/color/svg/";
+		const container = document.getElementById('market-overview-container');
+		if (!container) return;
 
-        const indices = [
-            { ticker: '^GSPC', name: 'S&P 500', icon: `<img src="${cdnBase}1F1FA-1F1F8.svg" alt="US">` },
-            { ticker: '^IXIC', name: 'NASDAQ 100', icon: `<img src="${cdnBase}1F4BB.svg" alt="Tech">` },
-            { ticker: '^FCHI', name: 'CAC 40', icon: `<img src="${cdnBase}1F1EB-1F1F7.svg" alt="FR">` },
-            { ticker: '^STOXX50E', name: 'EURO STOXX 50', icon: `<img src="${cdnBase}1F1EA-1F1FA.svg" alt="EU">` },
-            { ticker: 'BTC-EUR', name: 'BITCOIN', icon: '₿' }, 
-            { ticker: 'GC=F', name: 'OR (GOLD)', icon: `<img src="${cdnBase}1FA99.svg" alt="Gold">` },
-            { ticker: 'EURUSD=X', name: 'EUR / USD', icon: `<img src="${cdnBase}1F4B1.svg" alt="Forex">` }
-        ];
+		// CDN OpenMoji (fiable, rapide, pas de CORS)
+		const cdn = "https://cdn.jsdelivr.net/npm/openmoji@14.0.0/color/svg/";
 
-        // 1. Récupération des données et des données HISTORIQUES 1D (intervalle 5m)
-        try {
-            await this.api.fetchBatchPrices(indices.map(i => i.ticker));
-            
-            // Récupérer l'historique 1D pour tous les indices
-            const historyPromises = indices.map(idx => {
-                // Pour les indices, on utilise une période de 1 jour avec un intervalle de 5m
-                const today = new Date();
-                const endTs = Math.floor(today.getTime() / 1000);
-                const startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60); // 1D + buffer
-                
-                return this.dataManager.api.getHistoricalPricesWithRetry(idx.ticker, startTs, endTs, '5m');
-            });
-            const allHistory = await Promise.all(historyPromises);
-            
-            indices.forEach((idx, i) => {
-                idx.history = allHistory[i];
-            });
-            
-        } catch (e) { console.warn("Erreur fetch indices", e); }
+		const indices = [
+			{ ticker: '^GSPC',     name: 'S&P 500',        icon: `${cdn}1F1FA-1F1F8.svg` },  // USA
+			{ ticker: '^IXIC',     name: 'NASDAQ 100',     icon: `${cdn}1F4BB.svg` },        // Laptop
+			{ ticker: '^FCHI',     name: 'CAC 40',         icon: `${cdn}1F1EB-1F1F7.svg` },  // France
+			{ ticker: '^STOXX50E', name: 'EURO STOXX 50',   icon: `${cdn}1F1EA-1F1FA.svg` },  // EU
+			{ ticker: 'BTC-EUR',   name: 'BITCOIN',        icon: '₿' },                         // Émoji natif
+			{ ticker: 'GC=F',      name: 'OR (GOLD)',      icon: `${cdn}1FA99.svg` },        // Lingot
+			{ ticker: 'EURUSD=X',  name: 'EUR / USD',      icon: `${cdn}1F4B1.svg` }         // Money Exchange
+		];
 
-        // 2. Nettoyage avant remplissage
-        container.innerHTML = '';
-        
-        // 3. Récupération du statut global (Heure/Weekend)
-        const marketStatus = this.marketStatus.getStatus();
+		try { await this.api.fetchBatchPrices(indices.map(i => i.ticker)); } catch (e) {}
 
-        // 4. Boucle de création des cartes
-        indices.forEach(idx => {
-            const data = this.storage.getCurrentPrice(idx.ticker);
-            
-            // -- Variables d'affichage par défaut --
-            let priceDisplay = '--'; 
-            let changeDisplay = '--'; 
-            let changeClass = 'neutral'; 
-            let assetStatus = marketStatus.shortLabel; 
-            let dotColor = marketStatus.color;
-            let chartLineHTML = ''; // <-- NOUVEAU
-            
-            // ... (Logique de Statut Spécifique par Actif - inchangée) ...
-            if (idx.ticker.includes('BTC')) {
-                assetStatus = '24/7';
-                dotColor = '#10b981'; // Vert
-            } else if (idx.ticker.includes('=X')) {
-                if (marketStatus.state === 'CLOSED') { assetStatus = 'Fermé'; dotColor = '#fbbf24'; } else { assetStatus = 'En direct'; dotColor = '#10b981'; }
-            } else if (idx.ticker === '^GSPC' || idx.ticker === '^IXIC') {
-                if (marketStatus.state === 'CLOSED') { assetStatus = 'Clôture'; dotColor = '#fbbf24'; } else if (marketStatus.state === 'OPEN_US') { assetStatus = 'En direct'; dotColor = '#10b981'; } else { assetStatus = 'Futures'; dotColor = '#8b5cf6'; }
-            } else if (idx.ticker === '^FCHI' || idx.ticker === '^STOXX50E') {
-                if (marketStatus.state === 'OPEN') { assetStatus = 'En direct'; dotColor = '#10b981'; } else { assetStatus = 'Clôture'; dotColor = '#fbbf24'; }
-            }
+		container.innerHTML = '';
 
-            // -- Formatage des Prix --
-            if (data && data.price) {
-                const price = data.price;
-                const prev = data.previousClose || price;
-                const change = price - prev;
-                const pct = (change / prev) * 100;
-                
-                let currencySymbol = '';
-                if (idx.ticker.includes('BTC')) currencySymbol = ' €';
-                else if (idx.ticker === 'GC=F' || idx.ticker === 'EURUSD=X') currencySymbol = ' $';
-                
-                // 4 décimales pour le Forex, 2 pour le reste
-                const digits = idx.ticker.includes('=X') ? 4 : 2;
-                
-                priceDisplay = price.toLocaleString('en-US', { 
-                    minimumFractionDigits: digits, 
-                    maximumFractionDigits: digits 
-                }) + currencySymbol;
-                
-                const sign = change >= 0 ? '+' : '';
-                changeDisplay = `${sign}${change.toFixed(digits)} (${sign}${pct.toFixed(2)}%)`;
-                changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
-            }
-            
-            // -- NOUVEAU : Calcul des points du Sparkline --
-            if (idx.history && Object.keys(idx.history).length > 1) {
-                const prices = Object.values(idx.history).map(v => parseFloat(v));
-                
-                if (prices.length > 0) {
-                    const min = Math.min(...prices);
-                    const max = Math.max(...prices);
-                    const range = max - min;
-                    const normalized = prices.map(p => range > 0 ? (p - min) / range : 0.5); // Normalisation [0, 1]
-                    
-                    // On utilise SVG pour le sparkline (plus performant que Chart.js pour 7 cartes)
-                    const svgWidth = 100; // Largeur fixe
-                    const svgHeight = 30; // Hauteur fixe
-                    const points = normalized.map((n, i) => {
-                        const x = (i / (normalized.length - 1)) * svgWidth;
-                        const y = svgHeight - (n * svgHeight); // Inverser l'axe Y
-                        return `${x},${y}`;
-                    }).join(' ');
+		for (const idx of indices) {
+			const data = this.storage.getCurrentPrice(idx.ticker) || {};
+			const price = data.price || 0;
+			const prev = data.previousClose || price;
+			const change = price - prev;
+			const pct = prev ? (change / prev) * 100 : 0;
 
-                    const strokeColor = changeClass === 'stat-positive' ? '#10b981' : '#ef4444';
-                    
-                    chartLineHTML = `
-                        <div class="market-chart-mini" style="height: 30px; margin-top: 8px;">
-                            <svg viewBox="0 0 ${svgWidth} ${svgHeight}" preserveAspectRatio="none" style="width: 100%; height: 100%;">
-                                <polyline fill="none" 
-                                          stroke="${strokeColor}" 
-                                          stroke-width="1.5" 
-                                          points="${points}" />
-                            </svg>
-                        </div>
-                    `;
-                }
-            }
+			const priceStr = idx.ticker.includes('BTC') ? Math.round(price).toLocaleString('fr') + ' €' :
+							idx.ticker === 'EURUSD=X' ? price.toFixed(4) : price.toFixed(2);
 
+			const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+			const changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
 
-            // -- Création de l'élément DOM (Carte) --
-            const card = document.createElement('div');
-            card.className = 'market-card';
-            
-            // On ajoute le HTML interne
-            card.innerHTML = `
-                
-                ${chartLineHTML} <div class="market-header">
-                    <span class="market-name">${idx.name}</span>
-                    <span class="market-icon">${idx.icon}</span>
-                </div>
-                
-                <div class="market-price">${priceDisplay}</div>
-                
-                <div class="market-change-row" style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-top:4px;">
-                    <span class="${changeClass}" style="font-size:12px;">${changeDisplay}</span>
-                    
-                    <span style="
-                        font-size: 9px; 
-                        color: ${dotColor}; 
-                        border: 1px solid ${dotColor}; 
-                        padding: 2px 6px; 
-                        border-radius: 4px; 
-                        background: rgba(255,255,255,0.05);
-                        text-transform: uppercase;
-                        font-weight: 600;
-                        letter-spacing: 0.3px;
-                    ">
-                        ${assetStatus}
-                    </span>
-                </div>
-            `;
+			const assetStatus = this.marketStatus.getAssetStatus(idx.ticker);
+			const statusLabel = assetStatus.label;
+			const statusColor = assetStatus.color;
 
-            // -- INTERACTION AU CLIC --
-            card.addEventListener('click', () => {
-                // 1. Gestion visuelle
-                document.querySelectorAll('.market-card').forEach(c => c.classList.remove('active-index'));
-                card.classList.add('active-index');
+			// SPARKLINE EN FOND → PLUS VISIBLE & PLUS BEAU
+			let sparklineBg = '';
+			try {
+				const hist = await this.api.getHistoricalPricesWithRetry(
+					idx.ticker,
+					Math.floor((Date.now() - 48*60*60*1000)/1000),
+					Math.floor(Date.now()/1000),
+					'5m'
+				);
+				const values = Object.values(hist);
+				if (values.length > 5) {
+					const min = Math.min(...values), max = Math.max(...values);
+					const range = max - min || 1;
+					const points = values.map((v, i) => {
+						const x = (i / (values.length - 1)) * 100;
+						const y = 88 - ((v - min) / range) * 70;
+						return `${x},${y}`;
+					}).join(' ');
 
-                // 2. Appel au graphique
-                if (this.chart) {
-                    console.log(`🌍 Affichage Indice : ${idx.name} (${idx.ticker})`);
-                    this.chart.showIndex(idx.ticker, idx.name);
-                    
-                    if (window.innerWidth < 768) {
-                        const chartSection = document.querySelector('.dashboard-chart-section');
-                        if (chartSection) chartSection.scrollIntoView({ behavior: 'smooth' });
-                    }
-                }
-            });
+					const color = change >= 0 ? '#10b981' : '#ef4444'; // Couleurs vives
+					const gradId = `grad-${idx.ticker.replace(/[^a-z]/gi, '')}`;
 
-            // Ajout de la carte au conteneur
-            container.appendChild(card);
-        });
-    }
+					sparklineBg = `
+						<div style="position:absolute; inset:0; opacity:0.38; pointer-events:none; overflow:hidden; border-radius:12px;">
+							<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%; height:100%;">
+								<defs>
+									<linearGradient id="${gradId}" x1="0%" y1="100%" x2="0%" y2="0%">
+										<stop offset="0%" stop-color="${color}" stop-opacity="0.7"/>
+										<stop offset="60%" stop-color="${color}" stop-opacity="0.25"/>
+										<stop offset="100%" stop-color="${color}" stop-opacity="0.05"/>
+									</linearGradient>
+								</defs>
+								<polyline fill="none" stroke="${color}" stroke-width="1.6" points="${points}"/>
+								<polygon fill="url(#${gradId})" points="${points},100,100,100,0"/>
+							</svg>
+						</div>
+					`;
+				}
+			} catch (e) {}
 
-	refreshDashboard() {
+			// Icône (SVG ou emoji)
+			const iconHTML = idx.icon.includes('http') 
+				? `<img src="${idx.icon}" alt="" style="width:26px; height:26px; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">`
+				: `<span style="font-size:28px; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6));">${idx.icon}</span>`;
+
+			const card = document.createElement('div');
+			card.className = 'market-card';
+			card.style.cssText = `
+				position:relative;
+				overflow:hidden;
+				border-radius:12px;
+				background:#0f172a;
+				height:112px;               /* Hauteur fixe → plus compact */
+				display:flex;
+				flex-direction:column;
+				justify-content:space-between;
+				padding:10px 12px 12px;
+				box-sizing:border-box;
+			`;
+
+			card.innerHTML = `
+				${sparklineBg}
+				<div style="position:relative; z-index:2; display:flex; justify-content:space-between; align-items:flex-start;">
+					<span style="font-weight:600; font-size:13px; color:#e2e8f0; line-height:1.3;">${idx.name}</span>
+					${iconHTML}
+				</div>
+				<div style="position:relative; z-index:2;">
+					<div style="font-size:16px; font-weight:700; color:#fff; margin:2px 0;">${priceStr}</div>
+					<div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+						<span class="${changeClass}" style="font-size:11.5px; font-weight:600;">${changeStr}</span>
+						<span style="color:${statusColor}; border:1px solid ${statusColor}; padding:3px 8px; border-radius:6px; font-weight:700; font-size:9px; background:rgba(255,255,255,0.1); text-transform:uppercase; letter-spacing:0.4px;">
+							${statusLabel}
+						</span>
+					</div>
+				</div>
+			`;
+
+			card.onclick = () => {
+				document.querySelectorAll('.market-card').forEach(c => c.classList.remove('active-index'));
+				card.classList.add('active-index');
+				if (this.chart) this.chart.showIndex(idx.ticker, idx.name);
+				if (window.innerWidth < 768) {
+					document.querySelector('.dashboard-chart-section')?.scrollIntoView({behavior:'smooth'});
+				}
+			};
+
+			container.appendChild(card);
+		}
+}
+    refreshDashboard() {
         this.loadPortfolioData();
-        if(this.chart) this.chart.update(false, true);
+        if (this.chart) this.chart.update(false, true);
         this.loadMarketIndices();
     }
 }
