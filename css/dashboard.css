@@ -25,6 +25,7 @@
     flex-direction: column;
     gap: 24px;
     min-width: 0;
+	overflow-x: hidden;
 }
 
 /* --- COLONNE DROITE --- */
@@ -53,7 +54,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 0px;
     padding-bottom: 12px;
     border-bottom: 1px solid var(--border-color);
 }
@@ -89,7 +90,7 @@
     flex: 1;
     padding-right: 10px;
 	padding-left : 10px;
-	padding-top : 10px;
+	padding-top : 20px;
     margin-top: 0; /* Ajusté car le margin est géré par le header maintenant */
 }
 .indices-list::-webkit-scrollbar { width: 4px; }
@@ -102,9 +103,27 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 16px;
 }
-
+@media (max-width: 1400px) {  /* Adjust to 1300px or 1350px if truncation starts earlier in your setup */
+    .dashboard-kpi-grid-v2 {
+        grid-template-columns: repeat(2, 1fr);  /* 2 columns instead of 4 */
+        grid-template-rows: repeat(2, auto);   /* Explicit rows for clarity */
+    }
+    .kpi-card {
+        min-height: 180px;  /* Optional: Slightly reduce height to fit better vertically */
+    }
+}
 /* Styles KPI */
-.kpi-card { background: var(--bg-card); padding: 16px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; flex-direction: column; justify-content: space-between; min-height: 130px; transition: transform 0.2s, border-color 0.2s; }
+.kpi-card { 
+    background: var(--bg-card); 
+    padding: 16px; 
+    border-radius: 12px; 
+    border: 1px solid var(--border-color); 
+    display: flex; 
+    flex-direction: column; 
+    justify-content: space-between; 
+    min-height: 120px; /* <-- Augmenté de 130px à 220px */ 
+    transition: transform 0.2s, border-color 0.2s; 
+}
 .kpi-card:hover { border-color: var(--accent-blue); transform: translateY(-2px); }
 .kpi-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .kpi-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -120,9 +139,9 @@
 .kpi-sector-pct { font-size: 11px; color: var(--text-muted); }
 
 /* Asset Allocation */
-#dashboard-allocation-container { height: 100%; display: flex; flex-direction: column; }
+#dashboard-allocation-container { height: 100%; display: flex; flex-direction: column; padding-top : 10px;}
 .allocation-wrapper { display: flex; flex-direction: column; gap: 12px; height: 100%; width: 100%; }
-.allocation-bar { display: flex; width: 100%; height: 6px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.05); margin-bottom: 4px; flex-shrink: 0; }
+.allocation-bar { display: flex; width: 100%; height: 12px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.05); margin-bottom: 4px; flex-shrink: 0; }
 .alloc-segment { height: 100%; transition: width 0.5s ease; }
 .allocation-list { display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: center; }
 .alloc-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; width: 100%; }
@@ -392,7 +411,7 @@
 }
 
 /* === RESPONSIVE === */
-@media (max-width: 1300px) {
+@media (max-width: 1400px) {
     /* Passage en 2 colonnes pour les stats graph sur écran moyen */
     .chart-stats-bar { grid-template-columns: 1fr 1fr; }
     
@@ -413,13 +432,31 @@
 }
 
 @media (max-width: 1200px) {
-    .dashboard-top-section { grid-template-columns: 1fr; } /* Stack sur mobile */
-    .dashboard-right-sidebar { position: static; height: auto; }
-    .dashboard-indices-panel-full { height: auto; }
-    .indices-list { flex-direction: row; overflow-x: auto; padding-bottom: 12px; }
-    .market-card { min-width: 140px; }
-    .dashboard-feeds-grid { grid-template-columns: 1fr; height: auto; }
-    .feed-card { height: 400px; }
+    /* 1. Force l'empilement vertical 1x1 */
+    .dashboard-top-section { 
+        grid-template-columns: 1fr; 
+        /* Important: supprimez la hauteur pour que le conteneur s'adapte */
+    } 
+    
+    /* 2. Annule la position sticky et la hauteur forcée pour la colonne des indices */
+    .dashboard-right-sidebar { 
+        position: static; 
+        height: auto; 
+    }
+    
+    /* 3. Assurez-vous que le panneau des indices peut se réduire naturellement */
+    .dashboard-indices-panel-full { 
+        height: auto;
+        /* Ajout d'une marge pour le séparer visuellement du bloc en dessous */
+        margin-bottom: 24px; 
+    }
+    
+    /* 4. Corrige la disposition horizontale des cartes indices (si elles étaient en ligne) */
+    .indices-list { 
+        flex-direction: row; 
+        overflow-x: auto; /* Permet le scroll horizontal si trop d'indices */
+        padding-bottom: 12px; 
+    }
 }
 
 @media (max-width: 768px) {

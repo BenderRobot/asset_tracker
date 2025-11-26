@@ -64,37 +64,28 @@
                 
                 <div class="dashboard-left-column">
                     
-                    <div class="dashboard-hero-row">
-						<div class="kpi-card summary-card-primary">
-							<div class="kpi-header">
-								<span class="kpi-label">Total Value</span>
-								<i class="fas fa-wallet kpi-icon"></i>
-							</div>
-							<div class="kpi-value" id="dashboard-total-value">€0.00</div>
-							<div class="kpi-meta">
-								<span id="dashboard-invested-subtitle" class="meta-info" style="font-size: 12px; opacity: 0.7;">Invested: €0.00</span>
+                    <div class="dashboard-hero-row summary-grid" style="margin-bottom: 0px;">
+						<div class="summary-card summary-card-primary">
+							<div class="summary-card-label">Total Value</div>
+							<div id="total-current" class="summary-card-value">€0.00</div>
+							<div class="summary-card-meta">
+								<span id="invested" class="meta-info" style="font-size: 14px; opacity: 0.9; color: var(--text-secondary);">Invested: €0.00</span>
 							</div>
 						</div>
-
-						<div class="kpi-card">
-							<div class="kpi-header">
-								<span class="kpi-label">Total Return</span>
-								<i class="fas fa-percentage kpi-icon"></i>
-							</div>
-							<div class="kpi-value" id="dashboard-total-return">€0.00</div>
-							<div class="kpi-meta">
-								<span id="dashboard-total-return-pct" class="kpi-change-pct">(0.00%)</span>
+						
+						<div class="summary-card">
+							<div class="summary-card-label">Total Return</div>
+							<div id="total-gain-loss" class="summary-card-value">€0.00</div>
+							<div class="summary-card-meta">
+								<span id="total-gain-pct" class="meta-large">0.00%</span>
 							</div>
 						</div>
-
-						<div class="kpi-card">
-							<div class="kpi-header">
-								<span class="kpi-label">Var Today</span>
-								<i class="fas fa-chart-line kpi-icon"></i>
-							</div>
-							<div class="kpi-value" id="dashboard-day-change">€0.00</div>
-							<div class="kpi-meta">
-								<span id="dashboard-day-change-pct" class="kpi-change-pct">(0.00%)</span>
+						
+						<div class="summary-card">
+							<div class="summary-card-label">Var Today</div>
+							<div id="total-invested" class="summary-card-value">€0.00</div>
+							<div class="summary-card-meta">
+								<span id="avg-cost-per-share" class="meta-info">0.00%</span>
 							</div>
 						</div>
 					</div>

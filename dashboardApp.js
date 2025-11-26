@@ -1,7 +1,7 @@
 // benderrobot/asset_tracker/asset_tracker-52109016fe138d6ac9b283096e2de3cfbb9437bb/dashboardApp.js
 
 // ========================================
-// dashboardApp.js - VERSION COMPLÈTE & FONCTIONNELLE (v15 - FIX COULEUR INDICES)
+// dashboardApp.js - VERSION CORRIGÉE FINALE (Unification + Fix Erreur Critique)
 // ========================================
 import { Storage } from './storage.js';                   
 import { PriceAPI } from './api.js?v=4';               
@@ -9,6 +9,7 @@ import { MarketStatus } from './marketStatus.js?v=2';
 import { DataManager } from './dataManager.js?v=7';     
 import { HistoricalChart } from './historicalChart.js?v=9'; 
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
+import { UIComponents } from './ui.js'; // <-- IMPORT UIComponents AJOUTÉ
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://corsproxy.io/?';
@@ -35,6 +36,7 @@ class DashboardApp {
         this.api = new PriceAPI(this.storage); 
         this.marketStatus = new MarketStatus(this.storage);
         this.dataManager = new DataManager(this.storage, this.api);
+        this.ui = new UIComponents(this.storage); // <-- INSTANCIATION NÉCESSAIRE
 
         this.mockPageInterface = {
             filterManager: { getSelectedTickers: () => new Set() },
@@ -44,8 +46,9 @@ class DashboardApp {
             getChartTitleConfig: () => ({ mode: 'global', label: 'Global Portfolio', icon: 'Chart' }),
             renderData: (holdings, summary, cash) => {
                 if (summary) {
-                    this.updateDayChangeFromGraph(summary.totalDayChangeEUR, summary.dayChangePct);
-                    this.updateTotalValueFromGraph(summary.totalCurrentEUR, cash);
+                    // CORRECTION: Utilise la méthode unifiée de ui.js pour mettre à jour les 3 cartes principales
+                    // La variable 'summary.movementsCount' n'est pas nécessaire ici, on passe 0 si elle n'existe pas.
+                    this.ui.updatePortfolioSummary(summary, summary.movementsCount || 0, cash, this.marketStatus);
                 }
             }
         };
@@ -109,27 +112,10 @@ class DashboardApp {
             ).join('');
     }
 
-    updateDayChangeFromGraph(amount, percent) {
-        const valEl = document.getElementById('dashboard-day-change');
-        const pctEl = document.getElementById('dashboard-day-change-pct');
-        if (valEl && pctEl) {
-            const valFormatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(amount);
-            const sign = amount > 0 ? '+' : '';
-            const pctFormatted = `${sign}${percent.toFixed(2)}%`;
-            valEl.textContent = valFormatted;
-            pctEl.textContent = pctFormatted;
-            pctEl.className = 'kpi-change-pct ' + (amount >= 0 ? 'stat-positive' : 'stat-negative');
-        }
-    }
-
-    updateTotalValueFromGraph(assetValue, cashValue) {
-        const el = document.getElementById('dashboard-total-value');
-        if (el) {
-            const total = (assetValue || 0) + (cashValue || 0);
-            el.textContent = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(total);
-        }
-    }
-
+    // --- FONCTIONS OBSOLÈTES SUPPRIMÉES ---
+    // updateDayChangeFromGraph et updateTotalValueFromGraph ne sont plus nécessaires
+    // et leur absence est corrigée par la nouvelle implémentation de mockPageInterface.renderData
+    
     setupEventListeners() {
         const closeBtn = document.getElementById('close-news-modal');
         const modal = document.getElementById('news-modal');
@@ -230,7 +216,13 @@ class DashboardApp {
     async loadPortfolioData() {
         try {
             const purchases = this.storage.getPurchases();
-            if (purchases.length === 0) return;
+            if (purchases.length === 0) {
+                 const zeroSummary = { totalCurrentEUR: 0, totalInvestedEUR: 0, gainTotal: 0, gainPct: 0, totalDayChangeEUR: 0, dayChangePct: 0, movementsCount: 0, assetsCount: 0 };
+                 this.renderKPIs(zeroSummary, 0, []);
+                 this.renderAllocation([], 0);
+                 this.ui.updatePortfolioSummary(zeroSummary, 0, 0, this.marketStatus);
+                 return;
+            }
 
             const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
             await this.api.fetchBatchPrices(tickers);
@@ -242,14 +234,22 @@ class DashboardApp {
             const summary = this.dataManager.calculateSummary(holdings);
             const cashReserve = this.dataManager.calculateCashReserve(cashPurchases);
 
+            // CORRECTION: Utiliser l'UI unifiée pour les 3 cartes principales (évite les 0.00 après chargement)
+            this.ui.updatePortfolioSummary(summary, summary.movementsCount, cashReserve.total, this.marketStatus);
+            
+            // NOTE: renderKPIs s'occupe des cartes secondaires (Top Gainer, Top Loser, Allocation)
             this.renderKPIs(summary, cashReserve.total, holdings);
             this.renderAllocation(holdings, summary.totalCurrentEUR);
+
         } catch (error) { console.error("Erreur chargement portfolio:", error); }
     }
 
     renderAllocation(holdings, totalValue) {
         const container = document.getElementById('dashboard-allocation-container');
-        if (!container || totalValue === 0) return;
+        if (!container || totalValue === 0) {
+            container.innerHTML = '<div style="color:var(--text-muted); font-size:12px; text-align:center; padding: 20px;">No asset data available.</div>';
+            return;
+        }
 
         const categories = {
             'ETF': { value: 0, color: '#10b981', label: 'ETF' },
@@ -265,14 +265,19 @@ class DashboardApp {
         });
 
         const data = Object.values(categories)
-            .filter(c => c.value > 0)
+            .filter(c => c.value > 0.01) // Filtrer les valeurs négligeables
             .map(c => ({ ...c, pct: (c.value / totalValue) * 100 }))
             .sort((a, b) => b.value - a.value);
 
-        const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(v);
+        if (data.length === 0) {
+            container.innerHTML = '<div style="color:var(--text-muted); font-size:12px; text-align:center; padding: 20px;">No valuable assets found for allocation.</div>';
+            return;
+        }
+
+        const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 
         let barHTML = '<div class="allocation-bar">';
-        let listHTML = '<div class="allocation-list">';
+        let listHTML = '<div class="allocation-list" style="flex-grow: 1;">'; // Ajout de flex-grow: 1 pour la robustesse
 
         data.forEach(item => {
             barHTML += `<div class="alloc-segment" style="width: ${item.pct}%; background-color: ${item.color};"></div>`;
@@ -287,28 +292,22 @@ class DashboardApp {
         });
 
         barHTML += '</div>'; listHTML += '</div>';
-        container.innerHTML = `<div class="allocation-wrapper">${barHTML}${listHTML}</div>`;
+        
+        // CORRECTION: Ajout de style="display: flex; flex-direction: column; height: 100%;" au wrapper pour forcer l'empilement vertical.
+        container.innerHTML = `<div class="allocation-wrapper" style="display: flex; flex-direction: column; height: 100%;">${barHTML}${listHTML}</div>`;
     }
 
     renderKPIs(data, cashTotal = 0, holdings = []) {
-        const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(v);
-        const pct = (v) => (v > 0 ? '+' : '') + v.toFixed(2) + '%';
-        const safeText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-        const setClass = (id, val) => { const el = document.getElementById(id); if (el) el.className = 'kpi-change-pct ' + (val >= 0 ? 'stat-positive' : 'stat-negative'); };
-
-        safeText('dashboard-total-value', fmt(data.totalCurrentEUR + cashTotal));
-        safeText('dashboard-invested-subtitle', `Invested: ${fmt(data.totalInvestedEUR)}`);
-        safeText('dashboard-total-return', fmt(data.gainTotal));
-        safeText('dashboard-total-return-pct', pct(data.gainPct));
-        setClass('dashboard-total-return-pct', data.gainPct);
-        safeText('dashboard-day-change', fmt(data.totalDayChangeEUR));
-        safeText('dashboard-day-change-pct', pct(data.dayChangePct));
-        setClass('dashboard-day-change-pct', data.totalDayChangeEUR);
-
+        // NOTE: Les 3 cartes principales (Total Value, Return, Var Today) sont mises à jour ailleurs.
+        
+        // --- 1. Nettoyage des anciennes KPIs (Top Gainer, Top Loser, Top Holdings) ---
         const topGainers = [...holdings].sort((a, b) => b.gainPct - a.gainPct).slice(0, 3);
         this.injectListIntoCard('dashboard-top-gainer-name', topGainers, 'gainer');
+        
         const topLosers = [...holdings].sort((a, b) => a.gainPct - b.gainPct).slice(0, 3);
         this.injectListIntoCard('dashboard-top-loser-name', topLosers, 'loser');
+        
+        // Rendu des Top Holdings (Top Sector devient Top Holdings)
         const topAssets = [...holdings].sort((a, b) => b.currentValue - a.currentValue).slice(0, 3);
         this.injectListIntoCard('dashboard-top-sector', topAssets, 'asset');
 
@@ -680,7 +679,10 @@ async loadMarketIndices() {
     for (const idx of indices) {
         const data = this.storage.getCurrentPrice(idx.ticker) || {};
         
-        // CORRECTION MAJEURE: Utiliser la dernière clôture si le prix actuel est nul
+        // CORRECTION 1: INITIALISER sparklineBg ici pour éviter la ReferenceError
+        let sparklineBg = ''; 
+        
+        // CORRECTION: Utiliser la dernière clôture si le prix actuel est nul
         const currentPrice = data.price || data.previousClose || 0; 
         const previousClose = data.previousClose || currentPrice;
         
@@ -690,25 +692,36 @@ async loadMarketIndices() {
         const change = price - validPrev;
         const pct = validPrev ? (change / validPrev) * 100 : 0;
 
-        // DÉTERMINATION DE LA CLASSE ET COULEUR PRINCIPALE (ROUGE/VERT)
-        const indicatorColor = change >= 0 ? '#10b981' : '#ef4444';
+        // DÉTERMINATION DE LA CLASSE ET COULEUR PRINCIPALE (Rouge/Vert/Neutre)
+        let indicatorColor;
+        if (change > 0) indicatorColor = '#10b981';
+        else if (change < 0) indicatorColor = '#ef4444';
+        else indicatorColor = '#9fa6bc'; // Couleur neutre
+
         const statusClass = change >= 0 ? 'stat-positive' : 'stat-negative'; 
         
-        const priceStr = idx.ticker.includes('BTC')
-            ? Math.round(price).toLocaleString('fr') + ' €'
-            : idx.ticker === 'EURUSD=X'
-                ? price.toFixed(4) // 4 décimales pour les devises
-                : price.toFixed(2);
-
-        const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+        // CORRECTION FORMATTAGE: Assure le bon nombre de décimales pour les paires
+        let priceStr;
+        let changeDecimals = 2; // Décimales pour la variation
+        if (idx.ticker.includes('BTC')) {
+            priceStr = Math.round(price).toLocaleString('fr') + ' €';
+        } else if (idx.ticker === 'EURUSD=X') {
+            priceStr = price.toFixed(4); // 4 décimales pour les devises
+            changeDecimals = 4; 
+        } else if (idx.ticker === 'GC=F' || idx.ticker === '^STOXX50E') {
+            priceStr = price.toFixed(2).toLocaleString('fr');
+        } else {
+            priceStr = price.toFixed(2).toLocaleString('fr') + ' €';
+        }
+        
+        const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(changeDecimals)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
         const changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
         const assetStatus = this.marketStatus.getAssetStatus(idx.ticker);
         const statusLabel = assetStatus.label;
         const statusColor = assetStatus.color;
 
         // ————— SPARKLINE EN FOND —————
-        let sparklineBg = '';
-        try {
+        try { // Ce bloc est safe car sparklineBg est initialisé au-dessus
             const hist = await this.api.getHistoricalPricesWithRetry(
                 idx.ticker,
                 Math.floor((Date.now() - 48 * 60 * 60 * 1000) / 1000),

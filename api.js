@@ -199,16 +199,28 @@ export class PriceAPI {
   }
 
   async fetchPricesWithFallback(tickers) {
-    let success = false;
-    try {
-      success = await this.fetchYahooV2Prices(tickers);
-      if (success) providerStats.YAHOO_V2.success++;
-    } catch (err) {
-      providerStats.YAHOO_V2.fails++;
-      providerStats.YAHOO_V2.lastError = err.message;
+        let success = false;
+        // Tenter de récupérer les prix Yahoo, avec bascule de proxy en cas d'échec
+        const MAX_ATTEMPTS = 3; 
+
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            try {
+                success = await this.fetchYahooV2Prices(tickers);
+                if (success) {
+                    providerStats.YAHOO_V2.success++;
+                    return true; // Succès, sortir
+                }
+            } catch (err) {
+                providerStats.YAHOO_V2.fails++;
+                providerStats.YAHOO_V2.lastError = err.message;
+                console.warn(`Tentative Yahoo échouée (${attempt + 1}/${MAX_ATTEMPTS}). Changement de proxy...`);
+                // Changer de proxy en cas d'erreur
+                this.currentProxyIndex = (this.currentProxyIndex + 1) % this.corsProxies.length;
+                await sleep(500); // Pause avant la prochaine tentative
+            }
+        }
+        return success; // Retourne faux si toutes les tentatives ont échoué
     }
-    return success;
-  }
 
   async fetchYahooV2Prices(tickers) {
     const results = [];
