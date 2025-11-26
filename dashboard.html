@@ -41,7 +41,11 @@
             <a href="investments.html" class="nav-item"><div class="nav-icon">📈</div><span class="nav-text">Assets</span></a>
             <a href="dashboard.html" class="nav-item active"><div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span></a>
             <a href="analytics.html" class="nav-item"><div class="nav-icon">📊</div><span class="nav-text">Analytics</span></a>
-        </nav>
+			<a href="news.html" class="nav-item">
+				<div class="nav-icon">📰</div>
+				<span class="nav-text">News Feeds</span>
+			</a>
+		</nav>
 
         <div class="sidebar-settings">
             <div class="settings-title">Paramètres</div>
@@ -166,7 +170,7 @@
 					</div>
 					
 					<div id="market-overview-container" class="indices-list">
-						<div class="market-loading">Loading...</div>
+						<div class="market-loading"></div>
 					</div>
 				</div>
 
@@ -177,7 +181,10 @@
                     <div class="feed-card">
                         <div class="feed-header">
                             <h3><i class="fas fa-bullseye" style="color:#3b82f6"></i> Mes Actifs</h3>
-                            <button id="refresh-portfolio-news" class="btn-icon-small"><i class="fas fa-sync"></i></button>
+                            <div style="display: flex; gap: 8px;">
+                                <select id="portfolio-asset-select" style="padding: 6px 12px; border-radius: 8px; font-size: 12px; min-width: 140px;"></select>
+                                <button id="refresh-portfolio-news" class="btn-icon-small" title="Rafraîchir les actifs"><i class="fas fa-sync"></i></button>
+                            </div>
                         </div>
                         <div id="news-portfolio-container" class="feed-content">
                             <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</div>
@@ -187,6 +194,7 @@
                     <div class="feed-card">
                         <div class="feed-header">
                             <h3><i class="fas fa-globe" style="color:#10b981"></i> Macro Éco</h3>
+                            <button id="refresh-global-news-btn" class="btn-icon-small" title="Rafraîchir la macro"><i class="fas fa-sync"></i></button>
                         </div>
                         <div id="news-global-container" class="feed-content">
                             <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</div>
@@ -219,7 +227,7 @@
                     </button>
                 </div>
 
-                <div id="modal-news-summary" class="news-summary-text">Chargement...</div>
+                <div id="modal-news-summary" class="news-summary-text">Loading...</div>
                 
                 <!-- NOUVEAU CONTENEUR POUR L'ANALYSE DE CONTEXTE -->
                 <div id="modal-news-context" class="news-context-box" style="display:none;">

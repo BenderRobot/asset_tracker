@@ -49,6 +49,11 @@ export class PriceAPI {
     ticker = ticker.toUpperCase().trim();
     if (YAHOO_MAP[ticker]) return YAHOO_MAP[ticker];
     if (ticker.startsWith('^')) return ticker;
+	if (ticker === '^IXIC') return '^IXIC'; // NASDAQ 100
+    if (ticker === '^FCHI') return '^FCHI'; // CAC 40
+    if (ticker === '^STOXX50E') return '^STOXX50E'; // EURO STOXX 50
+    if (ticker === 'EURUSD=X') return 'EURUSD=X'; // EUR/USD Forex
+    if (ticker === 'GC=F') return 'GC=F'; // Gold Futures
     const cryptos = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'LTC', 'XRP', 'XLM', 'BNB', 'AVAX'];
     return cryptos.includes(ticker) ? ticker + '-EUR' : ticker;
   }

@@ -38,7 +38,7 @@ export class InvestmentsPage {
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
     
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Chargement des données...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Loading...</td></tr>';
     
     if (fetchPrices) {
         // En mode bloquant, nous devons récupérer les prix avant de charger le graphique

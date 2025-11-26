@@ -87,7 +87,9 @@
     gap: 12px;
     overflow-y: auto;
     flex: 1;
-    padding-right: 4px;
+    padding-right: 10px;
+	padding-left : 10px;
+	padding-top : 10px;
     margin-top: 0; /* Ajusté car le margin est géré par le header maintenant */
 }
 .indices-list::-webkit-scrollbar { width: 4px; }
@@ -513,7 +515,6 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr); /* 3 colonnes égales */
     gap: 16px;
-    margin-bottom: 16px; /* Espace avant la ligne suivante */
 }
 
 /* Réutilisation du style 'summary-card-primary' de investments.css */
@@ -670,4 +671,28 @@
     box-shadow:  0 0 20px rgba(34, 197, 94, 0.5) !important;
     transform: translateY(-2px) !important;
     z-index: 10;
+}
+/* === INTERACTION INDICES & NAVIGATION === */
+
+/* Effet de sélection sur la carte active (GENERAL) */
+.market-card.active-index {
+    /* Base de l'effet d'activation/sélection */
+    border-color: var(--accent-blue) !important;
+    background: rgba(59, 130, 246, 0.1) !important;
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
+}
+
+/* NOUVEAU : RÈGLE POUR LES CARTES ACTIVES EN BAISSE */
+.market-card.stat-negative.active-index {
+    border: 1px solid var(--accent-red) !important;
+    box-shadow:  0 0 20px rgba(239, 68, 68, 0.5) !important; /* Rayonnement Rouge */
+    background: rgba(239, 68, 68, 0.1) !important;
+}
+
+/* RÈGLE AJOUTÉE PRÉCÉDEMMENT (MAINTENANT LÉGÈREMENT MODIFIÉE POUR LE VERT) */
+.market-card.active-index:not(.stat-negative) { 
+    /* Utilise la couleur verte si ce n'est pas stat-negative (i.e. stat-positive ou neutre) */
+    border: 1px solid var(--accent-green) !important;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.5) !important; /* Rayonnement Vert */
+    background: rgba(16, 185, 129, 0.1) !important;
 }

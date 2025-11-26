@@ -25,7 +25,7 @@ export class AchatsPage {
     const tbody = document.querySelector('#purchases-table tbody');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:20px;">Chargement...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:20px;">Loading...</td></tr>';
 
     // 1. Obtenir toutes les transactions filtrées
     let filtered = this.filterManager.filterPurchases(this.storage.getPurchases(), searchQuery);

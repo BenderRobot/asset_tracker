@@ -128,7 +128,7 @@ export class HistoricalChart {
 
   async showIndex(ticker, name) {
       if (this.isLoading) return;
-	  // await this.dataManager.api.fetchBatchPrices([ticker]);
+	  await this.dataManager.api.fetchBatchPrices([ticker]);
       this.currentMode = 'index';
       this.selectedAssets = [ticker];
       this.customTitle = { label: name, icon: '🌎' }; 

@@ -5,7 +5,7 @@
 export const RAPIDAPI_KEY = '900cd83ff7msh970062bff547634p1d444bjsn67326eb30d74';
 
 // AJOUTEZ VOTRE CLÉ ICI UNE FOIS POUR TOUTES
-export const GEMINI_API_KEY = 'AIzaSyBPHjOhLtFEJwfNA_20tcEmYFXI82yXSSY';
+export const GEMINI_API_KEY = 'AIzaSyC-8ryrEgrRx2X8l0g0uo1iwrx3-d3LjX4';
 export const FINNHUB_API_KEY = 'd447bqhr01qge0d0spfgd447bqhr01qge0d0spg0';
 
 // CACHE : Durées différentes selon type d'actif

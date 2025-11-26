@@ -1,7 +1,7 @@
-// benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/app.js
+// benderrobot/asset_tracker/asset_tracker-52109016fe138d6ac9b283096e2de3cfbb9437bb/app.js
 
 // ========================================
-// app.js - (v12 - Chargement Non-Bloquant)
+// app.js - (v13 - FIX INDICES LOADING)
 // ========================================
 import { Storage } from './storage.js';
 import { PriceAPI } from './api.js?v=4';
@@ -11,8 +11,12 @@ import { AchatsPage } from './achatsPage.js?v=6';
 import { InvestmentsPage } from './investmentsPage.js?v=9';
 import { HistoricalChart } from './historicalChart.js?v=9';
 import { DataManager } from './dataManager.js?v=7';
-import { initMarketStatus } from './marketStatus.js?v=3'; // Import corrigé
+import { initMarketStatus } from './marketStatus.js?v=3'; 
 import { ASSET_TYPES, BROKERS, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED } from './config.js';
+
+// NOUVEAU: Liste des indices du Dashboard pour forcer leur rafraîchissement
+const DASHBOARD_INDICES = ['^GSPC', '^IXIC', '^FCHI', '^STOXX50E', 'BTC-EUR', 'GC=F', 'EURUSD=X'];
+
 
 class App {
   constructor() {
@@ -23,10 +27,8 @@ class App {
     this.ui = new UIComponents(this.storage);
     this.filterManager = new FilterManager(this.storage);
     
-    // Initialisation du statut marché via la fonction helper
     this.marketStatus = initMarketStatus(this.storage);
 
-    // On passe marketStatus aux pages
     this.achatsPage = new AchatsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager, this.marketStatus);
     this.investmentsPage = new InvestmentsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager, this.brokersList, this.marketStatus); 
 
@@ -48,7 +50,7 @@ class App {
         e.preventDefault();
 
         try {
-            const type = document.getElementById('cash-type').value; // "Dépôt" ou "Retrait"
+            const type = document.getElementById('cash-type').value; 
             const amount = parseFloat(document.getElementById('cash-amount').value);
             const finalAmount = (type === 'Retrait' ? -amount : amount);
 
@@ -56,7 +58,7 @@ class App {
                 ticker: 'CASH',
                 name: type, 
                 price: finalAmount, 
-                date: document.getElementById('date').value, // Utiliser la date du formulaire Actif
+                date: document.getElementById('date').value, 
                 quantity: 1, 
                 currency: 'EUR',
                 assetType: 'Cash',
@@ -84,7 +86,6 @@ class App {
   async init() {
     console.log('Initialisation de l\'application...'); 
 
-    // 1. Initialiser le taux de conversion (rapide)
     await this.initConversionRates();
 
     this.storage.cleanExpiredCache();
@@ -92,8 +93,7 @@ class App {
 
     this.populateAssetTypeAndBrokerSelects();
 
-    // 2. RENDER INITIAL RAPIDE (AVEC DONNÉES EN CACHE OU VALEURS PAR DÉFAUT)
-    await this.renderCurrentPage(false); // <-- NE PAS FORCER LE REFRESH
+    await this.renderCurrentPage(false); 
 
     this.setupEventListeners();
 
@@ -104,17 +104,14 @@ class App {
       this.historicalChart.startAutoRefresh(); 
     }
     
-    // 3. LANCER LE REFRESH DES PRIX EN ARRIÈRE-PLAN (NON-BLOQUANT)
     console.log('Lancement du rafraîchissement des prix en arrière-plan...');
     this.refreshPrices().then(() => {
         console.log('Mise à jour des prix terminée. Le tableau est mis à jour.');
-        // On relance le render pour afficher les prix à jour
         this.renderCurrentPage(false); 
     }).catch(error => {
         console.error('Erreur lors du rafraîchissement initial non-bloquant:', error);
     });
     
-    // Démarrer l'auto-refresh du statut marché (badge header)
     this.marketStatus.startAutoRefresh('market-status-container', 'full');
     this.startAutoRefresh();
 
@@ -181,35 +178,32 @@ class App {
 
   async renderCurrentPage(fetchPrices = true) { 
     if (this.isAchatsPage()) {
-      await this.achatsPage.render(this.searchQuery, fetchPrices); // <-- PASSER LE FLAG
+      await this.achatsPage.render(this.searchQuery, fetchPrices); 
     } else if (this.isInvestmentsPage()) {
-      await this.investmentsPage.render(this.searchQuery, fetchPrices); // <-- PASSER LE FLAG
+      await this.investmentsPage.render(this.searchQuery, fetchPrices); 
     }
   }
 
   setupEventListeners() {
     if (this.isAchatsPage()) {
       this.setupAchatsPageListeners();
-      this.setupToggleListener(); // Garde la fonction de bascule
+      this.setupToggleListener(); 
     }
     if (this.isInvestmentsPage()) {
       this.setupInvestmentsPageListeners();
     }
   }
 
-  // Fonction de bascule (non modifiée, elle est OK)
   setupToggleListener() {
     const toggleBtn = document.getElementById('toggle-add-btn');
     const wrapper = document.getElementById('add-transaction-wrapper');
     if (!toggleBtn || !wrapper) return;
 
-    // Initialisation du texte du bouton (important car le bloc est masqué par défaut)
     toggleBtn.innerHTML = '<i class="fas fa-plus"></i> Add';
 
     toggleBtn.addEventListener('click', () => {
       const isExpanded = wrapper.classList.toggle('expanded');
       
-      // Mise à jour du texte du bouton et de l'icône
       const icon = toggleBtn.querySelector('i');
       if (isExpanded) {
         window.scrollTo({ top: 0, behavior: 'smooth' }); 
@@ -245,7 +239,7 @@ class App {
     const refreshBtn = document.getElementById('refresh-prices');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
-        await this.refreshPrices(false, true); // Forcer le refresh API
+        await this.refreshPrices(false, true); 
       });
     }
 
@@ -347,7 +341,11 @@ class App {
           await this.historicalChart.update(showLoading, true);
       } else {
           const purchases = this.storage.getPurchases();
-          const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+          let tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+          
+          // CORRECTION MAJEURE: Inclure tous les tickers d'indices au refresh
+          tickers = [...new Set([...tickers, ...DASHBOARD_INDICES])]; 
+
           if (tickers.length > 0) {
              await this.api.fetchBatchPrices(tickers, forceWeekend); 
           }
@@ -499,7 +497,7 @@ class App {
     } finally {
       if (importBtn) {
         importBtn.disabled = false;
-        btn.innerHTML = originalBtnText; // Utilisez la variable originale
+        btn.innerHTML = originalBtnText; 
       }
     }
   }
@@ -579,7 +577,11 @@ class App {
           await this.historicalChart.silentUpdate();
       } else {
           const purchases = this.storage.getPurchases();
-          const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+          let tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+          
+          // CORRECTION: Inclure les tickers d'indices dans l'auto-refresh
+          tickers = [...new Set([...tickers, ...DASHBOARD_INDICES])]; 
+
           await this.api.fetchBatchPrices(tickers);
           await this.renderCurrentPage(false);
       }
