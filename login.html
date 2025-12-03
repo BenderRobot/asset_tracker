@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion - Asset Tracker</title>
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: var(--bg-primary);
+        }
+
+        .login-card {
+            background: var(--bg-card);
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: var(--shadow-lg);
+            width: 100%;
+            max-width: 400px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        .login-card h2 {
+            margin-top: 0;
+            margin-bottom: 24px;
+            color: var(--accent-blue);
+            font-size: 24px;
+        }
+
+        #login-form input {
+            width: 100%;
+            margin-bottom: 16px;
+        }
+
+        #error-message {
+            color: var(--accent-red);
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        /* FIX: Override global body flex needed for sidebar layout */
+        body {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 24px;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 40px; height: 40px; object-fit: contain;">
+                <h2 style="margin: 0;">Asset Tracker Login</h2>
+            </div>
+
+            <div id="error-message" style="display: none;"></div>
+            <form id="login-form">
+                <input type="email" id="email" placeholder="Email" required>
+                <input type="password" id="password" placeholder="Mot de passe" required>
+                <input type="password" id="confirm-password" placeholder="Confirmer le mot de passe"
+                    style="display: none;">
+                <button type="submit" class="btn-primary" style="width: 100%;" id="submit-btn">
+                    Se connecter
+                </button>
+            </form>
+
+            <div style="margin: 20px 0; position: relative;">
+                <hr style="border: 0; border-top: 1px solid var(--border-color);">
+                <span
+                    style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: var(--bg-card); padding: 0 10px; color: var(--text-secondary); font-size: 12px;">OU</span>
+            </div>
+
+            <button id="google-login-btn" class="btn-secondary"
+                style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                <i class="fab fa-google"></i> Continuer avec Google
+            </button>
+            <div style="margin-top: 15px; font-size: 14px;">
+                <a href="#" id="toggle-mode" style="color: var(--text-secondary);">Créer un compte</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
+    <script type="module" src="loginApp.js"></script>
+</body>
+
+</html>

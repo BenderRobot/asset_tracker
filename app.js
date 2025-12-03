@@ -11,29 +11,26 @@ import { AchatsPage } from './achatsPage.js?v=6';
 import { InvestmentsPage } from './investmentsPage.js?v=9';
 import { HistoricalChart } from './historicalChart.js?v=9';
 import { DataManager } from './dataManager.js?v=7';
-import { initMarketStatus } from './marketStatus.js?v=3'; 
-import { ASSET_TYPES, BROKERS, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED } from './config.js';
-
-// NOUVEAU: Liste des indices du Dashboard pour forcer leur rafraîchissement
-const DASHBOARD_INDICES = ['^GSPC', '^IXIC', '^FCHI', '^STOXX50E', 'BTC-EUR', 'GC=F', 'EURUSD=X'];
+import { initMarketStatus } from './marketStatus.js?v=3';
+import { ASSET_TYPES, BROKERS, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED, DASHBOARD_INDICES } from './config.js';
 
 
 class App {
   constructor() {
     this.storage = new Storage();
-    this.api = new PriceAPI(this.storage); 
+    this.api = new PriceAPI(this.storage);
     this.brokersList = BROKERS;
-    this.dataManager = new DataManager(this.storage, this.api); 
+    this.dataManager = new DataManager(this.storage, this.api);
     this.ui = new UIComponents(this.storage);
     this.filterManager = new FilterManager(this.storage);
-    
+
     this.marketStatus = initMarketStatus(this.storage);
 
     this.achatsPage = new AchatsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager, this.marketStatus);
-    this.investmentsPage = new InvestmentsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager, this.brokersList, this.marketStatus); 
+    this.investmentsPage = new InvestmentsPage(this.storage, this.api, this.ui, this.filterManager, this.dataManager, this.brokersList, this.marketStatus);
 
-    if (this.isInvestmentsPage()) { 
-      this.historicalChart = new HistoricalChart(this.storage, this.dataManager, this.ui, this.investmentsPage); 
+    if (this.isInvestmentsPage()) {
+      this.historicalChart = new HistoricalChart(this.storage, this.dataManager, this.ui, this.investmentsPage);
       this.investmentsPage.setHistoricalChart(this.historicalChart);
     }
 
@@ -47,44 +44,44 @@ class App {
     if (!form) return;
 
     form.addEventListener('submit', async (e) => {
-        e.preventDefault();
+      e.preventDefault();
 
-        try {
-            const type = document.getElementById('cash-type').value; 
-            const amount = parseFloat(document.getElementById('cash-amount').value);
-            const finalAmount = (type === 'Retrait' ? -amount : amount);
+      try {
+        const type = document.getElementById('cash-type').value;
+        const amount = parseFloat(document.getElementById('cash-amount').value);
+        const finalAmount = (type === 'Retrait' ? -amount : amount);
 
-            const cashMovement = {
-                ticker: 'CASH',
-                name: type, 
-                price: finalAmount, 
-                date: document.getElementById('date').value, 
-                quantity: 1, 
-                currency: 'EUR',
-                assetType: 'Cash',
-                broker: document.getElementById('cash-broker').value
-            };
+        const cashMovement = {
+          ticker: 'CASH',
+          name: type,
+          price: finalAmount,
+          date: document.getElementById('date').value,
+          quantity: 1,
+          currency: 'EUR',
+          assetType: 'Cash',
+          broker: document.getElementById('cash-broker').value
+        };
 
-            if (!cashMovement.date || !cashMovement.broker || !cashMovement.price) {
-                alert('Tous les champs sont requis pour le mouvement de cash.');
-                return;
-            }
-
-            this.storage.addPurchase(cashMovement);
-            form.reset();
-
-            await this.achatsPage.render(this.searchQuery);
-            this.showNotification('Mouvement de cash ajouté', 'success');
-
-        } catch (error) {
-            console.error('Erreur ajout cash:', error);
-            alert('Erreur: ' + error.message);
+        if (!cashMovement.date || !cashMovement.broker || !cashMovement.price) {
+          this.showNotification('Tous les champs sont requis pour le mouvement de cash.', 'warning');
+          return;
         }
+
+        this.storage.addPurchase(cashMovement);
+        form.reset();
+
+        await this.achatsPage.render(this.searchQuery);
+        this.showNotification('Mouvement de cash ajouté', 'success');
+
+      } catch (error) {
+        console.error('Erreur ajout cash:', error);
+        this.showNotification('Erreur: ' + error.message, 'error');
+      }
     });
   }
 
   async init() {
-    console.log('Initialisation de l\'application...'); 
+    console.log('Initialisation de l\'application...');
 
     await this.initConversionRates();
 
@@ -93,25 +90,32 @@ class App {
 
     this.populateAssetTypeAndBrokerSelects();
 
-    await this.renderCurrentPage(false); 
+    await this.renderCurrentPage(false);
 
     this.setupEventListeners();
 
+    // Écouter les mises à jour Firestore
+    window.addEventListener('purchases-updated', () => {
+      console.log('⚡ UI Update triggered by Firestore');
+      this.filterManager.updateTickerFilter(() => this.renderCurrentPage(false));
+      this.renderCurrentPage(false);
+    });
+
     this.addWeekendRefreshButton();
 
-    if (this.historicalChart) { 
+    if (this.historicalChart) {
       this.historicalChart.setupPeriodButtons();
-      this.historicalChart.startAutoRefresh(); 
+      this.historicalChart.startAutoRefresh();
     }
-    
+
     console.log('Lancement du rafraîchissement des prix en arrière-plan...');
     this.refreshPrices().then(() => {
-        console.log('Mise à jour des prix terminée. Le tableau est mis à jour.');
-        this.renderCurrentPage(false); 
+      console.log('Mise à jour des prix terminée. Le tableau est mis à jour.');
+      this.renderCurrentPage(false);
     }).catch(error => {
-        console.error('Erreur lors du rafraîchissement initial non-bloquant:', error);
+      console.error('Erreur lors du rafraîchissement initial non-bloquant:', error);
     });
-    
+
     this.marketStatus.startAutoRefresh('market-status-container', 'full');
     this.startAutoRefresh();
 
@@ -122,20 +126,20 @@ class App {
     const pair = 'USD_TO_EUR';
     const cachedRate = this.storage.getConversionRate(pair);
 
-    if (cachedRate) return; 
+    if (cachedRate) return;
 
     try {
-        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=usd&vs_currencies=eur');
-        if (!res.ok) throw new Error('Réponse API invalide');
-        
-        const data = await res.json();
-        const rate = data?.usd?.eur;
+      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=usd&vs_currencies=eur');
+      if (!res.ok) throw new Error('Réponse API invalide');
 
-        if (rate) {
-            this.storage.setConversionRate(pair, rate);
-        }
+      const data = await res.json();
+      const rate = data?.usd?.eur;
+
+      if (rate) {
+        this.storage.setConversionRate(pair, rate);
+      }
     } catch (error) {
-        console.error('Échec taux de change:', error.message);
+      console.error('Échec taux de change:', error.message);
     }
   }
 
@@ -168,26 +172,26 @@ class App {
 
   isAchatsPage() {
     return window.location.pathname.endsWith('index.html') ||
-           window.location.pathname === '/' ||
-           window.location.pathname.endsWith('/');
+      window.location.pathname === '/' ||
+      window.location.pathname.endsWith('/');
   }
 
   isInvestmentsPage() {
-    return window.location.pathname.includes('investments.html'); 
+    return window.location.pathname.includes('investments.html');
   }
 
-  async renderCurrentPage(fetchPrices = true) { 
+  async renderCurrentPage(fetchPrices = true) {
     if (this.isAchatsPage()) {
-      await this.achatsPage.render(this.searchQuery, fetchPrices); 
+      await this.achatsPage.render(this.searchQuery, fetchPrices);
     } else if (this.isInvestmentsPage()) {
-      await this.investmentsPage.render(this.searchQuery, fetchPrices); 
+      await this.investmentsPage.render(this.searchQuery, fetchPrices);
     }
   }
 
   setupEventListeners() {
     if (this.isAchatsPage()) {
       this.setupAchatsPageListeners();
-      this.setupToggleListener(); 
+      this.setupToggleListener();
     }
     if (this.isInvestmentsPage()) {
       this.setupInvestmentsPageListeners();
@@ -203,10 +207,10 @@ class App {
 
     toggleBtn.addEventListener('click', () => {
       const isExpanded = wrapper.classList.toggle('expanded');
-      
+
       const icon = toggleBtn.querySelector('i');
       if (isExpanded) {
-        window.scrollTo({ top: 0, behavior: 'smooth' }); 
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         toggleBtn.textContent = ' Close';
         icon.className = 'fas fa-times';
         toggleBtn.prepend(icon);
@@ -239,7 +243,7 @@ class App {
     const refreshBtn = document.getElementById('refresh-prices');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
-        await this.refreshPrices(false, true); 
+        await this.refreshPrices(false, true);
       });
     }
 
@@ -288,7 +292,7 @@ class App {
     }
 
     this.investmentsPage.setupSorting();
-    this.investmentsPage.setupFilters(); 
+    this.investmentsPage.setupFilters();
   }
 
   async addPurchase() {
@@ -305,9 +309,9 @@ class App {
       };
 
       if (!purchase.ticker || !purchase.name || !purchase.price ||
-          !purchase.date || !purchase.quantity || !purchase.currency ||
-          !purchase.assetType || !purchase.broker) {
-        alert('Tous les champs sont requis');
+        !purchase.date || !purchase.quantity || !purchase.currency ||
+        !purchase.assetType || !purchase.broker) {
+        this.showNotification('Tous les champs sont requis', 'warning');
         return;
       }
 
@@ -320,7 +324,7 @@ class App {
       this.showNotification('Transaction ajoutée', 'success');
     } catch (error) {
       console.error('Erreur ajout:', error);
-      alert('Erreur: ' + error.message);
+      this.showNotification('Erreur: ' + error.message, 'error');
     }
   }
 
@@ -338,20 +342,20 @@ class App {
 
     try {
       if (this.isInvestmentsPage() && this.historicalChart) {
-          await this.historicalChart.update(showLoading, true);
+        await this.historicalChart.update(showLoading, true);
       } else {
-          const purchases = this.storage.getPurchases();
-          let tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
-          
-          // CORRECTION MAJEURE: Inclure tous les tickers d'indices au refresh
-          tickers = [...new Set([...tickers, ...DASHBOARD_INDICES])]; 
+        const purchases = this.storage.getPurchases();
+        let tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
 
-          if (tickers.length > 0) {
-             await this.api.fetchBatchPrices(tickers, forceWeekend); 
-          }
-          await this.renderCurrentPage(false); // Rendre avec les nouveaux prix
+        // CORRECTION MAJEURE: Inclure tous les tickers d'indices au refresh
+        tickers = [...new Set([...tickers, ...DASHBOARD_INDICES])];
+
+        if (tickers.length > 0) {
+          await this.api.fetchBatchPrices(tickers, forceWeekend);
+        }
+        await this.renderCurrentPage(false); // Rendre avec les nouveaux prix
       }
-      
+
       this.showNotification(forceWeekend ? 'Prix de clôture récupérés !' : 'Prix mis à jour', 'success');
     } catch (error) {
       console.error('Erreur refresh:', error);
@@ -444,7 +448,7 @@ class App {
   async importCSV() {
     const fileInput = document.getElementById('csv-file');
     const file = fileInput?.files[0];
-    if (!file) return alert('Sélectionnez un fichier CSV');
+    if (!file) return this.showNotification('Sélectionnez un fichier CSV', 'warning');
 
     const importBtn = document.getElementById('import-csv');
     const originalBtnText = importBtn ? importBtn.innerHTML : 'Import CSV';
@@ -472,15 +476,33 @@ class App {
           reject(new Error('Erreur du Worker CSV: ' + e.message));
         };
       });
-      
-      worker.terminate(); 
+
+      worker.terminate();
 
       const { purchases, count } = result;
 
       if (count > 0) {
-        purchases.forEach(purchase => {
-          this.storage.addPurchase(purchase);
-        });
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const purchase of purchases) {
+          try {
+            await this.storage.addPurchase(purchase);
+            successCount++;
+          } catch (error) {
+            console.error(`Failed to import ${purchase.ticker}:`, error);
+            failCount++;
+          }
+        }
+
+        if (failCount > 0) {
+          this.showNotification(`${successCount} réussis, ${failCount} échecs. Vérifiez la console.`, 'warning');
+          if (successCount === 0) {
+            alert("Toutes les transactions ont échoué. Vérifiez que vous avez bien appliqué les règles de sécurité Firestore dans la console Firebase.");
+          }
+        } else {
+          this.showNotification(`${successCount} transactions importées avec succès`, 'success');
+        }
       }
 
       this.filterManager.updateTickerFilter(() => this.renderCurrentPage());
@@ -492,19 +514,19 @@ class App {
       if (fileNameSpan) fileNameSpan.textContent = 'No file chosen';
 
     } catch (error) {
-      alert('Erreur import: ' + error.message);
+      this.showNotification('Erreur import: ' + error.message, 'error');
       this.showNotification('Échec de l\'importation', 'error');
     } finally {
       if (importBtn) {
         importBtn.disabled = false;
-        btn.innerHTML = originalBtnText; 
+        importBtn.innerHTML = originalBtnText;
       }
     }
   }
 
   exportCSV() {
     const purchases = this.storage.getPurchases();
-    if (!purchases.length) return alert('Aucune transaction');
+    if (!purchases.length) return this.showNotification('Aucune transaction', 'warning');
 
     const headers = ['ticker', 'name', 'price', 'date', 'quantity', 'currency', 'assetType', 'broker'];
     const csv = [
@@ -574,16 +596,16 @@ class App {
     console.log('Rafraîchissement auto...');
     try {
       if (this.isInvestmentsPage() && this.historicalChart) {
-          await this.historicalChart.silentUpdate();
+        await this.historicalChart.silentUpdate();
       } else {
-          const purchases = this.storage.getPurchases();
-          let tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
-          
-          // CORRECTION: Inclure les tickers d'indices dans l'auto-refresh
-          tickers = [...new Set([...tickers, ...DASHBOARD_INDICES])]; 
+        const purchases = this.storage.getPurchases();
+        let tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
 
-          await this.api.fetchBatchPrices(tickers);
-          await this.renderCurrentPage(false);
+        // CORRECTION: Inclure les tickers d'indices dans l'auto-refresh
+        tickers = [...new Set([...tickers, ...DASHBOARD_INDICES])];
+
+        await this.api.fetchBatchPrices(tickers);
+        await this.renderCurrentPage(false);
       }
     } catch (error) {
       console.error('Erreur auto-refresh:', error);
@@ -596,7 +618,7 @@ class App {
   try {
     await app.init();
   } catch (error) {
-    console.error('Erreur fatale:', error); 
-    alert('Erreur au démarrage');
+    console.error('Erreur fatale:', error);
+    // alert('Erreur au démarrage'); // Supprimé pour éviter de bloquer
   }
 })();

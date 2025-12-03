@@ -1,3 +1,5 @@
+import { auth } from './firebaseConfig.js';
+
 // sidebar.js – Version Zéro-Flash & Footer Fixe
 const sidebar = document.getElementById('app-sidebar');
 const toggleBtn = document.getElementById('sidebar-toggle');
@@ -31,3 +33,39 @@ if (sidebar && toggleBtn) {
         toggleSidebar();
     });
 }
+
+// GESTION LOGIN / LOGOUT
+// On attend que le DOM soit chargé pour être sûr que le bouton existe
+document.addEventListener('DOMContentLoaded', () => {
+    const authBtn = document.getElementById('auth-btn');
+    if (authBtn) {
+        auth.onAuthStateChanged(user => {
+            console.log("Auth State Changed:", user ? "Logged In" : "Logged Out");
+
+            if (user) {
+                // Connecté -> Logout
+                authBtn.innerHTML = `
+                    <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                    <span class="nav-text">Déconnexion</span>
+                `;
+                // On remplace le clone pour éviter les event listeners multiples
+                const newBtn = authBtn.cloneNode(true);
+                authBtn.parentNode.replaceChild(newBtn, authBtn);
+
+                newBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    auth.signOut().then(() => {
+                        window.location.href = 'login.html';
+                    });
+                });
+            } else {
+                // Déconnecté -> Login
+                authBtn.innerHTML = `
+                    <div class="nav-icon"><i class="fas fa-sign-in-alt"></i></div>
+                    <span class="nav-text">Connexion</span>
+                `;
+                authBtn.href = "login.html";
+            }
+        });
+    }
+});

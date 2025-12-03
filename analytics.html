@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,17 +8,17 @@
     <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    
+
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css">
     <link rel="stylesheet" href="css/components.css">
-    
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
+
     <style>
         .analytics-grid {
             display: grid;
@@ -80,9 +81,20 @@
             font-weight: 600;
         }
 
-        .risk-low { background: rgba(16, 185, 129, 0.2); color: #10b981; }
-        .risk-moderate { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
-        .risk-high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .risk-low {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .risk-moderate {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .risk-high {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
 
         .performer-list {
             display: flex;
@@ -124,51 +136,57 @@
             margin: 0;
         }
     </style>
-	<script>
-		// Script Anti-Flash : Applique l'état réduit avant le rendu visuel
-		const isCollapsed = localStorage.getItem('sidebarState') === 'true';
-		if (isCollapsed) {
-			document.documentElement.classList.add('sidebar-collapsed');
-		}
-	</script>
+    <script>
+        // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
+        const isCollapsed = localStorage.getItem('sidebarState') === 'true';
+        if (isCollapsed) {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+    </script>
 </head>
+
 <body>
     <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-header">
-			<div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
-				<img src="/icons/android-chrome-192x192.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
-			</div>
-			<span class="app-logo-text">Asset Tracker</span>
-		</div>
-        
+            <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px; object-fit: contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+
         <nav class="sidebar-nav">
-            <a href="index.html" class="nav-item">
-                <div class="nav-icon">📋</div>
-                <span class="nav-text">Transactions</span>
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">🚀</div>
+                <span class="nav-text">Dashboard</span>
             </a>
             <a href="investments.html" class="nav-item">
                 <div class="nav-icon">📈</div>
                 <span class="nav-text">Assets</span>
             </a>
-            <a href="dashboard.html" class="nav-item"> 
-                <div class="nav-icon">🚀</div>
-                <span class="nav-text">Dashboard</span>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div>
+                <span class="nav-text">Transactions</span>
             </a>
             <a href="analytics.html" class="nav-item active">
                 <div class="nav-icon">📊</div>
                 <span class="nav-text">Analytics</span>
             </a>
-			<a href="news.html" class="nav-item">
-				<div class="nav-icon">📰</div>
-				<span class="nav-text">News Feeds</span>
-			</a>
-            </nav>
+            <a href="news.html" class="nav-item">
+                <div class="nav-icon">📰</div>
+                <span class="nav-text">News Feeds</span>
+            </a>
+        </nav>
 
         <div class="sidebar-settings">
             <div class="settings-title">Paramètres</div>
             <a href="migration.html" class="nav-item">
                 <div class="nav-icon"><i class="fas fa-cog"></i></div>
                 <span class="nav-text">Migration</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">Déconnexion</span>
             </a>
         </div>
 
@@ -188,7 +206,7 @@
                         <div class="summary-card-label">Total Value</div>
                         <div id="total-value" class="summary-card-value">€0.00</div>
                     </div>
-                    
+
                     <div class="summary-card">
                         <div class="summary-card-label">Total Return</div>
                         <div id="total-return" class="summary-card-value">€0.00</div>
@@ -196,7 +214,7 @@
                             <span id="return-pct" class="meta-large">0.00%</span>
                         </div>
                     </div>
-                    
+
                     <div class="summary-card">
                         <div class="summary-card-label">Win Rate</div>
                         <div id="win-rate" class="summary-card-value">0%</div>
@@ -289,7 +307,12 @@
         </div>
     </main>
 
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
+    <script type="module" src="./authGuard.js"></script>
     <script type="module" src="./analyticsApp.js"></script>
     <script type="module" src="./sidebar.js"></script>
 </body>
+
 </html>

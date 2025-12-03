@@ -17,15 +17,15 @@ export class InvestmentsPage {
     this.dataManager = dataManager;
     this.brokersList = brokersList;
     this.marketStatus = marketStatus; // Stockage
-    
+
     this.historicalChart = null;
     this.currentPage = 1;
     this.sortColumn = 'dayPct';
     this.sortDirection = 'desc';
     this.currentAssetTypeFilter = '';
     this.currentBrokerFilter = '';
-    this.currentHoldings = []; 
-    this.currentSearchQuery = ''; 
+    this.currentHoldings = [];
+    this.currentSearchQuery = '';
     this.lastChartStats = null; // <-- NOUVEAU
   }
 
@@ -37,60 +37,60 @@ export class InvestmentsPage {
     this.currentSearchQuery = searchQuery;
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
-    
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Loading...</td></tr>';
-    
-    if (fetchPrices) {
-        // En mode bloquant, nous devons récupérer les prix avant de charger le graphique
-        const purchases = this.storage.getPurchases();
-        const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
-        if (tickers.length > 0) {
-           await this.api.fetchBatchPrices(tickers);
-        }
-        
-        if (this.historicalChart) {
-          await this.historicalChart.loadPageWithCacheFirst(); 
-        }
-    } else {
-         // En mode non-bloquant, on affiche tout de suite avec les données en cache
-         if (this.historicalChart) {
-            // Afficher le graphique avec le cache (paramètres non-bloquants)
-            await this.historicalChart.update(false, false); 
-         } else {
-             // Rendre les données du tableau immédiatement
-             const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
-             const targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
-             const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
-             const targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
-             const currentSummary = this.dataManager.calculateSummary(targetHoldings);
-             const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
 
-             this.renderData(targetHoldings, currentSummary, targetCashReserve.total);
-         }
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Loading...</td></tr>';
+
+    if (fetchPrices) {
+      // En mode bloquant, nous devons récupérer les prix avant de charger le graphique
+      const purchases = this.storage.getPurchases();
+      const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+      if (tickers.length > 0) {
+        await this.api.fetchBatchPrices(tickers);
+      }
+
+      if (this.historicalChart) {
+        await this.historicalChart.loadPageWithCacheFirst();
+      }
+    } else {
+      // En mode non-bloquant, on affiche tout de suite avec les données en cache
+      if (this.historicalChart) {
+        // Afficher le graphique avec le cache (paramètres non-bloquants)
+        await this.historicalChart.update(false, false);
+      } else {
+        // Rendre les données du tableau immédiatement
+        const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
+        const targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
+        const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
+        const targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
+        const currentSummary = this.dataManager.calculateSummary(targetHoldings);
+        const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
+
+        this.renderData(targetHoldings, currentSummary, targetCashReserve.total);
+      }
     }
   }
 
   getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
-      const searchQuery = this.currentSearchQuery;
-      let purchases = this.storage.getPurchases();
-      
-      if (searchQuery) {
-          const q = searchQuery.toLowerCase();
-          purchases = purchases.filter(p => p.ticker.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
+    const searchQuery = this.currentSearchQuery;
+    let purchases = this.storage.getPurchases();
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      purchases = purchases.filter(p => p.ticker.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
+    }
+    if (!ignoreTickerFilter) {
+      const selectedTickers = this.filterManager.getSelectedTickers();
+      if (selectedTickers.size > 0) {
+        purchases = purchases.filter(p => selectedTickers.has(p.ticker.toUpperCase()));
       }
-      if (!ignoreTickerFilter) {
-          const selectedTickers = this.filterManager.getSelectedTickers();
-          if (selectedTickers.size > 0) {
-              purchases = purchases.filter(p => selectedTickers.has(p.ticker.toUpperCase()));
-          }
-      }
-      if (this.currentAssetTypeFilter) {
-          purchases = purchases.filter(p => (p.assetType || 'Stock') === this.currentAssetTypeFilter);
-      }
-      if (this.currentBrokerFilter) {
-          purchases = purchases.filter(p => (p.broker || 'RV-CT') === this.currentBrokerFilter);
-      }
-      return purchases;
+    }
+    if (this.currentAssetTypeFilter) {
+      purchases = purchases.filter(p => (p.assetType || 'Stock') === this.currentAssetTypeFilter);
+    }
+    if (this.currentBrokerFilter) {
+      purchases = purchases.filter(p => (p.broker || 'RV-CT') === this.currentBrokerFilter);
+    }
+    return purchases;
   }
 
 
@@ -127,10 +127,10 @@ export class InvestmentsPage {
     const pageItems = filteredHoldings.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
 
     tbody.innerHTML = pageItems.map(p => {
-        const isSelected = selectedTickers.has(p.ticker.toUpperCase());
-        const selectedClass = isSelected ? 'selected' : '';
-        
-        return `
+      const isSelected = selectedTickers.has(p.ticker.toUpperCase());
+      const selectedClass = isSelected ? 'selected' : '';
+
+      return `
             <tr class="asset-row ${selectedClass}" data-ticker="${p.ticker}" data-avgprice="${p.avgPrice}">
                 <td><strong>${p.ticker}</strong></td>
                 <td>${p.name}</td>
@@ -146,20 +146,24 @@ export class InvestmentsPage {
             </tr>
         `;
     }).join('') || '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-secondary);">Aucun investissement correspondant.</td></tr>';
-    
+
     // --- LOGIQUE D'ÉCRASEMENT DES STATS PAR LE GRAPHIQUE ---
     // 1. Définir les stats du graphique (pour la persistance si pagination)
     if (chartStats) this.lastChartStats = chartStats;
     const effectiveChartStats = chartStats || this.lastChartStats;
-    
-    // 2. Créer un résumé final et appliquer l'écrasement
-    let finalSummary = {...summary}; // Copier le résumé de base
-    
-    // ÉCRASEMENT : Si les stats du graphique existent et sont passées, elles sont la SEULE source de vérité pour la Var. Jour
+
+    // 2. Créer un résumé final
+    let finalSummary = { ...summary }; // Copier le résumé de base
+
+    // MODIFICATION: Suppression de la logique d'écrasement par le graphique.
+    // La carte du haut doit toujours refléter le P&L réel (calculé par dataManager comme le tableau),
+    // et non une variation approximative basée sur l'historique du graphique.
+    /*
     if (effectiveChartStats && effectiveChartStats.historicalDayChange !== null) {
         finalSummary.totalDayChangeEUR = effectiveChartStats.historicalDayChange;
         finalSummary.dayChangePct = effectiveChartStats.historicalDayChangePct;
     }
+    */
     // --- FIN LOGIQUE D'ÉCRASEMENT ---
 
     // === MODIF : Passage de marketStatus (utilise finalSummary) ===
@@ -168,9 +172,9 @@ export class InvestmentsPage {
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
       // L'appel récursif se fera avec this.lastChartStats qui sera récupéré au début de renderData
-      this.renderData(this.currentHoldings, summary, cashReserveTotal); 
+      this.renderData(this.currentHoldings, summary, cashReserveTotal);
     });
-    
+
     this.ui.populateTickerSelect(this.storage.getPurchases());
     this.attachRowClickListeners();
   }
@@ -178,17 +182,17 @@ export class InvestmentsPage {
   getChartTitleConfig() { /* ... inchangé ... */
     const selectedTickers = this.filterManager.getSelectedTickers();
     if (selectedTickers.size === 1) {
-        const ticker = Array.from(selectedTickers)[0];
-        const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
-        const icon = this.dataManager.isCryptoTicker(ticker) ? '₿' : '📊';
-        return { mode: 'asset', label: `${ticker} • ${name}`, icon: icon };
+      const ticker = Array.from(selectedTickers)[0];
+      const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
+      const icon = this.dataManager.isCryptoTicker(ticker) ? '₿' : '📊';
+      return { mode: 'asset', label: `${ticker} • ${name}`, icon: icon };
     }
     if (selectedTickers.size > 1) {
       const tickers = Array.from(selectedTickers);
       let label = tickers.length > 2 ? `${tickers.slice(0, 2).join(', ')}... (+${tickers.length - 2})` : tickers.join(', ');
       const assetTypes = tickers.map(t => this.dataManager.isCryptoTicker(t) ? 'Crypto' : 'Stock');
       const uniqueTypes = [...new Set(assetTypes)];
-      let icon = uniqueTypes.length === 1 && uniqueTypes[0] === 'Crypto' ? '₿' : '📈'; 
+      let icon = uniqueTypes.length === 1 && uniqueTypes[0] === 'Crypto' ? '₿' : '📈';
       return { mode: 'filter', label: label, icon: icon };
     }
     if (this.currentAssetTypeFilter) {
@@ -224,30 +228,30 @@ export class InvestmentsPage {
   setupFilters() { /* ... inchangé ... */
     const assetTypeFilter = document.getElementById('filter-asset-type');
     if (assetTypeFilter) assetTypeFilter.addEventListener('change', (e) => { this.currentAssetTypeFilter = e.target.value; this.currentPage = 1; this.render(this.currentSearchQuery); });
-    
+
     const brokerFilter = document.getElementById('filter-broker');
     if (brokerFilter) brokerFilter.addEventListener('change', (e) => { this.currentBrokerFilter = e.target.value; this.currentPage = 1; this.render(this.currentSearchQuery); });
-    
+
     const clearFiltersBtn = document.getElementById('clear-filters');
     if (clearFiltersBtn) clearFiltersBtn.addEventListener('click', () => {
-        this.currentAssetTypeFilter = ''; this.currentBrokerFilter = '';
-        if (assetTypeFilter) assetTypeFilter.value = '';
-        if (brokerFilter) brokerFilter.value = '';
-        const searchInput = document.getElementById('search-input');
-        if (searchInput) searchInput.value = '';
-        this.currentSearchQuery = ''; 
-        if (this.filterManager) this.filterManager.clearAllFilters(); 
-        this.currentPage = 1;
-        const benchmarkSelect = document.getElementById('benchmark-select');
-        if (benchmarkSelect) benchmarkSelect.value = ''; 
-        if (this.historicalChart) {
-            this.historicalChart.currentMode = 'portfolio';
-            this.historicalChart.selectedAssets = [];
-            this.historicalChart.currentBenchmark = null; 
-            this.historicalChart.update(true, false); 
-        }
-        this.render(''); 
-      });
+      this.currentAssetTypeFilter = ''; this.currentBrokerFilter = '';
+      if (assetTypeFilter) assetTypeFilter.value = '';
+      if (brokerFilter) brokerFilter.value = '';
+      const searchInput = document.getElementById('search-input');
+      if (searchInput) searchInput.value = '';
+      this.currentSearchQuery = '';
+      if (this.filterManager) this.filterManager.clearAllFilters();
+      this.currentPage = 1;
+      const benchmarkSelect = document.getElementById('benchmark-select');
+      if (benchmarkSelect) benchmarkSelect.value = '';
+      if (this.historicalChart) {
+        this.historicalChart.currentMode = 'portfolio';
+        this.historicalChart.selectedAssets = [];
+        this.historicalChart.currentBenchmark = null;
+        this.historicalChart.update(true, false);
+      }
+      this.render('');
+    });
   }
 
   setupSorting() { /* ... inchangé ... */

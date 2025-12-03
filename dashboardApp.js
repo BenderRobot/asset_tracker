@@ -3,11 +3,11 @@
 // ========================================
 // dashboardApp.js - VERSION CORRIGÉE FINALE (Unification + Fix Erreur Critique)
 // ========================================
-import { Storage } from './storage.js';                   
-import { PriceAPI } from './api.js?v=4';               
-import { MarketStatus } from './marketStatus.js?v=2';  
-import { DataManager } from './dataManager.js?v=7';     
-import { HistoricalChart } from './historicalChart.js?v=9'; 
+import { Storage } from './storage.js';
+import { PriceAPI } from './api.js?v=4';
+import { MarketStatus } from './marketStatus.js?v=2';
+import { DataManager } from './dataManager.js?v=7';
+import { HistoricalChart } from './historicalChart.js?v=9';
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 import { UIComponents } from './ui.js'; // <-- IMPORT UIComponents AJOUTÉ
 
@@ -22,8 +22,8 @@ function getColorForSource(sourceName) {
     }
 
     const h = hash % 360;
-    const s = 75 + (hash % 10); 
-    const l = 35 + (hash % 5); 
+    const s = 75 + (hash % 10);
+    const l = 35 + (hash % 5);
 
     return `hsl(${h}, ${s}%, ${l}%)`;
 }
@@ -33,7 +33,7 @@ function getColorForSource(sourceName) {
 class DashboardApp {
     constructor() {
         this.storage = new Storage();
-        this.api = new PriceAPI(this.storage); 
+        this.api = new PriceAPI(this.storage);
         this.marketStatus = new MarketStatus(this.storage);
         this.dataManager = new DataManager(this.storage, this.api);
         this.ui = new UIComponents(this.storage); // <-- INSTANCIATION NÉCESSAIRE
@@ -58,8 +58,8 @@ class DashboardApp {
         this.currentGeminiSummary = null;
         this.portfolioNews = [];
         this.globalNews = [];
-        
-        this.selectedAssetFilter = ''; 
+
+        this.selectedAssetFilter = '';
 
         this.init();
     }
@@ -74,22 +74,22 @@ class DashboardApp {
         await this.loadMarketIndices();
         setInterval(() => this.refreshDashboard(), 5 * 60 * 1000);
         this.setupEventListeners();
-        
+
         this.setupNewsControls();
     }
-    
+
     setupNewsControls() {
         this.renderAssetSelect();
 
         document.getElementById('refresh-global-news-btn')?.addEventListener('click', () => {
             this.loadGlobalNews(true);
         });
-        
+
         document.getElementById('portfolio-asset-select')?.addEventListener('change', (e) => {
             this.selectedAssetFilter = e.target.value;
             this.loadPortfolioNews(true);
         });
-        
+
         document.getElementById('refresh-portfolio-news')?.addEventListener('click', () => {
             this.loadPortfolioNews(true);
         });
@@ -101,13 +101,13 @@ class DashboardApp {
 
         const purchases = this.storage.getPurchases();
         const uniqueAssets = [...new Set(purchases.filter(p => p.assetType !== 'Cash').map(p => ({ ticker: p.ticker, name: p.name })))];
-        
+
         const assetMap = new Map();
-        uniqueAssets.forEach(a => assetMap.set(a.name, {ticker: a.ticker, name: a.name}));
+        uniqueAssets.forEach(a => assetMap.set(a.name, { ticker: a.ticker, name: a.name }));
         const sortedAssets = Array.from(assetMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-        
+
         selectEl.innerHTML = '<option value="">Tout voir (Max 15)</option>' +
-            sortedAssets.map(asset => 
+            sortedAssets.map(asset =>
                 `<option value="${asset.name}" ${this.selectedAssetFilter === asset.name ? 'selected' : ''}>${asset.ticker} - ${asset.name}</option>`
             ).join('');
     }
@@ -115,7 +115,7 @@ class DashboardApp {
     // --- FONCTIONS OBSOLÈTES SUPPRIMÉES ---
     // updateDayChangeFromGraph et updateTotalValueFromGraph ne sont plus nécessaires
     // et leur absence est corrigée par la nouvelle implémentation de mockPageInterface.renderData
-    
+
     setupEventListeners() {
         const closeBtn = document.getElementById('close-news-modal');
         const modal = document.getElementById('news-modal');
@@ -217,11 +217,11 @@ class DashboardApp {
         try {
             const purchases = this.storage.getPurchases();
             if (purchases.length === 0) {
-                 const zeroSummary = { totalCurrentEUR: 0, totalInvestedEUR: 0, gainTotal: 0, gainPct: 0, totalDayChangeEUR: 0, dayChangePct: 0, movementsCount: 0, assetsCount: 0 };
-                 this.renderKPIs(zeroSummary, 0, []);
-                 this.renderAllocation([], 0);
-                 this.ui.updatePortfolioSummary(zeroSummary, 0, 0, this.marketStatus);
-                 return;
+                const zeroSummary = { totalCurrentEUR: 0, totalInvestedEUR: 0, gainTotal: 0, gainPct: 0, totalDayChangeEUR: 0, dayChangePct: 0, movementsCount: 0, assetsCount: 0 };
+                this.renderKPIs(zeroSummary, 0, []);
+                this.renderAllocation([], 0);
+                this.ui.updatePortfolioSummary(zeroSummary, 0, 0, this.marketStatus);
+                return;
             }
 
             const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
@@ -236,7 +236,7 @@ class DashboardApp {
 
             // CORRECTION: Utiliser l'UI unifiée pour les 3 cartes principales (évite les 0.00 après chargement)
             this.ui.updatePortfolioSummary(summary, summary.movementsCount, cashReserve.total, this.marketStatus);
-            
+
             // NOTE: renderKPIs s'occupe des cartes secondaires (Top Gainer, Top Loser, Allocation)
             this.renderKPIs(summary, cashReserve.total, holdings);
             this.renderAllocation(holdings, summary.totalCurrentEUR);
@@ -292,21 +292,21 @@ class DashboardApp {
         });
 
         barHTML += '</div>'; listHTML += '</div>';
-        
+
         // CORRECTION: Ajout de style="display: flex; flex-direction: column; height: 100%;" au wrapper pour forcer l'empilement vertical.
         container.innerHTML = `<div class="allocation-wrapper" style="display: flex; flex-direction: column; height: 100%;">${barHTML}${listHTML}</div>`;
     }
 
     renderKPIs(data, cashTotal = 0, holdings = []) {
         // NOTE: Les 3 cartes principales (Total Value, Return, Var Today) sont mises à jour ailleurs.
-        
+
         // --- 1. Nettoyage des anciennes KPIs (Top Gainer, Top Loser, Top Holdings) ---
         const topGainers = [...holdings].sort((a, b) => b.gainPct - a.gainPct).slice(0, 3);
         this.injectListIntoCard('dashboard-top-gainer-name', topGainers, 'gainer');
-        
+
         const topLosers = [...holdings].sort((a, b) => a.gainPct - b.gainPct).slice(0, 3);
         this.injectListIntoCard('dashboard-top-loser-name', topLosers, 'loser');
-        
+
         // Rendu des Top Holdings (Top Sector devient Top Holdings)
         const topAssets = [...holdings].sort((a, b) => b.currentValue - a.currentValue).slice(0, 3);
         this.injectListIntoCard('dashboard-top-sector', topAssets, 'asset');
@@ -357,7 +357,7 @@ class DashboardApp {
         const container = document.getElementById('news-portfolio-container');
         if (!container) return;
         container.innerHTML = '<div style="padding:20px; text-align:center; color:#666"><i class="fas fa-circle-notch fa-spin"></i></div>';
-        
+
         let uniqueNames = [];
         if (this.selectedAssetFilter) {
             uniqueNames = [this.selectedAssetFilter];
@@ -365,22 +365,22 @@ class DashboardApp {
             const purchases = this.storage.getPurchases();
             uniqueNames = [...new Set(purchases.filter(p => p.assetType !== 'Cash').map(p => p.name))];
         }
-        
+
         if (uniqueNames.length === 0) { container.innerHTML = '<div style="padding:20px; text-align:center; color:#666">Aucun actif</div>'; return; }
 
-        const articleLimit = this.selectedAssetFilter ? 8 : 2; 
+        const articleLimit = this.selectedAssetFilter ? 8 : 2;
 
-        const promises = uniqueNames.map(name => this.fetchGoogleRSS(`${name} actualité financière`, articleLimit)); 
+        const promises = uniqueNames.map(name => this.fetchGoogleRSS(`${name} actualité financière`, articleLimit));
         try {
             const results = await Promise.all(promises);
             let allNews = results.flat();
-            
+
             if (!this.selectedAssetFilter) {
-                 allNews = this.filterNewsByAssetNames(allNews, uniqueNames);
+                allNews = this.filterNewsByAssetNames(allNews, uniqueNames);
             }
 
             const uniqueNews = this.deduplicateNews(allNews).sort((a, b) => b.datetime - a.datetime);
-            this.portfolioNews = uniqueNews.slice(0, 15); 
+            this.portfolioNews = uniqueNews.slice(0, 15);
             this.renderNewsList(container, this.portfolioNews, 'portfolio');
             this.renderAssetSelect();
         } catch (e) {
@@ -418,10 +418,10 @@ class DashboardApp {
             container.innerHTML = '<div style="padding:20px; text-align:center; color:#ef4444">Erreur de chargement des actualités.</div>';
         }
     }
-    
+
     fetchGoogleRSS(query, limit = 1, fixedLabel = null) {
         const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=fr&gl=FR&ceid=FR:fr`;
-        
+
         const url = PROXY_URL + encodeURIComponent(rssUrl);
 
         try {
@@ -433,23 +433,23 @@ class DashboardApp {
                 })
                 .then(xmlText => {
                     const data = new window.DOMParser().parseFromString(xmlText, "text/xml");
-                    
+
                     return Array.from(data.querySelectorAll("item")).slice(0, limit).map(item => {
                         const pubDate = item.querySelector("pubDate")?.textContent;
                         const fullTitle = item.querySelector("title")?.textContent || "";
                         const description = item.querySelector("description")?.textContent || "";
                         const parts = fullTitle.split(" - ");
                         const source = parts.length > 1 ? parts.pop() : "Google";
-                        
+
                         return {
-                            ticker: fixedLabel || source, 
-                            name: query, 
+                            ticker: fixedLabel || source,
+                            name: query,
                             title: parts.join(" - "),
                             source: source,
                             url: item.querySelector("link")?.textContent,
                             datetime: pubDate ? new Date(pubDate).getTime() / 1000 : Date.now() / 1000,
                             fullDescription: description,
-                            label: fixedLabel || 'Macro Éco' 
+                            label: fixedLabel || 'Macro Éco'
                         };
                     });
                 })
@@ -458,7 +458,7 @@ class DashboardApp {
                     return [];
                 });
 
-        } catch (e) { 
+        } catch (e) {
             console.warn(`Échec Fetch RSS pour "${query}":`, e);
             return Promise.resolve([]);
         }
@@ -469,10 +469,10 @@ class DashboardApp {
             container.innerHTML = '<div style="padding:20px; text-align:center; color:#666">Aucune news.</div>';
             return;
         }
-        
+
         container.innerHTML = newsData.map((n, i) => {
             const formattedDate = this.formatFullDateTime(n.datetime * 1000);
-            const sourceColor = getColorForSource(n.source); 
+            const sourceColor = getColorForSource(n.source);
 
             return `
                 <div class="news-item-compact" data-type="${type}" data-index="${i}">
@@ -536,10 +536,10 @@ class DashboardApp {
         try {
             const description = newsItem.fullDescription || '';
             const context = `${newsItem.title}. Sujet: ${newsItem.name}.`;
-            
+
             // UTILISATION DU SERVICE CENTRALISÉ
-            const summary = await fetchGeminiSummary(context); 
-            
+            const summary = await fetchGeminiSummary(context);
+
             this.currentGeminiSummary = summary;
             summaryDiv.innerHTML = summary;
         } catch (error) {
@@ -550,14 +550,14 @@ class DashboardApp {
     getHoldingDetailsForNews(newsItem) {
         const allPurchases = this.storage.getPurchases().filter(p => p.assetType !== 'Cash');
         const allHoldings = this.dataManager.calculateHoldings(allPurchases);
-        
+
         // 1. Déterminer le nom de la société à partir du titre de la news (ex: "AST SpaceMobile")
         // La structure de la news est: TITRE (ex: "AST SpaceMobile, Inc. étend...")
         const newsTitle = newsItem.title || newsItem.name;
-        
+
         // 2. Recherche stricte par Nom/Ticker (plus fiable que le match de sous-chaîne sur name)
         // La recherche 'Find' est suffisante car chaque actif est unique.
-        const foundHolding = allHoldings.find(h => 
+        const foundHolding = allHoldings.find(h =>
             // Tentative A: Le nom de l'actif du portefeuille est inclus dans le titre de la news
             newsTitle.includes(h.name) ||
             // Tentative B: Match par le ticker exact si la news le contient
@@ -567,10 +567,10 @@ class DashboardApp {
         if (foundHolding) {
             // S'assurer que le DataManager a retourné des chiffres valides
             if (foundHolding.quantity > 0) {
-                 return foundHolding;
+                return foundHolding;
             }
         }
-        
+
         return null; // Retourne null si aucune position détenue n'est trouvée
     }
 
@@ -617,7 +617,7 @@ class DashboardApp {
 
     async fetchGeminiContext(title, summary) {
         if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 20) return `<strong>Mode Démo :</strong> Clé API manquante.`;
-        
+
         const cleanText = (text) => (typeof text !== 'string' ? '' : text.replace(/'/g, "\\'").replace(/"/g, '\\"'));
 
         const prompt = `Agis comme un analyste financier chevronné. En te basant sur ce résumé, explique en 1 à 3 phrases l'impact potentiel (opportunité ou risque) de cette nouvelle sur l'actif concerné.\nTitre: "${cleanText(title)}"\nRésumé: "${cleanText(summary)}"`;
@@ -645,206 +645,239 @@ class DashboardApp {
         if (includeTime) { options.hour = '2-digit'; options.minute = '2-digit'; }
         return date.toLocaleString('fr-FR', options);
     }
-    
+
     getColorFor(ticker) {
         return getColorForSource(ticker);
     }
 
-    // benderrobot/asset_tracker/asset_tracker-52109016fe138d6ac9b283096e2de3cfbb9437bb/dashboardApp.js
 
-async loadMarketIndices() {
-    const container = document.getElementById('market-overview-container');
-    if (!container) return;
+    async loadMarketIndices() {
+        const container = document.getElementById('market-overview-container');
+        if (!container) return;
 
-    // CORRECTION: Retirer le texte de chargement initial si présent
-    if (container.querySelector('.market-loading') || container.children.length === 0) {
-        container.innerHTML = '';
-    } else if (container.children.length === 0) {
-         container.innerHTML = '<div class="market-loading" style="padding:20px; text-align:center;">Loading...</div>';
-    }
-
-    const cdn = "https://cdn.jsdelivr.net/npm/openmoji@14.0.0/color/svg/";
-    const indices = [
-        { ticker: '^GSPC', name: 'S&P 500', icon: `${cdn}1F1FA-1F1F8.svg` },
-        { ticker: '^IXIC', name: 'NASDAQ 100', icon: `${cdn}1F4BB.svg` },
-        { ticker: '^FCHI', name: 'CAC 40', icon: `${cdn}1F1EB-1F1F7.svg` },
-        { ticker: '^STOXX50E', name: 'EURO STOXX 50', icon: `${cdn}1F1EA-1F1FA.svg` },
-        { ticker: 'BTC-EUR', name: 'BITCOIN', icon: '₿' },
-        { ticker: 'GC=F', name: 'OR (GOLD)', icon: `${cdn}1FA99.svg` },
-        { ticker: 'EURUSD=X', name: 'EUR / USD', icon: `${cdn}1F4B1.svg` }
-    ];
-
-    const fragment = document.createDocumentFragment();
-
-    for (const idx of indices) {
-        const data = this.storage.getCurrentPrice(idx.ticker) || {};
-        
-        // CORRECTION 1: INITIALISER sparklineBg ici pour éviter la ReferenceError
-        let sparklineBg = ''; 
-        
-        // CORRECTION: Utiliser la dernière clôture si le prix actuel est nul
-        const currentPrice = data.price || data.previousClose || 0; 
-        const previousClose = data.previousClose || currentPrice;
-        
-        const price = currentPrice;
-        const validPrev = (previousClose === 0) ? price : previousClose;
-        
-        const change = price - validPrev;
-        const pct = validPrev ? (change / validPrev) * 100 : 0;
-
-        // DÉTERMINATION DE LA CLASSE ET COULEUR PRINCIPALE (Rouge/Vert/Neutre)
-        let indicatorColor;
-        if (change > 0) indicatorColor = '#10b981';
-        else if (change < 0) indicatorColor = '#ef4444';
-        else indicatorColor = '#9fa6bc'; // Couleur neutre
-
-        const statusClass = change >= 0 ? 'stat-positive' : 'stat-negative'; 
-        
-        // CORRECTION FORMATTAGE: Assure le bon nombre de décimales pour les paires
-        let priceStr;
-        let changeDecimals = 2; // Décimales pour la variation
-        if (idx.ticker.includes('BTC')) {
-            priceStr = Math.round(price).toLocaleString('fr') + ' €';
-        } else if (idx.ticker === 'EURUSD=X') {
-            priceStr = price.toFixed(4); // 4 décimales pour les devises
-            changeDecimals = 4; 
-        } else if (idx.ticker === 'GC=F' || idx.ticker === '^STOXX50E') {
-            priceStr = price.toFixed(2).toLocaleString('fr');
-        } else {
-            priceStr = price.toFixed(2).toLocaleString('fr') + ' €';
+        if (container.querySelector('.market-loading') || container.children.length === 0) {
+            container.innerHTML = '';
+        } else if (container.children.length === 0) {
+            container.innerHTML = '<div class="market-loading" style="padding:20px; text-align:center;">Loading...</div>';
         }
-        
-        const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(changeDecimals)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
-        const changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
-        const assetStatus = this.marketStatus.getAssetStatus(idx.ticker);
-        const statusLabel = assetStatus.label;
-        const statusColor = assetStatus.color;
 
-        // ————— SPARKLINE EN FOND —————
-        try { // Ce bloc est safe car sparklineBg est initialisé au-dessus
-            const hist = await this.api.getHistoricalPricesWithRetry(
-                idx.ticker,
-                Math.floor((Date.now() - 48 * 60 * 60 * 1000) / 1000),
-                Math.floor(Date.now() / 1000),
-                '5m'
-            );
-            const values = Object.values(hist);
+        const cdn = "https://cdn.jsdelivr.net/npm/openmoji@14.0.0/color/svg/";
+        const indices = [
+            { ticker: '^GSPC', name: 'S&P 500', icon: `${cdn}1F1FA-1F1F8.svg` },
+            { ticker: '^IXIC', name: 'NASDAQ 100', icon: `${cdn}1F4BB.svg` },
+            { ticker: '^FCHI', name: 'CAC 40', icon: `${cdn}1F1EB-1F1F7.svg` },
+            { ticker: '^STOXX50E', name: 'EURO STOXX 50', icon: `${cdn}1F1EA-1F1FA.svg` },
+            { ticker: 'BTC-EUR', name: 'BITCOIN', icon: '₿' },
+            { ticker: 'GC=F', name: 'OR (GOLD)', icon: `${cdn}1FA99.svg` },
+            { ticker: 'EURUSD=X', name: 'EUR / USD', icon: `${cdn}1F4B1.svg` }
+        ];
 
-            if (values.length > 5) {
-                const min = Math.min(...values);
-                const max = Math.max(...values);
-                const range = max - min || 1;
+        // Récupération de tous les prix en une seule fois
+        const tickersToFetch = indices.map(i => i.ticker);
+        await this.api.fetchBatchPrices(tickersToFetch);
 
-                const points = values
-                    .map((v, i) => {
-                        const x = (i / (values.length - 1)) * 100;
-                        const y = 88 - ((v - min) / range) * 70;
-                        return `${x},${y}`;
-                    })
-                    .join(' ');
+        for (const idx of indices) {
+            const data = this.storage.getCurrentPrice(idx.ticker) || {};
+            const currentPrice = data.price || data.previousClose || 0;
+            const previousClose = data.previousClose || currentPrice;
+            const price = currentPrice;
+            const validPrev = previousClose === 0 ? price : previousClose;
+            const change = price - validPrev;
+            const pct = validPrev ? (change / validPrev) * 100 : 0;
 
-                const color = indicatorColor; // Utilise la couleur principale (Rouge/Vert)
-                const gradId = `grad-${idx.ticker.replace(/[^a-z]/gi, '')}`;
+            // Couleur selon performance du jour
+            let indicatorColor = change > 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
+            let finalStatusClass = change > 0 ? 'stat-positive' : change < 0 ? 'stat-negative' : 'stat-positive';
 
-                sparklineBg = `
-                    <div style="position:absolute; inset:0; opacity:0.38; pointer-events:none; overflow:hidden; border-radius:12px;">
-                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%; height:100%;">
-                            <defs>
-                                <linearGradient id="${gradId}" x1="0%" y1="100%" x2="0%" y2="0%">
-                                    <stop offset="0%"   stop-color="${color}" stop-opacity="0.7"/>
-                                    <stop offset="60%"  stop-color="${color}" stop-opacity="0.25"/>
-                                    <stop offset="100%" stop-color="${color}" stop-opacity="0.05"/>
-                                </linearGradient>
-                            </defs>
-                            <polyline fill="none" stroke="${color}" stroke-width="1.6" points="${points}"/>
-                            <polygon fill="url(#${gradId})" points="${points},100,100,100,0"/>
-                        </svg>
-                    </div>`;
+            // Formatage prix
+            let priceStr, changeDecimals = 2;
+            if (idx.ticker.includes('BTC')) {
+                priceStr = Math.round(price).toLocaleString('fr') + ' €';
+            } else if (idx.ticker === 'EURUSD=X' || idx.ticker === 'GC=F') {
+                priceStr = price.toFixed(4);
+                changeDecimals = 4;
+            } else if (idx.ticker === '^STOXX50E') {
+                priceStr = price.toFixed(2).toLocaleString('fr');
+            } else {
+                priceStr = price.toFixed(2).toLocaleString('fr') + ' €';
             }
-        } catch (e) {
-            // Sparkline échouée
-        }
 
-        // ————— ICÔNE & STRUCTURE INTERNE —————
-        const iconHTML = idx.icon.includes('http')
-            ? `<img src="${idx.icon}" alt="" style="width:26px; height:26px; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">`
-            : `<span style="font-size:28px; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6));">${idx.icon}</span>`;
+            const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(changeDecimals)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+            const changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
 
-        const innerHTMLStructure = `
-            ${sparklineBg}
-            <div style="position:relative; z-index:2; display:flex; justify-content:space-between; align-items:flex-start;">
-                <span style="font-weight:600; font-size:13px; color:#e2e8f0; line-height:1.3;">${idx.name}</span>
-                ${iconHTML}
-            </div>
-            <div style="position:relative; z-index:2;">
-                <div style="font-size:16px; font-weight:700; color:#fff; margin:2px 0;">${priceStr}</div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
-                    <span class="${changeClass}" style="font-size:11.5px; font-weight:600;">${changeStr}</span>
-                    <span style="color:${statusColor}; border:1px solid ${statusColor}; padding:3px 8px; border-radius:6px; font-weight:700; font-size:9px; background:rgba(255,255,255,0.1); text-transform:uppercase; letter-spacing:0.4px;">
-                        ${statusLabel}
-                    </span>
-                </div>
-            </div>
-        `;
-        
-        const cardId = `market-card-${idx.ticker.replace(/[^a-zA-Z0-9]/g, '-')}`;
-        let cardElement = document.getElementById(cardId);
-        
-        if (!cardElement) {
-            // --- CRÉATION INITIALE ---
-            cardElement = document.createElement('div');
-            cardElement.id = cardId;
-            cardElement.style.cssText = `
-                position:relative;
-                overflow:hidden;
-                border-radius:12px;
-                background:#0f172a;
-                height:112px;
-                display:flex;
-                flex-direction:column;
-                justify-content:space-between;
-                padding:10px 12px 12px;
-                box-sizing:border-box;
-            `;
-            fragment.appendChild(cardElement);
+            const assetStatus = this.marketStatus.getAssetStatus(idx.ticker);
+            const statusLabel = assetStatus.label;
+            const statusColor = assetStatus.color;
 
-            // Attacher le listener au moment de la création
-            cardElement.onclick = async () => {
+            // Sparkline en fond
+            let sparklineBg = '';
+            try {
+                // Calcul du début de la journée (00:00)
+                const startOfDay = new Date();
+                startOfDay.setHours(0, 0, 0, 0);
+                const startTs = Math.floor(startOfDay.getTime() / 1000); // Pour l'API (secondes)
+                const startTsMs = startOfDay.getTime(); // Pour le filtrage (millisecondes)
+
+                const hist = await this.api.getHistoricalPricesWithRetry(
+                    idx.ticker,
+                    startTs,
+                    Math.floor(Date.now() / 1000),
+                    '5m'
+                );
+
+                // FILTRAGE STRICT: On ne garde que les points >= startTsMs (Minuit)
+                let values = Object.keys(hist)
+                    .map(Number)
+                    .filter(ts => ts >= startTsMs)
+                    .sort((a, b) => a - b)
+                    .map(ts => hist[ts]);
+
+                // FALLBACK: Si aucune donnée aujourd'hui (ex: Bourse fermée ou week-end sans futures), on prend le dernier jour de bourse
+                if (values.length === 0) {
+                    let lastTradingDay = this.dataManager.getLastTradingDay(new Date());
+
+                    // Si getLastTradingDay renvoie aujourd'hui (ex: en semaine) mais qu'on n'a pas de données,
+                    // on recule d'un jour pour chercher la veille.
+                    const today = new Date();
+                    if (lastTradingDay.toDateString() === today.toDateString()) {
+                        lastTradingDay.setDate(lastTradingDay.getDate() - 1);
+                        lastTradingDay = this.dataManager.getLastTradingDay(lastTradingDay);
+                    }
+
+                    lastTradingDay.setHours(0, 0, 0, 0);
+                    const lastStartTs = Math.floor(lastTradingDay.getTime() / 1000);
+                    const lastEndTs = lastStartTs + (24 * 60 * 60);
+
+                    const histLast = await this.api.getHistoricalPricesWithRetry(
+                        idx.ticker,
+                        lastStartTs,
+                        lastEndTs,
+                        '5m'
+                    );
+
+                    values = Object.keys(histLast)
+                        .map(Number)
+                        .sort((a, b) => a - b)
+                        .map(ts => histLast[ts]);
+                }
+
+                console.log(`[Sparkline ${idx.ticker}] Kept values: ${values.length}`);
+                if (values.length > 1) {
+                    const min = Math.min(...values);
+                    const max = Math.max(...values);
+                    const range = max - min || 1;
+                    const points = values
+                        .map((v, i) => {
+                            const x = (i / (values.length - 1)) * 100;
+                            const y = 88 - ((v - min) / range) * 70;
+                            return `${x},${y}`;
+                        })
+                        .join(' ');
+                    const gradId = `grad-${idx.ticker.replace(/[^a-z]/gi, '')}`;
+                    sparklineBg = `
+					<div style="position:absolute; inset:0; opacity:0.38; pointer-events:none; overflow:hidden; border-radius:12px;">
+						<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%; height:100%;">
+							<defs>
+								<linearGradient id="${gradId}" x1="0%" y1="100%" x2="0%" y2="0%">
+									<stop offset="0%" stop-color="${indicatorColor}" stop-opacity="0.7"/>
+									<stop offset="60%" stop-color="${indicatorColor}" stop-opacity="0.25"/>
+									<stop offset="100%" stop-color="${indicatorColor}" stop-opacity="0.05"/>
+								</linearGradient>
+							</defs>
+							<polyline fill="none" stroke="${indicatorColor}" stroke-width="1.6" points="${points}"/>
+							<polygon fill="url(#${gradId})" points="${points},100,100,100,0"/>
+						</svg>
+					</div>`;
+                }
+            } catch (e) { /* sparkline échouée → on ignore */ }
+
+            // Icône
+            const iconHTML = idx.icon.includes('http')
+                ? `<img src="${idx.icon}" alt="" style="width:26px; height:26px; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">`
+                : `<span style="font-size:28px; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6));">${idx.icon}</span>`;
+
+            const innerHTMLStructure = `
+				${sparklineBg}
+				<div style="position:relative; z-index:2; display:flex; justify-content:space-between; align-items:flex-start;">
+					<span style="font-weight:600; font-size:13px; color:#e2e8f0; line-height:1.3;">${idx.name}</span>
+					${iconHTML}
+				</div>
+				<div style="position:relative; z-index:2;">
+					<div style="font-size:16px; font-weight:700; color:#fff; margin:2px 0;">${priceStr}</div>
+					<div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+						<span class="${changeClass}" style="font-size:11.5px; font-weight:600;">${changeStr}</span>
+						<span style="color:${statusColor}; border:1px solid ${statusColor}; padding:3px 8px; border-radius:6px; font-weight:700; font-size:9px; background:rgba(255,255,255,0.1); text-transform:uppercase; letter-spacing:0.4px;">
+							${statusLabel}
+						</span>
+					</div>
+				</div>`;
+
+            // ID unique de la carte
+            const cardId = `market-card-${idx.ticker.replace(/[^a-zA-Z0-9]/g, '-')}`;
+            let cardElement = document.getElementById(cardId);
+
+            // Sauvegarde de l'état actif AVANT toute modification
+            const wasActive = cardElement ? cardElement.classList.contains('active-index') : false;
+
+            // Création de la carte si elle n'existe pas encore
+            if (!cardElement) {
+                cardElement = document.createElement('div');
+                cardElement.id = cardId;
+                cardElement.className = 'market-card';
+                cardElement.style.cssText = `
+					position:relative;
+					overflow:hidden;
+					border-radius:12px;
+					background:#0f172a;
+					height:112px;
+					display:flex;
+					flex-direction:column;
+					justify-content:space-between;
+					padding:10px 12px 12px;
+					box-sizing:border-box;
+					cursor:pointer;
+					transition:all 0.25s ease;
+				`;
+                container.appendChild(cardElement);
+            }
+
+            // Nettoyage des anciennes classes de statut
+            cardElement.classList.remove('stat-positive', 'stat-negative', 'active-index');
+
+            // Application de la nouvelle couleur du jour
+            cardElement.classList.add(finalStatusClass);
+            cardElement.style.border = `1px solid ${indicatorColor}50`;
+            cardElement.style.boxShadow = `0 0 10px ${indicatorColor}10`;
+
+            // Mise à jour du contenu
+            cardElement.innerHTML = innerHTMLStructure;
+
+            // Restauration de la surbrillance si c'était la carte active
+            if (wasActive) {
+                cardElement.classList.add('active-index');
+            }
+
+            // Event listener (toujours à jour)
+            cardElement.onclick = () => {
                 document.querySelectorAll('.market-card').forEach(c => c.classList.remove('active-index'));
                 cardElement.classList.add('active-index');
 
-                await this.api.fetchBatchPrices([idx.ticker], true);
-
+                this.api.fetchBatchPrices([idx.ticker], true);
                 if (this.chart) {
                     this.chart.showIndex(idx.ticker, idx.name);
                 }
-
                 if (window.innerWidth < 768) {
                     document.querySelector('.dashboard-chart-section')?.scrollIntoView({ behavior: 'smooth' });
                 }
             };
         }
-        
-        // --- MISE À JOUR DU CONTENU, DU BORD ET DES CLASSES ---
-        const isActive = cardElement.classList.contains('active-index');
-        
-        // 1. Appliquer la classe de statut (stat-negative/positive) à la carte
-        cardElement.className = `market-card ${statusClass}`;
 
-        // 2. Mise à jour du style de la bordure et de l'ombre (couleur dynamique)
-        cardElement.style.border = `1px solid ${indicatorColor}50`;
-        cardElement.style.boxShadow = `0 0 10px ${indicatorColor}10`; 
-        
-        // 3. Mise à jour du contenu et préservation de l'état actif
-        cardElement.innerHTML = innerHTMLStructure; 
-        cardElement.classList.toggle('active-index', isActive);
-        
-        if (fragment.children.length > 0) {
-            container.appendChild(fragment);
-        }
-	}
-}
-	refreshDashboard() {
+        // Nettoyage final du loader
+        const loader = container.querySelector('.market-loading');
+        if (loader) loader.remove();
+    }
+
+    refreshDashboard() {
         this.loadPortfolioData();
         if (this.chart) this.chart.update(false, true);
         this.loadMarketIndices();

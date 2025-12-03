@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,12 +8,12 @@
     <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    
+
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css">
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/investments.css">
-    
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -25,37 +26,39 @@
         }
     </script>
 </head>
+
 <body>
     <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-header">
-			<div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
-				<img src="/icons/android-chrome-192x192.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
-			</div>
-			<span class="app-logo-text">Asset Tracker</span>
-		</div>
+            <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px; object-fit: contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
 
-        
+
         <nav class="sidebar-nav">
-            <a href="index.html" class="nav-item">
-                <div class="nav-icon">📋</div>
-                <span class="nav-text">Transactions</span>
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">🚀</div>
+                <span class="nav-text">Dashboard</span>
             </a>
             <a href="investments.html" class="nav-item active">
                 <div class="nav-icon">📈</div>
                 <span class="nav-text">Assets</span>
             </a>
-            <a href="dashboard.html" class="nav-item"> 
-                <div class="nav-icon">🚀</div>
-                <span class="nav-text">Dashboard</span>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div>
+                <span class="nav-text">Transactions</span>
             </a>
             <a href="analytics.html" class="nav-item">
                 <div class="nav-icon">📊</div>
                 <span class="nav-text">Analytics</span>
             </a>
-			<a href="news.html" class="nav-item">
-				<div class="nav-icon">📰</div>
-				<span class="nav-text">News Feeds</span>
-			</a>
+            <a href="news.html" class="nav-item">
+                <div class="nav-icon">📰</div>
+                <span class="nav-text">News Feeds</span>
+            </a>
         </nav>
 
         <div class="sidebar-settings">
@@ -63,6 +66,10 @@
             <a href="migration.html" class="nav-item">
                 <div class="nav-icon"><i class="fas fa-cog"></i></div>
                 <span class="nav-text">Migration</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">Déconnexion</span>
             </a>
         </div>
 
@@ -74,18 +81,19 @@
     </aside>
 
     <main class="main-content">
-        <div class="container">       
-            
+        <div class="container">
+
             <div class="portfolio-summary-enhanced">
                 <div class="summary-grid">
                     <div class="summary-card summary-card-primary">
                         <div class="summary-card-label">Total Value</div>
                         <div id="total-current" class="summary-card-value">€0.00</div>
-						<div class="kpi-meta">
-							<span id="invested" class="meta-info" style="font-size: 12px; opacity: 0.7;">Invested: €0.00</span>
-						</div>
+                        <div class="kpi-meta">
+                            <span id="invested" class="meta-info" style="font-size: 12px; opacity: 0.7;">Invested:
+                                €0.00</span>
+                        </div>
                     </div>
-                    
+
                     <div class="summary-card">
                         <div class="summary-card-label">Total Return</div>
                         <div id="total-gain-loss" class="summary-card-value">€0.00</div>
@@ -93,7 +101,7 @@
                             <span id="total-gain-pct" class="meta-large">0.00%</span>
                         </div>
                     </div>
-                    
+
                     <div class="summary-card">
                         <div class="summary-card-label">Var Today</div>
                         <div id="total-invested" class="summary-card-value">€0.00</div>
@@ -102,18 +110,18 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="summary-stats">
                     <div class="stat-item">
                         <div class="stat-label">Best Performer (Day)</div>
                         <div id="best-day-asset" class="stat-value stat-positive">-</div>
                     </div>
-                    
+
                     <div class="stat-item">
                         <div class="stat-label">Worst Performer (Day)</div>
                         <div id="worst-day-asset" class="stat-value stat-negative">-</div>
                     </div>
-                    
+
                     <div class="stat-item">
                         <div class="stat-label">Best Performer</div>
                         <div id="best-asset" class="stat-value stat-positive">-</div>
@@ -140,7 +148,8 @@
 
                     <div class="header-controls">
                         <div class="benchmark-select-wrapper" id="benchmark-wrapper" style="display: none;">
-                            <select id="benchmark-select" class="btn-secondary" style="padding: 6px 12px; font-size: 0.85rem; -webkit-appearance: listbox;">
+                            <select id="benchmark-select" class="btn-secondary"
+                                style="padding: 6px 12px; font-size: 0.85rem; -webkit-appearance: listbox;">
                                 <option value="">vs Benchmark</option>
                                 <option value="^GSPC">S&P 500</option>
                                 <option value="^IXIC">Nasdaq 100</option>
@@ -154,15 +163,16 @@
                         <div id="last-update" class="time">00:00</div>
                     </div>
                 </div>
-                
+
                 <div id="chart-info" class="chart-info" style="display:none;"></div>
 
                 <div class="chart-wrapper tall">
                     <canvas id="historical-portfolio-chart"></canvas>
-                    <div id="chart-loading" class="chart-loading"> 
+                    <div id="chart-loading" class="chart-loading">
                         <div class="svg-loader-container">
                             <svg class="loader-svg" viewBox="0 0 50 50">
-                                <circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
+                                <circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none" stroke-width="4">
+                                </circle>
                             </svg>
                             <div class="loader-text">Loading...</div>
                         </div>
@@ -177,7 +187,7 @@
                             <span id="performance-percent" class="pct neutral">(0.00%)</span>
                         </div>
                     </div>
-                    
+
                     <div class="stat-group stat-group-2">
                         <div class="stat" id="stat-day-var" style="display: none;">
                             <span class="label">VAR. JOUR</span>
@@ -213,7 +223,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="chart-controls">
                     <button class="period-btn active" data-period="1">1J</button>
                     <button class="period-btn" data-period="2">2J</button>
@@ -227,16 +237,17 @@
             </div>
 
             <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
-                <input type="text" id="search-input" placeholder="Search ticker, name or date..." style="flex: 1; min-width: 250px;">
+                <input type="text" id="search-input" placeholder="Search ticker, name or date..."
+                    style="flex: 1; min-width: 250px;">
                 <div id="ticker-filter-dropdown"></div>
-                
+
                 <select id="filter-asset-type" style="min-width: 150px;">
                     <option value="">All Asset Types</option>
                     <option value="Stock">Stock</option>
                     <option value="ETF">ETF</option>
                     <option value="Crypto">Crypto</option>
                 </select>
-                
+
                 <select id="filter-broker" style="min-width: 150px;">
                     <option value="">All Brokers</option>
                     <option value="RV-CT">Revolut</option>
@@ -245,11 +256,11 @@
                     <option value="Binance">Binance</option>
                     <option value="Bitstack">Bitstack</option>
                 </select>
-                
+
                 <button id="clear-filters" class="btn-secondary">Clear Filters</button>
                 <button id="refresh-prices">Refresh Prices</button>
             </div>
-            
+
             <table id="investments-table">
                 <thead>
                     <tr>
@@ -273,7 +284,12 @@
         </div>
     </main>
 
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
+    <script type="module" src="./authGuard.js"></script>
     <script type="module" src="./app.js?v=10"></script>
     <script type="module" src="./sidebar.js"></script>
 </body>
+
 </html>

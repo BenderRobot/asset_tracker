@@ -2,7 +2,7 @@
 // dataManager.js - (v8 - Ajout support Indices)
 // ========================================
 
-import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js'; 
+import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js';
 import { parseDate } from './utils.js';
 
 export class DataManager {
@@ -35,7 +35,7 @@ export class DataManager {
                     name: p.name,
                     assetType: p.assetType || 'Stock',
                     quantity: 0,
-                    invested: 0, 
+                    invested: 0,
                     purchases: []
                 };
             }
@@ -84,7 +84,7 @@ export class DataManager {
                 gainPct,
                 dayChange,
                 dayPct,
-                weight: 0, 
+                weight: 0,
                 purchases: data.purchases
             };
         });
@@ -98,13 +98,17 @@ export class DataManager {
         let totalDayChangeEUR = 0;
         const assetTotalPerformances = [];
         const assetDayPerformances = [];
-        
-        const sectorStats = {}; 
+
+        const sectorStats = {};
 
         holdings.forEach(asset => {
             totalInvestedEUR += asset.invested || 0;
             totalCurrentEUR += asset.currentValue || 0;
-            totalDayChangeEUR += asset.dayChange || 0;
+
+            // CALCUL ATOMIQUE DE LA VARIATION DU JOUR
+            if (asset.dayChange !== null && !isNaN(asset.dayChange)) {
+                totalDayChangeEUR += asset.dayChange;
+            }
 
             const type = asset.assetType || 'Other';
             if (!sectorStats[type]) {
@@ -121,7 +125,7 @@ export class DataManager {
                     currentValue: asset.currentValue,
                     currentPrice: asset.currentPrice
                 });
-                
+
                 assetDayPerformances.push({
                     ticker: asset.ticker,
                     name: asset.name,
@@ -157,7 +161,7 @@ export class DataManager {
         const sortedTotal = assetTotalPerformances.sort((a, b) => b.gainPct - a.gainPct);
         const bestAsset = sortedTotal.length > 0 ? sortedTotal[0] : null;
         const worstAsset = sortedTotal.length > 0 ? sortedTotal[sortedTotal.length - 1] : null;
-        
+
         const sortedDay = assetDayPerformances.sort((a, b) => b.dayPct - a.dayPct);
         const bestDayAsset = sortedDay.length > 0 ? sortedDay[0] : null;
         const worstDayAsset = sortedDay.length > 0 ? sortedDay[sortedDay.length - 1] : null;
@@ -181,7 +185,7 @@ export class DataManager {
 
     calculateEnrichedPurchases(filteredPurchases) {
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
-        
+
         return filteredPurchases.map(p => {
             if (p.assetType === 'Cash') {
                 return {
@@ -189,10 +193,10 @@ export class DataManager {
                     currency: 'EUR',
                     currentPriceOriginal: null,
                     buyPriceOriginal: p.price,
-                    currentPriceEUR: null, 
-                    investedEUR: null,     
-                    currentValueEUR: null, 
-                    gainEUR: p.price, 
+                    currentPriceEUR: null,
+                    investedEUR: null,
+                    currentValueEUR: null,
+                    gainEUR: p.price,
                     gainPct: null
                 };
             }
@@ -202,12 +206,12 @@ export class DataManager {
             const assetCurrency = d.currency || p.currency || 'EUR';
             const currentPriceOriginal = d.price;
             const buyPriceOriginal = p.price;
-            
+
             const rate = assetCurrency === 'USD' ? dynamicRate : 1;
 
             const currentPriceEUR = currentPriceOriginal * rate;
             const buyPriceEUR = buyPriceOriginal * rate;
-            
+
             const investedEUR = buyPriceEUR * p.quantity;
             const currentValueEUR = currentPriceEUR ? currentPriceEUR * p.quantity : null;
             const gainEUR = currentValueEUR !== null ? currentValueEUR - investedEUR : null;
@@ -220,9 +224,9 @@ export class DataManager {
                 currency: assetCurrency,
                 currentPriceOriginal,
                 buyPriceOriginal,
-                currentPriceEUR, 
-                investedEUR,     
-                currentValueEUR, 
+                currentPriceEUR,
+                investedEUR,
+                currentValueEUR,
                 gainEUR,
                 gainPct
             };
@@ -251,7 +255,7 @@ export class DataManager {
             diversification: this.calculateDiversification(holdings),
             performance: this.analyzePerformance(holdings),
             risk: this.calculateRisk(holdings),
-            assets: holdings, 
+            assets: holdings,
             generatedAt: new Date().toISOString()
         };
     }
@@ -292,78 +296,85 @@ export class DataManager {
         const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
         return this.calculateGenericHistory(assetPurchases, days, false);
     }
-    
+
     async calculateAssetHistory(ticker, days) {
         const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
         if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [] };
         return this.calculateGenericHistory(purchases, days, true);
     }
-
-    // === NOUVEAU : Calcul pour un Indice pur (Pour le Dashboard) ===
     async calculateIndexData(ticker, days) {
-		const interval = this.getIntervalForPeriod(days);
-		
-		const today = new Date();
-		// Utiliser todayUTC pour être cohérent avec calculateGenericHistory
-		const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
-		const endTs = Math.floor(todayUTC.getTime() / 1000); 
-		
-		let startTs;
-		
-		// Maintien de la logique de calcul de startTs (légère correction pour les jours)
-		if (days === 1) { 
-			// 1 jour + 2h de buffer
-			startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60); 
-		} else if (days === 7) {
-			startTs = endTs - (7 * 24 * 60 * 60);
-		} else if (days === 30) {
-			startTs = endTs - (30 * 24 * 60 * 60);
-		} else if (days === 90) {
-			startTs = endTs - (90 * 24 * 60 * 60);
-		} else if (days === 365) {
-			startTs = endTs - (365 * 24 * 60 * 60);
-		} else {
-			startTs = endTs - (365 * 24 * 60 * 60); 
-		}
+        const interval = this.getIntervalForPeriod(days);
 
-		// Récupération API
-		const hist = await this.api.getHistoricalPricesWithRetry(ticker, startTs, endTs, interval);
-		
-		const sortedTs = Object.keys(hist).map(Number).sort((a, b) => a - b);
-		const labels = [];
-		const values = [];
-		const labelFn = this.getLabelFormat(days);
-		
-		sortedTs.forEach(ts => {
-			labels.push(labelFn(ts * 1000));
-			values.push(hist[ts]);
-		});
+        const today = new Date();
+        // Utiliser todayUTC pour être cohérent avec calculateGenericHistory
+        const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
+        const endTs = Math.floor(todayUTC.getTime() / 1000);
 
-		// MODIFICATION CLÉ: Remplacer l'ouverture de la période par la vraie clôture de la veille du cache.
-		const priceData = this.storage.getCurrentPrice(ticker);
-		const trueYesterdayClose = priceData?.previousClose || null;
+        let startTs;
 
-		return {
-			labels: labels,
-			values: values,
-			invested: [],
-			unitPrices: values,
-			purchasePoints: [],
-			// Utilisation de la vraie clôture de la veille (null si non trouvé)
-			yesterdayClose: trueYesterdayClose
-		};
-	}
+        // Maintien de la logique de calcul de startTs (légère correction pour les jours)
+        if (days === 1) {
+            // 1 jour + 2h de buffer
+            startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60);
+        } else if (days === 7) {
+            startTs = endTs - (7 * 24 * 60 * 60);
+        } else if (days === 30) {
+            startTs = endTs - (30 * 24 * 60 * 60);
+        } else if (days === 90) {
+            startTs = endTs - (90 * 24 * 60 * 60);
+        } else if (days === 365) {
+            startTs = endTs - (365 * 24 * 60 * 60);
+        } else {
+            startTs = endTs - (365 * 24 * 60 * 60);
+        }
+
+
+        // Récupération API
+        const hist = await this.api.getHistoricalPricesWithRetry(ticker, startTs, endTs, interval);
+
+        const sortedTs = Object.keys(hist).map(Number).sort((a, b) => a - b);
+        const labels = [];
+        const values = [];
+        const labelFn = this.getLabelFormat(days);
+
+        // MODIFICATION: Filtrer pour commencer exactement à 00:00 aujourd'hui
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const startOfDayTs = startOfDay.getTime();
+
+        const filteredTs = (days === 1)
+            ? sortedTs.filter(ts => ts >= startOfDayTs)
+            : sortedTs;
+
+        filteredTs.forEach(ts => {
+            labels.push(labelFn(ts));
+            values.push(hist[ts]);
+        });
+
+
+        // MODIFICATION CLÉ: Remplacer l'ouverture de la période par la vraie clôture de la veille du cache.
+        const priceData = this.storage.getCurrentPrice(ticker);
+        const trueYesterdayClose = priceData?.previousClose || null;
+
+        return {
+            labels: labels,
+            values: values,
+            invested: [],
+            unitPrices: values,
+            purchasePoints: [],
+        }
+    }
 
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
 
         const assetMap = new Map();
         const ticker = isSingleAsset ? purchases[0].ticker.toUpperCase() : null;
-        
+
         if (isSingleAsset) {
-            assetMap.set(ticker, purchases.map(p => ({ 
-                date: parseDate(p.date), 
-                price: parseFloat(p.price), 
+            assetMap.set(ticker, purchases.map(p => ({
+                date: parseDate(p.date),
+                price: parseFloat(p.price),
                 quantity: parseFloat(p.quantity),
                 currency: p.currency || 'EUR'
             })));
@@ -371,38 +382,41 @@ export class DataManager {
             purchases.forEach(p => {
                 const t = p.ticker.toUpperCase();
                 if (!assetMap.has(t)) assetMap.set(t, []);
-                assetMap.get(t).push({ 
-                    date: parseDate(p.date), 
-                    price: parseFloat(p.price), 
+                assetMap.get(t).push({
+                    date: parseDate(p.date),
+                    price: parseFloat(p.price),
                     quantity: parseFloat(p.quantity),
                     currency: p.currency || 'EUR'
                 });
             });
         }
-        
+
         assetMap.forEach(list => list.sort((a, b) => a.date - b.date));
-        
+
         let firstPurchase = null;
         for (const list of assetMap.values()) {
             if (list.length > 0 && (!firstPurchase || list[0].date < firstPurchase)) {
                 firstPurchase = list[0].date;
             }
         }
+
         if (!firstPurchase) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [] };
 
         const today = new Date();
         const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
 
         const sampleTicker = isSingleAsset ? ticker : Array.from(assetMap.keys())[0];
-        const isCrypto = this.isCryptoTicker(sampleTicker || '');
-        const isWeekend = today.getDay() === 0 || today.getDay() === 6; 
+        const isCrypto = isSingleAsset
+            ? this.isCryptoTicker(sampleTicker || '')
+            : Array.from(assetMap.keys()).some(t => this.isCryptoTicker(t));
 
+        const isWeekend = today.getDay() === 0 || today.getDay() === 6;
         let displayStartUTC;
         let bufferDays = 30;
-        let hardStopEndTs = null; 
+        let hardStopEndTs = null;
 
         if (!isCrypto && isWeekend && (days === 1 || days === 2)) {
-            const daysToGoBack = today.getDay() === 0 ? 2 : 1; 
+            const daysToGoBack = today.getDay() === 0 ? 2 : 1;
             const lastTradingDay = new Date(today);
             lastTradingDay.setDate(today.getDate() - daysToGoBack);
             lastTradingDay.setHours(23, 59, 59, 999);
@@ -410,21 +424,48 @@ export class DataManager {
             const startTradingDay = new Date(lastTradingDay);
             startTradingDay.setHours(0, 0, 0, 0);
             if (days === 2) startTradingDay.setDate(startTradingDay.getDate() - 1);
-            displayStartUTC = new Date(Date.UTC(startTradingDay.getFullYear(), startTradingDay.getMonth(), startTradingDay.getDate(), 0, 0, 0));
-            bufferDays = 5; 
+            displayStartUTC = startTradingDay;
+            bufferDays = 5;
         } else {
             if (days === 1) {
-                displayStartUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0));
-                bufferDays = 2; 
+                const localStart = new Date(today);
+
+                // DÉTECTION RÉGION (EU vs US)
+                const tickersList = Array.from(assetMap.keys());
+                const hasEU = tickersList.some(t => {
+                    const priceData = this.storage.getCurrentPrice(t);
+                    const currency = priceData ? priceData.currency : null;
+                    return (
+                        currency === 'EUR' ||
+                        t.endsWith('.PA') || t.endsWith('.DE') || t.endsWith('.AS') ||
+                        t.endsWith('.L') || t.endsWith('.MC') || t.endsWith('.MI') ||
+                        ['^FCHI', '^STOXX50E', '^GDAXI', '^FTSE'].includes(t)
+                    );
+                });
+
+                if (isCrypto) {
+                    localStart.setHours(0, 0, 0, 0);
+                } else if (hasEU) {
+                    // Europe : 09:00
+                    localStart.setHours(9, 0, 0, 0);
+                } else {
+                    // US (par défaut si pas Crypto ni EU) : 15:30
+                    localStart.setHours(15, 30, 0, 0);
+                }
+
+                displayStartUTC = localStart;
+                bufferDays = 2;
             } else if (days === 2) {
                 const twoDaysAgo = new Date(today);
                 twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);
-                displayStartUTC = new Date(Date.UTC(twoDaysAgo.getFullYear(), twoDaysAgo.getMonth(), twoDaysAgo.getDate(), 0, 0, 0));
-                bufferDays = 5; 
+                twoDaysAgo.setHours(0, 0, 0, 0);
+                displayStartUTC = twoDaysAgo;
+                bufferDays = 5;
             } else if (days !== 'all') {
                 const localDisplay = new Date(today);
                 localDisplay.setDate(localDisplay.getDate() - (days - 1));
-                displayStartUTC = new Date(Date.UTC(localDisplay.getFullYear(), localDisplay.getMonth(), localDisplay.getDate()));
+                localDisplay.setHours(0, 0, 0, 0);
+                displayStartUTC = localDisplay;
                 if (displayStartUTC < firstPurchase) displayStartUTC = new Date(firstPurchase);
             } else {
                 displayStartUTC = new Date(firstPurchase);
@@ -432,14 +473,14 @@ export class DataManager {
         }
 
         let dataStartUTC = new Date(displayStartUTC);
-        dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - bufferDays); 
-        
+        dataStartUTC.setUTCDate(dataStartUTC.getUTCDate() - bufferDays);
+
         const startTs = Math.floor(dataStartUTC.getTime() / 1000);
         const endTs = Math.floor(todayUTC.getTime() / 1000);
-        
-        const interval = this.getIntervalForPeriod(days); 
+
+        const interval = this.getIntervalForPeriod(days);
         const labelFormat = this.getLabelFormat(days);
-        
+
         const historicalDataMap = new Map();
         const tickers = Array.from(assetMap.keys());
         const batchSize = 3;
@@ -454,6 +495,59 @@ export class DataManager {
                     historicalDataMap.set(t, {});
                 }
             }));
+        }
+
+        // FALLBACK: Si aucune donnée pour aujourd'hui (ex: Bourse fermée), on charge le dernier jour de bourse
+        if (days === 1 && !isCrypto) {
+            let hasDataForToday = false;
+            const checkStartTs = displayStartUTC.getTime();
+
+            for (const t of tickers) {
+                const hist = historicalDataMap.get(t);
+                if (hist) {
+                    const timestamps = Object.keys(hist).map(Number);
+                    if (timestamps.some(ts => ts >= checkStartTs)) {
+                        hasDataForToday = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasDataForToday) {
+                let lastTradingDay = this.getLastTradingDay(new Date());
+                const today = new Date();
+
+                // Si getLastTradingDay renvoie aujourd'hui (ex: Lundi) mais qu'on n'a pas de données,
+                // on recule d'un jour et on réapplique la logique de week-end.
+                if (lastTradingDay.toDateString() === today.toDateString()) {
+                    lastTradingDay.setDate(lastTradingDay.getDate() - 1);
+                    lastTradingDay = this.getLastTradingDay(lastTradingDay);
+                }
+
+                lastTradingDay.setHours(0, 0, 0, 0);
+                displayStartUTC = lastTradingDay;
+
+                const fallbackStart = new Date(displayStartUTC);
+                fallbackStart.setUTCDate(fallbackStart.getUTCDate() - bufferDays);
+                const newStartTs = Math.floor(fallbackStart.getTime() / 1000);
+
+                const fallbackEnd = new Date(displayStartUTC);
+                fallbackEnd.setHours(23, 59, 59, 999);
+                hardStopEndTs = fallbackEnd.getTime();
+                const newEndTs = Math.floor(hardStopEndTs / 1000);
+
+                for (let i = 0; i < tickers.length; i += batchSize) {
+                    const batch = tickers.slice(i, i + batchSize);
+                    await Promise.all(batch.map(async (t) => {
+                        try {
+                            const hist = await this.api.getHistoricalPricesWithRetry(t, newStartTs, newEndTs, interval);
+                            historicalDataMap.set(t, hist);
+                        } catch (err) {
+                            historicalDataMap.set(t, {});
+                        }
+                    }));
+                }
+            }
         }
 
         const assetQuantities = new Map();
@@ -476,15 +570,65 @@ export class DataManager {
         const values = [];
         const unitPrices = [];
         const purchasePoints = [];
-        const twr = []; 
-        
+        const twr = [];
+
         const allTimestamps = new Set();
         historicalDataMap.forEach(hist => {
             Object.keys(hist).forEach(ts => allTimestamps.add(parseInt(ts)));
         });
+
+        // === FIX: GESTION DES DONNÉES MANQUANTES & SYNCHRONISATION LIVE ===
+
+        // 1. Injecter le prix actuel (Live) dans l'historique pour TOUS les actifs
+        const nowTs = Date.now();
+        const injectLivePrice = (days === 1 || days <= 7);
+
+        if (injectLivePrice) {
+            for (const t of tickers) {
+                const currentPriceData = this.storage.getCurrentPrice(t);
+                const currentPrice = currentPriceData ? (currentPriceData.price || currentPriceData.previousClose) : null;
+
+                if (currentPrice !== null) {
+                    let hist = historicalDataMap.get(t);
+                    if (!hist) {
+                        hist = {};
+                        historicalDataMap.set(t, hist);
+                    }
+                    hist[endTs * 1000] = currentPrice;
+                }
+            }
+            allTimestamps.add(endTs * 1000);
+        }
+
+        // 2. Gestion des actifs sans historique (Flat Line)
+        for (const t of tickers) {
+            const hist = historicalDataMap.get(t);
+            const hasData = hist && Object.keys(hist).length > 0;
+
+            if (!hasData) {
+                const currentPriceData = this.storage.getCurrentPrice(t);
+                const fallbackPrice = currentPriceData ? (currentPriceData.price || currentPriceData.previousClose) : null;
+
+                if (fallbackPrice !== null) {
+                    const syntheticHist = {};
+                    syntheticHist[startTs * 1000] = fallbackPrice;
+                    syntheticHist[endTs * 1000] = fallbackPrice;
+                    historicalDataMap.set(t, syntheticHist);
+
+                    allTimestamps.add(startTs * 1000);
+                    allTimestamps.add(endTs * 1000);
+                }
+            }
+        }
+
+        // MODIF: Forcer l'ajout du point de départ (00:00) pour garantir que le graph commence au début de la journée
+        if (displayStartUTC) {
+            allTimestamps.add(displayStartUTC.getTime());
+        }
+
         let sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
-        
-        let yesterdayClose = null; 
+
+        let yesterdayClose = null;
         const referenceStartTs = displayStartUTC.getTime();
         const allTimestampsBeforeStart = sortedTimestamps.filter(ts => ts < referenceStartTs);
 
@@ -514,13 +658,13 @@ export class DataManager {
             }
             if (assetsFound > 0) yesterdayClose = totalYesterdayValue;
         }
-        
+
         const displayStartTs = displayStartUTC.getTime();
         let displayEndTs;
         if (hardStopEndTs) displayEndTs = hardStopEndTs;
         else if (days === 1) displayEndTs = displayStartTs + (24 * 60 * 60 * 1000);
         else displayEndTs = Infinity;
-        
+
         let displayTimestamps = sortedTimestamps.filter(ts => ts >= displayStartTs && ts <= displayEndTs);
 
         const lastKnownPrices = new Map();
@@ -530,7 +674,7 @@ export class DataManager {
         if (lastTsOverall !== null) {
             for (const t of tickers) {
                 const hist = historicalDataMap.get(t);
-                let price = this.findClosestPrice(hist, lastTsOverall, '1wk'); 
+                let price = this.findClosestPrice(hist, lastTsOverall, '1wk');
                 if (price === null) {
                     const tickerTimestamps = Object.keys(hist).map(Number).filter(ts => ts < displayStartTs);
                     if (tickerTimestamps.length > 0) {
@@ -541,24 +685,24 @@ export class DataManager {
                 if (price !== null) lastKnownPrices.set(t, price);
             }
         }
-        
+
         let previousTotalValue = 0;
-        let currentTWR = 1.0;       
-        
+        let currentTWR = 1.0;
+
         for (let i = 0; i < displayTimestamps.length; i++) {
             const ts = displayTimestamps[i];
             let tsChangedInvested = false;
             const prevTs = (i === 0) ? displayStartUTC.getTime() - 1 : displayTimestamps[i - 1];
 
-            let cashFlow = 0; 
-            
+            let cashFlow = 0;
+
             for (const [t, buyList] of assetMap.entries()) {
                 for (const buy of buyList) {
                     if (buy.date.getTime() > prevTs && buy.date.getTime() <= ts) {
                         assetQuantities.set(t, assetQuantities.get(t) + buy.quantity);
                         const flow = buy.price * buy.quantity;
                         assetInvested.set(t, assetInvested.get(t) + flow);
-                        cashFlow += flow; 
+                        cashFlow += flow;
                         tsChangedInvested = true;
                     }
                 }
@@ -567,32 +711,58 @@ export class DataManager {
             let currentTsTotalValue = 0;
             let totalInvested = 0;
             let hasAtLeastOnePrice = false;
-            let currentTsUnitPrice = null; 
+            let currentTsUnitPrice = null;
 
             for (const t of tickers) {
                 const hist = historicalDataMap.get(t);
                 const qty = assetQuantities.get(t);
-                const inv = assetInvested.get(t);
 
                 if (qty > 0) {
-                    totalInvested += inv;
-                    const price = this.findClosestPrice(hist, ts, interval); 
+                    let price = null;
+                    if (hist && hist[ts]) {
+                        price = hist[ts];
+                    } else {
+                        // Forward fill
+                        if (lastKnownPrices.has(t)) {
+                            price = lastKnownPrices.get(t);
+                        }
+                    }
+
                     if (price !== null) {
-                        lastKnownPrices.set(t, price); 
                         currentTsTotalValue += price * qty;
                         hasAtLeastOnePrice = true;
+                        lastKnownPrices.set(t, price);
                         if (isSingleAsset) currentTsUnitPrice = price;
-                    } else {
-                        const lastPrice = lastKnownPrices.get(t);
-                        if (lastPrice !== undefined && lastPrice !== null) {
-                            currentTsTotalValue += lastPrice * qty;
-                            hasAtLeastOnePrice = true; 
-                            if (isSingleAsset) currentTsUnitPrice = lastPrice;
+                    }
+                }
+                const investedAmount = assetInvested.get(t);
+                totalInvested += investedAmount;
+            }
+
+            // MODIF: Si c'est le dernier point, utiliser le prix actuel du cache pour être synchro avec la Top Card
+            // SUPPRESSION DU BLOC "FORCE LAST POINT" (Désactivé)
+            if (false) {
+                let finalTotalValue = 0;
+                let finalHasPrice = false;
+                for (const t of tickers) {
+                    const qty = assetQuantities.get(t);
+                    // On n'inclut l'actif dans le total final QUE s'il a déjà été vu dans l'historique (lastKnownPrices)
+                    // Cela évite de faire apparaître soudainement un actif à 0 tout au long du graphe juste à la fin.
+                    if (qty > 0 && lastKnownPrices.has(t)) {
+                        const currentPriceData = this.storage.getCurrentPrice(t);
+                        const currentPrice = currentPriceData ? (currentPriceData.price || currentPriceData.previousClose) : null;
+                        if (currentPrice !== null) {
+                            finalTotalValue += currentPrice * qty;
+                            finalHasPrice = true;
+                            if (isSingleAsset) currentTsUnitPrice = currentPrice;
                         }
                     }
                 }
+                if (finalHasPrice) {
+                    currentTsTotalValue = finalTotalValue;
+                }
             }
-            
+
             if (i > 0 && previousTotalValue > 0) {
                 const periodReturn = (currentTsTotalValue - cashFlow - previousTotalValue) / previousTotalValue;
                 currentTWR = currentTWR * (1 + periodReturn);
@@ -602,7 +772,7 @@ export class DataManager {
 
             const label = labelFormat(ts);
             labels.push(label);
-            
+
             if (hasAtLeastOnePrice || tsChangedInvested) {
                 invested.push(totalInvested);
                 values.push(currentTsTotalValue);
@@ -613,19 +783,19 @@ export class DataManager {
                 if (isSingleAsset) unitPrices.push(null);
             }
         }
-        
+
         if (isSingleAsset) {
             const buyList = assetMap.get(ticker);
             const finalEndTs = (displayEndTs === Infinity ? todayUTC.getTime() : displayEndTs);
 
             let maxToleranceMs;
-            if (days === 1) maxToleranceMs = 2 * 60 * 60 * 1000; 
-            else if (days <= 7) maxToleranceMs = 12 * 60 * 60 * 1000; 
-            else maxToleranceMs = 4 * 24 * 60 * 60 * 1000; 
+            if (days === 1) maxToleranceMs = 2 * 60 * 60 * 1000;
+            else if (days <= 7) maxToleranceMs = 12 * 60 * 60 * 1000;
+            else maxToleranceMs = 4 * 24 * 60 * 60 * 1000;
 
             for (const buy of buyList) {
                 const buyTs = buy.date.getTime();
-                
+
                 if (buyTs >= displayStartTs && buyTs <= finalEndTs) {
                     let closestIdx = -1;
                     let minDiff = Infinity;
@@ -639,7 +809,7 @@ export class DataManager {
                     if (closestIdx !== -1 && minDiff <= maxToleranceMs) {
                         const rate = buy.currency === 'USD' ? dynamicRate : 1;
                         purchasePoints.push({
-                            x: labels[closestIdx], 
+                            x: labels[closestIdx],
                             y: buy.price * rate,
                             quantity: buy.quantity,
                             date: buy.date
@@ -648,38 +818,38 @@ export class DataManager {
                 }
             }
         }
-        
-        return { 
-            labels, 
-            invested, 
-            values, 
-            yesterdayClose, 
-            unitPrices, 
+
+        return {
+            labels,
+            invested,
+            values,
+            yesterdayClose,
+            unitPrices,
             purchasePoints,
             timestamps: displayTimestamps,
-            twr 
+            twr
         };
     }
 
-	getIntervalForPeriod(days) {
-		if (days === 1) return '5m';
-		if (days === 2) return '15m';
-		if (days <= 7) return '90m';
-		if (days <= 30) return '1d';
-		if (days <= 90) return '1d';
-		if (days <= 180) return '1d';
-		if (days <= 365) return '1d';
-		return '1d';
-	}
+    getIntervalForPeriod(days) {
+        if (days === 1) return '5m';
+        if (days === 2) return '15m';
+        if (days <= 7) return '90m';
+        if (days <= 30) return '1d';
+        if (days <= 90) return '1d';
+        if (days <= 180) return '1d';
+        if (days <= 365) return '1d';
+        return '1d';
+    }
 
-	getLabelFormat(days) {
-		return (dateUTC) => {
-			const local = new Date(dateUTC);
-			if (days === 1) return local.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-			if (days <= 7) return local.toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-			return local.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' });
-		};
-	}
+    getLabelFormat(days) {
+        return (dateUTC) => {
+            const local = new Date(dateUTC);
+            if (days === 1) return local.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            if (days <= 7) return local.toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+            return local.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' });
+        };
+    }
 
     getLastTradingDay(date) {
         const day = date.getDay();
@@ -690,7 +860,7 @@ export class DataManager {
     }
 
     isCryptoTicker(ticker) {
-        const cryptoList = ['BTC','ETH','SOL','ADA','DOT','LINK','LTC','XRP','XLM','BNB','AVAX','DOGE','SHIB','MATIC','UNI','AAVE'];
+        const cryptoList = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'LTC', 'XRP', 'XLM', 'BNB', 'AVAX', 'DOGE', 'SHIB', 'MATIC', 'UNI', 'AAVE'];
         ticker = ticker.toUpperCase();
         return cryptoList.includes(ticker) || ticker.includes('-EUR') || ticker.includes('-USD');
     }
@@ -698,7 +868,7 @@ export class DataManager {
     formatTicker(ticker) {
         ticker = ticker.toUpperCase().trim();
         if (YAHOO_MAP[ticker]) return YAHOO_MAP[ticker];
-        const cryptos = ['ETH','SOL','ADA','DOT','LINK','LTC','XRP','XLM','BNB','AVAX'];
+        const cryptos = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'LTC', 'XRP', 'XLM', 'BNB', 'AVAX'];
         return cryptos.includes(ticker) ? ticker + '-EUR' : ticker;
     }
 
@@ -706,7 +876,7 @@ export class DataManager {
         if (!hist || Object.keys(hist).length === 0) return null;
         if (hist[targetTs]) return hist[targetTs];
         let maxDiff;
-        if (interval === '5m' || interval === '15m' || interval === '90m') maxDiff = 7 * 24 * 60 * 60 * 1000; 
+        if (interval === '5m' || interval === '15m' || interval === '90m') maxDiff = 7 * 24 * 60 * 60 * 1000;
         else maxDiff = 10 * 24 * 60 * 60 * 1000;
         const timestamps = Object.keys(hist).map(Number).sort((a, b) => a - b);
         let closestTs = null;

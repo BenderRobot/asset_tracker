@@ -1,55 +1,74 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Asset Tracker - Dashboard</title>
-    
+
     <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    
+
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css">
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/dashboard.css">
-    
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script>
         if (localStorage.getItem('sidebarState') === 'true') {
             document.documentElement.classList.add('sidebar-collapsed');
         }
     </script>
 </head>
+
 <body>
     <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-header">
             <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
-                <img src="/icons/android-chrome-192x192.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px; object-fit: contain;">
             </div>
             <span class="app-logo-text">Asset Tracker</span>
         </div>
-        
+
         <nav class="sidebar-nav">
-            <a href="index.html" class="nav-item"><div class="nav-icon">📋</div><span class="nav-text">Transactions</span></a>
-            <a href="investments.html" class="nav-item"><div class="nav-icon">📈</div><span class="nav-text">Assets</span></a>
-            <a href="dashboard.html" class="nav-item active"><div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span></a>
-            <a href="analytics.html" class="nav-item"><div class="nav-icon">📊</div><span class="nav-text">Analytics</span></a>
-			<a href="news.html" class="nav-item">
-				<div class="nav-icon">📰</div>
-				<span class="nav-text">News Feeds</span>
-			</a>
-		</nav>
+            <a href="dashboard.html" class="nav-item active">
+                <div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">📈</div><span class="nav-text">Assets</span>
+            </a>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div><span class="nav-text">Transactions</span>
+            </a>
+            <a href="analytics.html" class="nav-item">
+                <div class="nav-icon">📊</div><span class="nav-text">Analytics</span>
+            </a>
+            <a href="news.html" class="nav-item">
+                <div class="nav-icon">📰</div>
+                <span class="nav-text">News Feeds</span>
+            </a>
+        </nav>
 
         <div class="sidebar-settings">
             <div class="settings-title">Paramètres</div>
-            <a href="migration.html" class="nav-item"><div class="nav-icon"><i class="fas fa-cog"></i></div><span class="nav-text">Migration</span></a>
+            <a href="migration.html" class="nav-item">
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
+                <span class="nav-text">Migration</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">Déconnexion</span>
+            </a>
         </div>
 
         <div class="sidebar-footer">
@@ -61,60 +80,71 @@
         <div class="container">
 
             <div class="dashboard-top-section">
-                
-                <div class="dashboard-left-column">
-                    
-                    <div class="dashboard-hero-row summary-grid" style="margin-bottom: 0px;">
-						<div class="summary-card summary-card-primary">
-							<div class="summary-card-label">Total Value</div>
-							<div id="total-current" class="summary-card-value">€0.00</div>
-							<div class="summary-card-meta">
-								<span id="invested" class="meta-info" style="font-size: 14px; opacity: 0.9; color: var(--text-secondary);">Invested: €0.00</span>
-							</div>
-						</div>
-						
-						<div class="summary-card">
-							<div class="summary-card-label">Total Return</div>
-							<div id="total-gain-loss" class="summary-card-value">€0.00</div>
-							<div class="summary-card-meta">
-								<span id="total-gain-pct" class="meta-large">0.00%</span>
-							</div>
-						</div>
-						
-						<div class="summary-card">
-							<div class="summary-card-label">Var Today</div>
-							<div id="total-invested" class="summary-card-value">€0.00</div>
-							<div class="summary-card-meta">
-								<span id="avg-cost-per-share" class="meta-info">0.00%</span>
-							</div>
-						</div>
-					</div>
 
-					<div class="dashboard-kpi-grid-v2">
-						<div class="kpi-card">
-							<div class="kpi-header"><span class="kpi-label">Top Gainer</span><i class="fas fa-arrow-trend-up kpi-icon"></i></div>
-							<div class="kpi-name-large" id="dashboard-top-gainer-name">-</div>
-							<div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span></div>
-						</div>
-						<div class="kpi-card">
-							<div class="kpi-header"><span class="kpi-label">Top Loser</span><i class="fas fa-arrow-trend-down kpi-icon"></i></div>
-							<div class="kpi-name-large" id="dashboard-top-loser-name">-</div>
-							<div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span></div>
-						</div>
-						<div class="kpi-card">
-							<div class="kpi-header"><span class="kpi-label">Top Sector</span><i class="fas fa-industry kpi-icon"></i></div>
-							<div class="kpi-name-large" id="dashboard-top-sector">-</div>
-						</div>
-						<div class="kpi-card">
-							<div class="kpi-header"><span class="kpi-label">Asset Allocation</span><i class="fas fa-chart-pie kpi-icon"></i></div>
-							<div id="dashboard-allocation-container"></div>
-						</div>
-					</div>
+                <div class="dashboard-left-column">
+
+                    <div class="dashboard-hero-row summary-grid" style="margin-bottom: 0px;">
+                        <div class="summary-card summary-card-primary">
+                            <div class="summary-card-label">Total Value</div>
+                            <div id="total-current" class="summary-card-value">€0.00</div>
+                            <div class="summary-card-meta">
+                                <span id="invested" class="meta-info"
+                                    style="font-size: 14px; opacity: 0.9; color: var(--text-secondary);">Invested:
+                                    €0.00</span>
+                            </div>
+                        </div>
+
+                        <div class="summary-card">
+                            <div class="summary-card-label">Total Return</div>
+                            <div id="total-gain-loss" class="summary-card-value">€0.00</div>
+                            <div class="summary-card-meta">
+                                <span id="total-gain-pct" class="meta-large">0.00%</span>
+                            </div>
+                        </div>
+
+                        <div class="summary-card">
+                            <div class="summary-card-label">Var Today</div>
+                            <div id="total-invested" class="summary-card-value">€0.00</div>
+                            <div class="summary-card-meta">
+                                <span id="avg-cost-per-share" class="meta-info">0.00%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-kpi-grid-v2">
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span class="kpi-label">Top Gainer</span><i
+                                    class="fas fa-arrow-trend-up kpi-icon"></i></div>
+                            <div class="kpi-name-large" id="dashboard-top-gainer-name">-</div>
+                            <div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span>
+                            </div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span class="kpi-label">Top Loser</span><i
+                                    class="fas fa-arrow-trend-down kpi-icon"></i></div>
+                            <div class="kpi-name-large" id="dashboard-top-loser-name">-</div>
+                            <div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span>
+                            </div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span class="kpi-label">Top Sector</span><i
+                                    class="fas fa-industry kpi-icon"></i></div>
+                            <div class="kpi-name-large" id="dashboard-top-sector">-</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span class="kpi-label">Asset Allocation</span><i
+                                    class="fas fa-chart-pie kpi-icon"></i></div>
+                            <div id="dashboard-allocation-container"></div>
+                        </div>
+                    </div>
                     <div class="dashboard-chart-section">
                         <div class="chart-header-mini">
                             <div class="title-mini">
-                                <h3 class="chart-title"><span class="title-icon">📈</span><span id="chart-title-text">Global Portfolio</span></h3>
-                                <span id="chart-title-icon" style="display:none"></span><div id="last-update" style="display:none"></div><div id="view-toggle" style="display:none"></div>
+                                <h3 class="chart-title"><span class="title-icon">📈</span><span
+                                        id="chart-title-text">Global Portfolio</span></h3>
+                                <span id="chart-title-icon" style="display:none"></span>
+                                <div id="last-update" style="display:none"></div>
+                                <div id="view-toggle" style="display:none"></div>
                             </div>
                             <div class="header-controls">
                                 <div id="benchmark-wrapper" class="benchmark-wrapper">
@@ -138,16 +168,36 @@
                         </div>
                         <div class="chart-wrapper tall">
                             <canvas id="historical-portfolio-chart"></canvas>
-                            <div id="chart-loading" class="chart-loading"><div class="svg-loader-container"><svg class="loader-svg" viewBox="0 0 50 50"><circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle></svg></div></div>
+                            <div id="chart-loading" class="chart-loading">
+                                <div class="svg-loader-container"><svg class="loader-svg" viewBox="0 0 50 50">
+                                        <circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none"
+                                            stroke-width="4"></circle>
+                                    </svg>
+                                    <div class="loader-text">Loading...</div>
+                                </div>
+                            </div>
                         </div>
                         <div class="chart-stats-bar">
-                            <div class="stat-group stat-group-1"><div class="stat"><span class="label">PERIOD RETURN</span><span id="performance-label" class="value neutral">--</span><span id="performance-percent" class="pct neutral">--</span></div></div>
-                            <div class="stat-group stat-group-2" style="display:none;"><div id="unit-price-row"><span id="unit-price"></span></div><div id="stat-day-var"><span id="day-var-label"></span><span id="day-var-percent"></span></div><div id="stat-yesterday-close"><span id="yesterday-close-value"></span></div></div>
+                            <div class="stat-group stat-group-1">
+                                <div class="stat"><span class="label">PERIOD RETURN</span><span id="performance-label"
+                                        class="value neutral">--</span><span id="performance-percent"
+                                        class="pct neutral">--</span></div>
+                            </div>
+                            <div class="stat-group stat-group-2" style="display:none;">
+                                <div id="unit-price-row"><span id="unit-price"></span></div>
+                                <div id="stat-day-var"><span id="day-var-label"></span><span
+                                        id="day-var-percent"></span></div>
+                                <div id="stat-yesterday-close"><span id="yesterday-close-value"></span></div>
+                            </div>
                             <div class="stat-group stat-group-3">
-                                <div class="stat"><span class="label">START</span><span id="price-start" class="value">--</span></div>
-                                <div class="stat"><span class="label">END</span><span id="price-end" class="value">--</span></div>
-                                <div class="stat"><span class="label">HIGH</span><span id="price-high" class="value">--</span></div>
-                                <div class="stat"><span class="label">LOW</span><span id="price-low" class="value">--</span></div>
+                                <div class="stat"><span class="label">START</span><span id="price-start"
+                                        class="value">--</span></div>
+                                <div class="stat"><span class="label">END</span><span id="price-end"
+                                        class="value">--</span></div>
+                                <div class="stat"><span class="label">HIGH</span><span id="price-high"
+                                        class="value">--</span></div>
+                                <div class="stat"><span class="label">LOW</span><span id="price-low"
+                                        class="value">--</span></div>
                             </div>
                         </div>
                     </div>
@@ -155,15 +205,15 @@
                 </div>
 
                 <div class="dashboard-indices-panel-full">
-					<div class="indices-header">
-						<h3 class="section-title-right">Indices & Futures</h3>
-						<div id="market-status-container"></div>
-					</div>
-					
-					<div id="market-overview-container" class="indices-list">
-						<div class="market-loading"></div>
-					</div>
-				</div>
+                    <div class="indices-header">
+                        <h3 class="section-title-right">Indices & Futures</h3>
+                        <div id="market-status-container"></div>
+                    </div>
+
+                    <div id="market-overview-container" class="indices-list">
+                        <div class="market-loading"></div>
+                    </div>
+                </div>
 
             </div>
 
@@ -173,8 +223,10 @@
                         <div class="feed-header">
                             <h3><i class="fas fa-bullseye" style="color:#3b82f6"></i> Mes Actifs</h3>
                             <div style="display: flex; gap: 8px;">
-                                <select id="portfolio-asset-select" style="padding: 6px 12px; border-radius: 8px; font-size: 12px; min-width: 140px;"></select>
-                                <button id="refresh-portfolio-news" class="btn-icon-small" title="Rafraîchir les actifs"><i class="fas fa-sync"></i></button>
+                                <select id="portfolio-asset-select"
+                                    style="padding: 6px 12px; border-radius: 8px; font-size: 12px; min-width: 140px;"></select>
+                                <button id="refresh-portfolio-news" class="btn-icon-small"
+                                    title="Rafraîchir les actifs"><i class="fas fa-sync"></i></button>
                             </div>
                         </div>
                         <div id="news-portfolio-container" class="feed-content">
@@ -185,7 +237,8 @@
                     <div class="feed-card">
                         <div class="feed-header">
                             <h3><i class="fas fa-globe" style="color:#10b981"></i> Macro Éco</h3>
-                            <button id="refresh-global-news-btn" class="btn-icon-small" title="Rafraîchir la macro"><i class="fas fa-sync"></i></button>
+                            <button id="refresh-global-news-btn" class="btn-icon-small" title="Rafraîchir la macro"><i
+                                    class="fas fa-sync"></i></button>
                         </div>
                         <div id="news-global-container" class="feed-content">
                             <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...</div>
@@ -210,16 +263,17 @@
             </div>
             <div class="modal-body">
                 <h3 id="modal-news-title" style="margin-bottom: 16px; line-height: 1.4;">Titre</h3>
-                
+
                 <div class="ai-summary-header">
                     <div class="news-ai-badge"><i class="fas fa-robot"></i> Résumé Gemini AI</div>
-                    <button class="ai-context-btn" id="analyze-context-btn" title="Pourquoi cette news est-elle importante ?">
+                    <button class="ai-context-btn" id="analyze-context-btn"
+                        title="Pourquoi cette news est-elle importante ?">
                         <i class="fas fa-question-circle"></i>
                     </button>
                 </div>
 
                 <div id="modal-news-summary" class="news-summary-text">Loading...</div>
-                
+
                 <!-- NOUVEAU CONTENEUR POUR L'ANALYSE DE CONTEXTE -->
                 <div id="modal-news-context" class="news-context-box" style="display:none;">
                     <div class="context-header">
@@ -233,13 +287,19 @@
                 <!-- FIN NOUVEAU CONTENEUR -->
 
                 <div style="margin-top: 24px; text-align: right;">
-                    <a href="#" id="modal-news-link" target="_blank" class="btn-primary" style="font-size: 14px; padding: 12px 24px;">Lire l'article complet</a>
+                    <a href="#" id="modal-news-link" target="_blank" class="btn-primary"
+                        style="font-size: 14px; padding: 12px 24px;">Lire l'article complet</a>
                 </div>
             </div>
         </div>
     </div>
 
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
+    <script type="module" src="./authGuard.js"></script>
     <script type="module" src="./dashboardApp.js"></script>
     <script type="module" src="./sidebar.js"></script>
 </body>
+
 </html>

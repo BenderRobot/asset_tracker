@@ -1,27 +1,22 @@
-// benderrobot/asset_tracker/asset_tracker-d2b20147fdbaa70dfad9c7d62d05505272e63ca2/api.js
 // ========================================
-// api.js - (v22 - FINAL FIX: 1D parfait partout)
+// api.js - VERSION CONSOLIDÉE GCP (Sécurisée via Cloud Function)
 // ========================================
-import { RAPIDAPI_KEY, YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE } from './config.js';
+import { YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE, PRICE_PROXY_URL } from './config.js';
 import { sleep } from './utils.js';
+
+// Les anciennes clés et proxys ont été retirés pour la sécurité
 
 const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 
+// Les providerStats sont simplifiés car le proxy est la seule source du Frontend
 const providerStats = {
-  YAHOO_V2: { success: 0, fails: 0, lastError: null },
-  COINGECKO: { success: 0, fails: 0, lastError: null },
-  BINANCE: { success: 0, fails: 0, lastError: null }
+  GCP_PROXY: { success: 0, fails: 0, lastError: null }
 };
 
 export class PriceAPI {
   constructor(storage) {
     this.storage = storage;
-    this.corsProxies = [
-      'https://corsproxy.io/?',
-      'https://api.allorigins.win/raw?url=',
-      'https://api.codetabs.com/v1/proxy?quest='
-    ];
-    this.currentProxyIndex = 0;
+    // Les anciens proxys corsProxies et currentProxyIndex sont supprimés
     this.historicalPriceCache = this.loadHistoricalCache();
   }
 
@@ -42,24 +37,24 @@ export class PriceAPI {
   isUSTickerOnly(ticker) {
     const yahooSymbol = YAHOO_MAP[ticker] || ticker;
     return USD_TICKERS.has(ticker.toUpperCase()) ||
-           (!yahooSymbol.includes('.F') && !yahooSymbol.includes('.PA') && !yahooSymbol.includes('.AS'));
+      (!yahooSymbol.includes('.F') && !yahooSymbol.includes('.PA') && !yahooSymbol.includes('.AS'));
   }
 
   formatTicker(ticker) {
     ticker = ticker.toUpperCase().trim();
     if (YAHOO_MAP[ticker]) return YAHOO_MAP[ticker];
     if (ticker.startsWith('^')) return ticker;
-	if (ticker === '^IXIC') return '^IXIC'; // NASDAQ 100
-    if (ticker === '^FCHI') return '^FCHI'; // CAC 40
-    if (ticker === '^STOXX50E') return '^STOXX50E'; // EURO STOXX 50
-    if (ticker === 'EURUSD=X') return 'EURUSD=X'; // EUR/USD Forex
-    if (ticker === 'GC=F') return 'GC=F'; // Gold Futures
+    if (ticker === '^IXIC') return '^IXIC';
+    if (ticker === '^FCHI') return '^FCHI';
+    if (ticker === '^STOXX50E') return '^STOXX50E';
+    if (ticker === 'EURUSD=X') return 'EURUSD=X';
+    if (ticker === 'GC=F') return 'GC=F';
     const cryptos = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'LTC', 'XRP', 'XLM', 'BNB', 'AVAX'];
     return cryptos.includes(ticker) ? ticker + '-EUR' : ticker;
   }
 
   // ==========================================================
-  // RÉCUPÉRATION PRIX EN TEMPS RÉEL
+  // RÉCUPÉRATION PRIX EN TEMPS RÉEL (Centralisée)
   // ==========================================================
   async fetchBatchPrices(tickers, forceRefresh = false) {
     const tickersToFetch = [];
@@ -79,241 +74,173 @@ export class PriceAPI {
       }
 
       const shouldRefresh = !cached ||
-                           !cached.price ||
-                           !this.storage.isCacheValid(ticker, assetType) ||
-                           (assetType === 'Crypto' && !isWeekend);
+        !cached.price ||
+        !this.storage.isCacheValid(ticker, assetType) ||
+        (assetType === 'Crypto' && !isWeekend);
 
       if (shouldRefresh) tickersToFetch.push(ticker);
     });
 
     if (tickersToFetch.length === 0) return;
 
-    console.log(`API: Récupération de ${tickersToFetch.length} prix...`);
+    console.log(`API: Récupération de ${tickersToFetch.length} prix via GCP Proxy...`);
     const batchSize = 5;
     const pauseTime = 1000;
 
     for (let i = 0; i < tickersToFetch.length; i += batchSize) {
       const batch = tickersToFetch.slice(i, i + batchSize);
       if (i > 0) await sleep(pauseTime);
-
-      const cryptos = batch.filter(t => this.storage.getAssetType(t) === 'Crypto');
-      const others = batch.filter(t => this.storage.getAssetType(t) !== 'Crypto');
-
-      for (const crypto of cryptos) {
-        const success = await this.fetchCryptoPrice(crypto);
-        if (!success) {
-          console.log(`CoinGecko failed for ${crypto}, trying Binance...`);
-          await this.fetchBinancePrice(crypto);
-        }
-      }
-      if (others.length > 0) {
-        await this.fetchPricesWithFallback(others);
-      }
+      
+      // Appel unifié pour tous les actifs
+      await this.fetchPricesViaProxy(batch); 
     }
     this.logProviderStats();
   }
 
-  // --- COINGECKO & BINANCE (inchangés) ---
-  async fetchCryptoPrice(ticker) {
-    const upper = ticker.toUpperCase();
-    try {
-      let coinId;
-      if (upper === 'BTC') coinId = 'bitcoin';
-      else if (upper === 'ETH') coinId = 'ethereum';
-      else if (upper === 'SOL') coinId = 'solana';
-      else if (upper === 'ADA') coinId = 'cardano';
-      else if (upper === 'XRP') coinId = 'ripple';
-      else if (upper === 'BNB') coinId = 'binancecoin';
-      else return false;
-
-      let previousClose = null;
-      try {
-        const today = new Date();
-        const dateStr = `${today.getUTCDate()}-${today.getUTCMonth() + 1}-${today.getUTCFullYear()}`;
-        const historyRes = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/history?date=${dateStr}&localization=false`);
-        if (historyRes.ok) {
-          const historyData = await historyRes.json();
-          if (historyData?.market_data?.current_price?.eur) {
-            previousClose = historyData.market_data.current_price.eur;
-          }
-        }
-      } catch (e) {}
-
-      const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=eur`);
-      if (res.ok) {
-        const data = await res.json();
-        const price = data[coinId]?.eur;
-
-        if (price) {
-          if (previousClose === null) {
-            const res24h = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=eur&include_24hr_change=true`);
-            const d24 = await res24h.json();
-            const change = d24[coinId]?.eur_24h_change || 0;
-            previousClose = price / (1 + change / 100);
-          }
-          this.storage.setCurrentPrice(upper, {
-            price,
-            previousClose,
-            currency: 'EUR',
-            marketState: 'OPEN',
-            lastUpdate: Date.now(),
-            source: 'CoinGecko'
-          });
-          providerStats.COINGECKO.success++;
-          return true;
-        }
-      }
-      return false;
-    } catch (e) {
-      providerStats.COINGECKO.fails++;
-      return false;
-    }
-  }
-
-  async fetchBinancePrice(ticker) {
-    const upper = ticker.toUpperCase();
-    try {
-      const symbol = `${upper}EUR`;
-      const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
-      if (res.ok) {
-        const data = await res.json();
-        const price = parseFloat(data.lastPrice);
-        const prevClose = parseFloat(data.prevClosePrice);
-        if (!isNaN(price)) {
-          this.storage.setCurrentPrice(upper, {
-            price,
-            previousClose: prevClose,
-            currency: 'EUR',
-            marketState: 'OPEN',
-            lastUpdate: Date.now(),
-            source: 'Binance'
-          });
-          providerStats.BINANCE.success++;
-          return true;
-        }
-      }
-    } catch (e) {
-      providerStats.BINANCE.fails++;
-    }
-    return false;
-  }
-
-  async fetchPricesWithFallback(tickers) {
-        let success = false;
-        // Tenter de récupérer les prix Yahoo, avec bascule de proxy en cas d'échec
-        const MAX_ATTEMPTS = 3; 
-
-        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            try {
-                success = await this.fetchYahooV2Prices(tickers);
-                if (success) {
-                    providerStats.YAHOO_V2.success++;
-                    return true; // Succès, sortir
-                }
-            } catch (err) {
-                providerStats.YAHOO_V2.fails++;
-                providerStats.YAHOO_V2.lastError = err.message;
-                console.warn(`Tentative Yahoo échouée (${attempt + 1}/${MAX_ATTEMPTS}). Changement de proxy...`);
-                // Changer de proxy en cas d'erreur
-                this.currentProxyIndex = (this.currentProxyIndex + 1) % this.corsProxies.length;
-                await sleep(500); // Pause avant la prochaine tentative
-            }
-        }
-        return success; // Retourne faux si toutes les tentatives ont échoué
-    }
-
-  async fetchYahooV2Prices(tickers) {
-    const results = [];
+  // NOUVELLE FONCTION CORE: Appelle le Cloud Function Proxy pour les prix en temps réel
+  async fetchPricesViaProxy(tickers) {
+    const tickersResult = [];
     for (const ticker of tickers) {
+      const assetType = this.storage.getAssetType(ticker);
+      const symbol = this.formatTicker(ticker);
+      const type = assetType.toUpperCase() === 'CRYPTO' ? 'CRYPTO' : 'STOCK';
+      
       try {
-        const symbol = this.formatTicker(ticker);
-        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=5d`;
-        const proxy = this.corsProxies[this.currentProxyIndex];
-        const url = `${proxy}${encodeURIComponent(yahooUrl)}`;
+        // L'appel se fait vers le Cloud Function Proxy
+        const url = `${PRICE_PROXY_URL}?symbol=${symbol}&type=${type}&range=5d&interval=5m`;
+        
         const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+        
         const data = await res.json();
-        const chartData = data.chart ? data : (typeof data === 'string' ? JSON.parse(data) : data);
-        if (!chartData.chart?.result?.[0]?.timestamp) throw new Error('Invalid data');
+        
+        let result;
+        let source;
 
-        const result = chartData.chart.result[0];
-        const timestamps = result.timestamp;
-        const quotes = result.indicators.quote[0].close;
-        const meta = result.meta;
+        if (type === 'CRYPTO') {
+            // Logique CoinGecko/Binance (Le proxy a déjà géré le fallback)
+            let coinId = (symbol.split('-')[0] || symbol).toLowerCase();
+            if (data.coinId && data.coinId.eur) { // Si la structure est {BTC: {eur: x}}
+                 result = {
+                    price: data[coinId].eur,
+                    previousClose: data[coinId].eur / (1 + (data[coinId].eur_24h_change / 100)) || data[coinId].eur,
+                    currency: 'EUR',
+                    marketState: 'OPEN'
+                };
+                source = 'CoinGecko Proxy';
+            } else if (data.lastPrice) { // Tentative Binance si la réponse ressemble à du Binance
+                 result = {
+                    price: parseFloat(data.lastPrice),
+                    previousClose: parseFloat(data.prevClosePrice),
+                    currency: 'EUR',
+                    marketState: 'OPEN'
+                };
+                source = 'Binance Proxy';
+            }
+            else {
+                // Si la CF n'a rien trouvé, on échoue ici
+                throw new Error('Crypto price not found in response.');
+            }
+        } else {
+            // Logique Yahoo
+            const chartData = data.chart ? data : (typeof data === 'string' ? JSON.parse(data) : data);
+            if (!chartData.chart?.result?.[0]?.timestamp) throw new Error('Invalid Yahoo data');
 
-        let currentPrice = null;
-        let lastTradeTimestamp = null;
-        for (let i = quotes.length - 1; i >= 0; i--) {
-          if (quotes[i] !== null) {
-            currentPrice = parseFloat(quotes[i]);
-            lastTradeTimestamp = timestamps[i];
-            break;
+            const yahooResult = chartData.chart.result[0];
+            const timestamps = yahooResult.timestamp;
+            const quotes = yahooResult.indicators.quote[0].close;
+            const meta = yahooResult.meta;
+            
+            let currentPrice = null;
+            let lastTradeTimestamp = null;
+            for (let i = quotes.length - 1; i >= 0; i--) {
+              if (quotes[i] !== null) {
+                currentPrice = parseFloat(quotes[i]);
+                lastTradeTimestamp = timestamps[i];
+                break;
+              }
+            }
+            if (currentPrice === null) throw new Error('Price not found');
+            
+            const tradeDate = new Date(lastTradeTimestamp * 1000);
+            const tradeSessionStartUTC = Date.UTC(tradeDate.getUTCFullYear(), tradeDate.getUTCMonth(), tradeDate.getUTCDate()) / 1000;
+            let previousClose = null;
+            for (let i = timestamps.length - 1; i >= 0; i--) {
+              if (timestamps[i] < tradeSessionStartUTC && quotes[i] !== null) {
+                previousClose = parseFloat(quotes[i]);
+                break;
+              }
+            }
+            if (previousClose === null) {
+              previousClose = meta.chartPreviousClose || meta.previousClose || currentPrice;
+            }
+            const currency = meta.currency || 'EUR';
+
+            result = {
+                price: currentPrice,
+                previousClose,
+                currency,
+                marketState: meta.marketState || 'CLOSED'
+            };
+            source = 'Yahoo Proxy';
+        }
+
+        // --- DÉBUT DU FAILBACK DE SÉCURITÉ CONTRE LE PRIX ZÉRO (Conservé de l'original) ---
+        let finalPrice = result.price;
+        let finalPreviousClose = result.previousClose;
+        const tickerUpper = ticker.toUpperCase();
+        const oldData = this.storage.getCurrentPrice(tickerUpper);
+        const oldPrice = oldData ? oldData.price : null;
+        
+        if (finalPrice <= 0 || isNaN(finalPrice)) {
+          if (oldPrice > 0 && !isNaN(oldPrice)) {
+            finalPrice = oldPrice;
+            finalPreviousClose = oldData.previousClose;
+            console.warn(`[FAILBACK] Prix de ${ticker} invalide. Utilisation du prix en cache: ${finalPrice}`);
+          } else {
+            throw new Error(`Prix reçu à zéro/invalide pour ${ticker} et pas de failback en cache.`);
           }
         }
-        if (currentPrice === null) throw new Error('Price not found');
-
-        const tradeDate = new Date(lastTradeTimestamp * 1000);
-        const tradeSessionStartUTC = Date.UTC(tradeDate.getUTCFullYear(), tradeDate.getUTCMonth(), tradeDate.getUTCDate()) / 1000;
-
-        let previousClose = null;
-        for (let i = timestamps.length - 1; i >= 0; i--) {
-          if (timestamps[i] < tradeSessionStartUTC && quotes[i] !== null) {
-            previousClose = parseFloat(quotes[i]);
-            break;
-          }
-        }
-        if (previousClose === null) {
-          previousClose = meta.chartPreviousClose || meta.previousClose || currentPrice;
-        }
-        const currency = meta.currency || 'EUR';
+        // --- FIN DU FAILBACK DE SÉCURITÉ ---
 
         this.storage.setCurrentPrice(ticker.toUpperCase(), {
-          price: currentPrice,
-          previousClose,
-          currency,
-          marketState: meta.marketState || 'CLOSED',
+          price: finalPrice, 
+          previousClose: finalPreviousClose,
+          currency: result.currency,
+          marketState: result.marketState,
           lastUpdate: Date.now(),
-          source: 'YahooV2 (5m)'
+          source: source
         });
 
-        results.push(ticker);
+        tickersResult.push(ticker);
         await sleep(500);
+
       } catch (err) {
-        console.warn(`Yahoo error ${ticker} (Proxy ${this.currentProxyIndex}): ${err.message}`);
-        this.currentProxyIndex = (this.currentProxyIndex + 1) % this.corsProxies.length;
+        console.warn(`Price Proxy error for ${ticker}: ${err.message}`);
+        providerStats.GCP_PROXY.fails++;
         await sleep(1000);
       }
     }
-    return results.length > 0;
+    return tickersResult.length > 0;
   }
+  
+  // Les anciennes fonctions fetchCryptoPrice, fetchBinancePrice, fetchPricesWithFallback, fetchYahooV2Prices SONT OBSOLÈTES
 
   // ================================================
-  // HISTORIQUE – Version finale (1D parfait partout)
+  // HISTORIQUE (Centralisé)
   // ================================================
   async getHistoricalPricesWithRetry(ticker, startTs, endTs, interval, retries = 3) {
     let formatted = this.formatTicker(ticker);
+    const assetType = this.storage.getAssetType(ticker).toUpperCase();
 
-    // Fix Gold ETF longue période
+    // Fix Gold ETF longue période (utilisé pour les requêtes Yahoo)
     const longIntervals = ['1d', '1wk', '1mo', '3mo', '6mo', '1y'];
     if (formatted === 'GOLD-EUR.PA' && longIntervals.includes(interval)) {
       formatted = 'GOLD.PA';
     }
 
-    const isCrypto = this.storage.getAssetType(ticker) === 'Crypto' ||
-                     ['BTC','ETH','SOL','ADA','XRP','BNB','DOT','AVAX','MATIC'].includes(ticker.toUpperCase());
-
-    // LISTE DES INDICES DU DASHBOARD (ceux qui doivent avoir un vrai 1D pur)
-    const isIndex = [
-      '^GSPC',    // S&P 500
-      '^IXIC',    // Nasdaq
-      '^FCHI',    // CAC 40
-      '^STOXX50E',// Euro Stoxx 50
-      'BTC-EUR',  // Bitcoin
-      'GC=F',     // Gold Futures
-      'EURUSD=X'  // EUR/USD
-    ].includes(formatted);
-
-    let cacheKey = `${formatted}_${startTs}_${endTs}_${interval}`;
+    // Le cacheKey utilise une v4 car la structure de l'URL change
+    let cacheKey = `v4_${formatted}_${startTs}_${endTs}_${interval}`;
     if (['5m', '15m', '90m'].includes(interval)) {
       const rounded = Math.floor(Date.now() / 300000) * 300000;
       cacheKey += `_${rounded}`;
@@ -321,50 +248,31 @@ export class PriceAPI {
 
     if (this.historicalPriceCache[cacheKey]) return this.historicalPriceCache[cacheKey];
 
-    // 1. Binance en priorité pour les cryptos
-    if (isCrypto) {
-      try {
-        const binanceData = await this.fetchBinanceHistory(ticker, startTs, endTs, interval);
-        if (Object.keys(binanceData).length > 0) {
-          this.historicalPriceCache[cacheKey] = binanceData;
-          this.saveHistoricalCache();
-          return binanceData;
-        }
-      } catch (e) {
-        console.warn(`Binance history failed for ${ticker}, fallback Yahoo...`, e);
-      }
-    }
-
-    // 2. Yahoo Finance – Range intelligent
-    let yahooUrl;
-    const noCache = `&_=${Date.now()}`;
-
-    if (interval === '5m') {
-      // Indice du dashboard → vrai 1 jour seulement
-      // Portefeuille → on garde 5 jours pour voir tous les achats récents
-      const range = isIndex ? '1d' : '5d';
-      yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=${range}&interval=5m${noCache}`;
-    }
-    else if (interval === '15m') {
-      yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=5d&interval=15m${noCache}`;
-    }
-    else if (interval === '90m') {
-      yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?range=30d&interval=90m${noCache}`;
-    }
-    else {
-      yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formatted}?period1=${startTs}&period2=${endTs}&interval=${interval}${noCache}`;
-    }
+    // L'appel se fait vers le Proxy Cloud Function pour l'historique
+    // Nous passons tous les paramètres nécessaires au proxy
+    let proxyUrl = `${PRICE_PROXY_URL}?symbol=${formatted}&type=${assetType}&interval=${interval}&period1=${startTs}&period2=${endTs}`;
 
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
-        const proxy = this.corsProxies[this.currentProxyIndex];
-        const url = `${proxy}${encodeURIComponent(yahooUrl)}`;
-        const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const response = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
+        if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
+        
         const data = await response.json();
-        const chartData = data.chart ? data : (typeof data === 'string' ? JSON.parse(data) : data);
 
-        if (!chartData.chart?.result?.[0]?.timestamp) throw new Error('Invalid format');
+        // Si Crypto, la CF nous retourne les prix directs {timestamp: price, ...}
+        if (assetType === 'CRYPTO') {
+            const prices = data;
+            if (Object.keys(prices).length > 0) {
+                 this.historicalPriceCache[cacheKey] = prices;
+                 this.saveHistoricalCache();
+                 return prices;
+            }
+            throw new Error('No historical data from proxy for crypto.');
+        }
+
+        // Si STOCK/ETF/Index, nous nous attendons au format Yahoo
+        const chartData = data.chart ? data : (typeof data === 'string' ? JSON.parse(data) : data);
+        if (!chartData.chart?.result?.[0]?.timestamp) throw new Error('Invalid Yahoo format from proxy');
 
         const result = chartData.chart.result[0];
         const timestamps = result.timestamp;
@@ -382,44 +290,23 @@ export class PriceAPI {
         this.historicalPriceCache[cacheKey] = prices;
         this.saveHistoricalCache();
         return prices;
+
       } catch (error) {
-        this.currentProxyIndex = (this.currentProxyIndex + 1) % (this.corsProxies.length);
+        console.warn(`Historical Proxy attempt ${attempt + 1} failed: ${error.message}`);
         await sleep(1000);
       }
     }
     return {};
   }
 
-  // --- BINANCE HISTORY (inchangé) ---
-  async fetchBinanceHistory(ticker, startTs, endTs, interval) {
-    const symbol = `${ticker.toUpperCase()}EUR`;
-    let bInterval = '1d';
-    if (interval === '5m') bInterval = '5m';
-    else if (interval === '15m') bInterval = '15m';
-    else if (interval === '90m') bInterval = '1h';
-    else if (interval === '1d') bInterval = '1d';
-
-    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${bInterval}&startTime=${startTs * 1000}&endTime=${endTs * 1000}&limit=1000`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Binance Error');
-    const data = await res.json();
-    const prices = {};
-    data.forEach(candle => {
-      const ts = candle[0];
-      const close = parseFloat(candle[4]);
-      prices[ts] = close;
-    });
-    return prices;
-  }
-
-  // Cache
+  // --- Fonctions de Cache (Inchagées) ---
   loadHistoricalCache() {
     try {
       const cached = localStorage.getItem('historicalPriceCache');
       if (!cached) return {};
       const parsed = JSON.parse(cached);
       if (parsed.timestamp && (Date.now() - parsed.timestamp < 604800000)) return parsed.data || {};
-    } catch (e) {}
+    } catch (e) { }
     return {};
   }
 

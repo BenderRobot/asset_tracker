@@ -2,11 +2,9 @@
 // config.js - Configuration et constantes
 // ========================================
 
-export const RAPIDAPI_KEY = '900cd83ff7msh970062bff547634p1d444bjsn67326eb30d74';
-
-// AJOUTEZ VOTRE CLÉ ICI UNE FOIS POUR TOUTES
-export const GEMINI_API_KEY = 'AIzaSyC-8ryrEgrRx2X8l0g0uo1iwrx3-d3LjX4';
-export const FINNHUB_API_KEY = 'd447bqhr01qge0d0spfgd447bqhr01qge0d0spg0';
+//API
+export const PRICE_PROXY_URL = 'https://getpricesproxy-oyvn6lsoeq-ew.a.run.app';
+export const GEMINI_PROXY_URL = 'https://getgeminianalysis-oyvn6lsoeq-ew.a.run.app';
 
 // CACHE : Durées différentes selon type d'actif
 export const CACHE_EXPIRY_STOCKS_MARKET_OPEN = 10 * 60 * 1000; // 10 minutes (marché ouvert)
@@ -20,9 +18,12 @@ export const AUTO_REFRESH_ENABLED = true; // Activer/désactiver le refresh auto
 export const PAGE_SIZE = 25;
 
 // MODIFICATION : Ceci est maintenant un taux de SECOURS
-export const USD_TO_EUR_FALLBACK_RATE = 0.925; 
+export const USD_TO_EUR_FALLBACK_RATE = 0.925;
 
 export const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
+
+// Liste des indices du Dashboard pour forcer leur rafraîchissement
+export const DASHBOARD_INDICES = ['^GSPC', '^IXIC', '^FCHI', '^STOXX50E', 'BTC-EUR', 'GC=F', 'EURUSD=X'];
 
 export const YAHOO_MAP = {
   'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.F', 'MSF': 'MSF.F',
