@@ -2,7 +2,8 @@
 // config.js - Configuration et constantes
 // ========================================
 
-//API
+
+// GCP CLOUD FUNCTION PROXY (Unifié pour Yahoo Finance et Crypto)
 export const PRICE_PROXY_URL = 'https://getpricesproxy-oyvn6lsoeq-ew.a.run.app';
 export const GEMINI_PROXY_URL = 'https://getgeminianalysis-oyvn6lsoeq-ew.a.run.app';
 

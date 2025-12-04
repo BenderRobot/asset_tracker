@@ -1,7 +1,7 @@
 // benderrobot/asset_tracker/asset_tracker-52109016fe138d6ac9b283096e2de3cfbb9437bb/dashboardApp.js
 
 // ========================================
-// dashboardApp.js - VERSION CORRIGÉE FINALE (Unification + Fix Erreur Critique)
+// dashboardApp.js - VERSION CORRIGÉE FINALE (Unification + Fix Erreur Critique + GCP Proxy)
 // ========================================
 import { Storage } from './storage.js';
 import { PriceAPI } from './api.js?v=4';
@@ -10,6 +10,7 @@ import { DataManager } from './dataManager.js?v=7';
 import { HistoricalChart } from './historicalChart.js?v=9';
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 import { UIComponents } from './ui.js'; // <-- IMPORT UIComponents AJOUTÉ
+import { GEMINI_PROXY_URL } from './config.js'; // <-- IMPORT GCP PROXY
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://corsproxy.io/?';
@@ -234,8 +235,9 @@ class DashboardApp {
             const summary = this.dataManager.calculateSummary(holdings);
             const cashReserve = this.dataManager.calculateCashReserve(cashPurchases);
 
-            // CORRECTION: Utiliser l'UI unifiée pour les 3 cartes principales (évite les 0.00 après chargement)
-            this.ui.updatePortfolioSummary(summary, summary.movementsCount, cashReserve.total, this.marketStatus);
+            // NE PAS mettre à jour les KPI ici - le graphique s'en chargera avec les données historiques
+            // pour éviter d'afficher des valeurs incorrectes qui seront écrasées
+            // this.ui.updatePortfolioSummary(summary, summary.movementsCount, cashReserve.total, this.marketStatus);
 
             // NOTE: renderKPIs s'occupe des cartes secondaires (Top Gainer, Top Loser, Allocation)
             this.renderKPIs(summary, cashReserve.total, holdings);
@@ -490,6 +492,8 @@ class DashboardApp {
                 const idx = item.dataset.index;
                 const dataType = item.dataset.type;
                 const data = dataType === 'portfolio' ? this.portfolioNews[idx] : this.globalNews[idx];
+                console.log('[News Click] Opening modal for:', data?.title);
+                console.log('[News Click] openNewsModal exists?', typeof this.openNewsModal);
                 this.openNewsModal(data);
             });
         });
@@ -509,8 +513,13 @@ class DashboardApp {
     }
 
     async openNewsModal(newsItem) {
+        console.log('[openNewsModal] Called with:', newsItem?.title);
+
         const modal = document.getElementById('news-modal');
-        if (!modal) return;
+        if (!modal) {
+            console.error('[openNewsModal] Modal element not found!');
+            return;
+        }
 
         this.currentModalNewsItem = newsItem;
         this.currentGeminiSummary = null;
@@ -533,16 +542,23 @@ class DashboardApp {
         modal.style.display = 'flex';
         setTimeout(() => modal.classList.add('show'), 10);
 
+        console.log('[openNewsModal] About to call fetchGeminiSummary');
+
         try {
             const description = newsItem.fullDescription || '';
             const context = `${newsItem.title}. Sujet: ${newsItem.name}.`;
 
+            console.log('[openNewsModal] Calling fetchGeminiSummary with context:', context.substring(0, 100));
+
             // UTILISATION DU SERVICE CENTRALISÉ
             const summary = await fetchGeminiSummary(context);
+
+            console.log('[openNewsModal] Got summary:', summary);
 
             this.currentGeminiSummary = summary;
             summaryDiv.innerHTML = summary;
         } catch (error) {
+            console.error('[openNewsModal] Error:', error);
             summaryDiv.innerHTML = "Analyse indisponible (Erreur API).";
         }
     }
@@ -617,17 +633,15 @@ class DashboardApp {
 
     async fetchGeminiContext(title, summary) {
         if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 20) return `<strong>Mode Démo :</strong> Clé API manquante.`;
-
         const cleanText = (text) => (typeof text !== 'string' ? '' : text.replace(/'/g, "\\'").replace(/"/g, '\\"'));
 
         const prompt = `Agis comme un analyste financier chevronné. En te basant sur ce résumé, explique en 1 à 3 phrases l'impact potentiel (opportunité ou risque) de cette nouvelle sur l'actif concerné.\nTitre: "${cleanText(title)}"\nRésumé: "${cleanText(summary)}"`;
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         try {
-            const response = await fetch(url, {
+            const response = await fetch(GEMINI_PROXY_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                body: JSON.stringify({ prompt: prompt })
             });
             if (response.ok) {
                 const data = await response.json();
@@ -681,42 +695,56 @@ class DashboardApp {
             const currentPrice = data.price || data.previousClose || 0;
             const previousClose = data.previousClose || currentPrice;
             const price = currentPrice;
-            const validPrev = previousClose === 0 ? price : previousClose;
-            const change = price - validPrev;
-            const pct = validPrev ? (change / validPrev) * 100 : 0;
 
-            // Couleur selon performance du jour
-            let indicatorColor = change > 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
-            let finalStatusClass = change > 0 ? 'stat-positive' : change < 0 ? 'stat-negative' : 'stat-positive';
+            // Debug: vérifier si previousClose existe
+            console.log(`[Card ${idx.ticker}] price:`, price, 'previousClose:', data.previousClose);
 
-            // Formatage prix
-            let priceStr, changeDecimals = 2;
-            if (idx.ticker.includes('BTC')) {
-                priceStr = Math.round(price).toLocaleString('fr') + ' €';
-            } else if (idx.ticker === 'EURUSD=X' || idx.ticker === 'GC=F') {
-                priceStr = price.toFixed(4);
-                changeDecimals = 4;
-            } else if (idx.ticker === '^STOXX50E') {
-                priceStr = price.toFixed(2).toLocaleString('fr');
-            } else {
-                priceStr = price.toFixed(2).toLocaleString('fr') + ' €';
-            }
-
-            const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(changeDecimals)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
-            const changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
-
-            const assetStatus = this.marketStatus.getAssetStatus(idx.ticker);
-            const statusLabel = assetStatus.label;
-            const statusColor = assetStatus.color;
+            // Calculer TOUJOURS la variation depuis previousClose (pour cohérence)
+            const change = price - previousClose;
+            const pct = previousClose ? (change / previousClose) * 100 : 0;
+            const indicatorColor = change > 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
 
             // Sparkline en fond
             let sparklineBg = '';
+
             try {
-                // Calcul du début de la journée (00:00)
-                const startOfDay = new Date();
-                startOfDay.setHours(0, 0, 0, 0);
-                const startTs = Math.floor(startOfDay.getTime() / 1000); // Pour l'API (secondes)
-                const startTsMs = startOfDay.getTime(); // Pour le filtrage (millisecondes)
+                // Déterminer la période affichée (même logique que getStartEndTs)
+                const today = new Date();
+                const dayOfWeek = today.getDay();
+                const currentHour = today.getHours();
+
+                // Déterminer l'heure d'ouverture selon le marché
+                let marketOpenHour = 9;
+                const usIndices = ['^GSPC', '^IXIC'];
+                if (usIndices.includes(idx.ticker)) {
+                    marketOpenHour = 15.5; // 15h30 pour les marchés US
+                }
+
+                const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+                const isBeforeMarketOpen = (dayOfWeek >= 1 && dayOfWeek <= 5 && currentHour < marketOpenHour);
+
+                let displayDay = new Date();
+
+                if (isWeekend || isBeforeMarketOpen) {
+                    // Afficher la dernière journée de trading
+                    if (dayOfWeek === 0) { // Dimanche -> vendredi
+                        displayDay.setDate(displayDay.getDate() - 2);
+                    } else if (dayOfWeek === 6) { // Samedi -> vendredi
+                        displayDay.setDate(displayDay.getDate() - 1);
+                    } else if (isBeforeMarketOpen) { // Avant ouverture -> jour précédent
+                        displayDay.setDate(displayDay.getDate() - 1);
+                        if (displayDay.getDay() === 0) {
+                            displayDay.setDate(displayDay.getDate() - 2);
+                        } else if (displayDay.getDay() === 6) {
+                            displayDay.setDate(displayDay.getDate() - 1);
+                        }
+                    }
+                }
+
+                // Calcul du début de la journée affichée
+                displayDay.setHours(0, 0, 0, 0);
+                const startTs = Math.floor(displayDay.getTime() / 1000);
+                const startTsMs = displayDay.getTime();
 
                 const hist = await this.api.getHistoricalPricesWithRetry(
                     idx.ticker,
@@ -725,25 +753,21 @@ class DashboardApp {
                     '5m'
                 );
 
-                // FILTRAGE STRICT: On ne garde que les points >= startTsMs (Minuit)
+                // Filtrer les points >= startTsMs
                 let values = Object.keys(hist)
                     .map(Number)
                     .filter(ts => ts >= startTsMs)
                     .sort((a, b) => a - b)
                     .map(ts => hist[ts]);
 
-                // FALLBACK: Si aucune donnée aujourd'hui (ex: Bourse fermée ou week-end sans futures), on prend le dernier jour de bourse
                 if (values.length === 0) {
+                    // Fallback si pas de données
                     let lastTradingDay = this.dataManager.getLastTradingDay(new Date());
-
-                    // Si getLastTradingDay renvoie aujourd'hui (ex: en semaine) mais qu'on n'a pas de données,
-                    // on recule d'un jour pour chercher la veille.
-                    const today = new Date();
-                    if (lastTradingDay.toDateString() === today.toDateString()) {
+                    const todayCheck = new Date();
+                    if (lastTradingDay.toDateString() === todayCheck.toDateString()) {
                         lastTradingDay.setDate(lastTradingDay.getDate() - 1);
                         lastTradingDay = this.dataManager.getLastTradingDay(lastTradingDay);
                     }
-
                     lastTradingDay.setHours(0, 0, 0, 0);
                     const lastStartTs = Math.floor(lastTradingDay.getTime() / 1000);
                     const lastEndTs = lastStartTs + (24 * 60 * 60);
@@ -762,6 +786,7 @@ class DashboardApp {
                 }
 
                 console.log(`[Sparkline ${idx.ticker}] Kept values: ${values.length}`);
+
                 if (values.length > 1) {
                     const min = Math.min(...values);
                     const max = Math.max(...values);
@@ -790,6 +815,29 @@ class DashboardApp {
 					</div>`;
                 }
             } catch (e) { /* sparkline échouée → on ignore */ }
+
+            // Classe de statut pour la variation
+            const finalStatusClass = change > 0 ? 'stat-positive' : change < 0 ? 'stat-negative' : 'stat-positive';
+
+            // Formatage prix
+            let priceStr, changeDecimals = 2;
+            if (idx.ticker.includes('BTC')) {
+                priceStr = Math.round(price).toLocaleString('fr') + ' €';
+            } else if (idx.ticker === 'EURUSD=X' || idx.ticker === 'GC=F') {
+                priceStr = price.toFixed(4);
+                changeDecimals = 4;
+            } else if (idx.ticker === '^STOXX50E') {
+                priceStr = price.toFixed(2).toLocaleString('fr');
+            } else {
+                priceStr = price.toFixed(2).toLocaleString('fr') + ' €';
+            }
+
+            const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(changeDecimals)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+            const changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
+
+            const assetStatus = this.marketStatus.getAssetStatus(idx.ticker);
+            const statusLabel = assetStatus.label;
+            const statusColor = assetStatus.color;
 
             // Icône
             const iconHTML = idx.icon.includes('http')

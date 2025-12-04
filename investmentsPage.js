@@ -248,6 +248,7 @@ export class InvestmentsPage {
         this.historicalChart.currentMode = 'portfolio';
         this.historicalChart.selectedAssets = [];
         this.historicalChart.currentBenchmark = null;
+        this.historicalChart.currentPeriod = 1; // Réinitialiser la période à 1J
         this.historicalChart.update(true, false);
       }
       this.render('');

@@ -305,24 +305,38 @@ export class Storage {
         const upperTicker = ticker.toUpperCase();
         const existingData = this.currentData[upperTicker];
 
-        // VÃ©rifier si le nouveau prix est valide (non null, non undefined et non zÃ©ro)
+        // Vérifier si le nouveau prix est valide (non null, non undefined et non zéro)
         const isNewPriceValid = data &&
             data.price !== null &&
             data.price !== undefined &&
             data.price !== 0;
 
         if (isNewPriceValid) {
-            // Cas 1 : Nouveau prix valide. On Ã©crase l'ancienne donnÃ©e.
+            // CONVERSION USD → EUR À LA SOURCE
+            // Si la devise est USD, convertir le prix et previousClose en EUR
+            if (data.currency === 'USD') {
+                const rate = this.getConversionRate('USD_TO_EUR') || 0.925;
+                data = {
+                    ...data,
+                    price: data.price * rate,
+                    previousClose: data.previousClose ? data.previousClose * rate : null,
+                    // On garde la devise originale pour référence
+                    originalCurrency: 'USD',
+                    currency: 'EUR' // Maintenant tout est en EUR
+                };
+            }
+
+            // Cas 1 : Nouveau prix valide. On écrase l'ancienne donnée.
             this.currentData[upperTicker] = data;
         } else if (existingData) {
             // Cas 2 : Nouveau prix invalide (API down), mais on a un prix en cache.
-            // On conserve l'ancienne donnÃ©e existante, mais on met Ã  jour le timestamp 
-            // pour ne pas tenter un nouveau rafraÃ®chissement immÃ©diat.
+            // On conserve l'ancienne donnée existante, mais on met à jour le timestamp 
+            // pour ne pas tenter un nouveau rafraîchissement immédiat.
             this.priceTimestamps[upperTicker] = Date.now();
             this.savePricesCache();
             return;
         } else {
-            // Cas 3 : Ni donnÃ©es existantes ni nouveau prix. On ne fait rien.
+            // Cas 3 : Ni données existantes ni nouveau prix. On ne fait rien.
             return;
         }
 

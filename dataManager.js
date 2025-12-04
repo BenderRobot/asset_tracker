@@ -1,4 +1,4 @@
-// ========================================
+﻿// ========================================
 // dataManager.js - (v8 - Ajout support Indices)
 // ========================================
 
@@ -9,6 +9,37 @@ export class DataManager {
     constructor(storage, api) {
         this.storage = storage;
         this.api = api;
+    }
+
+    // Nouvelle fonction pour calculer yesterdayClose de tous les actifs
+    async calculateAllAssetsYesterdayClose(assetPurchases) {
+        const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
+        const yesterdayCloseMap = new Map();
+
+        console.log(`[calculateAllAssetsYesterdayClose] Calculating for ${tickers.length} assets:`, tickers);
+
+        // Calculer l'historique 1D de chaque actif en parallèle (par batch de 3)
+        const batchSize = 3;
+        for (let i = 0; i < tickers.length; i += batchSize) {
+            const batch = tickers.slice(i, i + batchSize);
+            const promises = batch.map(async ticker => {
+                try {
+                    const graphData = await this.calculateAssetHistory(ticker, 1);
+                    if (graphData && graphData.yesterdayClose) {
+                        yesterdayCloseMap.set(ticker, graphData.yesterdayClose);
+                        console.log(`[✓] ${ticker}: yesterdayClose = ${graphData.yesterdayClose.toFixed(2)}`);
+                    } else {
+                        console.warn(`[✗] ${ticker}: No yesterdayClose in graphData`, graphData);
+                    }
+                } catch (error) {
+                    console.warn(`Failed to calculate yesterdayClose for ${ticker}:`, error);
+                }
+            });
+            await Promise.all(promises);
+        }
+
+        console.log(`[calculateAllAssetsYesterdayClose] Completed. Map size: ${yesterdayCloseMap.size}/${tickers.length}`);
+        return yesterdayCloseMap;
     }
 
     calculateCashReserve(allPurchases) {
@@ -24,7 +55,7 @@ export class DataManager {
         return { total, byBroker };
     }
 
-    calculateHoldings(assetPurchases) {
+    calculateHoldings(assetPurchases, yesterdayCloseMap = null) {
         const aggregated = {};
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
 
@@ -40,7 +71,12 @@ export class DataManager {
                 };
             }
             aggregated[t].quantity += p.quantity;
-            aggregated[t].invested += p.price * p.quantity;
+
+            // Appliquer la conversion de devise pour les achats en USD
+            const currency = p.currency || 'EUR';
+            const rate = currency === 'USD' ? dynamicRate : 1;
+            aggregated[t].invested += p.price * p.quantity * rate;
+
             aggregated[t].purchases.push(p);
         });
 
@@ -50,7 +86,9 @@ export class DataManager {
             const currentPrice = d.price;
             const previousClose = d.previousClose;
 
-            const rate = currency === 'USD' ? dynamicRate : 1;
+            // NOTE: Les prix du cache (getCurrentPrice) sont déjà convertis en EUR
+            // Donc on n'applique PAS de conversion ici
+            const rate = 1; // Toujours 1 car les prix sont déjà en EUR
 
             const investedEUR = data.invested * rate;
             const avgPrice = (data.quantity > 0) ? data.invested / data.quantity : 0;
@@ -62,13 +100,39 @@ export class DataManager {
             const gainEUR = currentValueEUR ? currentValueEUR - investedEUR : null;
             const gainPct = investedEUR > 0 && gainEUR ? (gainEUR / investedEUR) * 100 : null;
 
+
             let dayChange = null;
             let dayPct = null;
 
-            if (currentPrice && previousClose && previousClose > 0) {
-                const dayChangeOriginal = (currentPrice - previousClose) * data.quantity;
-                dayChange = dayChangeOriginal * rate;
-                dayPct = ((currentPrice - previousClose) / previousClose) * 100;
+            // PRIORITÉ: Utiliser yesterdayCloseMap si disponible (données du graphique)
+            if (yesterdayCloseMap && yesterdayCloseMap.has(ticker) && currentValue && currentValue > 0) {
+                const yesterdayData = yesterdayCloseMap.get(ticker);
+
+                // Nouveau format: {value, currency}
+                const graphYesterdayCloseTotal = yesterdayData.value || yesterdayData;
+
+                if (graphYesterdayCloseTotal && graphYesterdayCloseTotal > 0) {
+                    // IMPORTANT: Calculer le pourcentage en DEVISE LOCALE avant conversion EUR
+                    // Cela garantit la cohérence avec Google Finance
+                    dayPct = ((currentValue - graphYesterdayCloseTotal) / graphYesterdayCloseTotal) * 100;
+
+                    // Puis calculer dayChange en EUR pour l'affichage
+                    dayChange = currentValueEUR - (graphYesterdayCloseTotal * rate);
+                }
+            }
+            // Fallback: Utiliser previousClose du cache
+            else if (currentPrice && currentPrice > 0) {
+                const effectivePreviousClose = (previousClose && previousClose > 0) ? previousClose : currentPrice;
+
+                if (effectivePreviousClose !== currentPrice) {
+                    // Calculer en devise locale
+                    dayPct = ((currentPrice - effectivePreviousClose) / effectivePreviousClose) * 100;
+                    const dayChangeOriginal = (currentPrice - effectivePreviousClose) * data.quantity;
+                    dayChange = dayChangeOriginal * rate;
+                } else {
+                    dayChange = 0;
+                    dayPct = 0;
+                }
             }
 
             return {
@@ -104,11 +168,7 @@ export class DataManager {
         holdings.forEach(asset => {
             totalInvestedEUR += asset.invested || 0;
             totalCurrentEUR += asset.currentValue || 0;
-
-            // CALCUL ATOMIQUE DE LA VARIATION DU JOUR
-            if (asset.dayChange !== null && !isNaN(asset.dayChange)) {
-                totalDayChangeEUR += asset.dayChange;
-            }
+            totalDayChangeEUR += asset.dayChange || 0;
 
             const type = asset.assetType || 'Other';
             if (!sectorStats[type]) {
@@ -268,7 +328,7 @@ export class DataManager {
         return { herfindahl: herfindahl.toFixed(4), effectiveAssets: effectiveAssets.toFixed(2), diversityScore: diversityScore.toFixed(1), totalAssets: holdings.length, recommendation: this.getDiversificationAdvice(diversityScore, holdings.length) };
     }
     getDiversificationAdvice(score, assetCount) {
-        if (assetCount < 5) return 'Portfolio très concentré.';
+        if (assetCount < 5) return 'Portfolio trÃ¨s concentrÃ©.';
         if (score < 30) return 'Diversification faible.';
         if (score < 60) return 'Diversification moyenne.';
         if (score < 80) return 'Bonne diversification.';
@@ -280,16 +340,16 @@ export class DataManager {
         const losers = sorted.filter(a => a.gainPct < 0);
         const avgGain = holdings.length > 0 ? holdings.reduce((sum, a) => sum + (a.gainPct || 0), 0) / holdings.length : 0;
         const winRate = holdings.length > 0 ? (winners.length / holdings.length) * 100 : 0;
-        return { topPerformers: sorted.slice(0, 3), worstPerformers: sorted.slice(-3).reverse(), winners: winners.length, losers: losers.length, avgGain: avgGain.toFixed(2), winRate: winRate.toFixed(1), summary: 'Performance analysée' };
+        return { topPerformers: sorted.slice(0, 3), worstPerformers: sorted.slice(-3).reverse(), winners: winners.length, losers: losers.length, avgGain: avgGain.toFixed(2), winRate: winRate.toFixed(1), summary: 'Performance analysÃ©e' };
     }
     calculateRisk(holdings) {
-        if (holdings.length === 0) return { volatility: '0.00', maxDrawdown: '0.00', riskLevel: 'N/A', recommendation: 'Aucune donnée.' };
+        if (holdings.length === 0) return { volatility: '0.00', maxDrawdown: '0.00', riskLevel: 'N/A', recommendation: 'Aucune donnÃ©e.' };
         const returns = holdings.map(a => a.gainPct || 0);
         const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
         const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
         const volatility = Math.sqrt(variance);
         const maxDrawdown = Math.min(...returns.map(r => Math.min(r, 0)));
-        return { volatility: volatility.toFixed(2), maxDrawdown: maxDrawdown.toFixed(2), riskLevel: volatility < 15 ? 'Faible' : 'Élevé', recommendation: 'Risque calculé' };
+        return { volatility: volatility.toFixed(2), maxDrawdown: maxDrawdown.toFixed(2), riskLevel: volatility < 15 ? 'Faible' : 'Ã‰levÃ©', recommendation: 'Risque calculÃ©' };
     }
 
     async calculateHistory(purchases, days) {
@@ -302,17 +362,19 @@ export class DataManager {
         if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [] };
         return this.calculateGenericHistory(purchases, days, true);
     }
+
+    // === NOUVEAU : Calcul pour un Indice pur (Pour le Dashboard) ===
     async calculateIndexData(ticker, days) {
         const interval = this.getIntervalForPeriod(days);
 
         const today = new Date();
-        // Utiliser todayUTC pour être cohérent avec calculateGenericHistory
+        // Utiliser todayUTC pour Ãªtre cohÃ©rent avec calculateGenericHistory
         const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
         const endTs = Math.floor(todayUTC.getTime() / 1000);
 
         let startTs;
 
-        // Maintien de la logique de calcul de startTs (légère correction pour les jours)
+        // Maintien de la logique de calcul de startTs (lÃ©gÃ¨re correction pour les jours)
         if (days === 1) {
             // 1 jour + 2h de buffer
             startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60);
@@ -329,7 +391,7 @@ export class DataManager {
         }
 
 
-        // Récupération API
+        // RÃ©cupÃ©ration API
         const hist = await this.api.getHistoricalPricesWithRetry(ticker, startTs, endTs, interval);
 
         const sortedTs = Object.keys(hist).map(Number).sort((a, b) => a - b);
@@ -337,7 +399,7 @@ export class DataManager {
         const values = [];
         const labelFn = this.getLabelFormat(days);
 
-        // MODIFICATION: Filtrer pour commencer exactement à 00:00 aujourd'hui
+        // MODIFICATION: Filtrer pour commencer exactement Ã  00:00 aujourd'hui
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
         const startOfDayTs = startOfDay.getTime();
@@ -352,7 +414,7 @@ export class DataManager {
         });
 
 
-        // MODIFICATION CLÉ: Remplacer l'ouverture de la période par la vraie clôture de la veille du cache.
+        // MODIFICATION CLÃ‰: Remplacer l'ouverture de la pÃ©riode par la vraie clÃ´ture de la veille du cache.
         const priceData = this.storage.getCurrentPrice(ticker);
         const trueYesterdayClose = priceData?.previousClose || null;
 
@@ -430,7 +492,7 @@ export class DataManager {
             if (days === 1) {
                 const localStart = new Date(today);
 
-                // DÉTECTION RÉGION (EU vs US)
+                // DÃ‰TECTION RÃ‰GION (EU vs US)
                 const tickersList = Array.from(assetMap.keys());
                 const hasEU = tickersList.some(t => {
                     const priceData = this.storage.getCurrentPrice(t);
@@ -449,7 +511,7 @@ export class DataManager {
                     // Europe : 09:00
                     localStart.setHours(9, 0, 0, 0);
                 } else {
-                    // US (par défaut si pas Crypto ni EU) : 15:30
+                    // US (par dÃ©faut si pas Crypto ni EU) : 15:30
                     localStart.setHours(15, 30, 0, 0);
                 }
 
@@ -497,7 +559,7 @@ export class DataManager {
             }));
         }
 
-        // FALLBACK: Si aucune donnée pour aujourd'hui (ex: Bourse fermée), on charge le dernier jour de bourse
+        // FALLBACK: Si aucune donnÃ©e pour aujourd'hui (ex: Bourse fermÃ©e), on charge le dernier jour de bourse
         if (days === 1 && !isCrypto) {
             let hasDataForToday = false;
             const checkStartTs = displayStartUTC.getTime();
@@ -517,8 +579,8 @@ export class DataManager {
                 let lastTradingDay = this.getLastTradingDay(new Date());
                 const today = new Date();
 
-                // Si getLastTradingDay renvoie aujourd'hui (ex: Lundi) mais qu'on n'a pas de données,
-                // on recule d'un jour et on réapplique la logique de week-end.
+                // Si getLastTradingDay renvoie aujourd'hui (ex: Lundi) mais qu'on n'a pas de donnÃ©es,
+                // on recule d'un jour et on rÃ©applique la logique de week-end.
                 if (lastTradingDay.toDateString() === today.toDateString()) {
                     lastTradingDay.setDate(lastTradingDay.getDate() - 1);
                     lastTradingDay = this.getLastTradingDay(lastTradingDay);
@@ -577,51 +639,7 @@ export class DataManager {
             Object.keys(hist).forEach(ts => allTimestamps.add(parseInt(ts)));
         });
 
-        // === FIX: GESTION DES DONNÉES MANQUANTES & SYNCHRONISATION LIVE ===
-
-        // 1. Injecter le prix actuel (Live) dans l'historique pour TOUS les actifs
-        const nowTs = Date.now();
-        const injectLivePrice = (days === 1 || days <= 7);
-
-        if (injectLivePrice) {
-            for (const t of tickers) {
-                const currentPriceData = this.storage.getCurrentPrice(t);
-                const currentPrice = currentPriceData ? (currentPriceData.price || currentPriceData.previousClose) : null;
-
-                if (currentPrice !== null) {
-                    let hist = historicalDataMap.get(t);
-                    if (!hist) {
-                        hist = {};
-                        historicalDataMap.set(t, hist);
-                    }
-                    hist[endTs * 1000] = currentPrice;
-                }
-            }
-            allTimestamps.add(endTs * 1000);
-        }
-
-        // 2. Gestion des actifs sans historique (Flat Line)
-        for (const t of tickers) {
-            const hist = historicalDataMap.get(t);
-            const hasData = hist && Object.keys(hist).length > 0;
-
-            if (!hasData) {
-                const currentPriceData = this.storage.getCurrentPrice(t);
-                const fallbackPrice = currentPriceData ? (currentPriceData.price || currentPriceData.previousClose) : null;
-
-                if (fallbackPrice !== null) {
-                    const syntheticHist = {};
-                    syntheticHist[startTs * 1000] = fallbackPrice;
-                    syntheticHist[endTs * 1000] = fallbackPrice;
-                    historicalDataMap.set(t, syntheticHist);
-
-                    allTimestamps.add(startTs * 1000);
-                    allTimestamps.add(endTs * 1000);
-                }
-            }
-        }
-
-        // MODIF: Forcer l'ajout du point de départ (00:00) pour garantir que le graph commence au début de la journée
+        // MODIF: Forcer l'ajout du point de dÃ©part (00:00) pour garantir que le graph commence au dÃ©but de la journÃ©e
         if (displayStartUTC) {
             allTimestamps.add(displayStartUTC.getTime());
         }
@@ -629,34 +647,114 @@ export class DataManager {
         let sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
 
         let yesterdayClose = null;
-        const referenceStartTs = displayStartUTC.getTime();
-        const allTimestampsBeforeStart = sortedTimestamps.filter(ts => ts < referenceStartTs);
 
-        if (allTimestampsBeforeStart.length > 0) {
-            const lastTsBeforeToday = allTimestampsBeforeStart[allTimestampsBeforeStart.length - 1];
+        // Pour la pÃ©riode 1D, utiliser le previousClose de l'API (source de vÃ©ritÃ©)
+        if (days === 1) {
             let totalYesterdayValue = 0;
             let assetsFound = 0;
-            const lastDayQuantities = new Map();
-            for (const t of tickers) lastDayQuantities.set(t, 0);
+
+            // Calculer les quantitÃ©s dÃ©tenues Ã  la fin de la veille
+            const yesterdayQuantities = new Map();
+            for (const t of tickers) yesterdayQuantities.set(t, 0);
+
             for (const [t, buyList] of assetMap.entries()) {
                 for (const buy of buyList) {
-                    if (buy.date.getTime() <= lastTsBeforeToday) {
-                        lastDayQuantities.set(t, lastDayQuantities.get(t) + buy.quantity);
+                    if (buy.date < displayStartUTC) {
+                        yesterdayQuantities.set(t, yesterdayQuantities.get(t) + buy.quantity);
                     }
                 }
             }
+
+            // Utiliser les données historiques pour obtenir le vrai prix de clôture d'hier
             for (const t of tickers) {
-                const hist = historicalDataMap.get(t);
-                const qty = lastDayQuantities.get(t);
+                const qty = yesterdayQuantities.get(t);
                 if (qty > 0) {
-                    const price = this.findClosestPrice(hist, lastTsBeforeToday, '1wk');
-                    if (price !== null) {
-                        totalYesterdayValue += price * qty;
+                    const hist = historicalDataMap.get(t);
+                    let yesterdayPrice = null;
+
+                    // Priorité 1: Dernier prix historique AVANT la fin de la journée d'hier (23h59)
+                    if (hist && Object.keys(hist).length > 0) {
+                        // Calculer la fin de la journée d'hier (23h59:59)
+                        const yesterdayEnd = new Date(displayStartUTC);
+                        yesterdayEnd.setDate(yesterdayEnd.getDate() - 1);
+                        yesterdayEnd.setHours(23, 59, 59, 999);
+                        const yesterdayEndTs = yesterdayEnd.getTime();
+
+                        // Convertir l'objet en array de {timestamp, price}
+                        const histArray = Object.keys(hist)
+                            .map(ts => ({
+                                timestamp: parseInt(ts),
+                                price: hist[ts]  // Le prix est stocké directement, pas dans .close
+                            }))
+                            .filter(p => p.price !== null && p.timestamp <= yesterdayEndTs)
+                            .sort((a, b) => a.timestamp - b.timestamp);
+
+                        if (histArray.length > 0) {
+                            yesterdayPrice = histArray[histArray.length - 1].price;
+                            console.log(`[Yesterday] ${t}: Using historical close = ${yesterdayPrice.toFixed(4)}`);
+                        }
+                    }
+
+                    // Fallback 1: previousClose de l'API (si pas de données historiques)
+                    if (!yesterdayPrice) {
+                        const priceData = this.storage.getCurrentPrice(t);
+                        yesterdayPrice = priceData?.previousClose;
+                        if (yesterdayPrice) {
+                            console.log(`[Yesterday] ${t}: Fallback to API previousClose = ${yesterdayPrice.toFixed(4)}`);
+                        }
+                    }
+
+                    // Fallback 2: Prix actuel (dernier recours)
+                    if (!yesterdayPrice || yesterdayPrice <= 0) {
+                        const priceData = this.storage.getCurrentPrice(t);
+                        yesterdayPrice = priceData?.price;
+                        if (yesterdayPrice) {
+                            console.log(`[Yesterday] ${t}: Fallback to current price = ${yesterdayPrice.toFixed(4)}`);
+                        }
+                    }
+
+                    if (yesterdayPrice && yesterdayPrice > 0) {
+                        // NOTE: Les prix (actuels et historiques) sont déjà convertis en EUR
+                        // dans storage.js et api.js, donc pas de conversion ici
+                        totalYesterdayValue += yesterdayPrice * qty;
                         assetsFound++;
                     }
                 }
             }
+
             if (assetsFound > 0) yesterdayClose = totalYesterdayValue;
+        } else {
+            // Pour les autres pÃ©riodes, garder l'ancien calcul basÃ© sur les donnÃ©es historiques
+            const referenceStartTs = displayStartUTC.getTime();
+            const allTimestampsBeforeStart = sortedTimestamps.filter(ts => ts < referenceStartTs);
+
+            if (allTimestampsBeforeStart.length > 0) {
+                const lastTsBeforeToday = allTimestampsBeforeStart[allTimestampsBeforeStart.length - 1];
+                let totalYesterdayValue = 0;
+                let assetsFound = 0;
+                const lastDayQuantities = new Map();
+                for (const t of tickers) lastDayQuantities.set(t, 0);
+                for (const [t, buyList] of assetMap.entries()) {
+                    for (const buy of buyList) {
+                        if (buy.date.getTime() <= lastTsBeforeToday) {
+                            lastDayQuantities.set(t, lastDayQuantities.get(t) + buy.quantity);
+                        }
+                    }
+                }
+                for (const t of tickers) {
+                    const hist = historicalDataMap.get(t);
+                    const qty = lastDayQuantities.get(t);
+                    if (qty > 0) {
+                        const price = this.findClosestPrice(hist, lastTsBeforeToday, '1wk');
+                        if (price !== null) {
+                            // NOTE: Les prix historiques sont déjà convertis en EUR dans api.js
+                            totalYesterdayValue += price * qty;
+                            assetsFound++;
+                        }
+                    }
+                }
+                if (assetsFound > 0) yesterdayClose = totalYesterdayValue;
+            }
         }
 
         const displayStartTs = displayStartUTC.getTime();
@@ -665,7 +763,29 @@ export class DataManager {
         else if (days === 1) displayEndTs = displayStartTs + (24 * 60 * 60 * 1000);
         else displayEndTs = Infinity;
 
-        let displayTimestamps = sortedTimestamps.filter(ts => ts >= displayStartTs && ts <= displayEndTs);
+        let displayTimestamps = sortedTimestamps.filter(ts => {
+            if (ts < displayStartTs || ts > displayEndTs) return false;
+
+            // Pour le mode 1J, exclure uniquement les heures clairement hors marché (00:00-08:00)
+            // Filtre intelligent: exclure 00:00-07:00 seulement s'il y a des données après 08:00
+            if (days === 1 && !isCrypto) {
+                const tsDate = new Date(ts);
+                const hour = tsDate.getHours();
+
+                // Vérifier s'il y a des données après 08:00
+                const hasDataAfter8am = sortedTimestamps.some(t => {
+                    const d = new Date(t);
+                    return d.getHours() >= 8 && t >= displayStartTs && t <= displayEndTs;
+                });
+
+                // Si on a des données après 08:00, exclure les heures de nuit (00:00-07:00)
+                if (hasDataAfter8am && hour < 8) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
 
         const lastKnownPrices = new Map();
         const allTsBefore = sortedTimestamps.filter(ts => ts < displayStartTs);
@@ -729,6 +849,8 @@ export class DataManager {
                     }
 
                     if (price !== null) {
+                        // NOTE: Les prix historiques sont déjà convertis en EUR dans api.js
+                        // Donc on n'applique PAS de conversion ici
                         currentTsTotalValue += price * qty;
                         hasAtLeastOnePrice = true;
                         lastKnownPrices.set(t, price);
@@ -739,29 +861,33 @@ export class DataManager {
                 totalInvested += investedAmount;
             }
 
-            // MODIF: Si c'est le dernier point, utiliser le prix actuel du cache pour être synchro avec la Top Card
-            // SUPPRESSION DU BLOC "FORCE LAST POINT" (Désactivé)
-            if (false) {
+            // DÃ‰SACTIVÃ‰: causait une chute du graphique
+            /*
+            if (i === displayTimestamps.length - 1) {
+                console.log('[Last Point Debug] Calculating final value...');
                 let finalTotalValue = 0;
                 let finalHasPrice = false;
                 for (const t of tickers) {
                     const qty = assetQuantities.get(t);
-                    // On n'inclut l'actif dans le total final QUE s'il a déjà été vu dans l'historique (lastKnownPrices)
-                    // Cela évite de faire apparaître soudainement un actif à 0 tout au long du graphe juste à la fin.
-                    if (qty > 0 && lastKnownPrices.has(t)) {
+                    if (qty > 0) {
                         const currentPriceData = this.storage.getCurrentPrice(t);
                         const currentPrice = currentPriceData ? (currentPriceData.price || currentPriceData.previousClose) : null;
+                        console.log(`[Last Point] ${t}: qty=${qty}, price=${currentPrice}`);
                         if (currentPrice !== null) {
                             finalTotalValue += currentPrice * qty;
                             finalHasPrice = true;
                             if (isSingleAsset) currentTsUnitPrice = currentPrice;
+                        } else {
+                            console.warn(`[Last Point] âš ï¸ Missing price for ${t}!`);
                         }
                     }
                 }
+                console.log(`[Last Point] Before: ${currentTsTotalValue.toFixed(2)}, After: ${finalTotalValue.toFixed(2)}`);
                 if (finalHasPrice) {
                     currentTsTotalValue = finalTotalValue;
                 }
             }
+            */
 
             if (i > 0 && previousTotalValue > 0) {
                 const periodReturn = (currentTsTotalValue - cashFlow - previousTotalValue) / previousTotalValue;
@@ -819,6 +945,62 @@ export class DataManager {
             }
         }
 
+        // AJOUT: Pour le mode 1J, ajouter le prix actuel comme dernier point
+        if (days === 1 && displayTimestamps.length > 0) {
+            const now = new Date();
+            const nowTs = now.getTime();
+            const lastTs = displayTimestamps[displayTimestamps.length - 1];
+            const timeSinceLastPoint = nowTs - lastTs;
+
+            // Si le dernier point est ancien (> 5 min), ajouter le prix actuel
+            if (timeSinceLastPoint > 5 * 60 * 1000) {
+                console.log(`[Current Price Point] Adding current price as last point (${(timeSinceLastPoint / 60000).toFixed(1)} min since last point)`);
+
+                let currentTotalValue = 0;
+                let totalInvested = 0;
+                let currentUnitPrice = null;
+                let hasValidPrice = false;
+
+                for (const t of tickers) {
+                    const qty = assetQuantities.get(t);
+                    if (qty > 0) {
+                        const priceData = this.storage.getCurrentPrice(t);
+                        const currentPrice = priceData?.price;
+
+                        if (currentPrice && currentPrice > 0) {
+                            // NOTE: currentPrice est déjà converti en EUR dans storage.js
+                            currentTotalValue += currentPrice * qty;
+                            hasValidPrice = true;
+
+                            if (isSingleAsset) {
+                                currentUnitPrice = currentPrice;
+                            }
+
+                            console.log(`[Current Price Point] ${t}: price=${currentPrice}, qty=${qty}, value=${(currentPrice * qty).toFixed(2)}`);
+                        }
+
+                        totalInvested += assetInvested.get(t) || 0;
+                    }
+                }
+
+                if (hasValidPrice) {
+                    labels.push(labelFormat(nowTs));
+                    values.push(currentTotalValue);
+                    invested.push(totalInvested);
+                    if (isSingleAsset) unitPrices.push(currentUnitPrice);
+
+                    // Calculer TWR pour ce point
+                    if (previousTotalValue > 0) {
+                        const periodReturn = (currentTotalValue - previousTotalValue) / previousTotalValue;
+                        currentTWR = currentTWR * (1 + periodReturn);
+                    }
+                    twr.push(currentTWR);
+
+                    console.log(`[Current Price Point] ✓ Added: value=${currentTotalValue.toFixed(2)}, label=${labelFormat(nowTs)}`);
+                }
+            }
+        }
+
         return {
             labels,
             invested,
@@ -827,7 +1009,8 @@ export class DataManager {
             unitPrices,
             purchasePoints,
             timestamps: displayTimestamps,
-            twr
+            twr,
+            historicalDataMap  // AJOUT: Retourner les données historiques pour réutilisation
         };
     }
 
