@@ -7,15 +7,15 @@
 const STORAGE_KEY = 'customRssFeeds';
 const NEWS_STORAGE_KEY = 'newsCache';
 
-import { Storage } from './storage.js'; 
+import { Storage } from './storage.js';
 // AJOUT DES IMPORTS NÉCESSAIRES POUR LE CALCUL DE POSITION
 import { PriceAPI } from './api.js';
 import { DataManager } from './dataManager.js';
 // IMPORT DU SERVICE IA CENTRALISÉ
-import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js'; 
+import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 
 // Proxy pour contourner les erreurs CORS/403 de Google et autres sources
-const PROXY_URL = 'https://corsproxy.io/?'; 
+const PROXY_URL = 'https://corsproxy.io/?';
 
 function formatFullDateTime(timestamp, includeTime = true) {
     const date = new Date(timestamp);
@@ -31,32 +31,32 @@ class NewsApp {
     constructor() {
         this.feeds = this.loadFeeds();
         this.currentNews = this.loadNewsCache();
-        this.currentFilter = ''; 
-        
+        this.currentFilter = '';
+
         this.storage = new Storage();
         // INITIALISATION DU DATA MANAGER
         this.api = new PriceAPI(this.storage);
         this.dataManager = new DataManager(this.storage, this.api);
-        
+
         this.myAssetsFilter = false;
-        
+
         this.currentModalNewsItem = null;
         this.currentGeminiSummary = null;
     }
 
     loadFeeds() {
         const defaultFeeds = [
-            { id: 1, label: 'Macro FR',        url: 'https://news.google.com/rss/search?q=Marchés+Bourse+Paris+OR+CAC40+OR+économie+française&hl=fr&gl=FR&ceid=FR:fr', type: 'Google' },
-            { id: 2, label: 'Wall Street',     url: 'https://news.google.com/rss/search?q=Wall+Street+OR+Dow+Jones+OR+Nasdaq+OR+S&P500&hl=fr&gl=FR&ceid=FR:fr', type: 'Google' },
-            { id: 3, label: 'Les Échos',       url: 'https://rss.lesechos.fr/rss/rss_marches_financiers.xml', type: 'RSS Direct' },
-            { id: 4, label: 'Boursorama',      url: 'https://www.boursorama.com/patrimoine/actualites/rss/', type: 'RSS Direct' },
-            { id: 5, label: 'Le Figaro Éco',   url: 'https://www.lefigaro.fr/rss/figaro_economie.xml', type: 'RSS Direct' },
-            { id: 6, label: 'Investir',        url: 'https://rss.investir.lesechos.fr/rss_investir.xml', type: 'RSS Direct' },
-            { id: 7, label: 'Reuters FR',      url: 'https://www.reuters.com/tools/rss', type: 'RSS Direct' },
-            { id: 8, label: 'Bloomberg',       url: 'https://feeds.bloomberg.com/markets/news.rss', type: 'RSS Direct' },
+            { id: 1, label: 'Macro FR', url: 'https://news.google.com/rss/search?q=Marchés+Bourse+Paris+OR+CAC40+OR+économie+française&hl=fr&gl=FR&ceid=FR:fr', type: 'Google' },
+            { id: 2, label: 'Wall Street', url: 'https://news.google.com/rss/search?q=Wall+Street+OR+Dow+Jones+OR+Nasdaq+OR+S&P500&hl=fr&gl=FR&ceid=FR:fr', type: 'Google' },
+            { id: 3, label: 'Les Échos', url: 'https://rss.lesechos.fr/rss/rss_marches_financiers.xml', type: 'RSS Direct' },
+            { id: 4, label: 'Boursorama', url: 'https://www.boursorama.com/patrimoine/actualites/rss/', type: 'RSS Direct' },
+            { id: 5, label: 'Le Figaro Éco', url: 'https://www.lefigaro.fr/rss/figaro_economie.xml', type: 'RSS Direct' },
+            { id: 6, label: 'Investir', url: 'https://rss.investir.lesechos.fr/rss_investir.xml', type: 'RSS Direct' },
+            { id: 7, label: 'Reuters FR', url: 'https://www.reuters.com/tools/rss', type: 'RSS Direct' },
+            { id: 8, label: 'Bloomberg', url: 'https://feeds.bloomberg.com/markets/news.rss', type: 'RSS Direct' },
             { id: 9, label: 'Financial Times', url: 'https://www.ft.com/rss', type: 'RSS Direct' },
-            { id: 10, label: 'CoinDesk',       url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', type: 'RSS Direct' },
-            { id: 11, label: 'Zonebourse',     url: 'https://www.zonebourse.com/rss/', type: 'RSS Direct' },
+            { id: 10, label: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', type: 'RSS Direct' },
+            { id: 11, label: 'Zonebourse', url: 'https://www.zonebourse.com/rss/', type: 'RSS Direct' },
         ];
 
         try {
@@ -91,10 +91,10 @@ class NewsApp {
 
         const allArticles = [];
         const seen = new Set();
-        const ARTICLE_LIMIT_PER_FEED = 5; 
+        const ARTICLE_LIMIT_PER_FEED = 5;
 
         for (const feed of this.feeds) {
-            
+
             let fetchUrl = PROXY_URL + encodeURIComponent(feed.url);
 
             try {
@@ -112,9 +112,9 @@ class NewsApp {
 
                 const items = doc.querySelectorAll("item");
                 let count = 0;
-                
+
                 items.forEach(item => {
-                    if (count >= ARTICLE_LIMIT_PER_FEED) return; 
+                    if (count >= ARTICLE_LIMIT_PER_FEED) return;
 
                     let title = (item.querySelector("title")?.textContent || "Sans titre").trim();
                     const link = item.querySelector("link")?.textContent || "#";
@@ -147,19 +147,19 @@ class NewsApp {
         }
 
         allArticles.sort((a, b) => b.datetime - a.datetime);
-        this.currentNews = allArticles.slice(0, 200); 
+        this.currentNews = allArticles.slice(0, 200);
         this.saveNewsCache(this.currentNews);
         this.renderNewsFeed();
         this.renderFilterSelect();
         this.setupModalEventListeners();
     }
-    
+
     getUniqueAssetNames() {
         const purchases = this.storage.getPurchases();
         const uniqueNames = [...new Set(purchases.filter(p => p.assetType !== 'Cash').map(p => p.name))];
         return uniqueNames.filter(name => name.trim().length > 0);
     }
-    
+
     getColorForSource(sourceName) {
         let hash = 0;
         sourceName = sourceName || 'Inconnu';
@@ -168,8 +168,8 @@ class NewsApp {
         }
 
         const h = hash % 360;
-        const s = 75 + (hash % 10); 
-        const l = 35 + (hash % 5); 
+        const s = 75 + (hash % 10);
+        const l = 35 + (hash % 5);
 
         return `hsl(${h}, ${s}%, ${l}%)`;
     }
@@ -181,7 +181,7 @@ class NewsApp {
         if (this.currentFilter && this.currentFilter !== '') {
             news = news.filter(n => n.label === this.currentFilter);
         }
-        
+
         if (this.myAssetsFilter) {
             const assetNames = this.getUniqueAssetNames().map(name => name.toLowerCase());
             news = news.filter(n => {
@@ -189,7 +189,7 @@ class NewsApp {
                 return assetNames.some(name => titleLower.includes(name.toLowerCase()));
             });
         }
-        
+
         if (news.length === 0) {
             container.innerHTML = '<div class="loading">Aucune actualité trouvée.</div>';
             return;
@@ -199,7 +199,7 @@ class NewsApp {
             const sourceColor = this.getColorForSource(n.source);
             const isRedundant = n.source.trim() === n.label.trim();
             const labelContent = isRedundant ? '' : this.escapeHtml(n.label);
-            
+
             return `
             <a href="#" class="news-card" data-index="${i}">
                 <div class="news-card-header">
@@ -216,9 +216,11 @@ class NewsApp {
 
         container.querySelectorAll('.news-card').forEach(item => {
             item.addEventListener('click', (e) => {
-                e.preventDefault(); 
+                e.preventDefault();
                 const idx = item.dataset.index;
-                const data = this.currentNews[idx];
+                // BUGFIX: Use 'news' (the filtered array) instead of 'this.currentNews' (the global array)
+                // because 'idx' corresponds to the position in the filtered list.
+                const data = news[idx];
                 this.openNewsModal(data);
             });
         });
@@ -242,7 +244,7 @@ class NewsApp {
         div.textContent = text;
         return div.innerHTML;
     }
-    
+
     /**
      * Tente de déterminer l'objet de position (Holdings) correspondant à un article de news.
      * @param {object} newsItem - L'objet de la news (name/title)
@@ -252,23 +254,29 @@ class NewsApp {
         const allPurchases = this.storage.getPurchases().filter(p => p.assetType !== 'Cash');
         // NOTE: On suppose que les prix ont déjà été rafraîchis pour avoir la dernière position.
         const allHoldings = this.dataManager.calculateHoldings(allPurchases);
-        
-        const newsTitle = newsItem.title || newsItem.name;
-        
-        const foundHolding = allHoldings.find(h => 
-            // Tentative A: Le nom de l'actif du portefeuille est inclus dans le titre de la news
-            newsTitle.includes(h.name) ||
+
+        const newsTitleLower = (newsItem.title || newsItem.name).toLowerCase();
+
+        const foundHolding = allHoldings.find(h => {
+            const nameLower = h.name.toLowerCase();
+            const tickerLower = h.ticker.toLowerCase();
+
+            // Tentative A: Le nom de l'actif contient le titre ou vice-versa (plus robuste)
+            const nameMatch = newsTitleLower.includes(nameLower) || nameLower.includes(newsTitleLower);
+
             // Tentative B: Match par le Ticker exact
-            newsTitle.includes(h.ticker)
-        );
+            const tickerMatch = newsTitleLower.includes(tickerLower);
+
+            return nameMatch || tickerMatch;
+        });
 
         if (foundHolding && foundHolding.quantity > 0) {
-             return foundHolding;
+            return foundHolding;
         }
-        
+
         return null;
     }
-    
+
     async openNewsModal(newsItem) {
         const modal = document.getElementById('news-modal');
         if (!modal) return;
@@ -365,38 +373,38 @@ class NewsApp {
         document.getElementById('refresh-news-btn')?.addEventListener('click', () => {
             this.fetchAllNews();
         });
-        
+
         const filterAssetsBtn = document.getElementById('filter-my-assets-btn');
         if (filterAssetsBtn) {
             filterAssetsBtn.addEventListener('click', () => {
                 this.myAssetsFilter = !this.myAssetsFilter;
                 filterAssetsBtn.classList.toggle('active', this.myAssetsFilter);
-                
+
                 if (this.myAssetsFilter) {
                     this.currentFilter = '';
                     const select = document.getElementById('filter-feed-select');
                     if (select) select.value = '';
                 }
-                
+
                 this.renderNewsFeed();
             });
         }
 
         document.getElementById('filter-feed-select')?.addEventListener('change', (e) => {
             this.currentFilter = e.target.value;
-            
+
             if (this.currentFilter !== '') {
                 this.myAssetsFilter = false;
                 document.getElementById('filter-my-assets-btn')?.classList.remove('active');
             }
-            
+
             this.renderNewsFeed();
         });
     }
 
     init() {
         this.setupEventListeners();
-        this.renderFilterSelect(); 
+        this.renderFilterSelect();
 
         if (this.currentNews.length > 0) {
             this.renderNewsFeed();

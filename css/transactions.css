@@ -14,13 +14,20 @@
     display: flex;
     gap: 8px;
 }
-.form-group-inline input { flex: 1; }
-.form-group-inline select { flex: 0.5; }
+
+.form-group-inline input {
+    flex: 1;
+}
+
+.form-group-inline select {
+    flex: 0.5;
+}
 
 /* === GESTION DES DONNÉES (CSV) === */
 .data-management {
     margin: 20px 0;
 }
+
 .file-upload-wrapper {
     display: flex;
     flex-wrap: wrap;
@@ -31,6 +38,7 @@
     border-radius: 12px;
     border: 1px solid var(--border-color);
 }
+
 .file-name {
     font-size: 14px;
     color: var(--text-muted);
@@ -172,6 +180,7 @@ input[type="checkbox"] {
     background: transparent;
     color: var(--accent-red);
 }
+
 .bubble-btn.delete-btn:hover {
     background: #ef4444 !important;
     color: white !important;
@@ -195,20 +204,20 @@ input[type="checkbox"] {
     grid-template-columns: 1fr 1fr;
     gap: 16px;
     margin-bottom: 16px;
-  }
+}
 
-  .form-group label i {
+.form-group label i {
     color: var(--accent-blue);
     font-size: 12px;
-  }
+}
 
-  @media (max-width: 768px) {
+@media (max-width: 768px) {
     .form-row {
-      grid-template-columns: 1fr;
+        grid-template-columns: 1fr;
     }
-  }
-  
-  /* ========================================
+}
+
+/* ========================================
    STYLE DES ONGLETS (TABS) - À AJOUTER
    ======================================== */
 
@@ -260,13 +269,15 @@ input[type="checkbox"] {
 
 /* CONTENU DES ONGLETS (C'EST ICI QUE LA MAGIE OPÈRE) */
 .tab-content {
-    display: none; /* <--- CACHE PAR DÉFAUT */
+    display: none;
+    /* <--- CACHE PAR DÉFAUT */
     padding: 24px;
     animation: fadeIn 0.3s ease;
 }
 
 .tab-content.active {
-    display: block; /* <--- AFFICHE UNIQUEMENT SI ACTIF */
+    display: block;
+    /* <--- AFFICHE UNIQUEMENT SI ACTIF */
 }
 
 /* Style spécifique pour la grille Data Management */
@@ -288,17 +299,25 @@ input[type="checkbox"] {
     height: 42px;
 }
 
-.btn-import { background: var(--accent-green) !important; color: white !important; }
-.btn-import:hover { background: #059669 !important; }
+.btn-import {
+    background: var(--accent-green) !important;
+    color: white !important;
+}
+
+.btn-import:hover {
+    background: #059669 !important;
+}
 
 /* Harmonisation formulaire Cash */
 #cash-form.purchase-form-grid {
-    align-items: end !important; 
+    align-items: end !important;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important;
 }
 
 @media (max-width: 768px) {
-    .data-grid { grid-template-columns: 1fr; }
+    .data-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* ========================================
@@ -316,7 +335,7 @@ input[type="checkbox"] {
     overflow: hidden;
     opacity: 0;
     transition: max-height 0.5s ease-in-out, opacity 0.3s ease;
-    margin-bottom: 0; 
+    margin-bottom: 0;
 }
 
 .hidden-wrapper.expanded {
@@ -324,6 +343,7 @@ input[type="checkbox"] {
     opacity: 1;
     margin-bottom: 24px;
 }
+
 /* ======================================== */
 /* PAGINATION - VERSION AMÉLIORÉE & CENTRÉE */
 /* ======================================== */
@@ -415,7 +435,7 @@ input[type="checkbox"] {
         gap: 8px;
         margin: 30px 0 15px;
     }
-    
+
     .pagination button,
     .pagination .page-item {
         min-width: 38px;
@@ -423,8 +443,122 @@ input[type="checkbox"] {
         font-size: 13px;
         border-radius: 8px;
     }
-    
+
     .pagination .nav-arrow {
         min-width: 42px;
     }
+}
+
+.header-controls {
+    flex-shrink: 0 !important;
+    margin-left: auto !important;
+}
+
+/* === FILTERS LAYOUT (Ported from Investments) === */
+.filters-container {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 24px;
+    background: var(--bg-secondary);
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    flex-direction: row !important;
+    /* Force row direction */
+}
+
+.search-row {
+    flex: 1;
+    min-width: 250px;
+    display: flex !important;
+    gap: 8px;
+}
+
+#search-input {
+    width: 100%;
+}
+
+.filter-row {
+    display: flex !important;
+    gap: 12px;
+    flex-wrap: wrap !important;
+    flex-direction: row !important;
+}
+
+#ticker-filter-dropdown {
+    display: inline-block;
+}
+
+/* Filter Dropdown Styling */
+#filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 180px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+#filter-dropdown {
+    position: absolute;
+    z-index: 9999;
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: var(--shadow-lg);
+    min-width: 260px;
+    padding: 8px 0;
+}
+
+#filter-dropdown .filter-actions {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-card);
+}
+
+#filter-dropdown .filter-actions button {
+    flex: 1;
+    margin: 0 4px;
+    padding: 6px 10px;
+    font-size: 13px;
+    border-radius: 6px;
+    border: none;
+    color: white;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+#filter-dropdown .filter-actions button:first-child {
+    background: var(--accent-blue);
+}
+
+#filter-dropdown .filter-actions button:last-child {
+    background: var(--accent-red);
+}
+
+#filter-dropdown label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+#filter-dropdown label:hover {
+    background: var(--bg-hover);
+}
+
+#filter-dropdown input[type="checkbox"] {
+    accent-color: var(--accent-blue);
+    width: 18px;
+    height: 18px;
 }

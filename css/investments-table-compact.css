@@ -1,0 +1,283 @@
+/* Google Finance style compact table - FIXED VERSION */
+@media (max-width: 768px) {
+
+    /* Add border around entire table */
+    #investments-table {
+        display: table !important;
+        border-collapse: separate;
+        border-spacing: 0;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--bg-card);
+        width: 100%;
+        table-layout: fixed;
+        /* Crucial for truncation */
+    }
+
+    /* Header at top of table */
+    #investments-table thead {
+        display: table-header-group !important;
+        background: var(--bg-secondary);
+    }
+
+    #investments-table thead tr {
+        display: table-row !important;
+    }
+
+    #investments-table thead th {
+        display: none !important;
+        padding: 10px 4px;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid var(--border-color);
+        text-align: right;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+
+    /* ---------------------------------------------------------
+       COLUMN CONFIGURATION (Day vs Total)
+       --------------------------------------------------------- */
+
+    /* ALWAYS VISIBLE: Name (1) & Value (7) */
+    #investments-table thead th:nth-child(1),
+    #investments-table thead th:nth-child(7),
+    #investments-table tbody td:nth-child(1),
+    #investments-table tbody td:nth-child(7) {
+        display: table-cell !important;
+    }
+
+    /* DEFAULT (Day Gain): Show 10 & 11, Hide 8 & 9 */
+    #investments-table:not(.show-total-gain) thead th:nth-child(10),
+    #investments-table:not(.show-total-gain) thead th:nth-child(11),
+    #investments-table:not(.show-total-gain) tbody td:nth-child(10),
+    #investments-table:not(.show-total-gain) tbody td:nth-child(11) {
+        display: table-cell !important;
+    }
+
+    #investments-table:not(.show-total-gain) thead th:nth-child(8),
+    #investments-table:not(.show-total-gain) thead th:nth-child(9),
+    #investments-table:not(.show-total-gain) tbody td:nth-child(8),
+    #investments-table:not(.show-total-gain) tbody td:nth-child(9) {
+        display: none !important;
+    }
+
+    /* TOGGLE ACTIVE (Total Gain): Show 8 & 9, Hide 10 & 11 */
+    #investments-table.show-total-gain thead th:nth-child(8),
+    #investments-table.show-total-gain thead th:nth-child(9),
+    #investments-table.show-total-gain tbody td:nth-child(8),
+    #investments-table.show-total-gain tbody td:nth-child(9) {
+        display: table-cell !important;
+    }
+
+    #investments-table.show-total-gain thead th:nth-child(10),
+    #investments-table.show-total-gain thead th:nth-child(11),
+    #investments-table.show-total-gain tbody td:nth-child(10),
+    #investments-table.show-total-gain tbody td:nth-child(11) {
+        display: none !important;
+    }
+
+
+    /* ---------------------------------------------------------
+       WIDTHS & STYLING
+       --------------------------------------------------------- */
+
+    #investments-table thead th:nth-child(1) {
+        width: 34%;
+        padding-left: 12px;
+        text-align: left;
+    }
+
+    #investments-table thead th:nth-child(7) {
+        width: 24%;
+        text-align: right;
+        padding-right: 6px;
+    }
+
+    /* Gain Columns (Day & Total share same width logic) */
+    #investments-table thead th:nth-child(10),
+    #investments-table thead th:nth-child(8) {
+        width: 17%;
+        text-align: right;
+        padding-right: 2px;
+    }
+
+    #investments-table thead th:nth-child(11),
+    #investments-table thead th:nth-child(9) {
+        width: 25%;
+        text-align: right;
+        padding-right: 12px;
+        cursor: pointer;
+    }
+
+
+    /* HEADERS CONTENT */
+    #investments-table thead th {
+        font-size: 0;
+    }
+
+    /* Hide original text */
+    #investments-table thead th:nth-child(1)::before {
+        content: 'ACTIF';
+        font-size: 10px;
+        display: block;
+    }
+
+    #investments-table thead th:nth-child(7)::before {
+        content: 'VALEUR';
+        font-size: 10px;
+        display: block;
+    }
+
+    /* Toggleable Header */
+    #investments-table thead th:nth-child(11)::before {
+        content: 'GAIN DU JOUR';
+        font-size: 10px;
+        display: block;
+        white-space: nowrap;
+        text-decoration: underline dotted;
+        /* Hint clickable */
+    }
+
+    #investments-table thead th:nth-child(9)::before {
+        content: 'GAIN TOTAL';
+        font-size: 10px;
+        display: block;
+        white-space: nowrap;
+        text-decoration: underline dotted;
+    }
+
+
+    /* BODY STYLING */
+    #investments-table tbody tr {
+        display: table-row !important;
+        border: none !important;
+        background: transparent !important;
+        height: 60px;
+    }
+
+    #investments-table tbody td {
+        display: none !important;
+        padding: 0 4px;
+        vertical-align: middle;
+        border-bottom: 1px solid var(--border-color) !important;
+        height: 60px;
+        white-space: nowrap;
+    }
+
+    /* 1. NAME */
+    #investments-table tbody td:nth-child(1) {
+        padding-left: 12px;
+        font-weight: 700 !important;
+        font-size: 14px !important;
+        color: var(--text-primary);
+        text-align: left;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: table-cell !important;
+    }
+
+    #investments-table tbody td:nth-child(1)::after {
+        content: attr(data-quantity);
+        display: block;
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--text-muted);
+        margin-top: 2px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* 2. VALUE */
+    #investments-table tbody td:nth-child(7) {
+        text-align: right !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        color: var(--text-primary);
+        padding-right: 6px;
+        display: table-cell !important;
+    }
+
+    /* 3. GAIN AMOUNT (Day & Total) - Big & Bold */
+    #investments-table tbody td:nth-child(10),
+    /* Day */
+    #investments-table tbody td:nth-child(8) {
+        /* Total */
+        text-align: right;
+        font-size: 13px;
+        /* Large */
+        font-weight: 600;
+        padding-right: 4px;
+    }
+
+    #investments-table tbody td.positive {
+        color: #10b981;
+    }
+
+    #investments-table tbody td.negative {
+        color: #ef4444;
+    }
+
+
+    /* 4. GAIN % BADGE (Day & Total) */
+    #investments-table tbody td:nth-child(11),
+    /* Day */
+    #investments-table tbody td:nth-child(9) {
+        /* Total */
+        text-align: right !important;
+        font-size: 11px !important;
+        padding-left: 0 !important;
+        padding-right: 8px !important;
+    }
+
+    /* Badge Style */
+    #investments-table tbody td:nth-child(11)::before,
+    #investments-table tbody td:nth-child(9)::before {
+        content: attr(data-percentage);
+        display: inline-block;
+        padding: 4px 6px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        min-width: 50px;
+        text-align: center;
+        vertical-align: middle;
+    }
+
+    #investments-table tbody td.positive::before {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+    }
+
+    #investments-table tbody td.negative::before {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+    }
+
+    /* Chevrons */
+    #investments-table tbody td:nth-child(11)::after,
+    #investments-table tbody td:nth-child(9)::after {
+        content: '›';
+        display: inline-block;
+        margin-left: 6px;
+        font-size: 18px;
+        color: var(--text-muted);
+        vertical-align: middle;
+        line-height: 1;
+        opacity: 0.5;
+        padding-bottom: 2px;
+    }
+
+    #investments-table tbody tr.expanded {
+        background: rgba(59, 130, 246, 0.05) !important;
+    }
+
+    #investments-table tbody tr.expanded td:nth-child(11)::after,
+    #investments-table tbody tr.expanded td:nth-child(9)::after {
+        transform: rotate(90deg);
+    }
+}

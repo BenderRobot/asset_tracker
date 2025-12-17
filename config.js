@@ -27,8 +27,8 @@ export const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 export const DASHBOARD_INDICES = ['^GSPC', '^IXIC', '^FCHI', '^STOXX50E', 'BTC-EUR', 'GC=F', 'EURUSD=X'];
 
 export const YAHOO_MAP = {
-  'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.F', 'MSF': 'MSF.F',
-  'TL0': 'TL0.F', 'TKE': 'TKE.F', 'M4I': 'M4I.F', 'ABEA': 'ABEA.F',
+  'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.DE', 'MSF': 'MSF.F',
+  'TL0': 'TL0.DE', 'TLO': 'TL0.DE', 'TKE': 'TKE.F', 'M4I': 'M4I.F', 'ABEA': 'ABEA.F',
   'CSPX': 'CSPX.AS', 'CNDX': 'CNDX.AS', '3ZU0': '3ZU0.F', '1170': '1170.F',
   '9D5': '9D5.F', 'GXG': 'GXG.F', 'BKSY': 'BKSY',
   'GOLD-ETFP': 'GOLD-EUR.PA',
@@ -37,11 +37,29 @@ export const YAHOO_MAP = {
   'BTC': 'BTC-EUR'
 };
 
+// ACTIONS US (Dividendes en USD) mais potentiellement cotées en EUR (ex: Xetra)
+export const US_STOCKS_EUR = [
+  'ABEA', // Alphabet
+  'MSF',  // Microsoft
+  'NVD',  // Nvidia
+  'APC',  // Apple
+  'AMZ',  // Amazon
+  'TSLA', // Tesla
+  'META', // Meta
+  'NFLX', // Netflix
+  'KO',   // Coca Cola
+  'PEP',  // Pepsi
+  'JNJ',  // Johnson & Johnson
+  'PG',   // P&G
+  'MCD'   // McDonalds
+];
+
 // Types d'actifs (SIMPLIFIÉ)
 export const ASSET_TYPES = [
   'Stock',
   'ETF',
   'Crypto',
+  'Dividend', // Added for explicit filtering
   'Cash' // <-- AJOUTEZ CETTE LIGNE
 ];
 

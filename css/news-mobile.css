@@ -1,0 +1,84 @@
+/* ========================================
+   MOBILE NEWS PAGE OPTIMIZATION
+   ======================================== */
+
+@media (max-width: 768px) {
+
+    /* 1. Header Layout - Stack vertically with gap */
+    .news-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .news-header h2 {
+        font-size: 20px;
+        margin-bottom: 0px;
+    }
+
+    /* 2. Actions Row - Optimize space */
+    .news-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: space-between;
+    }
+
+    /* 3. Refresh Button - ICON ONLY */
+    #refresh-news-btn {
+        font-size: 0 !important;
+        /* Hide text "Rafraîchir" */
+        width: 42px;
+        height: 42px;
+        min-width: 42px !important;
+        padding: 0 !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        /* Square with rounded corners */
+    }
+
+    /* Restore Icon Visibility */
+    #refresh-news-btn i {
+        font-size: 16px !important;
+        margin: 0 !important;
+    }
+
+    /* 4. "Mes Actifs" Button - Full width or flex fill */
+    #filter-my-assets-btn {
+        flex-grow: 1;
+        min-width: unset !important;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    /* 5. Feed Selector - Full width on new line if needed */
+    #filter-feed-select {
+        width: 100%;
+        margin-top: 4px;
+        /* Slight gap if it wraps */
+        height: 42px;
+    }
+
+    /* 6. Card Adjustments */
+    .news-card-title {
+        font-size: 15px;
+        /* Slightly smaller title */
+        padding: 12px 14px 0;
+        -webkit-line-clamp: 3;
+        /* Read more with fewer lines */
+    }
+
+    .news-card-header {
+        padding: 12px 14px 0;
+    }
+
+    .news-card-footer {
+        padding: 12px 14px;
+    }
+}

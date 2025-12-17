@@ -1,0 +1,455 @@
+/* ========================================
+   DASHBOARD MOBILE CSS
+   Patch spécifique pour le mobile sans toucher au CSS desktop
+   ======================================== */
+
+@media (max-width: 768px) {
+
+    /* NUCLEAR FIX: Force header to stay fixed on mobile */
+    .mobile-header {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100vw !important;
+        z-index: 999999 !important;
+        display: flex !important;
+        transform: none !important;
+    }
+
+    /* --- MOBILE KPI GRID (Total Value Left / Others Right) --- */
+    .summary-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto;
+        gap: 12px;
+        margin-bottom: 24px;
+    }
+
+    .summary-card {
+        min-height: auto;
+        padding: 12px;
+    }
+
+    /* Total Value: Takes Left Column, Spans 2 Rows */
+    .summary-card:nth-child(1) {
+        grid-column: 1;
+        grid-row: 1 / 3;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        /* Center horizontally */
+        text-align: center;
+        /* Center text */
+        height: auto;
+    }
+
+    /* Total Return: Right Top */
+    .summary-card:nth-child(2) {
+        grid-column: 2;
+        grid-row: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    /* Var Today: Right Bottom */
+    .summary-card:nth-child(3) {
+        grid-column: 2;
+        grid-row: 2;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    /* Adjust font sizes for compact 2-col view */
+    .summary-card-value {
+        font-size: 20px !important;
+    }
+
+    /* Bigger font specifically for Total Value (1st card) */
+    .summary-card:nth-child(1) .summary-card-value {
+        font-size: 26px !important;
+        /* Larger font */
+        margin-bottom: 8px;
+        /* Space */
+    }
+
+    .summary-card-label {
+        font-size: 10px !important;
+        margin-bottom: 4px;
+    }
+
+    .meta-info,
+    .meta-large {
+        font-size: 11px !important;
+    }
+
+    /* --- SECONDARY KPI GRID (Top Gainer/Loser/etc) --- */
+    /* Force 2-column grid */
+    .dashboard-kpi-grid-v2 {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 8px !important;
+    }
+
+    /* Compact List Rows */
+    .kpi-list-row {
+        padding: 2px 0 !important;
+        /* Tighter rows */
+    }
+
+    /* Smaller Text for Name */
+    .kpi-row-name {
+        font-size: 10px !important;
+        max-width: 60px !important;
+        /* Reduce max-width to prevent overflow */
+    }
+
+    /* Smaller Text for Values */
+    .kpi-row-right {
+        font-size: 11px !important;
+    }
+
+    .kpi-row-right .kpi-sub-value {
+        font-size: 9px !important;
+    }
+
+    /* Smaller Ticker Badge */
+    .kpi-ticker-badge {
+        font-size: 9px !important;
+        padding: 1px 4px !important;
+        min-width: 35px !important;
+    }
+
+    /* KPI Card Header Size */
+    .kpi-label {
+        font-size: 9px !important;
+    }
+
+    .kpi-card {
+        padding: 5px 8px !important;
+        /* REDUCED PADDING */
+    }
+
+    /* --- OPTIMIZATION ESPACE ALLOCATION --- */
+    .alloc-left {
+        gap: 4px !important;
+        /* Reduce gap between dot, %, type */
+    }
+
+    .alloc-pct {
+        margin-right: 2px !important;
+        /* Reduce margin after % */
+        min-width: 35px !important;
+        /* Allow it to shrink slightly */
+        font-size: 11px !important;
+    }
+
+    .alloc-label {
+        font-size: 9px !important;
+        letter-spacing: 0 !important;
+        /* Save space */
+    }
+
+    /* --- OPTIMIZATION ESPACE GAUCHE (TOP GAINER/LOSER) --- */
+    .kpi-row-left {
+        gap: 4px !important;
+        /* Reduce gap between badge and name */
+    }
+
+    /* --- REDUCE CHART HEIGHT (Mobile) --- */
+    .dashboard-chart-section {
+        height: auto !important;
+        min-height: auto !important;
+        padding-bottom: 10px !important;
+        overflow: visible !important;
+    }
+
+    .chart-wrapper.tall {
+        height: 250px !important;
+        /* Force smaller height */
+        min-height: 250px !important;
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-bottom: 0px;
+        padding-top: 0px;
+    }
+
+    /* --- CHART HEADER (Dashboard Mobile) --- */
+    /* Align like Investments: Title Left, Actions Right (Wrapped) */
+    .chart-header-mini {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+        padding: 10px !important;
+        /* Reduce padding */
+        align-items: center !important;
+    }
+
+    /* Reduce Title Size */
+    .chart-title {
+        font-size: 14px !important;
+        margin: 0 !important;
+        flex: 1 1 auto !important;
+        /* Allow title to shrink/grow */
+    }
+
+    .chart-title .title-icon {
+        font-size: 16px !important;
+    }
+
+    #chart-title-text {
+        font-size: 14px !important;
+    }
+
+    /* Controls Alignment */
+    .header-controls {
+        flex: 1 1 100% !important;
+        /* Wrap to next line if needed, or take remaining space */
+        justify-content: space-between !important;
+        gap: 8px !important;
+        margin-top: 4px !important;
+        width: 100% !important;
+        display: flex !important;
+    }
+
+    /* Hide Desktop Period Buttons in Header */
+    .chart-controls-inline {
+        display: none !important;
+    }
+
+    /* Benchmark Select Styling */
+    #benchmark-wrapper {
+        flex: 0 0 auto !important;
+        /* Don't grow, prevent jump */
+    }
+
+    #benchmark-select {
+        width: 130px !important;
+        /* Fixed width matching Investments */
+        height: 28px !important;
+        font-size: 11px !important;
+        padding: 0 8px !important;
+    }
+
+    /* View Toggle Styling */
+    #view-toggle {
+        margin-right: 0 !important;
+        height: 28px !important;
+    }
+
+    #view-toggle .toggle-btn {
+        padding: 0 10px !important;
+        height: 28px !important;
+        font-size: 10px !important;
+        line-height: 26px !important;
+    }
+
+    /* --- STATS BAR LAYOUT (Match Investments) --- */
+    .chart-stats-bar {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        padding: 10px 0 !important;
+        gap: 0 !important;
+        margin-top: 0 !important;
+    }
+
+    /* Group 1: Period Return (34%) */
+    .stat-group-1 {
+        flex: 0 0 34% !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+        padding-right: 2px !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        text-align: center !important;
+    }
+
+    /* Group 2: Stats (66%) */
+    .stat-group-2 {
+        display: flex !important;
+        /* Ensure visibility for stats inside */
+        flex: 1 !important;
+        padding-left: 8px !important;
+        align-items: center !important;
+    }
+
+    /* Stats Inside */
+    .stat-group .stat {
+        display: block !important;
+        text-align: center !important;
+        width: 100% !important;
+    }
+
+    .stat-group .label {
+        font-size: 9px !important;
+        margin-bottom: 2px !important;
+        color: var(--text-muted) !important;
+        display: block !important;
+    }
+
+    .stat-group .value {
+        font-size: 13px !important;
+        display: inline-block !important;
+        margin-right: 3px !important;
+    }
+
+    .stat-group .pct {
+        font-size: 11px !important;
+        display: inline-block !important;
+    }
+
+    /* Prevent wrapping specifically for Var Jour/Close */
+    .stat-group-2 .stat {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+    }
+
+    /* Hiding logic helpers */
+    .stat-group-2 .stat[style*="none"] {
+        display: none !important;
+    }
+
+
+    /* Group 3: Start/End/High/Low (Bottom Row) */
+    .stat-group-3 {
+        display: flex !important;
+        flex-direction: row !important;
+        width: 100% !important;
+        justify-content: space-between !important;
+        border-top: none !important;
+        /* No extra line */
+        padding-top: 8px !important;
+        margin-top: 8px !important;
+        padding-left: 10px !important;
+        padding-right: 10px !important;
+    }
+
+    .stat-group-3 .stat {
+        min-width: auto !important;
+        text-align: center !important;
+    }
+
+    .stat-group-3 .label {
+        font-size: 8px !important;
+    }
+
+    .stat-group-3 .value {
+        font-size: 11px !important;
+        display: block !important;
+        /* Block for bottom row */
+    }
+
+
+    /* --- NEW MOBILE BOTTOM CONTROLS --- */
+    .chart-controls-bottom-mobile {
+        display: flex !important;
+        width: 100% !important;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 4px;
+        border-radius: 12px;
+        margin-top: 15px;
+        margin-bottom: 5px;
+        justify-content: space-between;
+        gap: 4px;
+    }
+
+    .chart-controls-bottom-mobile .period-btn {
+        flex: 1;
+        padding: 8px 0;
+        border-radius: 8px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-align: center;
+    }
+
+    .chart-controls-bottom-mobile .period-btn.active {
+        background: var(--primary-color);
+        color: white;
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+        font-weight: 600;
+    }
+
+    /* --- NEWS FEEDS STACKING --- */
+    .dashboard-feeds-grid {
+        display: flex !important;
+        flex-direction: column !important;
+        height: auto !important;
+        gap: 24px !important;
+    }
+
+    .feed-card {
+        height: 500px !important;
+        /* Keep fixed height per card */
+        width: 100% !important;
+    }
+
+    /* --- NEWS MODAL MOBILE FIX --- */
+    .modal-overlay {
+        z-index: 200000 !important;
+        /* Ensure above fixed header (99999) */
+        padding: 10px !important;
+        align-items: center !important;
+    }
+
+    .news-modal-content {
+        width: 95% !important;
+        max-width: 100% !important;
+        max-height: 85vh !important;
+        /* Leave room for header/margins */
+        display: flex !important;
+        flex-direction: column !important;
+        margin: 0 auto !important;
+    }
+
+    .modal-header {
+        flex-shrink: 0 !important;
+    }
+
+    .modal-body {
+        overflow-y: auto !important;
+        /* Enable internal scrolling */
+        flex: 1 !important;
+        padding: 16px !important;
+        -webkit-overflow-scrolling: touch;
+        /* Smooth scrolling on iOS */
+    }
+
+    /* --- NEWS HEADER MOBILE FIX --- */
+    /* Fix overlap/hiding of refresh button */
+    .feed-header {
+        padding: 12px !important;
+        gap: 8px !important;
+    }
+
+    /* Target the container of Select + Button */
+    .feed-header>div {
+        flex: 1 !important;
+        justify-content: flex-end !important;
+        min-width: 0 !important;
+        /* Allow shrinking */
+    }
+
+    #portfolio-asset-select {
+        min-width: 80px !important;
+        /* Override inline 140px */
+        width: 100% !important;
+        /* Fill available space in flex item */
+        font-size: 11px !important;
+        padding-right: 20px !important;
+        /* Space for arrow */
+        text-overflow: ellipsis;
+    }
+
+    #refresh-portfolio-news {
+        flex-shrink: 0 !important;
+        margin-left: 4px !important;
+    }
+}

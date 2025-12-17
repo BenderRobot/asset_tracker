@@ -39,63 +39,63 @@ export class MarketStatus {
             };
         }
 
-        // Entre 22h00 et 9h00 → que les futures US tournent
+        // Entre 22h00 et 9h00 → Fermé (anciennement Futures)
         return {
-            state: 'FUTURES',
-            label: 'Futures US',
-            shortLabel: 'Futures',
-            color: '#8b5cf6',
-            dotClass: 'futures'
+            state: 'CLOSED',
+            label: 'Marchés Fermés',
+            shortLabel: 'Fermé',
+            color: '#fbbf24',
+            dotClass: 'closed'
         };
     }
 
     // Statut LOCAL par type d'actif (utilisé dans les cartes indices)
     getAssetStatus(ticker) {
-		const now = new Date();
-		const day = now.getDay();
-		const parisMinutes = now.getHours() * 60 + now.getMinutes();  // LIGNE AJOUTÉE
+        const now = new Date();
+        const day = now.getDay();
+        const parisMinutes = now.getHours() * 60 + now.getMinutes();  // LIGNE AJOUTÉE
 
-		// Crypto
-		if (ticker.includes('BTC') || ticker.includes('ETH')) {
-			return { label: '24/7', color: '#f59e0b' };
-		}
+        // Crypto
+        if (ticker.includes('BTC') || ticker.includes('ETH')) {
+            return { label: '24/7', color: '#f59e0b' };
+        }
 
-		// Forex & Commodities
-		if (ticker === 'EURUSD=X' || ticker.includes('=X')) {
-			return { label: '24/5', color: '#06b6d4' };
-		}
-		if (ticker === 'GC=F') {
-			return { label: '24/5', color: '#fbbf24' };
-		}
+        // Forex & Commodities
+        if (ticker === 'EURUSD=X' || ticker.includes('=X')) {
+            return { label: '24/5', color: '#06b6d4' };
+        }
+        if (ticker === 'GC=F') {
+            return { label: '24/5', color: '#fbbf24' };
+        }
 
-		// Marchés US
-		if (['^GSPC', '^IXIC', '^DJI'].includes(ticker)) {
-			const ny = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-			const h = ny.getHours();
-			const m = ny.getMinutes();
-			const isOpen = (h > 9 || (h === 9 && m >= 30)) && h < 16;
-			const isWeekend = day === 0 || day === 6;
+        // Marchés US
+        if (['^GSPC', '^IXIC', '^DJI'].includes(ticker)) {
+            const ny = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+            const h = ny.getHours();
+            const m = ny.getMinutes();
+            const isOpen = (h > 9 || (h === 9 && m >= 30)) && h < 16;
+            const isWeekend = day === 0 || day === 6;
 
-			return {
-				label: isWeekend || !isOpen ? 'FUTURES' : 'LIVE',
-				color: isWeekend || !isOpen ? '#8b5cf6' : '#10b981'
-			};
-		}
+            return {
+                label: isWeekend || !isOpen ? 'CLOSED' : 'LIVE',
+                color: isWeekend || !isOpen ? '#fbbf24' : '#10b981'
+            };
+        }
 
-		// Marchés Europe
-		if (['^FCHI', '^GDAXI', '^STOXX50E', '^FTSE'].includes(ticker)) {
-			const isOpen = parisMinutes >= 9 * 60 && parisMinutes < 17 * 60 + 35;
-			const isWeekend = day === 0 || day === 6;
+        // Marchés Europe
+        if (['^FCHI', '^GDAXI', '^STOXX50E', '^FTSE'].includes(ticker)) {
+            const isOpen = parisMinutes >= 9 * 60 && parisMinutes < 17 * 60 + 35;
+            const isWeekend = day === 0 || day === 6;
 
-			return {
-				label: isWeekend || !isOpen ? 'CLOSED' : 'LIVE',
-				color: isWeekend || !isOpen ? '#fbbf24' : '#10b981'
-			};
-		}
+            return {
+                label: isWeekend || !isOpen ? 'CLOSED' : 'LIVE',
+                color: isWeekend || !isOpen ? '#fbbf24' : '#10b981'
+            };
+        }
 
-		// Par défaut
-		return { label: 'LIVE', color: '#10b981' };
-	}
+        // Par défaut
+        return { label: 'LIVE', color: '#10b981' };
+    }
 
     startAutoRefresh(containerId, badgeType = 'compact') {
         this.containerId = containerId;

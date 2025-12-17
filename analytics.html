@@ -10,7 +10,7 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 
     <link rel="stylesheet" href="css/variables.css">
-    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/layout.css?v=44">
     <link rel="stylesheet" href="css/components.css">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -146,6 +146,17 @@
 </head>
 
 <body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
     <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-header">
             <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
@@ -312,6 +323,7 @@
     <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
     <script type="module" src="./authGuard.js"></script>
     <script type="module" src="./analyticsApp.js"></script>
+    <script src="./cacheRefresh.js"></script>
     <script type="module" src="./sidebar.js"></script>
 </body>
 

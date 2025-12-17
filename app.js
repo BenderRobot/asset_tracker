@@ -7,10 +7,10 @@ import { Storage } from './storage.js';
 import { PriceAPI } from './api.js?v=4';
 import { UIComponents } from './ui.js';
 import { FilterManager } from './filters.js';
-import { AchatsPage } from './achatsPage.js?v=6';
-import { InvestmentsPage } from './investmentsPage.js?v=9';
+import { AchatsPage } from './achatsPage.js?v=7';
+import { InvestmentsPage } from './investmentsPage.js?v=12';
 import { HistoricalChart } from './historicalChart.js?v=9';
-import { DataManager } from './dataManager.js?v=7';
+import { DataManager } from './dataManager.js?v=9';
 import { initMarketStatus } from './marketStatus.js?v=3';
 import { ASSET_TYPES, BROKERS, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED, DASHBOARD_INDICES } from './config.js';
 
@@ -240,6 +240,9 @@ class App {
       });
     }
 
+    // Wiring up new Dividend/Header listeners
+    this.achatsPage.setupHeaderListeners();
+
     const refreshBtn = document.getElementById('refresh-prices');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
@@ -269,6 +272,81 @@ class App {
         this.filterManager.setBrokerFilter(e.target.value);
       });
     }
+
+    // --- NOUVEAU: Listener pour le type de transaction (Achat/Vente) ---
+    const transactionTypeSelect = document.getElementById('transaction-type');
+    const useCashCheckbox = document.getElementById('use-cash');
+    const useCashLabel = document.getElementById('use-cash-label');
+    const tickerInput = document.getElementById('ticker');
+    const tickerSelect = document.getElementById('ticker-select'); // Nouveau select
+
+    if (transactionTypeSelect && useCashCheckbox && tickerInput && tickerSelect) {
+
+      const updateVisibility = () => {
+        const isSell = transactionTypeSelect.value === 'sell';
+
+        if (isSell) {
+          // MODE VENTE
+          useCashCheckbox.style.display = 'none';
+          if (useCashLabel) useCashLabel.style.display = 'none';
+          useCashCheckbox.checked = false;
+
+          // Swap Input -> Select
+          tickerInput.style.display = 'none';
+          tickerInput.required = false;
+          tickerSelect.style.display = 'block';
+          tickerSelect.required = true;
+
+          // Populate Dropdown with Owned Assets
+          tickerSelect.innerHTML = '<option value="" disabled selected>Choisir un actif...</option>';
+
+          // On recupère les holdings pour avoir les quantités nettes
+          // Note: calculateHoldings est dans dataManager, on va utiliser une méthode simplifiée ou l'appeler via this.dataManager
+          // Pour faire simple et robuste, on réutilise this.dataManager.calculateHoldings
+          const allPurchases = this.storage.getPurchases();
+          const assetPurchases = allPurchases.filter(p => p.assetType !== 'Cash');
+          // On ignore le map yesterdayClose pour cette liste simple
+          const holdings = this.dataManager.calculateHoldings(assetPurchases);
+
+          holdings.forEach(h => {
+            if (h.quantity > 0) {
+              const option = document.createElement('option');
+              option.value = h.ticker;
+              option.textContent = `${h.ticker} - ${h.name} (${parseFloat(h.quantity.toFixed(4))})`;
+              option.dataset.name = h.name; // Stocker le nom pour auto-fill
+              tickerSelect.appendChild(option);
+            }
+          });
+
+        } else {
+          // MODE ACHAT (Défaut)
+          useCashCheckbox.style.display = 'inline-block';
+          if (useCashLabel) useCashLabel.style.display = 'inline';
+
+          // Swap Select -> Input
+          tickerSelect.style.display = 'none';
+          tickerSelect.required = false;
+          tickerInput.style.display = 'block';
+          tickerInput.required = true;
+          tickerInput.value = ''; // Clear input on switch back
+        }
+      };
+
+      transactionTypeSelect.addEventListener('change', updateVisibility);
+
+      // Listener pour auto-fill le Name quand on choisit dans la liste
+      tickerSelect.addEventListener('change', (e) => {
+        const selectedOption = tickerSelect.options[tickerSelect.selectedIndex];
+        if (selectedOption && selectedOption.dataset.name) {
+          const nameInput = document.getElementById('name');
+          if (nameInput) nameInput.value = selectedOption.dataset.name;
+        }
+      });
+
+      updateVisibility(); // Init
+    }
+    // -------------------------------------------------------------------
+
     this.achatsPage.setupTabs();
     this.achatsPage.setupSorting();
     this.setupCSVListeners();
@@ -297,8 +375,20 @@ class App {
 
   async addPurchase() {
     try {
+      const typeSelect = document.getElementById('transaction-type');
+      const isSell = typeSelect && typeSelect.value === 'sell';
+      const useCash = document.getElementById('use-cash')?.checked;
+
+      // Récupération du Ticker selon le mode
+      let tickerValue = '';
+      if (isSell) {
+        tickerValue = document.getElementById('ticker-select').value;
+      } else {
+        tickerValue = document.getElementById('ticker').value;
+      }
+
       const purchase = {
-        ticker: document.getElementById('ticker').value.toUpperCase().trim(),
+        ticker: tickerValue ? tickerValue.toUpperCase().trim() : '',
         name: document.getElementById('name').value.trim(),
         price: parseFloat(document.getElementById('price').value),
         date: document.getElementById('date').value,
@@ -315,13 +405,47 @@ class App {
         return;
       }
 
-      this.storage.addPurchase(purchase);
-      document.getElementById('purchase-form').reset();
+      // 1. Gestion VENTE (Quantité négative)
+      if (isSell) {
+        purchase.quantity = -Math.abs(purchase.quantity);
+      }
 
+      // 2. Ajout de la transaction principale
+      await this.storage.addPurchase(purchase);
+
+      // 3. Gestion Automatique du Cash
+      // Cas A: VENTE -> On crédite le cash du broker (Dépôt)
+      // Cas B: ACHAT + "Déduire du Cash" -> On débite le cash du broker (Retrait)
+
+      if (isSell || useCash) {
+        const totalAmount = Math.abs(purchase.price * purchase.quantity);
+        const cashTransaction = {
+          ticker: purchase.currency, // 'EUR' ou 'USD'
+          name: 'Cash',
+          price: isSell ? totalAmount : -totalAmount, // + si Vente, - si Achat
+          date: purchase.date,
+          quantity: 1,
+          currency: purchase.currency,
+          assetType: 'Cash',
+          broker: purchase.broker
+        };
+
+        await this.storage.addPurchase(cashTransaction);
+        this.showNotification(isSell ? 'Vente enregistrée (+ Cash crédité)' : 'Achat enregistré (- Cash débité)', 'success');
+      } else {
+        this.showNotification('Transaction ajoutée', 'success');
+      }
+
+      document.getElementById('purchase-form').reset();
+      // Reset manuel du select type car reset() ne le remet pas forcément à 'buy' si c'est la défaut
+      if (typeSelect) {
+        typeSelect.value = 'buy';
+        const evt = new Event('change');
+        typeSelect.dispatchEvent(evt);
+      }
       this.filterManager.updateTickerFilter(() => this.renderCurrentPage());
       await this.achatsPage.render(this.searchQuery);
 
-      this.showNotification('Transaction ajoutée', 'success');
     } catch (error) {
       console.error('Erreur ajout:', error);
       this.showNotification('Erreur: ' + error.message, 'error');
@@ -345,7 +469,12 @@ class App {
         await this.historicalChart.update(showLoading, true);
       } else {
         const purchases = this.storage.getPurchases();
-        let tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+        let tickers = [...new Set(purchases
+          .filter(p => {
+            const type = (p.assetType || 'Stock').toLowerCase();
+            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
+          })
+          .map(p => p.ticker.toUpperCase()))];
 
         // CORRECTION MAJEURE: Inclure tous les tickers d'indices au refresh
         tickers = [...new Set([...tickers, ...DASHBOARD_INDICES])];
@@ -599,7 +728,13 @@ class App {
         await this.historicalChart.silentUpdate();
       } else {
         const purchases = this.storage.getPurchases();
-        let tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
+        // CRITICAL FIX: Exclude DIVIDEND assets to avoid 400 errors
+        let tickers = [...new Set(purchases
+          .filter(p => {
+            const type = (p.assetType || 'Stock').toLowerCase();
+            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
+          })
+          .map(p => p.ticker.toUpperCase()))];
 
         // CORRECTION: Inclure les tickers d'indices dans l'auto-refresh
         tickers = [...new Set([...tickers, ...DASHBOARD_INDICES])];

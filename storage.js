@@ -153,6 +153,62 @@ export class Storage {
         this.purchaseIndex = this.buildIndex();
     }
 
+    // === GESTION CACHE MARKET DATA (Firestore) ===
+    async getMarketData(ticker, interval, year = null) {
+        const user = auth.currentUser;
+        if (!user) return null;
+
+        const docId = year ? `${ticker}_${interval}_${year}` : `${ticker}_${interval}`;
+
+        // 1. Essai Cache Public (Optionnel) - Try/Catch isolé
+        try {
+            // const doc = await db.collection('market_cache').doc(docId).get(); 
+        } catch (e) { }
+
+        // 2. Essai Cache Privé User
+        try {
+            const userDoc = await db.collection('users').doc(user.uid).collection('market_cache').doc(docId).get();
+
+            if (userDoc.exists) {
+                const data = userDoc.data();
+                // FIX: Support des objets {t,p} pour contourner "Nested Arrays"
+                if (data.data && data.data.length > 0 && !Array.isArray(data.data[0])) {
+                    data.data = data.data.map(item => [item.t, item.p]);
+                }
+                return data;
+            }
+            return null;
+        } catch (e) {
+            console.warn(`[Storage] Cache miss/error for ${docId}:`, e);
+            return null;
+        }
+    }
+
+    async saveMarketData(ticker, interval, data, year = null) {
+        const user = auth.currentUser;
+        if (!user) return;
+
+        const docId = year ? `${ticker}_${interval}_${year}` : `${ticker}_${interval}`;
+
+        // FIX: Flatten Nested Arrays to Objects {t, p}
+        const formattedData = data.map(point => ({ t: point[0], p: point[1] }));
+
+        const payload = {
+            ticker,
+            interval,
+            year,
+            lastUpdated: Math.floor(Date.now() / 1000),
+            data: formattedData
+        };
+
+        try {
+            await db.collection('users').doc(user.uid).collection('market_cache').doc(docId).set(payload);
+            console.log(`[Storage] Market data cached: ${docId} (${formattedData.length} points)`);
+        } catch (e) {
+            console.error(`[Storage] Failed to cache market data ${docId}:`, e);
+        }
+    }
+
     // === GESTION DES ACHATS ===
     getPurchases() {
         return this.purchases;
@@ -313,18 +369,26 @@ export class Storage {
 
         if (isNewPriceValid) {
             // CONVERSION USD → EUR À LA SOURCE
-            // Si la devise est USD, convertir le prix et previousClose en EUR
-            if (data.currency === 'USD') {
+            // Les indices (^GSPC), futures (GC=F), et forex (EURUSD=X) ne doivent PAS être convertis
+            const isIndex = upperTicker.startsWith('^');
+            const isFuture = upperTicker.endsWith('=F');
+            const isForex = upperTicker.endsWith('=X');
+            const shouldNotConvert = isIndex || isFuture || isForex;
+
+            // GESTION USD -> EUR
+            if (data.currency === 'USD' && !shouldNotConvert) {
                 const rate = this.getConversionRate('USD_TO_EUR') || 0.925;
                 data = {
                     ...data,
                     price: data.price * rate,
                     previousClose: data.previousClose ? data.previousClose * rate : null,
-                    // On garde la devise originale pour référence
+                    lastTradingDayClose: data.lastTradingDayClose ? data.lastTradingDayClose * rate : null,
                     originalCurrency: 'USD',
-                    currency: 'EUR' // Maintenant tout est en EUR
+                    currency: 'EUR'
                 };
             }
+            // GESTION GBp (Pence) / GBP (Livres) -> EUR
+            // (Supprimé car l'utilisateur confirme utiliser GXG en Euros)
 
             // Cas 1 : Nouveau prix valide. On écrase l'ancienne donnée.
             this.currentData[upperTicker] = data;

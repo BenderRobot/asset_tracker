@@ -27,6 +27,42 @@ export class InvestmentsPage {
     this.currentHoldings = [];
     this.currentSearchQuery = '';
     this.lastChartStats = null; // <-- NOUVEAU
+
+    // Initialisation du toggle controls pour le graphique
+    // On attend un peu que le DOM soit prêt si nécessaire, ou on l'appelle après. 
+    // Mieux vaut l'appeler explicitement ou dans le constructeur si le DOM est statique.
+    setTimeout(() => this.setupChartControls(), 100);
+  }
+
+  setupChartControls() {
+    const toggleContainer = document.getElementById('view-toggle');
+    if (toggleContainer) {
+      toggleContainer.style.display = 'flex';
+      toggleContainer.innerHTML = `
+              <div class="toggle-group">
+                  <button class="toggle-btn" data-view="global">Valeur (€)</button>
+                  <button class="toggle-btn active" data-view="performance">Performance (%)</button>
+              </div>
+          `;
+
+      const updateToggle = (view) => {
+        toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
+          if (btn.dataset.view === view) btn.classList.add('active');
+          else btn.classList.remove('active');
+        });
+
+        if (this.historicalChart) {
+          this.historicalChart.update(false, false);
+        }
+      };
+
+      toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const view = e.target.dataset.view;
+          updateToggle(view);
+        });
+      });
+    }
   }
 
   setHistoricalChart(chartInstance) {
@@ -59,14 +95,36 @@ export class InvestmentsPage {
       } else {
         // Rendre les données du tableau immédiatement
         const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
-        const targetAssetPurchases = targetAllPurchases.filter(p => p.assetType !== 'Cash');
+        const targetAssetPurchases = targetAllPurchases.filter(p => {
+          const type = (p.assetType || 'Stock').toLowerCase();
+          return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
+        });
         const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
-        const targetCashPurchases = targetAllPurchases.filter(p => p.assetType === 'Cash');
+        const targetCashPurchases = targetAllPurchases.filter(p => {
+          const type = (p.assetType || 'Stock').toLowerCase();
+          return type === 'cash' || type === 'dividend' || p.type === 'dividend';
+        });
         const currentSummary = this.dataManager.calculateSummary(targetHoldings);
         const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
 
         this.renderData(targetHoldings, currentSummary, targetCashReserve.total);
       }
+    }
+
+    // --- CORRECTION VAR DAY: Lancer le calcul précis en arrière-plan si pas encore fait ---
+    if (!this.historyChecked) {
+      this.historyChecked = true;
+      console.log("DEBUG: All Asset Types present:", [...new Set(this.storage.getPurchases().map(p => p.assetType))]);
+      const allPurchases = this.storage.getPurchases().filter(p => {
+        const type = (p.assetType || 'Stock').toLowerCase();
+        return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
+      });
+      console.log("Declenching background yesterdayClose calculation...");
+      this.dataManager.calculateAllAssetsYesterdayClose(allPurchases).then(() => {
+        console.log("Background yesterdayClose finished.");
+        // REMOVED: Don't re-render here as refreshPrices in app.js already triggers a render
+        // this.render(this.currentSearchQuery, false);
+      });
     }
   }
 
@@ -140,9 +198,9 @@ export class InvestmentsPage {
                 <td>${formatCurrency(p.currentPrice, 'EUR')}</td>
                 <td>${formatCurrency(p.currentValue, 'EUR')}</td>
                 <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatCurrency(p.gainEUR, 'EUR')}</td>
-                <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatPercent(p.gainPct)}</td>
+                <td><span class="badge ${p.gainPct > 0 ? 'badge-positive' : p.gainPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatPercent(p.gainPct)}</span></td>
                 <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatCurrency(p.dayChange, 'EUR')}</td>
-                <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatPercent(p.dayPct)}</td>
+                <td><span class="badge ${p.dayPct > 0 ? 'badge-positive' : p.dayPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatPercent(p.dayPct)}</span></td>
             </tr>
         `;
     }).join('') || '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-secondary);">Aucun investissement correspondant.</td></tr>';

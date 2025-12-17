@@ -10,10 +10,11 @@
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 
   <link rel="stylesheet" href="css/variables.css">
-  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/layout.css?v=43">
   <link rel="stylesheet" href="css/components.css">
 
-  <link rel="stylesheet" href="css/transactions.css">
+  <link rel="stylesheet" href="css/transactions.css?v=3">
+  <link rel="stylesheet" href="css/transactions-mobile.css">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -29,6 +30,16 @@
 </head>
 
 <body>
+  <header class="mobile-header">
+    <button id="mobile-menu-btn" title="Menu">
+      <i class="fas fa-bars"></i>
+    </button>
+    <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+      <img src="/icons/android-chrome-192x192.png" alt="Logo" style="height: 24px; width: 24px; margin-right: 8px;">
+      Asset Tracker
+    </div>
+  </header>
+
   <aside class="app-sidebar" id="app-sidebar">
     <div class="sidebar-header">
       <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
@@ -93,15 +104,59 @@
             <button class="tab-btn" data-tab="cash">
               <i class="fas fa-wallet tab-icon"></i> Cash
             </button>
+            <button class="tab-btn" data-tab="dividend">
+              <i class="fas fa-coins tab-icon"></i> Dividende
+            </button>
             <button class="tab-btn" data-tab="data">
               <i class="fas fa-database tab-icon"></i> Données
             </button>
           </div>
 
+          <!-- TAB DIVIDEND (NEW) -->
+          <div id="tab-dividend" class="tab-content">
+            <form id="dividend-form" class="purchase-form-grid">
+              <select id="div-ticker-select" required style="grid-column: span 2;">
+                <option value="">Choisir l'actif...</option>
+              </select>
+
+              <input type="date" id="div-date" required>
+              <input type="number" id="div-amount" placeholder="Montant Net perçu" step="0.01" required>
+
+              <div class="form-group-inline" style="grid-column: span 2;">
+                <select id="div-currency" required>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="USD">USD ($)</option>
+                </select>
+                <select id="div-broker" required>
+                  <option value="">Courtier...</option>
+                </select>
+              </div>
+
+              <input type="hidden" id="div-type" value="dividend">
+
+              <button type="submit" class="btn-submit">Ajouter le dividende</button>
+            </form>
+          </div>
+
           <div id="tab-asset" class="tab-content active">
             <form id="purchase-form" class="purchase-form-grid">
               <input type="text" id="ticker" placeholder="Ticker (e.g. AAPL)" required>
+              <select id="ticker-select" style="display: none;">
+                <option value="" disabled selected>Choisir un actif...</option>
+              </select>
               <input type="text" id="name" placeholder="Nom de l'entreprise" required>
+
+              <div class="form-row" style="margin-bottom: 12px; display: flex; gap: 12px;">
+                <select id="transaction-type" style="flex: 1;" required>
+                  <option value="buy">Achat</option>
+                  <option value="sell">Vente</option>
+                </select>
+                <div class="checkbox-wrapper"
+                  style="display: flex; align-items: center; gap: 8px; flex: 1; font-size: 13px; color: var(--text-secondary);">
+                  <input type="checkbox" id="use-cash" style="width: auto; margin: 0;">
+                  <label for="use-cash" id="use-cash-label">Déduire du Cash</label>
+                </div>
+              </div>
 
               <div class="form-group-inline">
                 <input type="number" id="price" placeholder="Prix unitaire" step="any" required>
@@ -116,6 +171,10 @@
 
               <select id="asset-type-select" required>
                 <option value="">Type d'actif...</option>
+                <option value="Stock">Stock</option>
+                <option value="ETF">ETF</option>
+                <option value="Crypto">Crypto</option>
+                <option value="Dividend">Dividend</option>
               </select>
 
               <select id="broker-select" required>
@@ -173,35 +232,71 @@
       <!-- NOUVEL EN-TÊTE AVEC BOUTON DE BASCULE -->
       <div class="main-header">
         <h2>📋 All Transactions</h2>
-        <button id="toggle-add-btn" class="btn-primary">
-          <i class="fas fa-plus"></i> Add
-
-        </button>
+        <div class="header-buttons">
+          <button id="scan-dividends-btn" class="btn-secondary" style="margin-right: 8px;">
+            <i class="fas fa-search-dollar"></i> Scan Dividends
+          </button>
+          <button id="toggle-add-btn" class="btn-primary">
+            <i class="fas fa-plus"></i> Add
+          </button>
+        </div>
       </div>
 
-      <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
-        <input type="text" id="search-input" placeholder="Search ticker, name or date..."
-          style="flex: 1; min-width: 250px;">
-        <div id="ticker-filter-dropdown"></div>
+      <!-- MODAL DIVIDENDES DÉTECTÉS -->
+      <div class="modal-overlay" id="dividend-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 600px;">
+          <div class="modal-header">
+            <h3>💰 Dividendes Détectés</h3>
+            <button class="modal-close" id="close-div-modal">×</button>
+          </div>
+          <div class="modal-body">
+            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
+              Voici les dividendes trouvés basés sur votre historique.
+              Veuillez vérifier les montants et appliquer la fiscalité adéquate.
+            </p>
 
-        <select id="filter-asset-type" style="min-width: 150px;">
-          <option value="">All Asset Types</option>
-          <option value="Stock">Stock</option>
-          <option value="ETF">ETF</option>
-          <option value="Crypto">Crypto</option>
-        </select>
+            <div id="dividend-list" style="max-height: 300px; overflow-y: auto; margin-bottom: 16px;">
+              <!-- Liste générée par JS -->
+            </div>
 
-        <select id="filter-broker" style="min-width: 150px;">
-          <option value="">All Brokers</option>
-          <option value="RV-CT">Revolut</option>
-          <option value="TR-CT">Trade Republic</option>
-          <option value="BB-PEA">Boursobank PEA</option>
-          <option value="Binance">Binance</option>
-          <option value="Bitstack">Bitstack</option>
-        </select>
+            <div
+              style="display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+              <button class="btn-secondary" id="cancel-div-btn">Annuler</button>
+              <button class="btn-primary" id="confirm-div-btn">Ajouter la sélection</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        <button id="clear-filters" class="btn-secondary">Clear Filters</button>
-        <button id="refresh-prices">Refresh Prices</button>
+      <div class="filters-container">
+
+        <div class="search-row">
+          <input type="text" id="search-input" placeholder="Search ticker, name or date...">
+        </div>
+
+        <div class="filter-row">
+          <div id="ticker-filter-dropdown"></div>
+
+          <select id="filter-asset-type">
+            <option value="">All Asset Types</option>
+            <option value="Stock">Stock</option>
+            <option value="ETF">ETF</option>
+            <option value="Crypto">Crypto</option>
+            <option value="Dividend">Dividend</option>
+          </select>
+
+          <select id="filter-broker">
+            <option value="">All Brokers</option>
+            <option value="RV-CT">Revolut</option>
+            <option value="TR-CT">Trade Republic</option>
+            <option value="BB-PEA">Boursobank PEA</option>
+            <option value="Binance">Binance</option>
+            <option value="Bitstack">Bitstack</option>
+          </select>
+        </div>
+        <button id="clear-filters" class="btn-secondary" title="Clear Filters">
+          <i class="fas fa-times"></i>
+        </button>
       </div>
 
       <div class="bulk-actions" id="bulk-actions" style="display:none;">
@@ -302,6 +397,7 @@
                 <option value="Stock">Stock</option>
                 <option value="ETF">ETF</option>
                 <option value="Crypto">Crypto</option>
+                <option value="Dividend">Dividend</option>
               </select>
             </div>
             <div class="form-group">
@@ -329,8 +425,9 @@
   <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
 
   <script type="module" src="./authGuard.js"></script>
-  <script type="module" src="./app.js?v=10"></script>
-  <script type="module" src="./sidebar.js"></script>
+  <script type="module" src="./app.js?v=11"></script>
+  <script src="./cacheRefresh.js"></script>
+  <script type="module" src="./sidebar.js?v=28"></script>
 </body>
 
 </html>

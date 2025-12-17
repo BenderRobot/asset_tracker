@@ -8,6 +8,8 @@ import { PriceAPI } from './api.js?v=4';
 import { MarketStatus } from './marketStatus.js?v=2';
 import { DataManager } from './dataManager.js?v=7';
 import { HistoricalChart } from './historicalChart.js?v=9';
+import { IndexCardChart } from './indexCardChart.js';
+import { ChartKPIManager } from './chartKPIManager.js'; // NOUVEAU : Pour sparkline
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 import { UIComponents } from './ui.js'; // <-- IMPORT UIComponents AJOUTÉ
 import { GEMINI_PROXY_URL } from './config.js'; // <-- IMPORT GCP PROXY
@@ -37,6 +39,7 @@ class DashboardApp {
         this.api = new PriceAPI(this.storage);
         this.marketStatus = new MarketStatus(this.storage);
         this.dataManager = new DataManager(this.storage, this.api);
+        this.chartKPIManager = new ChartKPIManager(this.api, this.storage, this.dataManager, this.marketStatus); // NOUVEAU
         this.ui = new UIComponents(this.storage); // <-- INSTANCIATION NÉCESSAIRE
 
         this.mockPageInterface = {
@@ -44,12 +47,13 @@ class DashboardApp {
             currentSearchQuery: '',
             currentAssetTypeFilter: '',
             currentBrokerFilter: '',
-            getChartTitleConfig: () => ({ mode: 'global', label: 'Global Portfolio', icon: 'Chart' }),
+            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'Chart' }),
             renderData: (holdings, summary, cash) => {
                 if (summary) {
                     // CORRECTION: Utilise la méthode unifiée de ui.js pour mettre à jour les 3 cartes principales
                     // La variable 'summary.movementsCount' n'est pas nécessaire ici, on passe 0 si elle n'existe pas.
-                    this.ui.updatePortfolioSummary(summary, summary.movementsCount || 0, cash, this.marketStatus);
+                    // MODIF: On passe null pour marketStatus afin de ne PAS afficher le badge "EN DIRECT" sur le Dashboard
+                    this.ui.updatePortfolioSummary(summary, summary.movementsCount || 0, cash, null);
                 }
             }
         };
@@ -76,6 +80,9 @@ class DashboardApp {
         setInterval(() => this.refreshDashboard(), 5 * 60 * 1000);
         this.setupEventListeners();
 
+
+        this.setupChartControls(); // NOUVEAU
+
         this.setupNewsControls();
     }
 
@@ -94,6 +101,167 @@ class DashboardApp {
         document.getElementById('refresh-portfolio-news')?.addEventListener('click', () => {
             this.loadPortfolioNews(true);
         });
+    }
+
+    // --- NOUVEAU : Setup du toggle Valeur / Performance ---
+    setupChartControls() {
+        const toggleContainer = document.getElementById('view-toggle');
+        if (toggleContainer) {
+            toggleContainer.style.display = 'flex';
+            toggleContainer.innerHTML = `
+                <div class="toggle-group">
+                    <button class="toggle-btn" data-view="global">Valeur (€)</button>
+                    <button class="toggle-btn active" data-view="performance">Performance (%)</button>
+                </div>
+            `;
+
+            const updateToggle = (view) => {
+                toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
+                    if (btn.dataset.view === view) btn.classList.add('active');
+                    else btn.classList.remove('active');
+                });
+
+                // Mettre à jour le graphique via this.chart
+                if (this.chart) {
+                    this.chart.update(false, false);
+                }
+            };
+
+            toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const view = e.target.dataset.view;
+                    updateToggle(view);
+                });
+            });
+        }
+    }
+
+    /**
+     * Détermine si un actif cote 24/7 (vraiment 7 jours sur 7)
+     */
+    is247Asset(ticker) {
+        return ticker === 'BTC-EUR';
+    }
+
+    /**
+     * Détermine si un actif cote 24/5 (24h/jour mais pas le weekend)
+     */
+    is245Asset(ticker) {
+        return ticker === 'EURUSD=X' || ticker === 'GC=F';
+    }
+
+    /**
+     * Détermine le statut du marché pour un ticker donné
+     * @returns 'PRE_MARKET' | 'MARKET_OPEN' | 'POST_MARKET' | 'WEEKEND' | '24_7'
+     */
+    getMarketStatus(ticker, hour, day, minutes = 0) {
+        // Weekend
+        if (day === 0 || day === 6) {
+            if (this.is247Asset(ticker)) return '24_7';
+            // Or et EUR/USD sont 24/5, donc fermés le weekend
+            return 'WEEKEND';
+        }
+
+        // Actifs 24/7 (Bitcoin uniquement)
+        if (this.is247Asset(ticker)) return '24_7';
+
+        // Actifs 24/5 (Or, EUR/USD) - cotent 24h en semaine
+        if (this.is245Asset(ticker)) return '24_5';
+
+        // Indices européens (CAC 40, EURO STOXX 50)
+        if (ticker === '^FCHI' || ticker === '^STOXX50E') {
+            if (hour >= 7 && hour < 9) return 'PRE_MARKET';
+            if (hour >= 9 && hour < 17) return 'MARKET_OPEN';
+            if (hour === 17 && minutes < 30) return 'MARKET_OPEN';
+            return 'POST_MARKET';
+        }
+
+        // Indices US (S&P 500, NASDAQ)
+        if (ticker === '^GSPC' || ticker === '^IXIC') {
+            if (hour >= 10 && hour < 15) return 'PRE_MARKET';
+            if (hour === 15 && minutes >= 30) return 'MARKET_OPEN';
+            if (hour >= 16 && hour < 22) return 'MARKET_OPEN';
+            return 'POST_MARKET';
+        }
+
+        return 'POST_MARKET';
+    }
+
+    /**
+     * Calcule la variation intelligente selon le statut du marché
+     * @returns {Object} { variation, variationPct, referencePrice, label, statusIcon }
+     */
+    getSmartVariation(ticker, currentPrice, previousClose, lastTradingDayClose) {
+        const now = new Date();
+        const hour = now.getHours();
+        const minutes = now.getMinutes();
+        const day = now.getDay(); // 0 = dimanche, 6 = samedi
+
+        const marketStatus = this.getMarketStatus(ticker, hour, day, minutes);
+
+        let referencePrice, label, statusIcon, priceToUse;
+
+        switch (marketStatus) {
+            case 'PRE_MARKET':
+                // Matin : Afficher CLOSED au lieu de futures
+                priceToUse = currentPrice;
+                referencePrice = previousClose; // Clôture veille
+                label = 'CLOSED';
+                statusIcon = '🔴'; // Icône fermé
+                break;
+
+            case 'MARKET_OPEN':
+                // Marché ouvert : Variation du jour
+                priceToUse = currentPrice;
+                referencePrice = previousClose; // Clôture veille
+                label = 'LIVE';
+                statusIcon = '🟢'; // Icône marché ouvert
+                break;
+
+            case 'POST_MARKET':
+            case 'WEEKEND':
+                // Soir/Weekend : Afficher la variation de la dernière séance connue par rapport à la veille
+                // Pour un Lundi soir : currentPrice (Lundi Close) vs previousClose (Vendredi Close)
+                priceToUse = currentPrice;
+                referencePrice = previousClose;
+                label = 'CLOSED';
+                statusIcon = '🔴';
+                break;
+
+            case '24_7':
+                // Bitcoin : Toujours variation du jour (prix actuel vs 00:00)
+                priceToUse = currentPrice;
+                referencePrice = previousClose;
+                label = '24/7';
+                statusIcon = '🔄';
+                break;
+
+            case '24_5':
+                // Or, EUR/USD : 24h en semaine, variation du jour
+                priceToUse = currentPrice;
+                referencePrice = previousClose;
+                label = '24/5';
+                statusIcon = '🔄';
+                break;
+
+            default:
+                priceToUse = currentPrice;
+                referencePrice = previousClose;
+                label = '';
+                statusIcon = '';
+        }
+
+        const variation = priceToUse - referencePrice;
+        const variationPct = referencePrice > 0 ? (variation / referencePrice) * 100 : 0;
+
+        return {
+            variation,
+            variationPct,
+            referencePrice,
+            label,
+            statusIcon,
+            marketStatus
+        };
     }
 
     renderAssetSelect() {
@@ -185,14 +353,22 @@ class DashboardApp {
 
             this.chart = new HistoricalChart(this.storage, this.dataManager, null, mockInvestmentsPage);
 
-            const btns = document.querySelectorAll('.chart-controls-inline .period-btn');
-            if (btns.length > 0) {
-                btns.forEach(btn => {
+            // Bind events for BOTH desktop and mobile buttons
+            const allPeriodBtns = document.querySelectorAll('.chart-controls-inline .period-btn, .chart-controls-bottom-mobile .period-btn');
+            if (allPeriodBtns.length > 0) {
+                allPeriodBtns.forEach(btn => {
                     const newBtn = btn.cloneNode(true);
                     btn.parentNode.replaceChild(newBtn, btn);
                     newBtn.addEventListener('click', (e) => {
-                        document.querySelectorAll('.chart-controls-inline .period-btn').forEach(b => b.classList.remove('active'));
-                        e.target.classList.add('active');
+                        // Update active state on ALL buttons (desktop & mobile) to keep them in sync
+                        document.querySelectorAll('.period-btn').forEach(b => {
+                            if (b.dataset.period === e.target.dataset.period) {
+                                b.classList.add('active');
+                            } else {
+                                b.classList.remove('active');
+                            }
+                        });
+
                         this.chart.currentPeriod = parseInt(e.target.dataset.period);
                         this.chart.update(true, true);
                     });
@@ -221,17 +397,26 @@ class DashboardApp {
                 const zeroSummary = { totalCurrentEUR: 0, totalInvestedEUR: 0, gainTotal: 0, gainPct: 0, totalDayChangeEUR: 0, dayChangePct: 0, movementsCount: 0, assetsCount: 0 };
                 this.renderKPIs(zeroSummary, 0, []);
                 this.renderAllocation([], 0);
-                this.ui.updatePortfolioSummary(zeroSummary, 0, 0, this.marketStatus);
+                this.ui.updatePortfolioSummary(zeroSummary, 0, 0, null);
                 return;
             }
 
             const tickers = [...new Set(purchases.map(p => p.ticker.toUpperCase()))];
             await this.api.fetchBatchPrices(tickers);
 
-            const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
-            const cashPurchases = purchases.filter(p => p.assetType === 'Cash');
+            const assetPurchases = purchases.filter(p => {
+                const type = (p.assetType || 'Stock').toLowerCase();
+                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
+            });
+            const cashPurchases = purchases.filter(p => {
+                const type = (p.assetType || 'Stock').toLowerCase();
+                return type === 'cash' || type === 'dividend' || p.type === 'dividend';
+            });
 
-            const holdings = this.dataManager.calculateHoldings(assetPurchases);
+            // [MODIFICATION] Pré-calculer les clôtures veille alignées sur le graphique pour cohérence P&L
+            const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(assetPurchases);
+
+            const holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap);
             const summary = this.dataManager.calculateSummary(holdings);
             const cashReserve = this.dataManager.calculateCashReserve(cashPurchases);
 
@@ -534,7 +719,7 @@ class DashboardApp {
         document.getElementById('modal-news-ticker').textContent = newsItem.source;
         document.getElementById('modal-news-ticker').style.backgroundColor = sourceColor;
         document.getElementById('modal-news-title').textContent = newsItem.title;
-        document.getElementById('modal-news-link').href = newsItem.link || '#';
+        document.getElementById('modal-news-link').href = newsItem.url || '#';
 
         const summaryDiv = document.getElementById('modal-news-summary');
         summaryDiv.innerHTML = '<span class="loading-text">Gemini analyse...</span>';
@@ -686,163 +871,173 @@ class DashboardApp {
             { ticker: 'EURUSD=X', name: 'EUR / USD', icon: `${cdn}1F4B1.svg` }
         ];
 
-        // Récupération de tous les prix en une seule fois
-        const tickersToFetch = indices.map(i => i.ticker);
-        await this.api.fetchBatchPrices(tickersToFetch);
+        // Récupération de tous les prix en une seule fois (via Promise.all pour paralléliser)
+        const fetchPromises = indices.map(async (idx) => {
+            let dashboardData = null;
+            let targetTicker = idx.ticker;
+            let isFuturesSwap = false;
 
-        for (const idx of indices) {
-            const data = this.storage.getCurrentPrice(idx.ticker) || {};
-            const currentPrice = data.price || data.previousClose || 0;
-            const previousClose = data.previousClose || currentPrice;
-            const price = currentPrice;
+            // PAS DE FUTURES : Toujours utiliser le ticker réel de l'indice
+            // Si fermé → dernière journée, si ouvert → live
+            const now = new Date();
+            const hour = now.getHours();
+            const min = now.getMinutes();
 
-            // Debug: vérifier si previousClose existe
-            console.log(`[Card ${idx.ticker}] price:`, price, 'previousClose:', data.previousClose);
+            // EU Futures (08:00 - 09:00 : Pre-market Europe)
+            /* DESACTIVÉ CAR TICKERS FCE=F / FESX=F RETOURNENT 404
+            if (idx.ticker === '^FCHI' || idx.ticker === '^STOXX50E') {
+                // Marché officiel ouvre à 09:00. Avant (depuis 08:00), on affiche les futures.
+                // On peut aussi étendre après 17:30 si voulu, mais la demande spécifique est "à partir de 8h00".
+                const isPreMarketEU = (hour === 8);
 
-            // Calculer TOUJOURS la variation depuis previousClose (pour cohérence)
-            const change = price - previousClose;
-            const pct = previousClose ? (change / previousClose) * 100 : 0;
-            const indicatorColor = change > 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
-
-            // Sparkline en fond
-            let sparklineBg = '';
+                if (isPreMarketEU) {
+                    if (idx.ticker === '^FCHI') targetTicker = 'FCE=F';      // CAC 40 Futures
+                    if (idx.ticker === '^STOXX50E') targetTicker = 'FESX=F'; // Euro Stoxx 50 Futures
+                    isFuturesSwap = true;
+                }
+            }
+            */
 
             try {
-                // Déterminer la période affichée (même logique que getStartEndTs)
-                const today = new Date();
-                const dayOfWeek = today.getDay();
-                const currentHour = today.getHours();
+                // Utilisation de la nouvelle méthode précise (avec ticker potentiellement swapé)
+                console.log(`[Dashboard] Fetching data for ${targetTicker}...`);
+                dashboardData = await this.api.fetchIndexDataForDashboard(targetTicker);
 
-                // Déterminer l'heure d'ouverture selon le marché
-                let marketOpenHour = 9;
-                const usIndices = ['^GSPC', '^IXIC'];
-                if (usIndices.includes(idx.ticker)) {
-                    marketOpenHour = 15.5; // 15h30 pour les marchés US
+                if (!dashboardData) {
+                    console.warn(`[Dashboard] No data returned for ${targetTicker}`);
                 }
 
-                const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
-                const isBeforeMarketOpen = (dayOfWeek >= 1 && dayOfWeek <= 5 && currentHour < marketOpenHour);
+                // Si succès, on met à jour le cache
+                if (dashboardData) {
+                    this.storage.setCurrentPrice(idx.ticker, {
+                        price: dashboardData.price,
+                        previousClose: dashboardData.previousClose,
+                        currency: dashboardData.currency,
+                        marketState: dashboardData.marketState, // Sera probablement 'REGULAR' pour les Futures
+                        lastUpdate: Date.now()
+                    });
+                    console.log(`[Dashboard] ✓ ${idx.ticker}: ${dashboardData.price}`);
+                }
+            } catch (e) {
+                console.error(`[Dashboard] Error fetching ${targetTicker}:`, e);
+            }
 
-                let displayDay = new Date();
+            // Fallback sur le cache si l'appel échoue
+            if (!dashboardData) {
+                const cached = this.storage.getCurrentPrice(idx.ticker);
+                if (cached) {
+                    dashboardData = {
+                        price: cached.price,
+                        previousClose: cached.previousClose,
+                        lastTradingDayClose: cached.previousClose, // Best guess
+                        marketState: 'CLOSED'
+                    };
+                }
+            }
 
-                if (isWeekend || isBeforeMarketOpen) {
-                    // Afficher la dernière journée de trading
-                    if (dayOfWeek === 0) { // Dimanche -> vendredi
-                        displayDay.setDate(displayDay.getDate() - 2);
-                    } else if (dayOfWeek === 6) { // Samedi -> vendredi
-                        displayDay.setDate(displayDay.getDate() - 1);
-                    } else if (isBeforeMarketOpen) { // Avant ouverture -> jour précédent
-                        displayDay.setDate(displayDay.getDate() - 1);
-                        if (displayDay.getDay() === 0) {
-                            displayDay.setDate(displayDay.getDate() - 2);
-                        } else if (displayDay.getDay() === 6) {
-                            displayDay.setDate(displayDay.getDate() - 1);
-                        }
+            // Récupération des données pour le sparkline
+            let indexData = null;
+            let truePreviousClose = null;
+
+            // Logic allowFallback: Disable fallback to yesterday if market is strictly OPEN
+            let allowFallback = true;
+            const dayOfWeek = now.getDay();
+            const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+
+            if (isWeekday) {
+                if (idx.ticker === '^FCHI' || idx.ticker === '^STOXX50E') {
+                    // EU Open 09:00 - 17:35
+                    if (hour >= 9 && hour < 18) {
+                        allowFallback = false;
                     }
                 }
-
-                // Calcul du début de la journée affichée
-                displayDay.setHours(0, 0, 0, 0);
-                const startTs = Math.floor(displayDay.getTime() / 1000);
-                const startTsMs = displayDay.getTime();
-
-                const hist = await this.api.getHistoricalPricesWithRetry(
-                    idx.ticker,
-                    startTs,
-                    Math.floor(Date.now() / 1000),
-                    '5m'
-                );
-
-                // Filtrer les points >= startTsMs
-                let values = Object.keys(hist)
-                    .map(Number)
-                    .filter(ts => ts >= startTsMs)
-                    .sort((a, b) => a - b)
-                    .map(ts => hist[ts]);
-
-                if (values.length === 0) {
-                    // Fallback si pas de données
-                    let lastTradingDay = this.dataManager.getLastTradingDay(new Date());
-                    const todayCheck = new Date();
-                    if (lastTradingDay.toDateString() === todayCheck.toDateString()) {
-                        lastTradingDay.setDate(lastTradingDay.getDate() - 1);
-                        lastTradingDay = this.dataManager.getLastTradingDay(lastTradingDay);
+                if (idx.ticker === '^GSPC' || idx.ticker === '^IXIC') {
+                    // US Open 15:30 - 22:00
+                    if ((hour > 15 || (hour === 15 && min >= 30)) && hour < 22) {
+                        allowFallback = false;
                     }
-                    lastTradingDay.setHours(0, 0, 0, 0);
-                    const lastStartTs = Math.floor(lastTradingDay.getTime() / 1000);
-                    const lastEndTs = lastStartTs + (24 * 60 * 60);
-
-                    const histLast = await this.api.getHistoricalPricesWithRetry(
-                        idx.ticker,
-                        lastStartTs,
-                        lastEndTs,
-                        '5m'
-                    );
-
-                    values = Object.keys(histLast)
-                        .map(Number)
-                        .sort((a, b) => a - b)
-                        .map(ts => histLast[ts]);
                 }
+            }
 
-                console.log(`[Sparkline ${idx.ticker}] Kept values: ${values.length}`);
+            try {
+                indexData = await this.chartKPIManager.fetchIndexData(targetTicker, '1D', allowFallback);
+                if (indexData) truePreviousClose = indexData.truePreviousClose;
+            } catch (e) { console.warn(`[Sparkline ${targetTicker}] Error:`, e.message); }
 
-                if (values.length > 1) {
-                    const min = Math.min(...values);
-                    const max = Math.max(...values);
-                    const range = max - min || 1;
-                    const points = values
-                        .map((v, i) => {
-                            const x = (i / (values.length - 1)) * 100;
-                            const y = 88 - ((v - min) / range) * 70;
-                            return `${x},${y}`;
-                        })
-                        .join(' ');
-                    const gradId = `grad-${idx.ticker.replace(/[^a-z]/gi, '')}`;
-                    sparklineBg = `
-					<div style="position:absolute; inset:0; opacity:0.38; pointer-events:none; overflow:hidden; border-radius:12px;">
-						<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%; height:100%;">
-							<defs>
-								<linearGradient id="${gradId}" x1="0%" y1="100%" x2="0%" y2="0%">
-									<stop offset="0%" stop-color="${indicatorColor}" stop-opacity="0.7"/>
-									<stop offset="60%" stop-color="${indicatorColor}" stop-opacity="0.25"/>
-									<stop offset="100%" stop-color="${indicatorColor}" stop-opacity="0.05"/>
-								</linearGradient>
-							</defs>
-							<polyline fill="none" stroke="${indicatorColor}" stroke-width="1.6" points="${points}"/>
-							<polygon fill="url(#${gradId})" points="${points},100,100,100,0"/>
-						</svg>
-					</div>`;
-                }
-            } catch (e) { /* sparkline échouée → on ignore */ }
+            return { idx, dashboardData, indexData, truePreviousClose, isFuturesSwap, targetTicker }; // Modified to include targetTicker
+        });
+
+        const results = await Promise.all(fetchPromises);
+
+        for (const { idx, dashboardData, indexData, truePreviousClose, isFuturesSwap, targetTicker } of results) {
+
+            const currentPrice = dashboardData ? dashboardData.price : 0;
+            const apiPreviousClose = dashboardData ? dashboardData.previousClose : 0;
+            const lastTradingDayClose = dashboardData ? dashboardData.lastTradingDayClose : 0;
+
+            let sparklineBg = '';
+
+            // 2. Utiliser directement apiPreviousClose qui contient J-1 (calculé dans api.js)
+            const referenceClose = apiPreviousClose || currentPrice;
+
+            // Debug: vérifier 
+            console.log(`[Card ${idx.ticker}] price: ${currentPrice}, apiPreviousClose: ${apiPreviousClose}, Ref: ${referenceClose}`);
+
+            // NOUVELLE LOGIQUE : Variation intelligente
+            const smartVar = this.getSmartVariation(
+                idx.ticker,
+                currentPrice,
+                referenceClose,
+                lastTradingDayClose || referenceClose
+            );
+
+            const change = smartVar.variation;
+            const pct = smartVar.variationPct;
+            let statusLabel = smartVar.label;
+            // if (isFuturesSwap) statusLabel = 'FUTURES'; // SUPPRIMÉ: On laisse getSmartVariation décider ('CLOSED' ou 'LIVE')
+
+            const statusIcon = smartVar.statusIcon;
+            const indicatorColor = change > 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
+
+            // Générer le sparkline maintenant qu'on a la bonne couleur et la bonne référence
+            if (indexData) {
+                sparklineBg = this.chartKPIManager.generateSparkline(indexData, smartVar.referencePrice, idx.ticker, indicatorColor);
+            }
 
             // Classe de statut pour la variation
             const finalStatusClass = change > 0 ? 'stat-positive' : change < 0 ? 'stat-negative' : 'stat-positive';
 
-            // Formatage prix
+            // Formatage prix - CORRECTION: € uniquement pour BTC, pas pour les indices
             let priceStr, changeDecimals = 2;
             if (idx.ticker.includes('BTC')) {
-                priceStr = Math.round(price).toLocaleString('fr') + ' €';
+                priceStr = Math.round(currentPrice).toLocaleString('fr') + ' €';
             } else if (idx.ticker === 'EURUSD=X' || idx.ticker === 'GC=F') {
-                priceStr = price.toFixed(4);
+                priceStr = currentPrice.toFixed(4);
                 changeDecimals = 4;
-            } else if (idx.ticker === '^STOXX50E') {
-                priceStr = price.toFixed(2).toLocaleString('fr');
             } else {
-                priceStr = price.toFixed(2).toLocaleString('fr') + ' €';
+                // Indices (^GSPC, ^IXIC, ^FCHI, ^STOXX50E) : afficher les points sans €
+                priceStr = currentPrice.toFixed(2).toLocaleString('fr');
             }
 
             const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(changeDecimals)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
             const changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
 
-            const assetStatus = this.marketStatus.getAssetStatus(idx.ticker);
-            const statusLabel = assetStatus.label;
-            const statusColor = assetStatus.color;
+            // Extraire les KPIs depuis indexData
+            let kpiHTML = '';
+            if (indexData && indexData.values && indexData.values.length > 0) {
+                // STATS (DEBUT/FIN/HAUT/BAS) DÉSACTIVÉES SUR DEMANDE UTILISATEUR
+                // kpiHTML = ...
+            }
 
-            // Icône
-            const iconHTML = idx.icon.includes('http')
-                ? `<img src="${idx.icon}" alt="" style="width:26px; height:26px; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">`
-                : `<span style="font-size:28px; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6));">${idx.icon}</span>`;
+            // Utiliser statusColor basé sur la variation
+            const statusColor = change >= 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
+
+            // Icône normalisée (Conteneur fixe pour éviter les décalages de hauteur sur BTC)
+            const iconContent = idx.icon.includes('http')
+                ? `<img src="${idx.icon}" alt="" style="width:100%; height:100%; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">`
+                : `<span style="font-size:24px; line-height:1; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6)); display:flex; align-items:center; justify-content:center; height:100%; width:100%;">${idx.icon}</span>`;
+
+            const iconHTML = `<div style="width:26px; height:26px; display:flex; align-items:center; justify-content:center;">${iconContent}</div>`;
 
             const innerHTMLStructure = `
 				${sparklineBg}
@@ -855,9 +1050,10 @@ class DashboardApp {
 					<div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
 						<span class="${changeClass}" style="font-size:11.5px; font-weight:600;">${changeStr}</span>
 						<span style="color:${statusColor}; border:1px solid ${statusColor}; padding:3px 8px; border-radius:6px; font-weight:700; font-size:9px; background:rgba(255,255,255,0.1); text-transform:uppercase; letter-spacing:0.4px;">
-							${statusLabel}
+							${statusIcon} ${statusLabel}
 						</span>
 					</div>
+					${kpiHTML}
 				</div>`;
 
             // ID unique de la carte
@@ -910,9 +1106,9 @@ class DashboardApp {
                 document.querySelectorAll('.market-card').forEach(c => c.classList.remove('active-index'));
                 cardElement.classList.add('active-index');
 
-                this.api.fetchBatchPrices([idx.ticker], true);
+                this.api.fetchBatchPrices([targetTicker], true); // Use targetTicker (Futures if applicable)
                 if (this.chart) {
-                    this.chart.showIndex(idx.ticker, idx.name);
+                    this.chart.showIndex(targetTicker, idx.name); // Use targetTicker (Futures if applicable)
                 }
                 if (window.innerWidth < 768) {
                     document.querySelector('.dashboard-chart-section')?.scrollIntoView({ behavior: 'smooth' });

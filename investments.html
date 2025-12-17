@@ -10,9 +10,11 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 
     <link rel="stylesheet" href="css/variables.css">
-    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/layout.css?v=44">
     <link rel="stylesheet" href="css/components.css">
-    <link rel="stylesheet" href="css/investments.css">
+    <link rel="stylesheet" href="css/investments.css?v=44">
+    <link rel="stylesheet" href="css/investments-mobile.css?v=1">
+    <link rel="stylesheet" href="css/investments-table-compact.css">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,6 +30,17 @@
 </head>
 
 <body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
     <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-header">
             <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
@@ -149,7 +162,7 @@
                     <div class="header-controls">
                         <div class="benchmark-select-wrapper" id="benchmark-wrapper" style="display: none;">
                             <select id="benchmark-select" class="btn-secondary"
-                                style="padding: 6px 12px; font-size: 0.85rem; -webkit-appearance: listbox;">
+                                style="padding: 6px 12px; font-size: 0.85rem; -webkit-appearance: listbox; appearance: none;">
                                 <option value="">vs Benchmark</option>
                                 <option value="^GSPC">S&P 500</option>
                                 <option value="^IXIC">Nasdaq 100</option>
@@ -236,29 +249,34 @@
                 </div>
             </div>
 
-            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
-                <input type="text" id="search-input" placeholder="Search ticker, name or date..."
-                    style="flex: 1; min-width: 250px;">
-                <div id="ticker-filter-dropdown"></div>
+            <div class="filters-container">
+                <div class="search-row">
+                    <input type="text" id="search-input" placeholder="Search ticker, name or date...">
 
-                <select id="filter-asset-type" style="min-width: 150px;">
-                    <option value="">All Asset Types</option>
-                    <option value="Stock">Stock</option>
-                    <option value="ETF">ETF</option>
-                    <option value="Crypto">Crypto</option>
-                </select>
+                </div>
 
-                <select id="filter-broker" style="min-width: 150px;">
-                    <option value="">All Brokers</option>
-                    <option value="RV-CT">Revolut</option>
-                    <option value="TR-CT">Trade Republic</option>
-                    <option value="BB-PEA">Boursobank PEA</option>
-                    <option value="Binance">Binance</option>
-                    <option value="Bitstack">Bitstack</option>
-                </select>
+                <div class="filter-row">
+                    <div id="ticker-filter-dropdown"></div>
 
-                <button id="clear-filters" class="btn-secondary">Clear Filters</button>
-                <button id="refresh-prices">Refresh Prices</button>
+                    <select id="filter-asset-type">
+                        <option value="">All Types</option>
+                        <option value="Stock">Stock</option>
+                        <option value="ETF">ETF</option>
+                        <option value="Crypto">Crypto</option>
+                    </select>
+
+                    <select id="filter-broker">
+                        <option value="">All Brokers</option>
+                        <option value="RV-CT">Revolut</option>
+                        <option value="TR-CT">Trade Republic</option>
+                        <option value="BB-PEA">Boursobank</option>
+                        <option value="Binance">Binance</option>
+                        <option value="Bitstack">Bitstack</option>
+                    </select>
+                </div>
+                <button id="clear-filters" class="btn-secondary" title="Clear Filters">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
 
             <table id="investments-table">
@@ -288,8 +306,10 @@
     <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
     <script type="module" src="./authGuard.js"></script>
-    <script type="module" src="./app.js?v=10"></script>
-    <script type="module" src="./sidebar.js"></script>
+    <script type="module" src="./app.js?v=14"></script>
+    <script src="./cacheRefresh.js"></script>
+    <script src="./investmentsMobile.js?v=2"></script>
+    <script type="module" src="./sidebar.js?v=28"></script>
 </body>
 
 </html>

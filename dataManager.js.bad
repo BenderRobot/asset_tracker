@@ -42,9 +42,22 @@ export class DataManager {
             const promises = batch.map(async ticker => {
                 try {
                     const graphData = await this.calculateAssetHistory(ticker, 1);
-                    if (graphData && graphData.yesterdayClose) {
-                        yesterdayCloseMap.set(ticker, graphData.yesterdayClose);
-                        console.log(`[✓] ${ticker}: yesterdayClose = ${graphData.yesterdayClose.toFixed(2)} `);
+
+                    if (graphData) {
+                        // Use Unit Price if available, otherwise fallback to Close but be careful
+                        const priceToUse = graphData.yesterdayUnitPrice || graphData.yesterdayClose;
+
+                        if (priceToUse) {
+                            yesterdayCloseMap.set(ticker, priceToUse);
+                            console.log(`[✓] ${ticker}: yesterdayClose (UNIT) = ${priceToUse.toFixed(2)} `);
+
+                            // MISE À JOUR DU STORAGE POUR PERSISTER LA CORRECTION
+                            const cached = this.storage.getCurrentPrice(ticker);
+                            if (cached) {
+                                cached.previousClose = priceToUse;
+                                this.storage.setCurrentPrice(ticker, cached);
+                            }
+                        }
                     } else {
                         console.warn(`[✗] ${ticker}: No yesterdayClose in graphData`, graphData);
                     }
@@ -60,11 +73,7 @@ export class DataManager {
     }
 
     calculateCashReserve(allPurchases) {
-        // Include Dividends in Cash Reserve calculation
-        const cashMovements = allPurchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-        });
+        const cashMovements = allPurchases.filter(p => p.assetType === 'Cash');
         const byBroker = {};
         let total = 0;
         cashMovements.forEach(move => {
@@ -139,44 +148,30 @@ export class DataManager {
             const currentValueEUR = currentValue ? currentValue * rate : null;
 
             const gainEUR = currentValueEUR ? currentValueEUR - investedEUR : null;
-            const gainPct = investedEUR > 0 && gainEUR ? (gainEUR / investedEUR) * 100 : null;
+            const gainPct = investedEUR > 0 && gainEUR !== null ? (gainEUR / investedEUR) * 100 : null;
 
             let dayChange = null;
             let dayPct = null;
 
-            // DEBUG LOG
-            if (ticker === 'AL2SI') {
-                console.log(`[AL2SI Debug] yesterdayCloseMap has AL2SI: ${yesterdayCloseMap && yesterdayCloseMap.has(ticker)}`);
-                console.log(`[AL2SI Debug] currentValue: ${currentValue}`);
-                console.log(`[AL2SI Debug] previousClose from storage: ${previousClose}`);
-                console.log(`[AL2SI Debug] currentPrice: ${currentPrice}`);
-                if (yesterdayCloseMap && yesterdayCloseMap.has(ticker)) {
-                    console.log(`[AL2SI Debug] yesterdayCloseMap value:`, yesterdayCloseMap.get(ticker));
+            if (yesterdayCloseMap && yesterdayCloseMap.has(ticker) && currentValue && currentValue > 0) {
+                const yesterdayData = yesterdayCloseMap.get(ticker);
+                const graphYesterdayCloseTotal = yesterdayData.value || yesterdayData;
+
+                if (graphYesterdayCloseTotal && graphYesterdayCloseTotal > 0) {
+                    dayPct = ((currentValue - graphYesterdayCloseTotal) / graphYesterdayCloseTotal) * 100;
+                    dayChange = currentValueEUR - (graphYesterdayCloseTotal * rate);
                 }
             }
-
-            // FORCE STORAGE.PREVIOUSCLOSE COMME SOURCE UNIQUE (Matching Chart Logic)
-            // On ignore yesterdayCloseMap pour garantir cohérence avec le graphique
-            if (currentPrice && currentPrice > 0) {
+            else if (currentPrice && currentPrice > 0) {
                 const effectivePreviousClose = (previousClose && previousClose > 0) ? previousClose : currentPrice;
 
                 if (effectivePreviousClose !== currentPrice) {
                     dayPct = ((currentPrice - effectivePreviousClose) / effectivePreviousClose) * 100;
                     const dayChangeOriginal = (currentPrice - effectivePreviousClose) * data.quantity;
                     dayChange = dayChangeOriginal * rate;
-
-                    if (ticker === 'AL2SI') {
-                        console.log(`[AL2SI Debug] Using storage.previousClose`);
-                        console.log(`[AL2SI Debug] effectivePreviousClose: ${effectivePreviousClose}`);
-                        console.log(`[AL2SI Debug] dayChange: ${dayChange}`);
-                    }
                 } else {
                     dayChange = 0;
                     dayPct = 0;
-
-                    if (ticker === 'AL2SI') {
-                        console.log(`[AL2SI Debug] FORCED TO 0 (previousClose === currentPrice)`);
-                    }
                 }
             }
 
@@ -339,16 +334,8 @@ export class DataManager {
     }
 
     generateFullReport(purchases, yesterdayCloseMap = null) {
-        // Exclude Dividends from Asset Holdings (so they don't inflate share count)
-        const assetPurchases = purchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
-        });
-        // Include Dividends in Cash Purchases (so they appear in Cash Reserve, if logic supports it)
-        const cashPurchases = purchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-        });
+        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
+        const cashPurchases = purchases.filter(p => p.assetType === 'Cash');
         const holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap);
         const summary = this.calculateSummary(holdings);
         const cashReserve = this.calculateCashReserve(cashPurchases);
@@ -406,20 +393,12 @@ export class DataManager {
     }
 
     async calculateHistory(purchases, days) {
-        const assetPurchases = purchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
-        });
+        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
         return this.calculateGenericHistory(assetPurchases, days, false);
     }
 
     async calculateAssetHistory(ticker, days) {
-        const purchases = this.storage.getPurchases()
-            .filter(p => p.ticker.toUpperCase() === ticker.toUpperCase())
-            .filter(p => {
-                const type = (p.assetType || 'Stock').toLowerCase();
-                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
-            });
+        const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
         if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [] };
         return this.calculateGenericHistory(purchases, days, true);
     }

@@ -1,0 +1,86 @@
+/* ========================================
+   MOBILE MIGRATION PAGE OPTIMIZATION
+   ======================================== */
+
+@media (max-width: 768px) {
+
+    /* 1. Header */
+    .migration-header h2 {
+        font-size: 24px;
+    }
+
+    .migration-header p {
+        font-size: 14px;
+    }
+
+    /* 2. Filter Bar - Allow wrapping */
+    .filter-bar {
+        flex-wrap: wrap;
+        padding: 12px;
+        gap: 8px;
+    }
+
+    .filter-bar input {
+        width: 100%;
+        order: 1;
+        /* Search bar first, full width */
+        min-width: 100%;
+    }
+
+    .filter-bar button {
+        flex: 1;
+        order: 2;
+        /* Buttons second, shared width */
+        padding: 10px 8px;
+        /* Less horizontal padding */
+        font-size: 13px;
+        white-space: nowrap;
+        text-align: center;
+    }
+
+    /* 3. Selection Bar - Stack vertically */
+    .select-all-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .select-all-bar>div:last-child {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+    }
+
+    .select-all-bar button {
+        flex: 1;
+        padding: 10px 4px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    /* 4. Action Bar - Ensure it fits */
+    .migration-actions {
+        width: calc(100% - 32px);
+        /* Correct calculation with margin */
+        padding: 16px;
+        bottom: 16px;
+        gap: 16px;
+    }
+
+    .migration-buttons {
+        width: 100%;
+        gap: 8px;
+    }
+
+    .btn-cancel,
+    .btn-migrate {
+        flex: 1;
+        padding: 12px 8px;
+        font-size: 13px;
+        white-space: nowrap;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+}

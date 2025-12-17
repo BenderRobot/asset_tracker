@@ -16,6 +16,8 @@ export class PortfolioCalculator {
 
         // A. Agrégation des achats par ticker
         purchases.forEach(p => {
+            if (p.type === 'dividend') return; // Les dividendes sont traités à part (Cash)
+
             const ticker = p.ticker.toUpperCase();
             if (!assetMap.has(ticker)) {
                 assetMap.set(ticker, {
@@ -28,6 +30,10 @@ export class PortfolioCalculator {
             }
             const asset = assetMap.get(ticker);
             asset.quantity += parseFloat(p.quantity);
+            // Sell logic usually negative quantity, but confirm:
+            // Standard purchases have positive quantity/price.
+            // If selling, quantity should be negative in input or handled here.
+            // Assuming p.quantity is signed correctly in storage.js or here.
             asset.invested += parseFloat(p.price) * parseFloat(p.quantity);
             asset.purchases.push(p);
         });
@@ -143,7 +149,8 @@ export class PortfolioCalculator {
     // === 2. CALCUL DE L'HISTORIQUE (POUR LE GRAPHIQUE) ===
 
     async calculateHistory(purchases, days) {
-        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
+        // Exclure Cash ET Dividendes du calcul de valeur des ACTIFS (les dividendes sont du cash)
+        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash' && p.type !== 'dividend');
         if (assetPurchases.length === 0) return { labels: [], values: [], invested: [] };
 
         // 1. Définir la plage de temps
@@ -205,7 +212,17 @@ export class PortfolioCalculator {
         const lastKnownPrices = new Map();
 
         // Initialisation des prix connus avant le début de la période (pour éviter de partir de 0)
-        // (Simplification: on prend le premier prix de l'historique si dispo)
+        // [FIX] On pré-remplit avec le prix actuel (ou la veille) pour les actifs qui n'ont pas encore de données ajd (ex: Stocks le lundi matin)
+        tickers.forEach(t => {
+            const priceData = this.storage.getCurrentPrice(t);
+            if (priceData) {
+                // Priorité : Prix actuel > Clôture veille > 0
+                const initPrice = priceData.price || priceData.previousClose || 0;
+                if (initPrice > 0) {
+                    lastKnownPrices.set(t, initPrice);
+                }
+            }
+        });
 
         displayTimestamps.forEach(ts => {
             // A. Calculer la quantité détenue à cet instant 'ts'

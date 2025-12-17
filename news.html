@@ -7,11 +7,12 @@
     <title>News & Flux RSS - Asset Tracker</title>
     <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
     <link rel="stylesheet" href="css/variables.css">
-    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/layout.css?v=44">
     <link rel="stylesheet" href="css/components.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="css/news.css">
+    <link rel="stylesheet" href="css/news-mobile.css">
     <script>
         // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
         const isCollapsed = localStorage.getItem('sidebarState') === 'true';
@@ -22,6 +23,17 @@
 </head>
 
 <body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
     <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-header">
             <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
@@ -75,7 +87,7 @@
     <main class="main-content">
         <div class="container">
             <div class="news-header">
-                <h2>📰 Actualités Marchés & Économie</h2>
+                <h2>📰 News Feeds</h2>
                 <div class="news-actions">
                     <button id="refresh-news-btn" class="btn-primary"><i class="fas fa-sync"></i> Rafraîchir</button>
                     <button id="filter-my-assets-btn" class="btn-secondary" style="min-width: 150px;"><i
@@ -133,7 +145,8 @@
     <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
     <script type="module" src="./authGuard.js"></script>
-    <script type="module" src="./newsApp.js"></script>
+    <script type="module" src="./newsApp.js?v=2"></script>
+    <script src="./cacheRefresh.js"></script>
     <script type="module" src="./sidebar.js"></script>
 </body>
 
