@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep -l \"DASHBOARD_INDICES\\\\|market.*overview\\\\|indices.*list\")",
+      "Bash(python3 -c ' *)",
+      "PowerShell(Get-Command ssh, plink -ErrorAction SilentlyContinue)",
+      "Bash(python3 -c \"import paramiko; print\\('ok'\\)\")",
+      "Bash(python -c \"import paramiko; print\\('ok'\\)\")",
+      "Bash(python -)"
+    ]
+  }
+}

@@ -1,0 +1,380 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "0e13bf61-421a-4893-ad9f-814db4f4eeb3",
+      "name": "Schedule 30min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        420,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "getAll",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/purchases",
+        "returnAll": true
+      },
+      "id": "3ea05133-a78a-4df4-9065-edf18ad4ead4",
+      "name": "Firestore Purchases Sync",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        620,
+        660
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "eX2M9zivWL2nlEPK",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const purchases = $input.all();\n\n// 1. Ta table officielle des actifs suivis\nconst assets = [\n  { ticker: \"3ZU0\",     name: \"AST SpaceMobile\" },\n  { ticker: \"BKSY\",     name: \"Blacksky\" },\n  { ticker: \"AMZ\",     name: \"Amazon\" },\n  { ticker: \"APC\",     name: \"Apple\" },\n  { ticker: \"BTC-USD\",  name: \"Bitcoin\" },\n  { ticker: \"TL0\",     name: \"Tesla\" },\n  { ticker: \"NVD\",     name: \"Nvidia\" },\n  { ticker: \"ABEA\",    name: \"Alphabet\" },\n  { ticker: \"TKE\",     name: \"Take-Two\" },\n  { ticker: \"SU.PA\",    name: \"Schneider Electric\" },\n  { ticker: \"AP2\",     name: \"Applied Materials\" },\n  { ticker: \"1170\",     name: \"Arista Networks\" },\n  { ticker: \"SOI.PA\",   name: \"Soitec\" },\n  { ticker: \"ALRIB.PA\", name: \"Riber\" },\n  { ticker: \"AL2SI.PA\", name: \"2CRSI\" },\n  { ticker: \"GOLD.PA\",  name: \"Amundi Gold\" },\n  { ticker: \"CSPX.AS\",  name: \"iShares S&P 500\" },\n  { ticker: \"CNDX.AS\",  name: \"iShares NASDAQ 100\" },\n  { ticker: \"EUEA.PA\",  name: \"iShares EURO STOXX 50\" },\n  { ticker: \"STEC\",  name: \"iShares STOXX Europe 600 Tech\" },\n  { ticker: \"ESE.PA\",   name: \"BNP Paribas Easy S&P 500\" }\n];\n\n// 2. Ton dictionnaire Yahoo Finance\nconst yahooMap = {\n  'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.DE', 'MSF': 'MSF.F',\n  'TL0': 'TL0.DE', 'TLO': 'TL0.DE', 'TKE': 'TKE.F', 'M4I': 'M4I.F', 'ABEA': 'ABEA.F',\n  'CSPX': 'CSPX.AS', 'CNDX': 'CNDX.AS', '3ZU0': '3ZU0.F', '1170': '1170.F',\n  '9D5': '9D5.F', 'GXG': 'GXG.F', 'BKSY': 'BKSY',\n  'GOLD-ETFP': 'GOLD-EUR.PA', // Attention : ta table dit GOLD.PA, ton achat dit GOLD-EUR.PA\n  'AL2SI': 'AL2SI.PA', 'SU': 'SU.PA', 'ESE': 'ESE.PA',\n  'EUEA': 'EUEA.AS', 'STEC': 'STEC.AS', 'ALRIB': 'ALRIB.PA',\n  'SOI': 'SOI.PA', 'BTC': 'BTC-EUR' // Attention : ta table dit BTC-USD, ton achat dit BTC-EUR\n};\n\n// 3. Fonction pour trouver automatiquement le bon nom propre depuis ta table assets\nfunction getAssetName(yahooTicker, shortTicker) {\n  // On cherche une correspondance exacte sur le ticker Yahoo\n  let found = assets.find(a => a.ticker.toLowerCase() === yahooTicker.toLowerCase());\n  \n  // Si pas trouvé (cas particuliers comme l'or ou le bitcoin qui ont des suffixes Yahoo différents),\n  // on cherche si le début du ticker ou le shortTicker matche\n  if (!found) {\n    const baseYahoo = yahooTicker.split('.')[0].split('-')[0].toLowerCase(); // ex: \"gold\" ou \"btc\"\n    found = assets.find(a => \n      a.ticker.toLowerCase().startsWith(baseYahoo) || \n      a.ticker.toLowerCase() === shortTicker.toLowerCase()\n    );\n  }\n  \n  // Si trouvé on renvoie le nom officiel, sinon le short ticker par défaut\n  return found ? found.name : shortTicker;\n}\n\n// 4. Initialisation de reverseMap avec les paires de yahooMap\nconst reverseMap = {};\nfor (const [short, yahoo] of Object.entries(yahooMap)) {\n  reverseMap[yahoo] = { \n    ticker: short, \n    name: getAssetName(yahoo, short) \n  };\n}\n\n// 5. Calcul des quantités nettes des achats\nconst netQty = {};\nfor (const item of purchases) {\n    const ticker = (item.json.ticker || '').toUpperCase().trim();\n    const qty = parseFloat(item.json.quantity) || 0;\n    if (!ticker || ticker.startsWith('CASH-')) continue;\n    netQty[ticker] = (netQty[ticker] || 0) + qty;\n}\n\n// 6. Génération de la liste finale des tickers et enrichissement de reverseMap\nconst tickers = [];\nfor (const [ticker, qty] of Object.entries(netQty)) {\n    if (qty < 0.01) continue;\n    const yahooTicker = yahooMap[ticker] || ticker;\n    \n    if (!reverseMap[yahooTicker]) {\n      reverseMap[yahooTicker] = { \n        ticker: ticker, \n        name: getAssetName(yahooTicker, ticker) \n      };\n    }\n    if (!tickers.includes(yahooTicker)) tickers.push(yahooTicker);\n}\n\nconst batch = tickers.slice(0, 20);\nconst allTickers = batch.join(',');\n\nreturn [{ json: { allTickers, reverseMap } }];"
+      },
+      "id": "0c5e010b-eba8-4200-bc9e-0e18b43482db",
+      "name": "Build Tickers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://query1.finance.yahoo.com/v7/finance/spark?symbols={{ $json.allTickers }}&range=1d&interval=5m",
+        "options": {}
+      },
+      "id": "e6331d4d-684d-4669-87e4-ddc6c6b90bf4",
+      "name": "Fetch Prices Yahoo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const reverseMap = $('Build Tickers').first().json.reverseMap;\nconst sparkData = $input.first().json;\nconst pricesObj = {};\n\nif (sparkData?.spark?.result) {\n    for (const res of sparkData.spark.result) {\n        if (!res?.response?.[0]?.meta) continue;\n        \n        const yahooTicker = res.symbol; // Reste la clé principale (ex: \"3ZU0.F\")\n        \n        const shortTicker = (reverseMap[yahooTicker] && reverseMap[yahooTicker].ticker) \n                            || yahooTicker;\n                            \n        const shortName = (reverseMap[yahooTicker] && reverseMap[yahooTicker].name)\n                          || shortTicker;\n                            \n        const meta = res.response[0].meta;\n        const price = meta.regularMarketPrice || 0;\n        const previousClose = meta.chartPreviousClose || meta.previousClose || price;\n        const currency = meta.currency || 'EUR';\n        const dayChangePct = previousClose > 0 ? ((price - previousClose) / previousClose * 100) : 0;\n        \n        // On garde yahooTicker comme clé pour ne pas casser l'update Firestore\n        pricesObj[yahooTicker] = { \n            ticker: shortTicker, // \"3ZU0\" reste dispo ici\n            price, \n            previousClose, \n            currency, \n            dayChangePct, \n            shortName, // \"Arista Networks\" reste dispo ici\n            lastUpdated: Date.now() \n        };\n    }\n}\n\nreturn [{ json: {\n    prices: pricesObj,\n    metadata: {\n        lastRefreshTimestamp: Date.now(),\n        lastRefreshDevice: 'n8n-auto',\n        tickerCount: Object.keys(pricesObj).length\n    },\n    summary: null\n}}];"
+      },
+      "id": "ed41269d-6eb1-4243-91e2-2b22cea90c0b",
+      "name": "Parse Prices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1220,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update"
+      },
+      "id": "f6c1d64c-ce10-4c59-9198-54e3632fa435",
+      "name": "Write Snapshot",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        1420,
+        560
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "eX2M9zivWL2nlEPK",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/priceAlerts",
+        "documentId": "thresholds"
+      },
+      "id": "29ce89cc-7f6c-4b31-8581-3d5cad351b84",
+      "name": "Get Alert Thresholds",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        1420,
+        780
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleApi": {
+          "id": "eX2M9zivWL2nlEPK",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prices = $('Parse Prices').first().json.prices;\nconst storedDoc = $input.first().json || {};\n\nconst rawThresholds = storedDoc.alertData || {};\n\nconst thresholds = {};\nfor (const [key, val] of Object.entries(rawThresholds)) {\n    if (val && typeof val === 'object' && val.threshold !== undefined) {\n        thresholds[key] = val;\n    }\n}\n\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\nconst todayTs = today.getTime();\nconst currentThresholds = {};\nfor (const [ticker, stored] of Object.entries(thresholds)) {\n    if (stored.lastAlertedAt >= todayTs) {\n        currentThresholds[ticker] = stored;\n    }\n}\n\nconst alerts = [];\nconst newThresholds = { ...currentThresholds };\n\nfor (const [ticker, data] of Object.entries(prices)) {\n    const pct = data.dayChangePct || 0;\n    const absPct = Math.abs(pct);\n    if (absPct < 1) continue;\n\n    const stored = currentThresholds[ticker] || null;\n    const direction = pct >= 0 ? 'up' : 'down';\n\n    if (!stored) {\n        alerts.push({ ticker, pct, price: data.price, currency: data.currency || 'EUR' });\n        newThresholds[ticker] = { threshold: absPct, direction, lastAlertedAt: Date.now() };\n    } else {\n        const sameDirection = (pct >= 0) === (stored.direction === 'up');\n        if (sameDirection && absPct >= stored.threshold + 1) {\n            alerts.push({ ticker, pct, price: data.price, currency: data.currency || 'EUR' });\n            newThresholds[ticker] = { threshold: absPct, direction, lastAlertedAt: Date.now() };\n        }\n    }\n}\n\nreturn [{ json: {\n    hasAlerts: alerts.length > 0,\n    alerts,\n    newThresholds\n}}];"
+      },
+      "id": "d087dbe5-7ea4-4e61-8730-df78580f0af3",
+      "name": "Check Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { newThresholds } = $('Check Alerts').first().json;\nreturn [{ json: { alertData: newThresholds } }];"
+      },
+      "id": "fb0d45a5-58e8-40d3-9c25-29d106acee56",
+      "name": "Extract Thresholds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        980
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update"
+      },
+      "id": "c158ffc8-1964-49ef-ba77-b6d70472f0d2",
+      "name": "Write Alert Thresholds",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        2020,
+        980
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "eX2M9zivWL2nlEPK",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "alert-cond-001",
+              "leftValue": "={{ $json.hasAlerts }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "94c57889-de10-4014-9a5e-9d1aac9b34b4",
+      "name": "If Has Alerts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { alerts } = $input.first().json;\n\nconst lines = alerts.map(a => {\n    const emoji = a.pct >= 0 ? '🟢' : '🔴';\n    const sign = a.pct >= 0 ? '+' : '';\n    return `${emoji} *${a.ticker}* : ${sign}${a.pct.toFixed(2)}% (${a.price.toFixed(2)} ${a.currency})`;\n}).join('\\n');\n\nconst message = `📊 *Alerte Prix Portefeuille*\\n\\n${lines}\\n\\n_Prochain alerte si +1% supplémentaire_`;\n\nreturn [{ json: { chatId: '2089017736', message } }];"
+      },
+      "id": "5c8c5f3f-b852-406d-b1aa-35bcfb5a111f",
+      "name": "Format Alert Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "2089017736",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "5c28d36a-8e7f-43ec-bcd1-2abdb6a1f700",
+      "name": "Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2420,
+        780
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "SX5rx7IEfevBlf0q",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule 30min": {
+      "main": [
+        [
+          {
+            "node": "Firestore Purchases Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firestore Purchases Sync": {
+      "main": [
+        [
+          {
+            "node": "Build Tickers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Tickers": {
+      "main": [
+        [
+          {
+            "node": "Fetch Prices Yahoo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Prices Yahoo": {
+      "main": [
+        [
+          {
+            "node": "Parse Prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Prices": {
+      "main": [
+        [
+          {
+            "node": "Write Snapshot",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Alert Thresholds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Alert Thresholds": {
+      "main": [
+        [
+          {
+            "node": "Check Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Alerts": {
+      "main": [
+        [
+          {
+            "node": "Extract Thresholds",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Has Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Thresholds": {
+      "main": [
+        [
+          {
+            "node": "Write Alert Thresholds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Has Alerts": {
+      "main": [
+        [
+          {
+            "node": "Format Alert Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Alert Message": {
+      "main": [
+        [
+          {
+            "node": "Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6e390712-0359-4f10-a260-f41f3de971d2",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bd0642bff22c21ed24c1b956535cd6871d016852494b3555f3c4d9f5f6a5776e"
+  },
+  "id": "48t0rRWojBM0AImK",
+  "tags": []
+}

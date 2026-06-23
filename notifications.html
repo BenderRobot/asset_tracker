@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asset Tracker - Notifications</title>
+
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/dashboard.css?v=99">
+    <link rel="stylesheet" href="css/dashboard-mobile.css?v=3">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <script>
+        // Anti-flash scripts
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        // Show admin link immediately if user is admin (no flash)
+        if (localStorage.getItem('isAdmin') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const adminLink = document.getElementById('admin-invitations-link');
+                if (adminLink) adminLink.style.display = 'flex';
+            });
+        }
+        // HIDE SIDEBAR IF IN IFRAME
+        if (window.self !== window.top) {
+            document.write('<style>.app-sidebar, .mobile-header { display: none !important; } .main-content { margin-left: 0 !important; width: 100% !important; }</style>');
+        }
+    </script>
+    <style>
+        /* Force dark background for options in dropdowns */
+        select option {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+        }
+    </style>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px; object-fit: contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">📈</div><span class="nav-text">Assets</span>
+            </a>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div><span class="nav-text">Transactions</span>
+            </a>
+            <a href="analytics.html" class="nav-item">
+                <div class="nav-icon">📊</div><span class="nav-text">Analytics</span>
+            </a>
+            <a href="watchlist.html" class="nav-item">
+                <div class="nav-icon">👁️</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item">
+                <div class="nav-icon">🔍</div>
+                <span class="nav-text">Screener</span>
+            </a>
+            <a href="news.html" class="nav-item">
+                <div class="nav-icon">📰</div>
+                <span class="nav-text">News Feeds</span>
+            </a>
+            <a href="realestate.html" class="nav-item">
+                <div class="nav-icon">🏢</div><span class="nav-text">Immobilier</span>
+            </a>
+            <a href="assistant.html" class="nav-item">
+                <div class="nav-icon">🤖</div><span class="nav-text">Assistant IA</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="settings.html" class="nav-item">
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
+                <span class="nav-text">Paramètres</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">Déconnexion</span>
+            </a>
+        </div>
+
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu"><i class="fas fa-chevron-left"></i></button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="container" style="max-width: 800px; margin: 0 auto; padding-top: 40px;">
+
+            <h1 style="margin-bottom: 30px; font-size: 28px; font-weight: 700;">Gestion des Notifications</h1>
+
+            <div class="card" style="padding: 24px;">
+
+                <!-- NEW: Global Settings Section -->
+                <div class="settings-section"
+                    style="margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color);">
+                    <h3 style="margin-bottom: 20px;">Paramètres Généraux</h3>
+
+                    <!-- NEW: Global Portfolio Settings -->
+                    <div class="setting-row"
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed var(--border-color);">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <label class="switch">
+                                <input type="checkbox" id="setting-portfolio-enabled">
+                                <span class="slider round"></span>
+                            </label>
+                            <span style="font-size: 16px; font-weight: 600; color: var(--accent-color);">Portefeuille
+                                Global (Variation > <input type="number" id="setting-portfolio-threshold"
+                                    style="width: 60px; padding: 6px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary);"
+                                    step="0.1" min="0.1" value="1.0"> %)</span>
+                        </div>
+                    </div>
+
+                    <!-- Indices Settings -->
+                    <div class="setting-row"
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <label class="switch">
+                                <input type="checkbox" id="setting-indices-enabled">
+                                <span class="slider round"></span>
+                            </label>
+                            <span style="font-size: 16px;">Indices / Crypto (Mouvements > <input type="number"
+                                    id="setting-indices-threshold"
+                                    style="width: 60px; padding: 6px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary);"
+                                    step="0.1" min="0.1"> %)</span>
+                        </div>
+                    </div>
+
+                    <!-- Stocks Settings -->
+                    <div class="setting-row"
+                        style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <label class="switch">
+                                <input type="checkbox" id="setting-stocks-enabled">
+                                <span class="slider round"></span>
+                            </label>
+                            <span style="font-size: 16px;">Actions (Mouvements > <input type="number"
+                                    id="setting-stocks-threshold"
+                                    style="width: 60px; padding: 6px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary);"
+                                    step="0.1" min="0.1"> %)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="text-align: right; margin-bottom: 30px;">
+                    <button id="save-settings-btn" class="btn btn-primary"
+                        style="padding: 10px 20px; font-weight: 500; cursor: pointer;">Enregistrer les
+                        paramètres</button>
+                </div>
+
+                <div class="rules-section" style="margin-bottom: 30px;">
+                    <h3 style="margin-bottom: 20px;">Mes Règles</h3>
+                    <div id="rules-list" class="rules-list">
+                        <!-- Rules injected here -->
+                        <div class="empty-state">Chargement...</div>
+                    </div>
+                </div>
+
+                <div class="add-rule-section" style="border-top: 1px solid var(--border-color); padding-top: 25px;">
+                    <h3 style="margin-bottom: 20px;">Ajouter une règle</h3>
+                    <form id="add-rule-form">
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Actif</label>
+                            <select id="rule-asset" class="form-input" required style="width: 100%;">
+                                <!-- Potentially populated dynamically -->
+                            </select>
+                        </div>
+                        <div class="form-row" style="display: flex; gap: 15px; margin-bottom: 15px;">
+                            <div class="form-group" style="flex: 1;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Métrique</label>
+                                <select id="rule-metric" class="form-input" style="width: 100%;">
+                                    <option value="change">% Variation</option>
+                                    <option value="price">Prix</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Condition</label>
+                                <select id="rule-condition" class="form-input" style="width: 100%;">
+                                    <option value="greater">Supérieur à (>)</option>
+                                    <option value="less">Inférieur à (<)< /option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 25px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Valeur</label>
+                            <input type="number" id="rule-value" class="form-input" step="any" required
+                                placeholder="Ex: 5 ou 10000"
+                                style="width: 100%; padding: 10px; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color);">
+                        </div>
+                        <button type="submit" class="btn btn-primary"
+                            style="width: 100%; padding: 12px; font-size: 16px;">Ajouter la règle</button>
+                    </form>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- SCRIPTS -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+    <script type="module" src="/src/notificationsPage.js"></script>
+    <script type="module" src="/src/sidebar.js"></script>
+</body>
+
+</html>

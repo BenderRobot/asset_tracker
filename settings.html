@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paramètres - Asset Tracker</title>
+
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <script>
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+    </script>
+
+    <style>
+        .settings-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 32px;
+            border-bottom: 2px solid var(--border-color);
+            overflow-x: auto;
+        }
+
+        .settings-tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: all 0.2s;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .settings-tab:hover {
+            color: var(--text-primary);
+            background: var(--bg-hover);
+        }
+
+        .settings-tab.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        .settings-content {
+            display: none;
+        }
+
+        .settings-content.active {
+            display: block;
+        }
+
+        .settings-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .settings-section h3 {
+            margin-top: 0;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+            font-size: 18px;
+        }
+    </style>
+
+    <script>
+        // Hide sidebar in iframes
+        window.addEventListener('DOMContentLoaded', () => {
+            const iframes = document.querySelectorAll('iframe');
+            iframes.forEach(iframe => {
+                iframe.addEventListener('load', () => {
+                    try {
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        const sidebar = iframeDoc.querySelector('.app-sidebar');
+                        const mainContent = iframeDoc.querySelector('.main-content');
+                        const mobileHeader = iframeDoc.querySelector('.mobile-header');
+
+                        if (sidebar) sidebar.style.display = 'none';
+                        if (mobileHeader) mobileHeader.style.display = 'none';
+                        if (mainContent) {
+                            mainContent.style.marginLeft = '0';
+                            mainContent.style.width = '100%';
+                        }
+                    } catch (e) {
+                        console.log('Cannot modify iframe (same-origin only)');
+                    }
+                });
+            });
+        });
+    </script>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon"><img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px;"></div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">📈</div><span class="nav-text">Assets</span>
+            </a>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div><span class="nav-text">Transactions</span>
+            </a>
+            <a href="analytics.html" class="nav-item">
+                <div class="nav-icon">📊</div><span class="nav-text">Analytics</span>
+            </a>
+            <a href="watchlist.html" class="nav-item">
+                <div class="nav-icon">👁️</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item">
+                <div class="nav-icon">🔍</div>
+                <span class="nav-text">Screener</span>
+            </a>
+            <a href="news.html" class="nav-item">
+                <div class="nav-icon">📰</div><span class="nav-text">News Feeds</span>
+            </a>
+            <a href="realestate.html" class="nav-item">
+                <div class="nav-icon">🏢</div><span class="nav-text">Immobilier</span>
+            </a>
+            <a href="assistant.html" class="nav-item">
+                <div class="nav-icon">🤖</div><span class="nav-text">Assistant IA</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="settings.html" class="nav-item active">
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
+                <span class="nav-text">Paramètres</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">Déconnexion</span>
+            </a>
+        </div>
+
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu"><i class="fas fa-chevron-left"></i></button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="container">
+            <h1 style="margin-bottom: 32px;">
+                <i class="fas fa-cog" style="color: var(--accent-blue);"></i> Paramètres
+            </h1>
+
+            <!-- Tabs -->
+            <div class="settings-tabs">
+                <button class="settings-tab active" data-tab="notifications">
+                    <i class="fas fa-bell"></i> Notifications
+                </button>
+                <button class="settings-tab" data-tab="migration">
+                    <i class="fas fa-database"></i> Migration
+                </button>
+                <button class="settings-tab" data-tab="invitations" id="invitations-tab" style="display: none;">
+                    <i class="fas fa-ticket-alt"></i> Invitations
+                </button>
+            </div>
+
+            <!-- Notifications Content -->
+            <div id="tab-notifications" class="settings-content active">
+                <iframe src="notifications.html"
+                    style="width: 100%; height: calc(100vh - 200px); min-height: 500px; border: none; border-radius: 8px;"></iframe>
+            </div>
+
+            <!-- Migration Content -->
+            <div id="tab-migration" class="settings-content">
+                <iframe src="migration.html"
+                    style="width: 100%; height: calc(100vh - 200px); min-height: 500px; border: none; border-radius: 8px;"></iframe>
+            </div>
+
+            <!-- Invitations Content (Admin Only) -->
+            <div id="tab-invitations" class="settings-content">
+                <iframe src="admin-invitations.html"
+                    style="width: 100%; height: calc(100vh - 200px); min-height: 500px; border: none; border-radius: 8px;"></iframe>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+    <script type="module" src="/src/settingsApp.js"></script>
+    <script type="module" src="/src/sidebar.js"></script>
+</body>
+
+</html>

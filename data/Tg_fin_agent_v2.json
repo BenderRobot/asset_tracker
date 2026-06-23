@@ -1,0 +1,961 @@
+{
+  "name": "My workflow 2",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://news.google.com/rss/search?q={{ $('Filter Position').first().json.name.replace(/ /g, '+') }}&hl=fr&gl=FR&ceid=FR:fr",
+        "options": {}
+      },
+      "id": "9f97cb68-e3ca-435a-a616-8334dfc609dc",
+      "name": "RSS Read1",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        -1400,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 3
+            },
+            {
+              "triggerAtHour": 6
+            },
+            {
+              "triggerAtHour": 11
+            }
+          ]
+        }
+      },
+      "id": "afd16852-694a-403f-805a-fcbee3fb8608",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2400,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "getAll",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/purchases",
+        "returnAll": true
+      },
+      "id": "8b867a77-7719-4b4b-ab8c-37b5e70c239a",
+      "name": "Firestore Purchases",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -2220,
+        720
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "eX2M9zivWL2nlEPK",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const purchases = $input.all();\n\nconst yahooMap = {\n  'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.DE', 'MSF': 'MSF.F',\n  'TL0': 'TL0.DE', 'TLO': 'TL0.DE', 'TKE': 'TKE.F', 'M4I': 'M4I.F', 'ABEA': 'ABEA.F',\n  'CSPX': 'CSPX.AS', 'CNDX': 'CNDX.AS', '3ZU0': '3ZU0.F', '1170': '1170.F',\n  '9D5': '9D5.F', 'GXG': 'GXG.F', 'BKSY': 'BKSY',\n  'GOLD-ETFP': 'GOLD-EUR.PA',\n  'AL2SI': 'AL2SI.PA', 'SU': 'SU.PA', 'ESE': 'ESE.PA',\n  'EUEA': 'EUEA.AS', 'STEC': 'STEC.AS', 'ALRIB': 'ALRIB.PA',\n  'SOI': 'SOI.PA', 'BTC': 'BTC-EUR'\n};\n\n// Passe 1 : somme nette par ticker (achats +qty, ventes -qty)\nconst netQty = {};\nconst nameMap = {};\n\nfor (const item of purchases) {\n    const ticker = (item.json.ticker || '').toUpperCase().trim();\n    const type = (item.json.assetType || '').toLowerCase();\n    const qty = parseFloat(item.json.quantity) || 0;\n\n    if (!ticker || ticker.startsWith('CASH-') ||\n        ['cash', 'dividend', 'real estate', 'etf'].includes(type)) continue;\n\n    netQty[ticker] = (netQty[ticker] || 0) + qty;\n    if (!nameMap[ticker]) nameMap[ticker] = item.json.name || ticker;\n}\n\n// Passe 2 : garder uniquement les actifs encore détenus (qty nette > 0.01)\n// Seuil 0.01 pour tolérer les arrondis de quantités fractionnelles (crypto)\nconst assets = [];\nfor (const [ticker, qty] of Object.entries(netQty)) {\n    if (qty < 0.01) continue;\n    const yahooTicker = yahooMap[ticker] || ticker;\n    const name = nameMap[ticker];\n    assets.push({ ticker: yahooTicker, name, keywords: `${name} ${ticker.split('.')[0]}` });\n}\n\nconst allTickers = assets.map(a => a.ticker).join(',');\nreturn assets.map(a => ({ json: { ...a, allTickers } }));"
+      },
+      "id": "1922f7e0-8f88-47de-9862-c2df068a7c29",
+      "name": "Transform Purchases",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2040,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "id": "bad41f4e-464d-486a-914b-b13f04e8e86f",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -1640,
+        600
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "tnNct7NvXpmUZK4U",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "2089017736",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "6c0b2dcb-41ea-4338-84fd-0cb21fedb71d",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -780,
+        440
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "SX5rx7IEfevBlf0q",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "4806eb17-d954-4181-989f-e745a0027f3a",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1860,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://news.google.com/rss/search?q={{ $json.name.replace(/ /g, '+') }}&hl=fr&gl=FR&ceid=FR:fr",
+        "options": {}
+      },
+      "id": "7a41cd30-d4cd-4785-a4b3-ba0e908ab7cf",
+      "name": "RSS Read",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        -1660,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "articles",
+        "options": {}
+      },
+      "id": "b68c824f-45fc-4b33-b0be-47f56b536e63",
+      "name": "Aggregate",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -1320,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const articles = $('Aggregate').first().json.articles || [];\nconst asset = $('Loop Over Items').first().json;\nconst nameLower = (asset.name || '').toLowerCase();\nconst tickerBase = (asset.ticker || '').split('.')[0].toLowerCase();\n\n// Garde uniquement les articles qui mentionnent l'actif par son nom ou ticker\nconst relevant = articles.filter(a => {\n    const t = (a.title || '').toLowerCase();\n    return t.includes(nameLower) || t.includes(tickerBase);\n}).slice(0, 8);\n\nreturn [{ \n  json: { \n    ticker: asset.ticker, \n    name: asset.name, \n    news: relevant.length > 0 ? relevant.map(a => `- ${a.title}`).join('\\n') : null,\n    hasNews: relevant.length > 0\n  } \n}];"
+      },
+      "id": "d45d050c-d02e-4b60-818c-6e8bd28b5703",
+      "name": "Code1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1140,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Texte Gemini\nlet texteGemini = $('Basic LLM Chain').first().json.text || \"\";\ntexteGemini = texteGemini.replace(/```markdown/gi, '').replace(/```/g, '').trim();\n// Fallback si Gemini refuse ou retourne un texte trop court\nif (!texteGemini || texteGemini.length < 60 || texteGemini.includes('je ne peux pas') || texteGemini.includes('il m\\'est impossible')) {\n    texteGemini = '🔷 *MARKET DIGEST – TOP 5 ACTUALITÉS*\\n\\n_Aucune actualité ciblée disponible aujourd\\'hui._';\n}\n\n// 2. Noms dynamiques depuis Compile\nconst tickerNames = $('Compile').first().json.tickerNames || {};\n\n// 3. Header portefeuille personnel depuis Firestore liveMetrics\nlet portfolioHeader = \"\";\ntry {\n  const metrics = $('Firestore liveMetrics').first().json || {};\n  const totalValue = parseFloat(metrics.totalValue) || 0;\n  const totalReturn = parseFloat(metrics.totalReturn) || 0;\n  const varToday = parseFloat(metrics.varToday) || 0;\n\n  if (totalValue > 0) {\n    const prevValue = totalValue - varToday;\n    const todayPct = prevValue > 0 ? ((varToday / prevValue) * 100).toFixed(2) : \"0.00\";\n    const totalInvested = totalValue - totalReturn;\n    const totalPct = totalInvested > 0 ? ((totalReturn / totalInvested) * 100).toFixed(2) : \"0.00\";\n    const todaySign = varToday >= 0 ? \"+\" : \"\";\n    const totalSign = totalReturn >= 0 ? \"+\" : \"\";\n    const todayEmoji = varToday >= 0 ? \"🟢\" : \"🔴\";\n    const totalEmoji = totalReturn >= 0 ? \"🟢\" : \"🔴\";\n    const valStr = totalValue.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2});\n\n    portfolioHeader = `👤 *TON PORTEFEUILLE*\\n💼 Valeur : *${valStr} €*\\n${todayEmoji} Aujourd'hui : *${todaySign}${varToday.toFixed(2)} €* (${todaySign}${todayPct}%)\\n${totalEmoji} Performance totale : *${totalSign}${totalReturn.toFixed(2)} €* (${totalSign}${totalPct}%)\\n\\n——————————————————————\\n\\n`;\n  }\n} catch(e) {}\n\n// 4. Tableau de bord des cours\nconst sparkData = $json;\nlet listeCours = [];\n\nif (sparkData && sparkData.spark && sparkData.spark.result) {\n  sparkData.spark.result.forEach(res => {\n    const symbol = res.symbol;\n    const nomPropre = tickerNames[symbol] || symbol.split('.')[0];\n    if (res.response && res.response[0]) {\n      const meta = res.response[0].meta;\n      const price = meta.regularMarketPrice ? meta.regularMarketPrice.toFixed(2) : \"N/A\";\n      const previousClose = meta.chartPreviousClose || meta.previousClose;\n      const currency = meta.currency === \"EUR\" ? \"€\" : \"$\";\n      let changePercent = 0;\n      if (meta.regularMarketPrice && previousClose) {\n        changePercent = ((meta.regularMarketPrice - previousClose) / previousClose) * 100;\n      }\n      listeCours.push({ nom: nomPropre, prix: price, devise: currency, perf: changePercent });\n    }\n  });\n  listeCours.sort((a, b) => b.perf - a.perf);\n}\n\nlet tableauCours = \"📊 *TABLEAU DE BORD DES COURS*\\n\\n\";\nif (listeCours.length > 0) {\n  listeCours.forEach(c => {\n    const emoji = c.perf >= 0 ? \"🟢\" : \"🔴\";\n    const sign = c.perf >= 0 ? \"+\" : \"\";\n    tableauCours += `${emoji} *${c.nom}* : ${c.prix} ${c.devise} (${sign}${c.perf.toFixed(2)}%)\\n`;\n  });\n} else {\n  tableauCours += \"⚠️ Impossible de charger le tableau des cours.\\n\";\n}\ntableauCours += \"\\n——————————————————————\\n\\n\";\n\n// 5. Actualités LLM\nlet actuAeree = texteGemini\n  .replace(/\\n•/g, '\\n\\n•')\n  .replace(/\\n🔹/g, '\\n\\n🔹')\n  .trim();\n\nreturn [{ json: { message: `${portfolioHeader}${tableauCours}${actuAeree}` } }];"
+      },
+      "id": "4289444a-dfb8-4a96-8fbf-c6b218b9d256",
+      "name": "Code2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst tickerNames = {};\nconst tickerList = [];\nitems.forEach(i => {\n    if (i.json.ticker) {\n        tickerNames[i.json.ticker] = i.json.name;\n        tickerList.push(i.json.ticker);\n    }\n});\n\n// Seulement les actifs qui ont des articles pertinents\nconst withNews = items.filter(i => i.json.hasNews);\nconst resumeActus = withNews\n  .map(i => `## ${i.json.name} (${i.json.ticker})\\n${i.json.news}`)\n  .join('\\n\\n');\n\nreturn [{ json: { resume: resumeActus, hasNews: withNews.length > 0, allTickers: tickerList.join(','), tickerNames } }];"
+      },
+      "id": "59dfae24-755c-4997-8751-af45de4f5d0e",
+      "name": "Compile",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1820,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://query1.finance.yahoo.com/v7/finance/spark?symbols={{ $('Compile').item.json.allTickers }}&range=1d&interval=5m",
+        "options": {}
+      },
+      "id": "3f54c281-752a-42b8-b307-addea161b2d8",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1140,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Tu es un analyste financier. Voici des titres d'actualités récentes pour des actifs de mon portefeuille.\n\nTa mission :\n1. Sélectionne les 5 actifs dont les actualités sont les plus importantes, marquantes ou susceptibles d'impacter le cours.\n2. Pour chaque actif sélectionné, rédige 3 à 5 phrases détaillées en français : contexte, chiffres clés si disponibles, impact potentiel sur le cours, et ton point de vue analytique.\n\nFormat de réponse (respecte-le exactement, sans introduction ni conclusion) :\n🔷 *MARKET DIGEST – TOP 5 ACTUALITÉS*\n\n🔹 *[NOM DE L'ACTIF]* ([TICKER])\n[3 à 5 phrases détaillées]\n\nContraintes :\n- Maximum 3000 caractères au total\n- Ne couvre QUE les 5 actifs les plus pertinents, ignore les autres\n- Si aucune actualité n'est fournie dans la section Actualités ci-dessous, réponds uniquement avec : 🔷 *MARKET DIGEST*\\n\\n_Aucune actualité disponible aujourd'hui._\n\nActualités :\n{{ $json.resume }}"
+      },
+      "id": "5e2f24fe-603b-44d2-a353-14bf87312455",
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        -1660,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/liveMetrics",
+        "documentId": "current"
+      },
+      "id": "24f3fe5e-4d60-4953-9fe8-e4b4878fcb38",
+      "name": "Firestore liveMetrics",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -1320,
+        440
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "eX2M9zivWL2nlEPK",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "3998aafc-13ef-4115-ab47-908df566e897",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2800,
+        1060
+      ],
+      "webhookId": "794e9e81-af3c-457a-adee-23bf5a04f540",
+      "credentials": {
+        "telegramApi": {
+          "id": "SX5rx7IEfevBlf0q",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "5d4866d4-0a45-4ced-8274-a312e54f9b17",
+              "leftValue": "={{ $json.isDigest }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "9a0d1d03-ee71-446d-a089-ca3d479ff447",
+      "name": "If",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2400,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $input.item.json.text;\nconst start = text.indexOf('{');\nconst end = text.lastIndexOf('}');\nlet clean = text.slice(start, end + 1);\nclean = clean.replace(/[\\u201C\\u201D]/g, '\\\\\"');\nconst data = JSON.parse(clean);\n\nconst stars = '⭐'.repeat(data.score);\nconst chatId = $('identifier l\\'actif').first().json.chatId;\n\n// Prix depuis Firestore snapshot (EUR)\nconst filterPos = $('Filter Position').first().json;\nconst lookupTicker = filterPos.firestoreTicker || filterPos.lookupTicker || filterPos.ticker;\nlet prix = 'N/A';\nlet currency = 'EUR';\nlet perf = '0.00';\nlet perfEmoji = '📊';\nlet perfSign = '';\n\ntry {\n    const snapshot = $('Firestore Market Data').first().json;\n    const prices = snapshot.prices || {};\n    const priceData = prices[lookupTicker];\n    if (priceData) {\n        prix = parseFloat(priceData.price).toFixed(2);\n        currency = priceData.currency || 'EUR';\n        const dayChangePct = priceData.previousClose > 0 ? ((priceData.price - priceData.previousClose) / priceData.previousClose * 100) : (parseFloat(priceData.dayChangePct) || 0);\n        perf = dayChangePct.toFixed(2);\n        perfEmoji = dayChangePct >= 0 ? '📈' : '📉';\n        perfSign = dayChangePct >= 0 ? '+' : '';\n    }\n} catch(e) {}\n\n// Position personnelle depuis Filter Position\nlet positionText = '';\ntry {\n    const pos = filterPos.positionSummary;\n    if (pos && pos.hasPosition) {\n        const currentPrice = parseFloat(prix);\n        const currentValue = (currentPrice * pos.shares).toFixed(2);\n        const invested = parseFloat(pos.totalInvested);\n        const pnl = (currentPrice * pos.shares - invested).toFixed(2);\n        const pnlPct = ((currentPrice * pos.shares / invested - 1) * 100).toFixed(2);\n        const pnlEmoji = parseFloat(pnl) >= 0 ? '🟢' : '🔴';\n        const pnlSign = parseFloat(pnl) >= 0 ? '+' : '';\n        const pctSign = parseFloat(pnlPct) >= 0 ? '+' : '';\n        positionText = `\\n\\n📦 *Ta position*\\n🔢 ${pos.shares} @ ${pos.avgPrice} ${currency} moy\\.\\n💰 Valeur : ${currentValue} ${currency} \\| Investi : ${invested.toFixed(2)} ${currency}\\n${pnlEmoji} P&L : ${pnlSign}${pnl} ${currency} (${pctSign}${pnlPct}%)`;\n    }\n} catch(e) {}\n\nconst message = `${data.emoji} *${data.name}* (${data.ticker})\\n💰 ${prix} ${currency} ${perfEmoji} ${perfSign}${perf}%\\n${stars} Score : ${data.score}/5${positionText}\\n\\n${data.synthese}\\n\\n_${data.nb_articles} articles analysés_`;\n\nreturn [{ json: { chatId, message } }];"
+      },
+      "id": "5e30d7d1-c15c-4995-9d01-1633353074b3",
+      "name": "format message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -740,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const texte = $json.message.text.toLowerCase().trim();\n\nif (texte === '/menu') {\n  return [{ json: {\n    isMenu: true, found: false, isDigest: false,\n    chatId: $json.message.chat.id\n  }}];\n}\n\nif (texte === '/news' || texte === '/digest' || texte === '📊 digest complet') {\n  return [{ json: {\n    found: false,\n    isDigest: true,\n    chatId: $json.message.chat.id,\n    reply: '⏳ Analyse en cours pour tous tes actifs...'\n  }}];\n}\n\nconst cmdMap = {\n  'ast': 'AST SpaceMobile',\n  'blacksky': 'Blacksky',\n  'amazon': 'Amazon',\n  'apple': 'Apple',\n  'bitcoin': 'Bitcoin',\n  'tesla': 'Tesla',\n  'nvidia': 'Nvidia',\n  'alphabet': 'Alphabet',\n  'taketwo': 'Take-Two',\n  'ttwo': 'Take-Two',\n  'schneider': 'Schneider Electric',\n  'amat': 'Applied Materials',\n  'arista': 'Arista Networks',\n  'soitec': 'Soitec',\n  'riber': 'Riber',\n  'crsi': '2CRSI',\n  'gold': 'Amundi Gold',\n  'sp500': 'iShares S&P 500',\n  'nasdaq': 'iShares NASDAQ 100',\n  'stoxx50': 'iShares EURO STOXX 50',\n  'stoxx600': 'iShares STOXX Europe 600 Tech',\n  'bnp': 'BNP Paribas Easy S&P 500'\n};\n\nlet texteSearch = texte;\nif (texte.startsWith('/')) {\n  const cmd = texte.slice(1).split('@')[0];\n  if (cmdMap[cmd]) texteSearch = cmdMap[cmd].toLowerCase();\n}\n\nconst assets = [\n  { ticker: \"ASTS\",     name: \"AST SpaceMobile\",               keywords: \"AST SpaceMobile ASTS stock\" },\n  { ticker: \"BKSY\",     name: \"Blacksky\",                      keywords: \"Blacksky BKSY satellite\" },\n  { ticker: \"AMZN\",     name: \"Amazon\",                        keywords: \"Amazon AMZN stock\" },\n  { ticker: \"AAPL\",     name: \"Apple\",                         keywords: \"Apple AAPL stock\" },\n  { ticker: \"BTC-USD\",  name: \"Bitcoin\",                       keywords: \"Bitcoin BTC crypto\" },\n  { ticker: \"TSLA\",     name: \"Tesla\",                         keywords: \"Tesla TSLA stock\" },\n  { ticker: \"NVDA\",     name: \"Nvidia\",                        keywords: \"Nvidia NVDA stock\" },\n  { ticker: \"GOOGL\",    name: \"Alphabet\",                      keywords: \"Alphabet Google GOOGL\" },\n  { ticker: \"TTWO\",     name: \"Take-Two\",                      keywords: \"Take-Two TTWO GTA\" },\n  { ticker: \"SU.PA\",    name: \"Schneider Electric\",            keywords: \"Schneider Electric SU\" },\n  { ticker: \"AMAT\",     name: \"Applied Materials\",             keywords: \"Applied Materials AMAT\" },\n  { ticker: \"ANET\",     name: \"Arista Networks\",               keywords: \"Arista Networks ANET\" },\n  { ticker: \"SOI.PA\",   name: \"Soitec\",                        keywords: \"Soitec SOI\" },\n  { ticker: \"ALRIB.PA\", name: \"Riber\",                         keywords: \"Riber MBE bourse\" },\n  { ticker: \"AL2SI.PA\", name: \"2CRSI\",                         keywords: \"2CRSI serveurs HPC\" },\n  { ticker: \"GOLD.PA\",  name: \"Amundi Gold\",                   keywords: \"Amundi Gold ETF\" },\n  { ticker: \"CSPX.AS\",  name: \"iShares S&P 500\",               keywords: \"iShares SP500 ETF\" },\n  { ticker: \"CNDX.AS\",  name: \"iShares NASDAQ 100\",            keywords: \"iShares NASDAQ 100 ETF\" },\n  { ticker: \"CS51.PA\",  name: \"iShares EURO STOXX 50\",         keywords: \"iShares EURO STOXX 50 ETF\" },\n  { ticker: \"EXV3.DE\",  name: \"iShares STOXX Europe 600 Tech\", keywords: \"iShares STOXX Europe 600 Tech\" },\n  { ticker: \"ESE.PA\",   name: \"BNP Paribas Easy S&P 500\",      keywords: \"BNP Paribas SP500 ETF\" }\n];\n\nconst asset = assets.find(a => {\n  const cleanTicker = a.ticker.split('.')[0].toLowerCase();\n  return texteSearch.includes(cleanTicker) || texteSearch.includes(a.name.toLowerCase());\n});\n\nif (!asset) {\n  const botUsername = 'Fin_agent_tg_bot';\n  const liste = assets.map(a =>\n    `• [${a.name}](https://t.me/${botUsername}?text=${encodeURIComponent(a.name)})`\n  ).join('\\n');\n  return [{ json: {\n    found: false,\n    isDigest: false,\n    chatId: $json.message.chat.id,\n    reply: `❌ Actif non reconnu\\.\\n\\n📋 *Mes actifs suivis :*\\n${liste}\\n\\n_Tape /news pour le digest complet_`\n  }}];\n}\n\nreturn [{ json: {\n  found: true,\n  isDigest: false,\n  chatId: $json.message.chat.id,\n  ticker: asset.ticker,\n  name: asset.name,\n  keywords: asset.keywords\n}}];"
+      },
+      "id": "e281acc1-6ab6-411b-a979-f9af81476653",
+      "name": "identifier l'actif",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2620,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "2a31cf92-6127-4c5a-8f72-f8fcdf3a0cc3",
+      "name": "Aggregate1",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "id": "030a4aa4-e234-4ab4-9b65-8faa96f6110e",
+      "name": "Google Gemini Chat Model1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -1020,
+        1240
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "tnNct7NvXpmUZK4U",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "2089017736",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "cb0c5312-065e-4598-8040-5f09e54ddbc9",
+      "name": "Telegram2",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -740,
+        1300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "SX5rx7IEfevBlf0q",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://query1.finance.yahoo.com/v8/finance/chart/{{ $json.ticker }}?interval=1d&range=5m",
+        "options": {}
+      },
+      "id": "c776dde9-d1de-4293-8efa-501b4290663c",
+      "name": "HTTP Request1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1620,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "d11f8a90-1635-41f9-b37d-8f4319519153",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "de58d13f-2118-430a-9aa5-53f11b8a1328",
+      "name": "If1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2220,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "2089017736",
+        "text": "={{ $json.reply }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "89766842-67b0-4022-a22f-ee70e07eb835",
+      "name": "Telegram1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -2240,
+        1340
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "SX5rx7IEfevBlf0q",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Tu es un analyste financier. Analyse ces actualités pour {{ $('identifier l\\'actif').item.json.name }} ({{ $('identifier l\\'actif').item.json.ticker }}).\n\nDonne un score de 1 à 5 et une synthèse structurée en français.\n\nRègles importantes :\n- N'utilise JAMAIS de guillemets dans la synthèse, utilise des apostrophes\n- La synthèse doit contenir exactement 3 points séparés par \\n\\n\n- Chaque point commence par un emoji pertinent (📈 📉 ⚠️ 💡 🏦 🤝 etc.)\n- Chaque point = 1 phrase courte et percutante\n\nRéponds UNIQUEMENT avec ce JSON sans backticks :\n{\"ticker\":\"{{ $('identifier l\\'actif').item.json.ticker }}\",\"name\":\"{{ $('identifier l\\'actif').item.json.name }}\",\"score\":4,\"emoji\":\"🟢\",\"synthese\":\"📈 Point 1\\n\\n💡 Point 2\\n\\n⚠️ Point 3\",\"nb_articles\":5}\n\nScore → emoji : 1-2=🔴 3=🟡 4-5=🟢\n\nArticles :\n{{ $json.data.slice(0, 10).map(a => a.title).join('\\n') }}"
+      },
+      "id": "a8a49fd8-8729-443f-9890-6f8ef59e14e2",
+      "name": "Basic LLM Chain1",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        -1020,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "getAll",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/purchases",
+        "returnAll": true
+      },
+      "id": "82626bbd-104f-4a1d-8598-e94ed2114d7a",
+      "name": "Firestore Purchases Bot",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -2040,
+        1060
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "eX2M9zivWL2nlEPK",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const askedTicker = $('identifier l\\'actif').first().json.ticker;\nconst askedName = ($('identifier l\\'actif').first().json.name || '').toLowerCase();\nconst allPurchases = $input.all();\n\nconst yahooMap = {\n  'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.DE', 'MSF': 'MSF.F',\n  'TL0': 'TL0.DE', 'TLO': 'TL0.DE', 'TKE': 'TKE.F', 'M4I': 'M4I.F', 'ABEA': 'ABEA.F',\n  'CSPX': 'CSPX.AS', 'CNDX': 'CNDX.AS', '3ZU0': '3ZU0.F', '1170': '1170.F',\n  '9D5': '9D5.F', 'GXG': 'GXG.F', 'BKSY': 'BKSY',\n  'GOLD-ETFP': 'GOLD-EUR.PA',\n  'AL2SI': 'AL2SI.PA', 'SU': 'SU.PA', 'ESE': 'ESE.PA',\n  'EUEA': 'EUEA.AS', 'STEC': 'STEC.AS', 'ALRIB': 'ALRIB.PA',\n  'SOI': 'SOI.PA', 'BTC': 'BTC-EUR'\n};\n\nconst norm = t => t.toUpperCase().replace(/\\.(PA|AS|DE|L|BR|MI|F)$/i, '');\nconst askedNorm = norm(askedTicker);\n\nconst netQty = {};\nconst nameMap = {};\nfor (const p of allPurchases) {\n    const t = (p.json.ticker || '').toUpperCase().trim();\n    const qty = parseFloat(p.json.quantity) || 0;\n    if (!t) continue;\n    netQty[t] = (netQty[t] || 0) + qty;\n    if (!nameMap[t]) nameMap[t] = (p.json.name || t);\n}\n\nlet firestoreTicker = null;\nlet assetName = null;\n\nfor (const [t, qty] of Object.entries(netQty)) {\n    if (qty < 0.01) continue;\n    if (t === askedTicker.toUpperCase() || norm(t) === askedNorm) {\n        firestoreTicker = t;\n        assetName = nameMap[t];\n        break;\n    }\n    const fsName = (nameMap[t] || '').toLowerCase();\n    if (askedName && fsName && (fsName.includes(askedName) || askedName.includes(fsName))) {\n        firestoreTicker = t;\n        assetName = nameMap[t];\n        break;\n    }\n}\n\nif (!firestoreTicker) {\n    firestoreTicker = askedTicker;\n    assetName = $('identifier l\\'actif').first().json.name;\n}\n\nconst lookupTicker = yahooMap[firestoreTicker] || firestoreTicker;\n\nconst relevant = allPurchases.filter(p => {\n    const t = (p.json.ticker || '').toUpperCase();\n    return t === firestoreTicker || norm(t) === norm(firestoreTicker);\n});\n\nlet totalShares = 0;\nlet totalInvested = 0;\n\nfor (const p of relevant) {\n    const qty = parseFloat(p.json.quantity) || 0;\n    const price = parseFloat(p.json.price) || 0;\n    if (qty > 0) {\n        totalShares += qty;\n        totalInvested += qty * price;\n    }\n}\n\ntotalShares = Math.round(totalShares * 100000) / 100000;\nconst avgPrice = totalShares > 0 ? (totalInvested / totalShares).toFixed(3) : \"0\";\n\nreturn [{ json: {\n    ticker: lookupTicker,\n    lookupTicker,\n    firestoreTicker,\n    name: assetName,\n    positionSummary: {\n        shares: totalShares,\n        avgPrice,\n        totalInvested: totalInvested.toFixed(2),\n        hasPosition: totalShares > 0\n    }\n}}];"
+      },
+      "id": "0982e830-34f1-4c10-9bc5-5024c2434a09",
+      "name": "Filter Position",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1860,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/marketData",
+        "documentId": "snapshot"
+      },
+      "id": "fa1b2c3d-e5f6-7890-abcd-ef1234567890",
+      "name": "Firestore Market Data",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -1620,
+        1060
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "eX2M9zivWL2nlEPK",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "menu-cond-001",
+              "leftValue": "={{ $json.isMenu }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cc000001-0000-0000-0000-000000000001",
+      "name": "If Menu",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-2400, 1340]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "📋 *Mon Portefeuille*\n\nChoisis un actif ou tape son nom directement :",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "reply_markup": "={{ JSON.stringify({keyboard: [[{text: 'AST SpaceMobile'}, {text: 'Blacksky'}], [{text: 'Amazon'}, {text: 'Apple'}], [{text: 'Tesla'}, {text: 'Nvidia'}], [{text: 'Alphabet'}, {text: 'Bitcoin'}], [{text: 'Schneider Electric'}, {text: 'Applied Materials'}], [{text: 'Arista Networks'}, {text: 'Soitec'}], [{text: 'Riber'}, {text: '2CRSI'}], [{text: 'Amundi Gold'}, {text: 'Take-Two'}], [{text: 'iShares S&P 500'}, {text: 'iShares NASDAQ 100'}], [{text: '📊 Digest complet'}]], resize_keyboard: true, one_time_keyboard: false}) }}"
+        }
+      },
+      "id": "cc000001-0000-0000-0000-000000000002",
+      "name": "Send Menu",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [-2200, 1340],
+      "credentials": {
+        "telegramApi": {
+          "id": "SX5rx7IEfevBlf0q",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const { isMenu, isDigest, found, chatId, name } = $json;\nif (isMenu || (!isDigest && !found)) return [];\nconst text = isDigest\n  ? '⏳ Analyse du portefeuille en cours...'\n  : `⏳ Récupération des données pour *${name}*\\.\\.\\.`;\nreturn [{ json: { chatId, text } }];"
+      },
+      "id": "dd000001-0000-0000-0000-000000000001",
+      "name": "Prepare ACK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-2400, 1060]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "dd000001-0000-0000-0000-000000000002",
+      "name": "Send ACK",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [-2200, 1060],
+      "credentials": {
+        "telegramApi": {
+          "id": "SX5rx7IEfevBlf0q",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "RSS Read1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Firestore Purchases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firestore Purchases": {
+      "main": [
+        [
+          {
+            "node": "Transform Purchases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Purchases": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Compile",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RSS Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Read": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Firestore liveMetrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firestore liveMetrics": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "identifier l'actif",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Firestore Purchases",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format message": {
+      "main": [
+        [
+          {
+            "node": "Telegram2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "identifier l'actif": {
+      "main": [
+        [
+          {
+            "node": "Prepare ACK",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare ACK": {
+      "main": [
+        [
+          {
+            "node": "Send ACK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Menu": {
+      "main": [
+        [
+          {
+            "node": "Send Menu",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate1": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firestore Market Data": {
+      "main": [
+        [
+          {
+            "node": "RSS Read1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Firestore Purchases Bot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firestore Purchases Bot": {
+      "main": [
+        [
+          {
+            "node": "Filter Position",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Position": {
+      "main": [
+        [
+          {
+            "node": "Firestore Market Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain1": {
+      "main": [
+        [
+          {
+            "node": "format message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "860a4be5-c3d6-43c7-bc82-833c852c722f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bd0642bff22c21ed24c1b956535cd6871d016852494b3555f3c4d9f5f6a5776e"
+  },
+  "id": "3xYxthd1mdHm4WLZ",
+  "tags": []
+}

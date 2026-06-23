@@ -1,0 +1,221 @@
+{
+  "name": "tg_alert_30min_variation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "minutes", "minutesInterval": 30}]
+        }
+      },
+      "id": "d34fcc2a-405f-459a-b2ec-cb7a3d5cadc9",
+      "name": "Schedule 30min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1408, 160]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "getAll",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/purchases",
+        "returnAll": true
+      },
+      "id": "d0339ad0-8be7-47d6-b3a8-f5179a0f92d3",
+      "name": "Firestore Purchases",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [-1200, 160],
+      "credentials": {
+        "googleApi": {"id": "eX2M9zivWL2nlEPK", "name": "Google Firebase Cloud Firestore account"}
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const purchases = $input.all();\n\nconst yahooMap = {\n  'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.DE', 'MSF': 'MSF.F',\n  'TL0': 'TL0.DE', 'TLO': 'TL0.DE', 'TKE': 'TKE.F', 'M4I': 'M4I.F', 'ABEA': 'ABEA.F',\n  'CSPX': 'CSPX.AS', 'CNDX': 'CNDX.AS', '3ZU0': '3ZU0.F', '1170': '1170.F',\n  '9D5': '9D5.F', 'GXG': 'GXG.F', 'BKSY': 'BKSY',\n  'GOLD-ETFP': 'GOLD-EUR.PA',\n  'AL2SI': 'AL2SI.PA', 'SU': 'SU.PA', 'ESE': 'ESE.PA',\n  'EUEA': 'EUEA.AS', 'STEC': 'STEC.AS', 'ALRIB': 'ALRIB.PA',\n  'SOI': 'SOI.PA', 'BTC': 'BTC-EUR'\n};\n\nconst reverseMap = {};\nfor (const [short, yahoo] of Object.entries(yahooMap)) {\n  reverseMap[yahoo] = short;\n}\n\nconst netQty = {};\nconst nameMap = {};\nfor (const item of purchases) {\n    const ticker = (item.json.ticker || '').toUpperCase().trim();\n    const qty = parseFloat(item.json.quantity) || 0;\n    if (!ticker || ticker.startsWith('CASH-')) continue;\n    netQty[ticker] = (netQty[ticker] || 0) + qty;\n    if (!nameMap[ticker]) nameMap[ticker] = item.json.name || ticker;\n}\n\nconst tickers = [];\nfor (const [ticker, qty] of Object.entries(netQty)) {\n    if (qty < 0.01) continue;\n    const yahooTicker = yahooMap[ticker] || ticker;\n    if (!reverseMap[yahooTicker]) reverseMap[yahooTicker] = ticker;\n    if (!tickers.includes(yahooTicker)) tickers.push(yahooTicker);\n}\n\nconst batch = tickers.slice(0, 20);\nconst allTickers = batch.join(',');\n\nreturn [{ json: { allTickers, reverseMap, nameMap } }];"
+      },
+      "id": "bc3f0394-3e4a-4e79-89a7-c85f018f7fd1",
+      "name": "Build Tickers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1008, 160]
+    },
+    {
+      "parameters": {
+        "url": "=https://query1.finance.yahoo.com/v7/finance/spark?symbols={{ $json.allTickers }}&range=1d&interval=5m",
+        "options": {}
+      },
+      "id": "9cdc1faf-6221-4d51-91d4-5264974a38e6",
+      "name": "Fetch Prices Yahoo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-800, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "const reverseMap = $('Build Tickers').first().json.reverseMap;\nconst sparkData = $input.first().json;\nconst pricesObj = {};\n\nif (sparkData?.spark?.result) {\n    for (const res of sparkData.spark.result) {\n        if (!res?.response?.[0]?.meta) continue;\n        const yahooTicker = res.symbol;\n        const shortTicker = reverseMap[yahooTicker] || yahooTicker;\n        const meta = res.response[0].meta;\n        const price = meta.regularMarketPrice || 0;\n        const previousClose = meta.chartPreviousClose || meta.previousClose || price;\n        const currency = meta.currency || 'EUR';\n        const dayChangePct = previousClose > 0 ? (price - previousClose) / previousClose * 100 : 0;\n        if (price > 0) {\n            pricesObj[shortTicker] = { price, currency, dayChangePct };\n        }\n    }\n}\n\nreturn [{ json: { prices: pricesObj } }];"
+      },
+      "id": "d352d717-2aaa-4e3b-81e6-b0ec873b8364",
+      "name": "Parse Prices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-608, 160]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "get",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/marketData",
+        "documentId": "snapshot30min"
+      },
+      "id": "608dab59-c845-45a4-98cd-a66cd26f96b5",
+      "name": "Get Previous Snapshot",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [-400, 160],
+      "alwaysOutputData": true,
+      "continueOnFail": true,
+      "credentials": {
+        "googleApi": {"id": "eX2M9zivWL2nlEPK", "name": "Google Firebase Cloud Firestore account"}
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const currentPrices = $('Parse Prices').first().json.prices;\nconst nameMap = $('Build Tickers').first().json.nameMap || {};\nconst prevDoc = $input.first().json || {};\n\n// alertState is stored separately from prices to avoid nesting issues\n// Structure: { \"TICKER\": { ts: timestamp_ms, pct: last_alerted_pct } }\nconst prevAlertState = prevDoc.alertState || {};\n\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\nconst todayTs = today.getTime();\nconst now = Date.now();\nconst COOLDOWN_MS = 20 * 60 * 1000;\n\nconst alerts = [];\nconst newAlertState = Object.assign({}, prevAlertState);\n\nfor (const [ticker, data] of Object.entries(currentPrices)) {\n    const pct = data.dayChangePct || 0;\n    const absPct = Math.abs(pct);\n\n    if (absPct < 1.0) continue;\n\n    const prev = prevAlertState[ticker] || {};\n    const lastTs = typeof prev.ts === 'number' ? prev.ts : 0;\n    const lastPct = typeof prev.pct === 'number' ? prev.pct : 0;\n\n    const alertedToday = lastTs >= todayTs;\n    const movedEnough = !alertedToday || absPct >= Math.abs(lastPct) + 1.0;\n    const cooledDown = (now - lastTs) >= COOLDOWN_MS;\n\n    if (movedEnough && (!alertedToday || cooledDown)) {\n        const name = nameMap[ticker] || ticker;\n        alerts.push({ ticker, name, pct, price: data.price, currency: data.currency || 'EUR' });\n        newAlertState[ticker] = { ts: now, pct: pct };\n    }\n}\n\n// Sort by ascending pct value (most negative first, most positive last)\nalerts.sort(function(a, b) { return a.pct - b.pct; });\n\nreturn [{ json: {\n    hasAlerts: alerts.length > 0,\n    alerts,\n    currentPrices,\n    newAlertState\n}}];"
+      },
+      "id": "8b9d3160-b9a2-4203-a1f5-ce3f384dbe9f",
+      "name": "Calc 30min Change",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-208, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { currentPrices, newAlertState } = $input.first().json;\nreturn [{ json: { prices: currentPrices, alertState: newAlertState } }];"
+      },
+      "id": "f0b939b2-79d4-4e7f-860e-8ec29cd7983a",
+      "name": "Extract New Snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/marketData",
+        "documentId": "snapshot30min",
+        "columns": "prices,alertState"
+      },
+      "id": "77bb42da-0a15-43b1-b77c-1e27f06f6daf",
+      "name": "Write New Snapshot",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [208, 0],
+      "credentials": {
+        "googleApi": {"id": "eX2M9zivWL2nlEPK", "name": "Google Firebase Cloud Firestore account"}
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1},
+          "conditions": [
+            {
+              "id": "30min-alert-cond",
+              "leftValue": "={{ $json.hasAlerts }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "equals"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f967ca3b-ddcb-4bf6-8877-d6352c91300a",
+      "name": "If Has Alerts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [0, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { alerts } = $input.first().json;\n\nconst NL = '\\n';\nconst lines = alerts.map(function(a) {\n    const emoji = a.pct >= 0 ? '&#128994;' : '&#128308;';\n    const sign = a.pct >= 0 ? '+' : '';\n    const label = a.name || a.ticker;\n    return emoji + ' <b>' + label + '</b> : ' + sign + a.pct.toFixed(2) + '% aujourd\\'hui (' + a.price.toFixed(2) + ' ' + a.currency + ')';\n}).join(NL);\n\nconst message = '&#128202; <b>Alerte Variation Journaliere</b>' + NL + NL + lines + NL + NL + '<i>Seuil : &#177;1% / jour. Prochaine alerte si +1% suppl.</i>';\n\nreturn [{ json: { chatId: '2089017736', message } }];"
+      },
+      "id": "d416c81c-3b2e-43bf-972b-2e6c8847f109",
+      "name": "Format Alert Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [208, 304]
+    },
+    {
+      "parameters": {
+        "chatId": "2089017736",
+        "text": "={{ $json.message }}",
+        "additionalFields": {"parse_mode": "HTML"}
+      },
+      "id": "6bbccc7f-1eeb-45c9-b2bb-3ba472531ed5",
+      "name": "Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [400, 320],
+      "credentials": {
+        "telegramApi": {"id": "SX5rx7IEfevBlf0q", "name": "Telegram account"}
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule 30min": {
+      "main": [[{"node": "Firestore Purchases", "type": "main", "index": 0}]]
+    },
+    "Firestore Purchases": {
+      "main": [[{"node": "Build Tickers", "type": "main", "index": 0}]]
+    },
+    "Build Tickers": {
+      "main": [[{"node": "Fetch Prices Yahoo", "type": "main", "index": 0}]]
+    },
+    "Fetch Prices Yahoo": {
+      "main": [[{"node": "Parse Prices", "type": "main", "index": 0}]]
+    },
+    "Parse Prices": {
+      "main": [[{"node": "Get Previous Snapshot", "type": "main", "index": 0}]]
+    },
+    "Get Previous Snapshot": {
+      "main": [[{"node": "Calc 30min Change", "type": "main", "index": 0}]]
+    },
+    "Calc 30min Change": {
+      "main": [[
+        {"node": "Extract New Snapshot", "type": "main", "index": 0},
+        {"node": "If Has Alerts", "type": "main", "index": 0}
+      ]]
+    },
+    "Extract New Snapshot": {
+      "main": [[{"node": "Write New Snapshot", "type": "main", "index": 0}]]
+    },
+    "If Has Alerts": {
+      "main": [
+        [{"node": "Format Alert Message", "type": "main", "index": 0}],
+        []
+      ]
+    },
+    "Format Alert Message": {
+      "main": [[{"node": "Telegram Alert", "type": "main", "index": 0}]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "c0d7a9fe-194f-4263-980b-e6608d890e27",
+  "meta": {
+    "instanceId": "bd0642bff22c21ed24c1b956535cd6871d016852494b3555f3c4d9f5f6a5776e"
+  },
+  "nodeGroups": [],
+  "id": "XSah6DZV4sSjIm4I",
+  "tags": []
+}

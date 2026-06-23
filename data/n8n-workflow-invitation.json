@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": ""
+  },
+  "name": "Asset Tracker – Invitation Email",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "75994465-3031-4972-bfd8-3575326885b5",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "https://asset-tracker.fr"
+        }
+      },
+      "id": "f1a2b3c4-d5e6-7890-abcd-111111111111",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 320],
+      "webhookId": "75994465-3031-4972-bfd8-3575326885b5"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "CHANGE_ME",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f2b3c4d5-e6a7-8901-bcde-222222222222",
+      "name": "Vérifier Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 320]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.body.recipientEmail }}",
+        "subject": "🎉 Votre invitation Asset Tracker",
+        "emailType": "html",
+        "message": "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><style>body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0e27}.container{max-width:600px;margin:40px auto;background:linear-gradient(135deg,#1a2238,#22294a);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.4)}.header{background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:40px 30px;text-align:center}.header h1{margin:0;font-size:28px;font-weight:700;color:#fff}.header p{margin:8px 0 0;color:rgba(255,255,255,.85);font-size:15px}.content{padding:40px 30px}.message{font-size:15px;line-height:1.7;color:#9fa6bc;margin-bottom:24px}.code-box{background:rgba(99,102,241,.1);border:2px solid #6366f1;border-radius:12px;padding:24px;text-align:center;margin:28px 0}.code-label{font-size:12px;color:#9fa6bc;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px}.code{font-size:34px;font-weight:700;color:#6366f1;font-family:'Courier New',monospace;letter-spacing:3px}.btn{display:inline-block;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;text-decoration:none;padding:14px 36px;border-radius:8px;font-size:16px;font-weight:600;margin-top:8px}.footer{padding:24px;text-align:center;font-size:13px;color:#6b7280;border-top:1px solid rgba(255,255,255,.1)}</style></head><body><div class=\"container\"><div class=\"header\"><h1>📊 Asset Tracker</h1><p>Vous êtes invité(e) !</p></div><div class=\"content\"><div class=\"message\">Bonjour,<br><br>Vous avez été invité(e) à rejoindre <strong style=\"color:#fff\">Asset Tracker</strong>, la plateforme de suivi et d'analyse de vos investissements.<br><br>Suivez vos actions, cryptomonnaies, immobilier et bien plus dans une interface moderne et intuitive.</div><div class=\"code-box\"><div class=\"code-label\">🔑 Votre code d'invitation</div><div class=\"code\">{{ $json.body.invitationCode }}</div></div><div style=\"text-align:center\"><a href=\"https://asset-tracker.fr/login.html\" class=\"btn\">Créer mon compte →</a></div><div class=\"message\" style=\"font-size:13px;margin-top:24px\">Ce code est à <strong style=\"color:#fff\">usage unique</strong>. Rendez-vous sur Asset Tracker et saisissez-le lors de la création de votre compte.</div></div><div class=\"footer\">À bientôt sur Asset Tracker 🚀<br><span style=\"font-size:11px\">Si vous n'êtes pas à l'origine de cette invitation, ignorez cet email.</span></div></div></body></html>",
+        "options": {}
+      },
+      "id": "f3c4d5e6-a7b8-9012-cdef-333333333333",
+      "name": "Envoyer Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [700, 200],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true }",
+        "options": {}
+      },
+      "id": "f4d5e6a7-b8c9-0123-defa-444444444444",
+      "name": "Réponse OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [940, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": false, \"error\": \"Unauthorized\" }",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "f5e6a7b8-c9d0-1234-efab-555555555555",
+      "name": "Réponse 403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [700, 440]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "Vérifier Secret", "type": "main", "index": 0 }]
+      ]
+    },
+    "Vérifier Secret": {
+      "main": [
+        [{ "node": "Envoyer Email",  "type": "main", "index": 0 }],
+        [{ "node": "Réponse 403",    "type": "main", "index": 0 }]
+      ]
+    },
+    "Envoyer Email": {
+      "main": [
+        [{ "node": "Réponse OK", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

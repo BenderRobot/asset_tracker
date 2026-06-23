@@ -1,0 +1,292 @@
+{
+  "name": "tg_breaking_news",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Configuration\n\n1. Ouvrir le nœud **Google Gemini Chat Model**\n2. Vérifier que la credential **Google Gemini(PaLM) Api account** est sélectionnée\n3. Le nœud **Basic LLM Chain** doit être connecté au modèle (lien violet)\n\nSans credential Gemini : les 5 premières news s'affichent sans analyse.",
+        "height": 160,
+        "width": 360,
+        "color": 3
+      },
+      "id": "note1111-1111-4111-a111-111111111111",
+      "name": "Note Config Gemini",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [2040, 280]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "minutes", "minutesInterval": 30}]
+        }
+      },
+      "id": "d1111111-1111-4111-a111-111111111111",
+      "name": "Schedule 30min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "getAll",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/purchases",
+        "returnAll": true
+      },
+      "id": "d2222222-2222-4222-a222-222222222222",
+      "name": "Firestore Purchases",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [440, 300],
+      "credentials": {
+        "googleApi": {"id": "eX2M9zivWL2nlEPK", "name": "Google Firebase Cloud Firestore account"}
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const purchases = $input.all();\n\nconst yahooMap = {\n  'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.DE', 'MSF': 'MSF.F',\n  'TL0': 'TL0.DE', 'TLO': 'TL0.DE', 'TKE': 'TKE.F', 'M4I': 'M4I.F', 'ABEA': 'ABEA.F',\n  'CSPX': 'CSPX.AS', 'CNDX': 'CNDX.AS', '3ZU0': '3ZU0.F', '1170': '1170.F',\n  '9D5': '9D5.F', 'GXG': 'GXG.F', 'BKSY': 'BKSY',\n  'GOLD-ETFP': 'GOLD-EUR.PA',\n  'AL2SI': 'AL2SI.PA', 'SU': 'SU.PA', 'ESE': 'ESE.PA',\n  'EUEA': 'EUEA.AS', 'STEC': 'STEC.AS', 'ALRIB': 'ALRIB.PA',\n  'SOI': 'SOI.PA', 'BTC': 'BTC-EUR'\n};\n\nconst searchOverrides = {\n  'CSPX': 'S&P 500',\n  'CNDX': 'NASDAQ 100',\n  'GOLD-ETFP': 'cours or gold XAU',\n  'EUEA': 'MSCI Europe ETF actions',\n  'STEC': 'Europe technologie ETF',\n  '3ZU0': 'Dow Jones ETF',\n  '1170': 'Bitcoin ETF'\n};\n\nconst netQty = {};\nconst nameMap = {};\nfor (const item of purchases) {\n    const ticker = (item.json.ticker || '').toUpperCase().trim();\n    const qty = parseFloat(item.json.quantity) || 0;\n    if (!ticker || ticker.startsWith('CASH-')) continue;\n    netQty[ticker] = (netQty[ticker] || 0) + qty;\n    if (!nameMap[ticker]) nameMap[ticker] = item.json.name || ticker;\n}\n\nconst seen = new Set();\nconst results = [];\nfor (const [ticker, qty] of Object.entries(netQty)) {\n    if (qty < 0.01) continue;\n    const yahooTicker = yahooMap[ticker] || ticker;\n    if (seen.has(yahooTicker)) continue;\n    seen.add(yahooTicker);\n    const name = nameMap[ticker] || ticker;\n    const searchName = searchOverrides[ticker] || name;\n    results.push({ json: { yahooTicker, name, searchName } });\n}\n\nreturn results;"
+      },
+      "id": "d3333333-3333-4333-a333-333333333333",
+      "name": "Build Ticker List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://news.google.com/rss/search?q={{ encodeURIComponent($json.searchName) }}&hl=fr&gl=FR&ceid=FR:fr",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "headers": {
+            "parameters": [
+              {"name": "User-Agent", "value": "Mozilla/5.0 (compatible; n8n/2.25)"},
+              {"name": "Accept", "value": "application/rss+xml, application/xml, text/xml"}
+            ]
+          }
+        }
+      },
+      "id": "d4444444-4444-4444-a444-444444444444",
+      "name": "Fetch Google News RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const httpResponses = $input.all();\nconst tickerItems = $('Build Ticker List').all();\n\nconst twentyFourHoursAgo = Math.floor(Date.now() / 1000) - 24 * 3600;\nconst allNews = [];\nconst seenUUIDs = new Set();\n\nfunction getTag(s, tag) {\n    const open = '<' + tag;\n    const close = '</' + tag + '>';\n    const si = s.indexOf(open);\n    const ei = s.indexOf(close);\n    if (si === -1 || ei === -1) return '';\n    const raw = s.substring(s.indexOf('>', si) + 1, ei).trim();\n    if (raw.startsWith('<![CDATA[') && raw.endsWith(']]>')) return raw.slice(9, -3).trim();\n    return raw;\n}\n\nfor (let i = 0; i < httpResponses.length; i++) {\n    const rawData = httpResponses[i].json;\n    const xml = (rawData && typeof rawData.data === 'string') ? rawData.data : '';\n    const tickerInfo = tickerItems[i] ? tickerItems[i].json : {};\n    const name = tickerInfo.name || tickerInfo.yahooTicker || 'Unknown';\n    const yahooTicker = tickerInfo.yahooTicker || name;\n\n    if (!xml) continue;\n\n    const parts = xml.split('<item>');\n    for (let j = 1; j < parts.length; j++) {\n        const part = parts[j].split('</item>')[0];\n\n        const title = getTag(part, 'title');\n        const link = getTag(part, 'link');\n        const pubDate = getTag(part, 'pubDate');\n        const guid = getTag(part, 'guid') || link || title;\n        const publisher = getTag(part, 'source') || 'Google News';\n\n        if (!title || !guid) continue;\n\n        const publishedAt = pubDate ? Math.floor(new Date(pubDate).getTime() / 1000) : 0;\n        if (publishedAt < twentyFourHoursAgo) continue;\n        if (seenUUIDs.has(guid)) continue;\n        seenUUIDs.add(guid);\n\n        allNews.push({ uuid: guid, title, publisher, link, publishedAt, ticker: yahooTicker, name });\n    }\n}\n\nallNews.sort((a, b) => b.publishedAt - a.publishedAt);\n\nconst byAssetCount = {};\nconst limitedNews = [];\nfor (const item of allNews) {\n    byAssetCount[item.name] = (byAssetCount[item.name] || 0) + 1;\n    if (byAssetCount[item.name] <= 3) limitedNews.push(item);\n}\n\nreturn [{ json: { news: limitedNews.slice(0, 30), count: limitedNews.length } }];"
+      },
+      "id": "d5555555-5555-4555-a555-555555555555",
+      "name": "Collect News",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "get",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/newsAlerts",
+        "documentId": "sentIds"
+      },
+      "id": "d6666666-6666-4666-a666-666666666666",
+      "name": "Get Sent IDs",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [1240, 300],
+      "alwaysOutputData": true,
+      "continueOnFail": true,
+      "credentials": {
+        "googleApi": {"id": "eX2M9zivWL2nlEPK", "name": "Google Firebase Cloud Firestore account"}
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Collect News').first().json;\nconst sentDoc = $input.first().json || {};\n\nconst sentIds = new Set(sentDoc.ids || []);\nconst news = data.news || [];\n\nconst newItems = news.filter(item => !sentIds.has(item.uuid)).slice(0, 30);\n\nreturn [{ json: {\n    hasNews: newItems.length > 0,\n    news: newItems,\n    count: newItems.length,\n    existingSentIds: sentDoc.ids || []\n}}];"
+      },
+      "id": "d7777777-7777-4777-a777-777777777777",
+      "name": "Filter Unsent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { existingSentIds } = $('Filter Unsent').first().json;\nconst { selectedUUIDs } = $('Format Message').first().json;\nconst allSentIds = [...(existingSentIds || []), ...(selectedUUIDs || [])].slice(-500);\nreturn [{ json: { ids: allSentIds } }];"
+      },
+      "id": "d8888888-8888-4888-a888-888888888888",
+      "name": "Extract UUIDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1640, 120]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/newsAlerts",
+        "documentId": "sentIds",
+        "columns": "ids"
+      },
+      "id": "d9999999-9999-4999-a999-999999999999",
+      "name": "Save Sent IDs",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [1840, 120],
+      "credentials": {
+        "googleApi": {"id": "eX2M9zivWL2nlEPK", "name": "Google Firebase Cloud Firestore account"}
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {
+              "id": "news-cond-001",
+              "leftValue": "={{ $json.hasNews }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "equals"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "daaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+      "name": "If Has News",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1640, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { news } = $input.first().json;\n\nconst newsForGemini = news.map(function(item, idx) {\n    return { idx: idx, titre: item.title.substring(0, 150), actif: item.name };\n});\n\nconst prompt = `Tu es un redacteur financier senior specialise en analyse de portefeuille.\n\nMISSION : Parmi ces actualites financieres, selectionne les 3 a 5 plus importantes pour un investisseur.\nCriteres : resultats trimestriels, M&A, mouvements de cours significatifs, annonces strategiques majeures.\n\nREGLES STRICTES :\n- Maximum 1 actualite par actif (pas de doublons)\n- Ignorer les news anecdotiques sans impact boursier direct\n- Pour chaque news retenue : redige une analyse de 4 a 6 phrases en francais :\n  * Impact concret sur la position dans le portefeuille\n  * Raison principale de ce mouvement ou de cette annonce\n  * Contexte de marche et comparaison sectorielle\n  * Ce que l'investisseur doit surveiller dans les prochains jours\n- Objectif : exploiter les 4000 caracteres disponibles avec des analyses denses et actionnables\n\nFORMAT DE REPONSE : JSON valide uniquement, rien d'autre.\n{\"selected\":[{\"idx\":0,\"impact\":\"analyse detaillee 4-6 phrases\"},{\"idx\":2,\"impact\":\"analyse detaillee 4-6 phrases\"}]}\n\nActualites a analyser :\n` + JSON.stringify(newsForGemini);\n\nreturn [{ json: { input: prompt, news } }];"
+      },
+      "id": "g1111111-1111-4111-a111-111111111111",
+      "name": "Build Gemini Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1840, 480]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.input }}",
+        "batching": {}
+      },
+      "id": "3d0ffc3f-0e2d-4bb4-9b74-0aa8c6d8cc31",
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [2040, 480]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "10287786-b4fc-47eb-ae8a-8a18cd85d3a7",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [2040, 660],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "tnNct7NvXpmUZK4U",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const geminiResp = $input.first().json;\nconst { news } = $('Build Gemini Prompt').first().json;\n\nlet selectedNews = [];\ntry {\n    const text = geminiResp.output || geminiResp.text || '';\n    const s = text.indexOf('{');\n    const e = text.lastIndexOf('}');\n    if (s !== -1 && e > s) {\n        const parsed = JSON.parse(text.substring(s, e + 1));\n        for (const it of (parsed.selected || [])) {\n            if (typeof it.idx === 'number' && news[it.idx]) {\n                selectedNews.push(Object.assign({}, news[it.idx], { impact: it.impact || '' }));\n            }\n        }\n    }\n} catch(err) {}\n\nif (selectedNews.length === 0) selectedNews = news.slice(0, 5);\n\nconst seenAssets = new Set();\nselectedNews = selectedNews.filter(function(item) {\n    if (seenAssets.has(item.name)) return false;\n    seenAssets.add(item.name);\n    return true;\n});\n\nconst NL = '\\n';\nfunction esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }\nfunction dec(s) { return (s || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'); }\n\nconst separator = NL + NL + '-----' + NL + NL;\n\nconst blocks = selectedNews.map(function(item) {\n    const d = new Date(item.publishedAt * 1000);\n    const hh = d.getHours().toString().padStart(2, '0');\n    const mm = d.getMinutes().toString().padStart(2, '0');\n    const title = esc(dec(item.title));\n    let block = '<b>&#128204; ' + esc(item.name) + '</b>' + NL;\n    block += '&#128202; ' + title + NL;\n    block += '   <i>' + esc(item.publisher) + ' · ' + hh + ':' + mm + '</i>';\n    if (item.link) block += ' · <a href=\"' + item.link + '\">Lire</a>';\n    if (item.impact) {\n        const imp = item.impact.length > 500 ? item.impact.substring(0, 500) + '...' : item.impact;\n        block += NL + '   &#128188; <i>' + esc(imp) + '</i>';\n    }\n    return block;\n});\n\nconst header = '&#128276; <b>Breaking News Portfolio</b> <i>(' + selectedNews.length + ' actus)</i>';\nlet message = header;\nfor (let i = 0; i < blocks.length; i++) {\n    const candidate = message + (i === 0 ? NL + NL : separator) + blocks[i];\n    if (candidate.length > 4090) break;\n    message = candidate;\n}\nconst selectedUUIDs = selectedNews.map(function(item) { return item.uuid; });\n\nreturn [{ json: { chatId: '2089017736', message, selectedUUIDs } }];"
+      },
+      "id": "f1111111-1111-4111-a111-111111111111",
+      "name": "Format Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2240, 480]
+    },
+    {
+      "parameters": {
+        "chatId": "2089017736",
+        "text": "={{ $json.message }}",
+        "additionalFields": {"parse_mode": "HTML"}
+      },
+      "id": "e4444444-4444-4444-a444-444444444444",
+      "name": "Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2440, 480],
+      "credentials": {
+        "telegramApi": {"id": "SX5rx7IEfevBlf0q", "name": "Telegram account"}
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule 30min": {
+      "main": [[{"node": "Firestore Purchases", "type": "main", "index": 0}]]
+    },
+    "Firestore Purchases": {
+      "main": [[{"node": "Build Ticker List", "type": "main", "index": 0}]]
+    },
+    "Build Ticker List": {
+      "main": [[{"node": "Fetch Google News RSS", "type": "main", "index": 0}]]
+    },
+    "Fetch Google News RSS": {
+      "main": [[{"node": "Collect News", "type": "main", "index": 0}]]
+    },
+    "Collect News": {
+      "main": [[{"node": "Get Sent IDs", "type": "main", "index": 0}]]
+    },
+    "Get Sent IDs": {
+      "main": [[{"node": "Filter Unsent", "type": "main", "index": 0}]]
+    },
+    "Filter Unsent": {
+      "main": [[{"node": "If Has News", "type": "main", "index": 0}]]
+    },
+    "Extract UUIDs": {
+      "main": [[{"node": "Save Sent IDs", "type": "main", "index": 0}]]
+    },
+    "If Has News": {
+      "main": [
+        [{"node": "Build Gemini Prompt", "type": "main", "index": 0}],
+        []
+      ]
+    },
+    "Build Gemini Prompt": {
+      "main": [[{"node": "Basic LLM Chain", "type": "main", "index": 0}]]
+    },
+    "Basic LLM Chain": {
+      "main": [[{"node": "Format Message", "type": "main", "index": 0}]]
+    },
+    "Format Message": {
+      "main": [[
+        {"node": "Telegram Alert", "type": "main", "index": 0},
+        {"node": "Extract UUIDs", "type": "main", "index": 0}
+      ]]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [[
+        {"node": "Basic LLM Chain", "type": "ai_languageModel", "index": 0}
+      ]]
+    }
+  },
+  "active": false,
+  "settings": {"executionOrder": "v1"},
+  "versionId": "f5a6b7c8-d9e0-4123-abcd-567890123456",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "bd0642bff22c21ed24c1b956535cd6871d016852494b3555f3c4d9f5f6a5776e"
+  },
+  "id": "BreakingNews00004",
+  "tags": []
+}

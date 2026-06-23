@@ -1,0 +1,470 @@
+﻿// ========================================
+// dataManager.js - (v8 - Ajout support Indices)
+// ========================================
+
+import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js';
+import { parseDate } from './utils.js';
+import { HistoryCalculator } from './HistoryCalculator.js';
+import {
+    getIntervalForPeriod,
+    getLabelFormat,
+    getLastTradingDay,
+    isCryptoTicker,
+    formatTicker,
+    findClosestPrice
+} from './MarketUtils.js';
+
+export class DataManager {
+    constructor(storage, api) {
+        this.storage = storage;
+        this.api = api;
+        this.historyCalculator = new HistoryCalculator(storage, api);
+    }
+
+    // === HELPERS DELEGATION (Compatibilité Legacy) ===
+    isCryptoTicker(ticker) { return isCryptoTicker(ticker); }
+    formatTicker(ticker) { return formatTicker(ticker); }
+    getIntervalForPeriod(days) { return getIntervalForPeriod(days); }
+    getLastTradingDay(date) { return getLastTradingDay(date); }
+
+    // Nouvelle fonction pour calculer yesterdayClose de tous les actifs
+    async calculateAllAssetsYesterdayClose(assetPurchases) {
+        // Reconstruction des définitions manquantes suite à corruption
+        const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
+        const yesterdayCloseMap = new Map();
+
+        console.log(`[calculateAllAssetsYesterdayClose] Calculating for ${tickers.length} assets: `, tickers);
+
+        // Calculer l'historique 1D de chaque actif en parallèle (par batch de 3)
+        const batchSize = 3;
+        for (let i = 0; i < tickers.length; i += batchSize) {
+            const batch = tickers.slice(i, i + batchSize);
+            const promises = batch.map(async ticker => {
+                try {
+                    const graphData = await this.calculateAssetHistory(ticker, 1);
+
+                    if (graphData) {
+                        // Use Unit Price if available, otherwise fallback to Close but be careful
+                        const priceToUse = graphData.yesterdayUnitPrice || graphData.yesterdayClose;
+
+                        if (priceToUse) {
+                            yesterdayCloseMap.set(ticker, priceToUse);
+                            console.log(`[✓] ${ticker}: yesterdayClose (UNIT) = ${priceToUse.toFixed(2)} `);
+
+                            // MISE À JOUR DU STORAGE POUR PERSISTER LA CORRECTION
+                            const cached = this.storage.getCurrentPrice(ticker);
+                            if (cached) {
+                                cached.previousClose = priceToUse;
+                                this.storage.setCurrentPrice(ticker, cached);
+                            }
+                        }
+                    } else {
+                        console.warn(`[✗] ${ticker}: No yesterdayClose in graphData`, graphData);
+                    }
+                } catch (error) {
+                    console.warn(`Failed to calculate yesterdayClose for ${ticker}: `, error);
+                }
+            });
+            await Promise.all(promises);
+        }
+
+        console.log(`[calculateAllAssetsYesterdayClose] Completed. Map size: ${yesterdayCloseMap.size}/${tickers.length}`);
+        return yesterdayCloseMap;
+    }
+
+    calculateCashReserve(allPurchases) {
+        const cashMovements = allPurchases.filter(p => p.assetType === 'Cash');
+        const byBroker = {};
+        let total = 0;
+        cashMovements.forEach(move => {
+            const broker = move.broker || 'Unknown';
+            if (!byBroker[broker]) byBroker[broker] = 0;
+            byBroker[broker] += move.price;
+            total += move.price;
+        });
+        return { total, byBroker };
+    }
+
+    calculateHoldings(assetPurchases, yesterdayCloseMap = null) {
+        const aggregated = {};
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+
+        // 1. TRIER PAR DATE
+        assetPurchases.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        assetPurchases.forEach(p => {
+            const t = p.ticker.toUpperCase();
+            if (!aggregated[t]) {
+                aggregated[t] = {
+                    name: p.name,
+                    assetType: p.assetType || 'Stock',
+                    quantity: 0,
+                    invested: 0,
+                    purchases: []
+                };
+            }
+
+            const currency = p.currency || 'EUR';
+            const rate = currency === 'USD' ? dynamicRate : 1;
+
+            if (p.quantity > 0) {
+                // ACHAT
+                aggregated[t].quantity += p.quantity;
+                aggregated[t].invested += p.price * p.quantity * rate;
+            } else {
+                // VENTE
+                const sellQty = Math.abs(p.quantity);
+                const currentQty = aggregated[t].quantity;
+
+                if (currentQty > 0) {
+                    const ratio = sellQty / currentQty;
+                    aggregated[t].invested -= (aggregated[t].invested * ratio);
+                    aggregated[t].quantity -= sellQty;
+                } else {
+                    aggregated[t].quantity -= sellQty;
+                }
+
+                if (aggregated[t].quantity <= 0.000001) {
+                    aggregated[t].quantity = 0;
+                    aggregated[t].invested = 0;
+                }
+            }
+            aggregated[t].purchases.push(p);
+        });
+
+        const enriched = Object.entries(aggregated).map(([ticker, data]) => {
+            const d = this.storage.getCurrentPrice(ticker) || {};
+            const currency = d.currency || 'EUR';
+            const currentPrice = d.price;
+            const previousClose = d.previousClose;
+
+            const rate = 1;
+
+            const investedEUR = data.invested * rate;
+            const avgPrice = (data.quantity > 0) ? data.invested / data.quantity : 0;
+            const avgPriceEUR = avgPrice * rate;
+
+            const currentValue = currentPrice ? currentPrice * data.quantity : null;
+            const currentValueEUR = currentValue ? currentValue * rate : null;
+
+            const gainEUR = currentValueEUR ? currentValueEUR - investedEUR : null;
+            const gainPct = investedEUR > 0 && gainEUR !== null ? (gainEUR / investedEUR) * 100 : null;
+
+            let dayChange = null;
+            let dayPct = null;
+
+            if (yesterdayCloseMap && yesterdayCloseMap.has(ticker) && currentValue && currentValue > 0) {
+                const yesterdayData = yesterdayCloseMap.get(ticker);
+                const graphYesterdayCloseTotal = yesterdayData.value || yesterdayData;
+
+                if (graphYesterdayCloseTotal && graphYesterdayCloseTotal > 0) {
+                    dayPct = ((currentValue - graphYesterdayCloseTotal) / graphYesterdayCloseTotal) * 100;
+                    dayChange = currentValueEUR - (graphYesterdayCloseTotal * rate);
+                }
+            }
+            else if (currentPrice && currentPrice > 0) {
+                const effectivePreviousClose = (previousClose && previousClose > 0) ? previousClose : currentPrice;
+
+                if (effectivePreviousClose !== currentPrice) {
+                    dayPct = ((currentPrice - effectivePreviousClose) / effectivePreviousClose) * 100;
+                    const dayChangeOriginal = (currentPrice - effectivePreviousClose) * data.quantity;
+                    dayChange = dayChangeOriginal * rate;
+                } else {
+                    dayChange = 0;
+                    dayPct = 0;
+                }
+            }
+
+            return {
+                ticker,
+                name: data.name,
+                assetType: data.assetType,
+                quantity: data.quantity,
+                avgPrice: avgPriceEUR,
+                invested: investedEUR,
+                currentPrice: currentPrice ? currentPrice * rate : null,
+                currentValue: currentValueEUR,
+                gainEUR,
+                gainPct,
+                dayChange,
+                dayPct,
+                weight: 0,
+                purchases: data.purchases
+            };
+        });
+
+        return enriched;
+    }
+
+    calculateSummary(holdings) {
+        let totalInvestedEUR = 0;
+        let totalCurrentEUR = 0;
+        let totalDayChangeEUR = 0;
+        const assetTotalPerformances = [];
+        const assetDayPerformances = [];
+
+        const sectorStats = {};
+
+        holdings.forEach(asset => {
+            totalInvestedEUR += asset.invested || 0;
+            totalCurrentEUR += asset.currentValue || 0;
+            totalDayChangeEUR += asset.dayChange || 0;
+
+            const type = asset.assetType || 'Other';
+            if (!sectorStats[type]) {
+                sectorStats[type] = { value: 0, name: type };
+            }
+            sectorStats[type].value += (asset.currentValue || 0);
+
+            if (asset.currentValue !== null) {
+                assetTotalPerformances.push({
+                    ticker: asset.ticker,
+                    name: asset.name,
+                    gainPct: asset.gainPct || 0,
+                    gain: asset.gainEUR || 0,
+                    currentValue: asset.currentValue,
+                    currentPrice: asset.currentPrice
+                });
+
+                assetDayPerformances.push({
+                    ticker: asset.ticker,
+                    name: asset.name,
+                    dayPct: asset.dayPct || 0,
+                    dayChange: asset.dayChange || 0
+                });
+            }
+        });
+
+        let bestSector = { name: '-', value: 0, pct: 0 };
+        if (totalCurrentEUR > 0) {
+            let maxVal = -1;
+            Object.values(sectorStats).forEach(s => {
+                if (s.value > maxVal) {
+                    maxVal = s.value;
+                    bestSector = {
+                        name: s.name,
+                        value: s.value,
+                        pct: (s.value / totalCurrentEUR) * 100
+                    };
+                }
+            });
+        }
+
+        const gainTotal = totalCurrentEUR - totalInvestedEUR;
+        const gainPct = totalInvestedEUR > 0 ? (gainTotal / totalInvestedEUR) * 100 : 0;
+
+        const totalPreviousCloseEUR = totalCurrentEUR - totalDayChangeEUR;
+        const dayChangePct = totalPreviousCloseEUR > 0
+            ? (totalDayChangeEUR / totalPreviousCloseEUR) * 100
+            : 0;
+
+        const sortedTotal = assetTotalPerformances.sort((a, b) => b.gainPct - a.gainPct);
+        const bestAsset = sortedTotal.length > 0 ? sortedTotal[0] : null;
+        const worstAsset = sortedTotal.length > 0 ? sortedTotal[sortedTotal.length - 1] : null;
+
+        const sortedDay = assetDayPerformances.sort((a, b) => b.dayPct - a.dayPct);
+        const bestDayAsset = sortedDay.length > 0 ? sortedDay[0] : null;
+        const worstDayAsset = sortedDay.length > 0 ? sortedDay[sortedDay.length - 1] : null;
+
+        return {
+            totalInvestedEUR,
+            totalCurrentEUR,
+            totalDayChangeEUR,
+            gainTotal,
+            gainPct,
+            dayChangePct,
+            bestAsset,
+            worstAsset,
+            bestDayAsset,
+            worstDayAsset,
+            topSector: bestSector,
+            assetsCount: holdings.length,
+            movementsCount: holdings.reduce((sum, h) => sum + h.purchases.length, 0)
+        };
+    }
+
+    calculateEnrichedPurchases(filteredPurchases) {
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+
+        return filteredPurchases.map(p => {
+            if (p.assetType === 'Cash') {
+                return {
+                    ...p,
+                    currency: 'EUR',
+                    currentPriceOriginal: null,
+                    buyPriceOriginal: p.price,
+                    currentPriceEUR: null,
+                    investedEUR: null,
+                    currentValueEUR: null,
+                    gainEUR: p.price,
+                    gainPct: null
+                };
+            }
+
+            const t = p.ticker.toUpperCase();
+            const d = this.storage.getCurrentPrice(t) || {};
+            const assetCurrency = d.currency || p.currency || 'EUR';
+            const currentPriceOriginal = d.price;
+            const buyPriceOriginal = p.price;
+
+            const rate = assetCurrency === 'USD' ? dynamicRate : 1;
+
+            const currentPriceEUR = currentPriceOriginal * rate;
+            const buyPriceEUR = buyPriceOriginal * rate;
+
+            const investedEUR = buyPriceEUR * p.quantity;
+            const currentValueEUR = currentPriceEUR ? currentPriceEUR * p.quantity : null;
+            const gainEUR = currentValueEUR !== null ? currentValueEUR - investedEUR : null;
+            const gainPct = investedEUR > 0 && gainEUR !== null ? (gainEUR / investedEUR) * 100 : null;
+
+            return {
+                ...p,
+                assetType: p.assetType || 'Stock',
+                broker: p.broker || 'RV-CT',
+                currency: assetCurrency,
+                currentPriceOriginal,
+                buyPriceOriginal,
+                currentPriceEUR,
+                investedEUR,
+                currentValueEUR,
+                gainEUR,
+                gainPct
+            };
+        });
+    }
+
+    generateFullReport(purchases, yesterdayCloseMap = null) {
+        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
+        const cashPurchases = purchases.filter(p => p.assetType === 'Cash');
+        const holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap);
+        const summary = this.calculateSummary(holdings);
+        const cashReserve = this.calculateCashReserve(cashPurchases);
+        holdings.forEach(asset => {
+            asset.weight = summary.totalCurrentEUR > 0 ? (asset.currentValue / summary.totalCurrentEUR) * 100 : 0;
+        });
+        return {
+            summary: {
+                totalValue: summary.totalCurrentEUR,
+                totalInvested: summary.totalInvestedEUR,
+                totalGain: summary.gainTotal,
+                totalGainPct: summary.gainPct,
+                dayChange: summary.totalDayChangeEUR,
+                dayChangePct: summary.dayChangePct,
+                cashReserve: cashReserve.total
+            },
+            diversification: this.calculateDiversification(holdings),
+            performance: this.analyzePerformance(holdings),
+            risk: this.calculateRisk(holdings),
+            assets: holdings,
+            generatedAt: new Date().toISOString()
+        };
+    }
+
+    calculateDiversification(holdings) {
+        const herfindahl = holdings.reduce((sum, asset) => sum + Math.pow(asset.weight / 100, 2), 0);
+        const effectiveAssets = herfindahl > 0 ? 1 / herfindahl : 0;
+        const maxDiversity = holdings.length;
+        const diversityScore = maxDiversity > 0 ? (effectiveAssets / maxDiversity) * 100 : 0;
+        return { herfindahl: herfindahl.toFixed(4), effectiveAssets: effectiveAssets.toFixed(2), diversityScore: diversityScore.toFixed(1), totalAssets: holdings.length, recommendation: this.getDiversificationAdvice(diversityScore, holdings.length) };
+    }
+    getDiversificationAdvice(score, assetCount) {
+        if (assetCount < 5) return 'Portfolio très concentré.';
+        if (score < 30) return 'Diversification faible.';
+        if (score < 60) return 'Diversification moyenne.';
+        if (score < 80) return 'Bonne diversification.';
+        return 'Excellente diversification.';
+    }
+    analyzePerformance(holdings) {
+        const sorted = [...holdings].sort((a, b) => b.gainPct - a.gainPct);
+        const winners = sorted.filter(a => a.gainPct > 0);
+        const losers = sorted.filter(a => a.gainPct < 0);
+        const avgGain = holdings.length > 0 ? holdings.reduce((sum, a) => sum + (a.gainPct || 0), 0) / holdings.length : 0;
+        const winRate = holdings.length > 0 ? (winners.length / holdings.length) * 100 : 0;
+        return { topPerformers: sorted.slice(0, 3), worstPerformers: sorted.slice(-3).reverse(), winners: winners.length, losers: losers.length, avgGain: avgGain.toFixed(2), winRate: winRate.toFixed(1), summary: 'Performance analysée' };
+    }
+    calculateRisk(holdings) {
+        if (holdings.length === 0) return { volatility: '0.00', maxDrawdown: '0.00', riskLevel: 'N/A', recommendation: 'Aucune donnée.' };
+        const returns = holdings.map(a => a.gainPct || 0);
+        const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+        const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
+        const volatility = Math.sqrt(variance);
+        const maxDrawdown = Math.min(...returns.map(r => Math.min(r, 0)));
+        return { volatility: volatility.toFixed(2), maxDrawdown: maxDrawdown.toFixed(2), riskLevel: volatility < 15 ? 'Faible' : 'Élevé', recommendation: 'Risque calculé' };
+    }
+
+    async calculateHistory(purchases, days) {
+        const assetPurchases = purchases.filter(p => p.assetType !== 'Cash');
+        return this.calculateGenericHistory(assetPurchases, days, false);
+    }
+
+    async calculateAssetHistory(ticker, days) {
+        const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === ticker.toUpperCase());
+        if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [] };
+        return this.calculateGenericHistory(purchases, days, true);
+    }
+
+    // === NOUVEAU : Calcul pour un Indice pur (Pour le Dashboard) ===
+    async calculateIndexData(ticker, days) {
+        const interval = getIntervalForPeriod(days);
+
+        const today = new Date();
+        const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
+        const endTs = Math.floor(todayUTC.getTime() / 1000);
+
+        let startTs;
+        if (days === 1) {
+            startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60);
+        } else if (days === 7) {
+            startTs = endTs - (7 * 24 * 60 * 60);
+        } else if (days === 30) {
+            startTs = endTs - (30 * 24 * 60 * 60);
+        } else if (days === 90) {
+            startTs = endTs - (90 * 24 * 60 * 60);
+        } else if (days === 365) {
+            startTs = endTs - (365 * 24 * 60 * 60);
+        } else {
+            startTs = endTs - (365 * 24 * 60 * 60);
+        }
+
+        const hist = await this.getHistoryWithCache(ticker, startTs, endTs, interval);
+
+        const sortedTs = Object.keys(hist).map(Number).sort((a, b) => a - b);
+        const labels = [];
+        const values = [];
+        const labelFn = getLabelFormat(days);
+
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const startOfDayTs = startOfDay.getTime();
+
+        const filteredTs = (days === 1)
+            ? sortedTs.filter(ts => ts >= startOfDayTs)
+            : sortedTs;
+
+        filteredTs.forEach(ts => {
+            labels.push(labelFn(ts));
+            values.push(hist[ts]);
+        });
+
+        const priceData = this.storage.getCurrentPrice(ticker);
+        const trueYesterdayClose = priceData?.previousClose || null;
+
+        return {
+            labels: labels,
+            values: values,
+            invested: [],
+            unitPrices: values,
+            purchasePoints: [],
+            truePreviousClose: trueYesterdayClose // IMPORTANT : Exposed for ChartKPIManager
+        }
+    }
+
+    // === SMART SYNC (Délégué) ===
+    async getHistoryWithCache(ticker, startTs, endTs, interval) {
+        return this.historyCalculator.getHistoryWithCache(ticker, startTs, endTs, interval);
+    }
+
+    async calculateGenericHistory(purchases, days, isSingleAsset = false) {
+        return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset);
+    }
+}

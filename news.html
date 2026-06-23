@@ -1,0 +1,361 @@
+<<<<<<< HEAD
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News & Flux RSS - Asset Tracker</title>
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="css/news.css">
+    <link rel="stylesheet" href="css/news-mobile.css">
+    <script>
+        // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        // Show admin link immediately if user is admin (no flash)
+        if (localStorage.getItem('isAdmin') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const adminLink = document.getElementById('admin-invitations-link');
+                if (adminLink) adminLink.style.display = 'flex';
+            });
+        }
+    </script>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px; object-fit: contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">🚀</div>
+                <span class="nav-text">Dashboard</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">📈</div>
+                <span class="nav-text">Assets</span>
+            </a>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div>
+                <span class="nav-text">Transactions</span>
+            </a>
+            <a href="analytics.html" class="nav-item">
+                <div class="nav-icon">📊</div>
+                <span class="nav-text">Analytics</span>
+            </a>
+            <a href="watchlist.html" class="nav-item">
+                <div class="nav-icon">👁️</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item">
+                <div class="nav-icon">🔍</div>
+                <span class="nav-text">Screener</span>
+            </a>
+            <a href="news.html" class="nav-item active">
+                <div class="nav-icon">📰</div>
+                <span class="nav-text">News Feeds</span>
+            </a>
+            <a href="realestate.html" class="nav-item">
+                <div class="nav-icon">🏢</div>
+                <span class="nav-text">Immobilier</span>
+            </a>
+            <a href="assistant.html" class="nav-item">
+                <div class="nav-icon">🤖</div>
+                <span class="nav-text">Assistant IA</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="settings.html" class="nav-item">
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
+                <span class="nav-text">Paramètres</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">Déconnexion</span>
+            </a>
+        </div>
+
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+        </div>
+    </aside>
+    <main class="main-content">
+        <div class="container">
+            <div class="news-header">
+                <h2>📰 News Feeds</h2>
+                <div class="news-actions">
+                    <button id="refresh-news-btn" class="btn-primary"><i class="fas fa-sync"></i> Rafraîchir</button>
+                    <button id="filter-my-assets-btn" class="btn-secondary" style="min-width: 150px;"><i
+                            class="fas fa-wallet"></i> Mes Actifs</button>
+                    <select id="filter-feed-select"></select>
+                </div>
+            </div>
+
+            <div id="news-feed-container" class="news-grid">
+                <div class="loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement des actualités...</div>
+            </div>
+        </div>
+    </main>
+    <div class="modal-overlay" id="news-modal" style="display: none;">
+        <div class="modal-content news-modal-content">
+            <div class="modal-header" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; width: 100%;">
+                    <div class="news-modal-ticker" id="modal-news-ticker">FEED LABEL</div>
+                    <button class="modal-close" id="close-news-modal">×</button>
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 500;" id="modal-news-pubdate">
+                </div>
+            </div>
+            <div class="modal-body">
+                <h3 id="modal-news-title" style="margin-bottom: 16px; line-height: 1.4;">Titre</h3>
+
+                <div class="ai-summary-header">
+                    <div class="news-ai-badge"><i class="fas fa-robot"></i> Résumé Gemini AI</div>
+                    <button class="ai-context-btn" id="analyze-context-btn"
+                        title="Pourquoi cette news est-elle importante ?">
+                        <i class="fas fa-question-circle"></i>
+                    </button>
+                </div>
+
+                <div id="modal-news-summary" class="news-summary-text">Loading...</div>
+
+                <div id="modal-news-context" class="news-context-box" style="display:none;">
+                    <div class="context-header">
+                        <i class="fas fa-lightbulb context-icon"></i>
+                        <span class="context-title">Pourquoi est-ce important pour mon portefeuille ?</span>
+                    </div>
+                    <div id="modal-context-content" class="context-content">
+                    </div>
+                </div>
+
+                <div style="margin-top: 24px; text-align: right;">
+                    <a href="#" id="modal-news-link" target="_blank" class="btn-primary"
+                        style="font-size: 14px; padding: 12px 24px;">Lire l'article complet</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script type="module" src="./authGuard.js"></script>
+    <script type="module" src="./newsApp.js?v=12"></script>
+    <script src="./cacheRefresh.js"></script>
+    <script type="module" src="./sidebar.js"></script>
+</body>
+
+</html>
+=======
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News & Flux RSS - Asset Tracker</title>
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="css/news.css">
+    <link rel="stylesheet" href="css/news-mobile.css">
+    <script>
+        // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        // Show admin link immediately if user is admin (no flash)
+        if (localStorage.getItem('isAdmin') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const adminLink = document.getElementById('admin-invitations-link');
+                if (adminLink) adminLink.style.display = 'flex';
+            });
+        }
+    </script>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px; object-fit: contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">🚀</div>
+                <span class="nav-text">Dashboard</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">📈</div>
+                <span class="nav-text">Assets</span>
+            </a>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div>
+                <span class="nav-text">Transactions</span>
+            </a>
+            <a href="analytics.html" class="nav-item">
+                <div class="nav-icon">📊</div>
+                <span class="nav-text">Analytics</span>
+            </a>
+            <a href="watchlist.html" class="nav-item">
+                <div class="nav-icon">👁️</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item">
+                <div class="nav-icon">🔍</div>
+                <span class="nav-text">Screener</span>
+            </a>
+            <a href="news.html" class="nav-item active">
+                <div class="nav-icon">📰</div>
+                <span class="nav-text">News Feeds</span>
+            </a>
+            <a href="realestate.html" class="nav-item">
+                <div class="nav-icon">🏢</div>
+                <span class="nav-text">Immobilier</span>
+            </a>
+            <a href="assistant.html" class="nav-item">
+                <div class="nav-icon">🤖</div>
+                <span class="nav-text">Assistant IA</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="settings.html" class="nav-item">
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
+                <span class="nav-text">Paramètres</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">Déconnexion</span>
+            </a>
+        </div>
+
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+        </div>
+    </aside>
+    <main class="main-content">
+        <div class="container">
+            <div class="news-header">
+                <h2>📰 News Feeds</h2>
+                <div class="news-actions">
+                    <button id="refresh-news-btn" class="btn-primary"><i class="fas fa-sync"></i> Rafraîchir</button>
+                    <button id="filter-my-assets-btn" class="btn-secondary" style="min-width: 150px;"><i
+                            class="fas fa-wallet"></i> Mes Actifs</button>
+                    <select id="filter-feed-select"></select>
+                </div>
+            </div>
+
+            <div id="news-feed-container" class="news-grid">
+                <div class="loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement des actualités...</div>
+            </div>
+        </div>
+    </main>
+    <div class="modal-overlay" id="news-modal" style="display: none;">
+        <div class="modal-content news-modal-content">
+            <div class="modal-header" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; width: 100%;">
+                    <div class="news-modal-ticker" id="modal-news-ticker">FEED LABEL</div>
+                    <button class="modal-close" id="close-news-modal">×</button>
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 500;" id="modal-news-pubdate">
+                </div>
+            </div>
+            <div class="modal-body">
+                <h3 id="modal-news-title" style="margin-bottom: 16px; line-height: 1.4;">Titre</h3>
+
+                <div class="ai-summary-header">
+                    <div class="news-ai-badge"><i class="fas fa-robot"></i> Résumé Gemini AI</div>
+                    <button class="ai-context-btn" id="analyze-context-btn"
+                        title="Pourquoi cette news est-elle importante ?">
+                        <i class="fas fa-question-circle"></i>
+                    </button>
+                </div>
+
+                <div id="modal-news-summary" class="news-summary-text">Loading...</div>
+
+                <div id="modal-news-context" class="news-context-box" style="display:none;">
+                    <div class="context-header">
+                        <i class="fas fa-lightbulb context-icon"></i>
+                        <span class="context-title">Pourquoi est-ce important pour mon portefeuille ?</span>
+                    </div>
+                    <div id="modal-context-content" class="context-content">
+                    </div>
+                </div>
+
+                <div style="margin-top: 24px; text-align: right;">
+                    <a href="#" id="modal-news-link" target="_blank" class="btn-primary"
+                        style="font-size: 14px; padding: 12px 24px;">Lire l'article complet</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script type="module" src="./src/authGuard.js"></script>
+    <script type="module" src="./src/newsApp.js?v=12"></script>
+    <script src="./src/cacheRefresh.js"></script>
+    <script type="module" src="./src/sidebar.js"></script>
+</body>
+
+</html>
+>>>>>>> eefd394 (chore: organize app structure and prepare GitHub push)

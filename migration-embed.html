@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migration Firestore</title>
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+        }
+
+        .main-content {
+            margin-left: 0 !important;
+            width: 100% !important;
+        }
+    </style>
+</head>
+
+<body>
+    <main class="main-content">
+        <div class="container">
+            <h2 style="margin-bottom: 32px; color: var(--text-primary);">
+                <i class="fas fa-database" style="color: var(--accent-blue);"></i> Migration & Import/Export
+            </h2>
+
+            <div class="card" style="padding: 24px; margin-bottom: 24px;">
+                <h3>Import des donn�es</h3>
+                <p style="color: var(--text-secondary);">Importez vos transactions depuis un fichier JSON.</p>
+
+                <input type="file" id="fileInput" accept=".json" style="margin: 16px 0;">
+                <button id="importBtn" class="btn-primary">Importer</button>
+            </div>
+
+            <div class="card" style="padding: 24px;">
+                <h3>Export des donn�es</h3>
+                <p style="color: var(--text-secondary);">Exportez toutes vos transactions au format JSON.</p>
+
+                <button id="exportBtn" class="btn-secondary">Exporter</button>
+            </div>
+
+            <div id="status" style="margin-top: 24px; padding: 16px; border-radius: 8px; display: none;"></div>
+        </div>
+    </main>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script type="module">
+        import { auth, db } from './src/firebaseConfig.js';
+        import { Storage } from './src/storage.js';
+
+        const storage = new Storage();
+
+        // Import functionality
+        document.getElementById('importBtn').addEventListener('click', async () => {
+            const file = document.getElementById('fileInput').files[0];
+            if (!file) {
+                alert('Veuillez s�lectionner un fichier');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    const user = auth.currentUser;
+
+                    if (!user) {
+                        alert('Vous devez �tre connect�');
+                        return;
+                    }
+
+                    // Import to Firestore
+                    const batch = db.batch();
+                    data.forEach(transaction => {
+                        const ref = db.collection('transactions').doc(user.uid).collection('purchases').doc();
+                        batch.set(ref, transaction);
+                    });
+
+                    await batch.commit();
+
+                    showStatus('? Import r�ussi: ' + data.length + ' transactions', 'success');
+                    setTimeout(() => location.reload(), 2000);
+                } catch (error) {
+                    showStatus('? Erreur: ' + error.message, 'error');
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // Export functionality
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            const purchases = storage.getPurchases();
+            const json = JSON.stringify(purchases, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `transactions_${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            showStatus('? Export r�ussi: ' + purchases.length + ' transactions', 'success');
+        });
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.style.display = 'block';
+            status.style.background = type === 'success' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+            status.style.color = type === 'success' ? '#10b981' : '#ef4444';
+            status.style.border = `1px solid ${type === 'success' ? '#10b981' : '#ef4444'}`;
+        }
+    </script>
+</body>
+
+</html>

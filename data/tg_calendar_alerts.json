@@ -1,0 +1,243 @@
+{
+  "name": "tg_calendar_alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Configuration\n\n**Source :** Yahoo Finance (gratuit, sans clé API)\n\n**Alertes envoyées :**\n- 📅 Résultats trimestriels : 1-7 jours à l'avance\n- 💰 Ex-dates dividendes : 1-7 jours à l'avance\n\n**Déduplication :** Firestore `calendarAlerts/sentIds`\n\nSi erreur 429/403 Yahoo Finance : ajouter un header `Cookie` ou basculer vers Finnhub.",
+        "height": 200,
+        "width": 400,
+        "color": 5
+      },
+      "id": "cal-note-0001-4000-a000-000000000001",
+      "name": "Note Config",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [2040, 240]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "days", "daysInterval": 1, "triggerAtHour": 8, "triggerAtMinute": 0}]
+        }
+      },
+      "id": "cal-sche-0001-4000-a000-000000000002",
+      "name": "Schedule 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "getAll",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/purchases",
+        "returnAll": true
+      },
+      "id": "cal-fire-0001-4000-a000-000000000003",
+      "name": "Firestore Purchases",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [440, 300],
+      "credentials": {
+        "googleApi": {"id": "eX2M9zivWL2nlEPK", "name": "Google Firebase Cloud Firestore account"}
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const purchases = $input.all();\n\nconst yahooMap = {\n  'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.DE', 'MSF': 'MSF.F',\n  'TL0': 'TL0.DE', 'TLO': 'TL0.DE', 'TKE': 'TKE.F', 'M4I': 'M4I.F', 'ABEA': 'ABEA.F',\n  'CSPX': 'CSPX.AS', 'CNDX': 'CNDX.AS', '3ZU0': '3ZU0.F', '1170': '1170.F',\n  '9D5': '9D5.F', 'GXG': 'GXG.F', 'BKSY': 'BKSY',\n  'GOLD-ETFP': 'GOLD-EUR.PA',\n  'AL2SI': 'AL2SI.PA', 'SU': 'SU.PA', 'ESE': 'ESE.PA',\n  'EUEA': 'EUEA.AS', 'STEC': 'STEC.AS', 'ALRIB': 'ALRIB.PA',\n  'SOI': 'SOI.PA', 'BTC': 'BTC-EUR'\n};\n\nconst netQty = {};\nconst nameMap = {};\nfor (const item of purchases) {\n    const ticker = (item.json.ticker || '').toUpperCase().trim();\n    const qty = parseFloat(item.json.quantity) || 0;\n    if (!ticker || ticker.startsWith('CASH-')) continue;\n    netQty[ticker] = (netQty[ticker] || 0) + qty;\n    if (!nameMap[ticker]) nameMap[ticker] = item.json.name || ticker;\n}\n\nconst seen = new Set();\nconst results = [];\nfor (const [ticker, qty] of Object.entries(netQty)) {\n    if (qty < 0.01) continue;\n    const yahooTicker = yahooMap[ticker] || ticker;\n    if (seen.has(yahooTicker)) continue;\n    seen.add(yahooTicker);\n    const name = nameMap[ticker] || ticker;\n    results.push({ json: { yahooTicker, name } });\n}\n\nreturn results;"
+      },
+      "id": "cal-tick-0001-4000-a000-000000000004",
+      "name": "Build Ticker List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://query1.finance.yahoo.com/v11/finance/quoteSummary/{{ encodeURIComponent($json.yahooTicker) }}?modules=calendarEvents,summaryDetail",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "headers": {
+            "parameters": [
+              {"name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
+              {"name": "Accept", "value": "application/json"}
+            ]
+          }
+        }
+      },
+      "id": "cal-http-0001-4000-a000-000000000005",
+      "name": "Fetch Yahoo Calendar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const httpResponses = $input.all();\nconst tickerItems = $('Build Ticker List').all();\n\nconst now = Math.floor(Date.now() / 1000);\nconst allEvents = [];\nconst seenUUIDs = new Set();\n\nfor (let i = 0; i < httpResponses.length; i++) {\n    const resp = httpResponses[i].json;\n    const tickerInfo = tickerItems[i] ? tickerItems[i].json : {};\n    const yahooTicker = tickerInfo.yahooTicker || '';\n    const name = tickerInfo.name || yahooTicker;\n\n    let calEvents = null;\n    let summaryDetail = null;\n    try {\n        const result = resp.quoteSummary && resp.quoteSummary.result;\n        calEvents = result && result[0] && result[0].calendarEvents;\n        summaryDetail = result && result[0] && result[0].summaryDetail;\n    } catch(e) {}\n\n    if (!calEvents) continue;\n\n    const dividendRate = summaryDetail && summaryDetail.dividendRate && summaryDetail.dividendRate.raw;\n\n    // Earnings dates\n    const earningsDates = (calEvents.earnings && calEvents.earnings.earningsDate) || [];\n    for (let j = 0; j < earningsDates.length; j++) {\n        const ts = earningsDates[j].raw || 0;\n        if (!ts) continue;\n        const daysUntil = Math.floor((ts - now) / 86400);\n        if (daysUntil < 1 || daysUntil > 7) continue;\n        const dateStr = new Date(ts * 1000).toISOString().split('T')[0];\n        const uuid = yahooTicker + '_earnings_' + dateStr;\n        if (seenUUIDs.has(uuid)) continue;\n        seenUUIDs.add(uuid);\n        allEvents.push({ uuid, type: 'earnings', ticker: yahooTicker, name, date: ts, daysUntil, dateStr });\n        break;\n    }\n\n    // Ex-dividend date (calendarEvents en priorité, summaryDetail en fallback)\n    const exDiv = calEvents.exDividendDate || (summaryDetail && summaryDetail.exDividendDate);\n    if (exDiv && exDiv.raw) {\n        const ts = exDiv.raw;\n        const daysUntil = Math.floor((ts - now) / 86400);\n        if (daysUntil >= 1 && daysUntil <= 7) {\n            const dateStr = new Date(ts * 1000).toISOString().split('T')[0];\n            const uuid = yahooTicker + '_dividend_' + dateStr;\n            if (!seenUUIDs.has(uuid)) {\n                seenUUIDs.add(uuid);\n                allEvents.push({ uuid, type: 'dividend', ticker: yahooTicker, name, date: ts, daysUntil, dateStr, dividendRate: dividendRate || null });\n            }\n        }\n    }\n}\n\nallEvents.sort((a, b) => a.daysUntil - b.daysUntil);\nreturn [{ json: { events: allEvents, count: allEvents.length, hasEvents: allEvents.length > 0 } }];"
+      },
+      "id": "cal-pars-0001-4000-a000-000000000006",
+      "name": "Parse Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "get",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/calendarAlerts",
+        "documentId": "sentIds"
+      },
+      "id": "cal-gids-0001-4000-a000-000000000007",
+      "name": "Get Sent IDs",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [1240, 300],
+      "alwaysOutputData": true,
+      "continueOnFail": true,
+      "credentials": {
+        "googleApi": {"id": "eX2M9zivWL2nlEPK", "name": "Google Firebase Cloud Firestore account"}
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Parse Events').first().json;\nconst sentDoc = $input.first().json || {};\n\nconst sentIds = new Set(sentDoc.ids || []);\nconst events = data.events || [];\n\nconst newEvents = events.filter(function(item) { return !sentIds.has(item.uuid); });\n\nreturn [{ json: {\n    hasEvents: newEvents.length > 0,\n    events: newEvents,\n    count: newEvents.length,\n    existingSentIds: sentDoc.ids || []\n}}];"
+      },
+      "id": "cal-filt-0001-4000-a000-000000000008",
+      "name": "Filter Unsent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {
+              "id": "cal-cond-001",
+              "leftValue": "={{ $json.hasEvents }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "equals"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cal-ifev-0001-4000-a000-000000000009",
+      "name": "If Has Events",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1640, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { events } = $input.first().json;\n\nconst NL = '\\n';\nfunction esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }\n\nconst earningsEvents = events.filter(function(e) { return e.type === 'earnings'; });\nconst dividendEvents = events.filter(function(e) { return e.type === 'dividend'; });\n\nconst lines = [];\n\nif (earningsEvents.length > 0) {\n    lines.push('<b>&#128197; R\\u00e9sultats trimestriels</b>');\n    for (const ev of earningsEvents) {\n        const dayWord = ev.daysUntil === 1 ? 'demain' : 'dans ' + ev.daysUntil + ' j';\n        lines.push('  &#128204; <b>' + esc(ev.name) + '</b> \\u00b7 ' + dayWord + ' (' + ev.dateStr + ')');\n    }\n}\n\nif (dividendEvents.length > 0) {\n    if (lines.length > 0) lines.push('');\n    lines.push('<b>&#128176; Ex-dates dividendes</b>');\n    for (const ev of dividendEvents) {\n        const dayWord = ev.daysUntil === 1 ? 'demain' : 'dans ' + ev.daysUntil + ' j';\n        let line = '  &#128204; <b>' + esc(ev.name) + '</b> \\u00b7 ' + dayWord + ' (' + ev.dateStr + ')';\n        if (ev.dividendRate) line += ' \\u00b7 ' + ev.dividendRate.toFixed(2) + '/action';\n        lines.push(line);\n    }\n}\n\nconst header = '&#128276; <b>Agenda Portfolio</b> \\u00b7 ' + events.length + ' \\u00e9v\\u00e9nement(s)';\nconst message = header + NL + NL + lines.join(NL);\nconst selectedUUIDs = events.map(function(e) { return e.uuid; });\n\nreturn [{ json: { chatId: '2089017736', message, selectedUUIDs } }];"
+      },
+      "id": "cal-fmt-00001-4000-a000-000000000010",
+      "name": "Format Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1840, 180]
+    },
+    {
+      "parameters": {
+        "chatId": "2089017736",
+        "text": "={{ $json.message }}",
+        "additionalFields": {"parse_mode": "HTML"}
+      },
+      "id": "cal-tgal-0001-4000-a000-000000000011",
+      "name": "Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2040, 180],
+      "credentials": {
+        "telegramApi": {"id": "SX5rx7IEfevBlf0q", "name": "Telegram account"}
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const { existingSentIds } = $('Filter Unsent').first().json;\nconst { selectedUUIDs } = $('Format Message').first().json;\nconst allSentIds = [...(existingSentIds || []), ...(selectedUUIDs || [])].slice(-500);\nreturn [{ json: { ids: allSentIds } }];"
+      },
+      "id": "cal-euui-0001-4000-a000-000000000012",
+      "name": "Extract UUIDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2040, 420]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "projectId": "asset-tracker-479809-b80f1",
+        "collection": "users/fU1xVuB6egg4eenFPqItMW6DhJB3/calendarAlerts",
+        "documentId": "sentIds",
+        "columns": "ids"
+      },
+      "id": "cal-sids-0001-4000-a000-000000000013",
+      "name": "Save Sent IDs",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [2240, 420],
+      "credentials": {
+        "googleApi": {"id": "eX2M9zivWL2nlEPK", "name": "Google Firebase Cloud Firestore account"}
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule 8h": {
+      "main": [[{"node": "Firestore Purchases", "type": "main", "index": 0}]]
+    },
+    "Firestore Purchases": {
+      "main": [[{"node": "Build Ticker List", "type": "main", "index": 0}]]
+    },
+    "Build Ticker List": {
+      "main": [[{"node": "Fetch Yahoo Calendar", "type": "main", "index": 0}]]
+    },
+    "Fetch Yahoo Calendar": {
+      "main": [[{"node": "Parse Events", "type": "main", "index": 0}]]
+    },
+    "Parse Events": {
+      "main": [[{"node": "Get Sent IDs", "type": "main", "index": 0}]]
+    },
+    "Get Sent IDs": {
+      "main": [[{"node": "Filter Unsent", "type": "main", "index": 0}]]
+    },
+    "Filter Unsent": {
+      "main": [[{"node": "If Has Events", "type": "main", "index": 0}]]
+    },
+    "If Has Events": {
+      "main": [
+        [{"node": "Format Message", "type": "main", "index": 0}],
+        []
+      ]
+    },
+    "Format Message": {
+      "main": [[
+        {"node": "Telegram Alert", "type": "main", "index": 0},
+        {"node": "Extract UUIDs", "type": "main", "index": 0}
+      ]]
+    },
+    "Extract UUIDs": {
+      "main": [[{"node": "Save Sent IDs", "type": "main", "index": 0}]]
+    }
+  },
+  "active": false,
+  "settings": {"executionOrder": "v1"},
+  "versionId": "cal00001-0000-4000-a000-000000000001",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "bd0642bff22c21ed24c1b956535cd6871d016852494b3555f3c4d9f5f6a5776e"
+  },
+  "id": "CalendarAlerts001",
+  "tags": []
+}
