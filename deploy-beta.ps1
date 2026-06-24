@@ -47,11 +47,13 @@ if (-not $changed) {
     if ($LASTEXITCODE -ne 0) { Write-Err "git commit failed."; exit 1 }
 }
 
-git push origin beta --force-with-lease 2>$null
-if ($LASTEXITCODE -ne 0) {
+$remoteBeta = git ls-remote --heads origin beta
+if ($remoteBeta) {
+    git push origin beta --force-with-lease
+} else {
     git push --set-upstream origin beta
-    if ($LASTEXITCODE -ne 0) { Write-Err "git push failed."; exit 1 }
 }
+if ($LASTEXITCODE -ne 0) { Write-Err "git push failed."; exit 1 }
 
 Write-Ok "Pushed to GitHub (beta)."
 
