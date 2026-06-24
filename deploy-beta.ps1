@@ -10,12 +10,12 @@ Set-Location $PSScriptRoot
 Write-Host "`n  DEPLOIEMENT BETA  " -ForegroundColor White -BackgroundColor DarkBlue
 Write-Host "  -> asset-tracker-beta.web.app UNIQUEMENT`n" -ForegroundColor DarkCyan
 
-# Verifier qu'on est sur main
+# S'assurer d'etre sur main
 $currentBranch = git rev-parse --abbrev-ref HEAD
 if ($currentBranch -ne "main") {
-    Write-Err "Vous etes sur la branche '$currentBranch'. Repassez sur main d'abord :"
-    Write-Host "    git checkout main" -ForegroundColor Yellow
-    exit 1
+    Write-Warn "Branche '$currentBranch' detectee -> passage automatique sur main..."
+    git checkout main
+    if ($LASTEXITCODE -ne 0) { Write-Err "git checkout main failed."; exit 1 }
 }
 
 # --- COMMIT MESSAGE ---

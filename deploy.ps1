@@ -10,13 +10,12 @@ Set-Location $PSScriptRoot
 Write-Host "`n  DEPLOIEMENT PRODUCTION  " -ForegroundColor White -BackgroundColor DarkRed
 Write-Host "  -> asset-tracker.fr UNIQUEMENT`n" -ForegroundColor DarkRed
 
-# Verifier qu'on est sur main - bloquer sinon
+# S'assurer d'etre sur main
 $currentBranch = git rev-parse --abbrev-ref HEAD
 if ($currentBranch -ne "main") {
-    Write-Err "Vous etes sur la branche '$currentBranch'. Impossible de deployer en prod depuis cette branche."
-    Write-Host "  Repassez sur main d'abord :" -ForegroundColor Yellow
-    Write-Host "    git checkout main" -ForegroundColor Yellow
-    exit 1
+    Write-Warn "Branche '$currentBranch' detectee -> passage automatique sur main..."
+    git checkout main
+    if ($LASTEXITCODE -ne 0) { Write-Err "git checkout main failed."; exit 1 }
 }
 
 # --- COMMIT MESSAGE ---
