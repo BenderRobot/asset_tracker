@@ -289,9 +289,10 @@ class DashboardApp {
 
     /**
      * Détermine si un actif cote 24/7 (vraiment 7 jours sur 7)
+     * Pattern crypto : BTC-EUR, ETH-EUR, SOL-EUR, BNB-EUR, XRP-EUR...
      */
     is247Asset(ticker) {
-        return ticker === 'BTC-EUR';
+        return /^[A-Z]+-[A-Z]{3}$/.test(ticker);
     }
 
     async loadPortfolioData() {
@@ -487,9 +488,10 @@ class DashboardApp {
 
     /**
      * Détermine si un actif cote 24/5 (24h/jour mais pas le weekend)
+     * Forex : *=X  |  Commodities : *=F
      */
     is245Asset(ticker) {
-        return ticker === 'EURUSD=X' || ticker === 'GC=F';
+        return ticker.includes('=X') || ticker.endsWith('=F');
     }
 
     /**
@@ -510,19 +512,30 @@ class DashboardApp {
         // Actifs 24/5 (Or, EUR/USD) - cotent 24h en semaine
         if (this.is245Asset(ticker)) return '24_5';
 
-        // Indices européens (CAC 40, EURO STOXX 50)
-        if (ticker === '^FCHI' || ticker === '^STOXX50E') {
+        // Indices européens (Paris timezone 9h-17h30)
+        const EU_INDICES = ['^FCHI', '^STOXX50E', '^GDAXI', '^FTSE', '^IBEX'];
+        if (EU_INDICES.includes(ticker)) {
             if (hour >= 7 && hour < 9) return 'PRE_MARKET';
             if (hour >= 9 && hour < 17) return 'MARKET_OPEN';
             if (hour === 17 && minutes < 30) return 'MARKET_OPEN';
             return 'POST_MARKET';
         }
 
-        // Indices US (S&P 500, NASDAQ)
-        if (ticker === '^GSPC' || ticker === '^IXIC') {
+        // Indices US (S&P 500, NASDAQ, Dow Jones, Russell)
+        const US_INDICES = ['^GSPC', '^IXIC', '^DJI', '^RUT'];
+        if (US_INDICES.includes(ticker)) {
             if (hour >= 10 && hour < 15) return 'PRE_MARKET';
             if (hour === 15 && minutes >= 30) return 'MARKET_OPEN';
             if (hour >= 16 && hour < 22) return 'MARKET_OPEN';
+            return 'POST_MARKET';
+        }
+
+        // Indices asiatiques (heures approximatives en heure de Paris)
+        // Nikkei 225 : TSE 9h-15h30 JST = ~1h-8h30 Paris
+        // Hang Seng  : HKEX 9h30-16h HKT = ~2h30-10h Paris
+        if (ticker === '^N225' || ticker === '^HSI') {
+            const totalMinutes = hour * 60 + minutes;
+            if (totalMinutes >= 60 && totalMinutes < 10 * 60) return 'MARKET_OPEN';
             return 'POST_MARKET';
         }
 

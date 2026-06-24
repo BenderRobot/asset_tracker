@@ -53,43 +53,51 @@ export class MarketStatus {
     getAssetStatus(ticker) {
         const now = new Date();
         const day = now.getDay();
-        const parisMinutes = now.getHours() * 60 + now.getMinutes();  // LIGNE AJOUTÉE
+        const parisMinutes = now.getHours() * 60 + now.getMinutes();
+        const isWeekend = day === 0 || day === 6;
 
-        // Crypto
-        if (ticker.includes('BTC') || ticker.includes('ETH')) {
+        // Crypto 24/7 : BTC-EUR, ETH-EUR, SOL-EUR, BNB-EUR, XRP-EUR...
+        if (/^[A-Z]+-[A-Z]{3}$/.test(ticker)) {
             return { label: '24/7', color: '#f59e0b' };
         }
 
-        // Forex & Commodities
-        if (ticker === 'EURUSD=X' || ticker.includes('=X')) {
+        // Forex 24/5 : *=X
+        if (ticker.includes('=X')) {
             return { label: '24/5', color: '#06b6d4' };
         }
-        if (ticker === 'GC=F') {
+
+        // Commodities 24/5 : GC=F, SI=F, PL=F, HG=F, CL=F, BZ=F...
+        if (ticker.endsWith('=F')) {
             return { label: '24/5', color: '#fbbf24' };
         }
 
-        // Marchés US
-        if (['^GSPC', '^IXIC', '^DJI'].includes(ticker)) {
+        // Marchés US (NYSE/NASDAQ 9h30-16h NY = ~15h30-22h Paris)
+        if (['^GSPC', '^IXIC', '^DJI', '^RUT'].includes(ticker)) {
             const ny = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
             const h = ny.getHours();
             const m = ny.getMinutes();
             const isOpen = (h > 9 || (h === 9 && m >= 30)) && h < 16;
-            const isWeekend = day === 0 || day === 6;
-
             return {
                 label: isWeekend || !isOpen ? 'CLOSED' : 'LIVE',
                 color: isWeekend || !isOpen ? '#fbbf24' : '#10b981'
             };
         }
 
-        // Marchés Europe
-        if (['^FCHI', '^GDAXI', '^STOXX50E', '^FTSE'].includes(ticker)) {
+        // Marchés Europe (9h-17h35 Paris)
+        if (['^FCHI', '^GDAXI', '^STOXX50E', '^FTSE', '^IBEX'].includes(ticker)) {
             const isOpen = parisMinutes >= 9 * 60 && parisMinutes < 17 * 60 + 35;
-            const isWeekend = day === 0 || day === 6;
-
             return {
                 label: isWeekend || !isOpen ? 'CLOSED' : 'LIVE',
                 color: isWeekend || !isOpen ? '#fbbf24' : '#10b981'
+            };
+        }
+
+        // Marchés asiatiques (heures approximatives en heure de Paris)
+        if (ticker === '^N225' || ticker === '^HSI') {
+            const isOpen = !isWeekend && parisMinutes >= 60 && parisMinutes < 10 * 60;
+            return {
+                label: isOpen ? 'LIVE' : 'CLOSED',
+                color: isOpen ? '#10b981' : '#fbbf24'
             };
         }
 
