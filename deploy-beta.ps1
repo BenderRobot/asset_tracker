@@ -7,23 +7,34 @@ function Write-Err($msg)  { Write-Host "  ERROR: $msg" -ForegroundColor Red }
 
 Set-Location $PSScriptRoot
 
-Write-Host "`n  DEPLOIEMENT PRODUCTION  " -ForegroundColor White -BackgroundColor DarkRed
+Write-Host "`n  DEPLOIEMENT BETA  " -ForegroundColor White -BackgroundColor DarkBlue
 
 # --- COMMIT MESSAGE ---
-$defaultMsg = "deploy: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+$defaultMsg = "beta: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 $userInput = Read-Host "Commit message [Enter = '$defaultMsg']"
 $commitMsg = if ($userInput.Trim()) { $userInput.Trim() } else { $defaultMsg }
 
 # ─────────────────────────────────────────────
-# STEP 1 - GITHUB (branche main)
+# STEP 1 - GITHUB (branche beta)
 # ─────────────────────────────────────────────
-Write-Step "[1/2] Push GitHub -> main"
+Write-Step "[1/2] Push GitHub -> beta"
 
 $currentBranch = git rev-parse --abbrev-ref HEAD
-if ($currentBranch -ne "main") {
-    Write-Warn "Vous etes sur la branche '$currentBranch'. Passage sur main..."
+
+# Creer la branche beta si elle n'existe pas
+$betaExists = git branch --list beta
+if (-not $betaExists) {
+    Write-Warn "Branche 'beta' inexistante - creation depuis main..."
     git checkout main
-    if ($LASTEXITCODE -ne 0) { Write-Err "git checkout main failed."; exit 1 }
+    git checkout -b beta
+} elseif ($currentBranch -ne "beta") {
+    Write-Warn "Passage sur la branche beta..."
+    git checkout beta
+    if ($LASTEXITCODE -ne 0) { Write-Err "git checkout beta failed."; exit 1 }
+    # Fusionner les changements de main dans beta
+    Write-Warn "Merge main -> beta..."
+    git merge main --no-edit
+    if ($LASTEXITCODE -ne 0) { Write-Err "Merge failed. Resolvez les conflits manuellement."; exit 1 }
 }
 
 git add .
@@ -34,17 +45,20 @@ if (-not $changed) {
 } else {
     git commit -m $commitMsg
     if ($LASTEXITCODE -ne 0) { Write-Err "git commit failed."; exit 1 }
-
-    git push --force-with-lease origin main
-    if ($LASTEXITCODE -ne 0) { Write-Err "git push failed."; exit 1 }
-
-    Write-Ok "Pushed to GitHub (main)."
 }
 
+git push origin beta --force-with-lease 2>$null
+if ($LASTEXITCODE -ne 0) {
+    git push --set-upstream origin beta
+    if ($LASTEXITCODE -ne 0) { Write-Err "git push failed."; exit 1 }
+}
+
+Write-Ok "Pushed to GitHub (beta)."
+
 # ─────────────────────────────────────────────
-# STEP 2 - FIREBASE PROD
+# STEP 2 - FIREBASE BETA
 # ─────────────────────────────────────────────
-Write-Step "[2/2] Firebase deploy -> PROD (asset-tracker.fr)"
+Write-Step "[2/2] Firebase deploy -> BETA (asset-tracker-beta.web.app)"
 
 if (-not (Test-Path ".\functions\node_modules")) {
     Write-Warn "functions/node_modules not found - running npm install..."
@@ -52,7 +66,8 @@ if (-not (Test-Path ".\functions\node_modules")) {
     if ($LASTEXITCODE -ne 0) { Write-Err "npm install failed."; exit 1 }
 }
 
-firebase deploy --only hosting:prod,firestore,functions
+firebase deploy --only hosting:beta
 if ($LASTEXITCODE -ne 0) { Write-Err "Firebase deploy failed."; exit 1 }
 
-Write-Ok "Deploy PROD complete -> https://asset-tracker.fr"
+Write-Ok "Deploy BETA complete -> https://asset-tracker-beta.web.app"
+Write-Warn "Rappel : repassez sur main pour continuer le dev (git checkout main)"
