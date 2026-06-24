@@ -8,6 +8,15 @@ function Write-Err($msg)  { Write-Host "  ERROR: $msg" -ForegroundColor Red }
 Set-Location $PSScriptRoot
 
 Write-Host "`n  DEPLOIEMENT BETA  " -ForegroundColor White -BackgroundColor DarkBlue
+Write-Host "  -> asset-tracker-beta.web.app UNIQUEMENT`n" -ForegroundColor DarkCyan
+
+# Verifier qu'on est sur main
+$currentBranch = git rev-parse --abbrev-ref HEAD
+if ($currentBranch -ne "main") {
+    Write-Err "Vous etes sur la branche '$currentBranch'. Repassez sur main d'abord :"
+    Write-Host "    git checkout main" -ForegroundColor Yellow
+    exit 1
+}
 
 # --- COMMIT MESSAGE ---
 $defaultMsg = "beta: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
@@ -15,36 +24,30 @@ $userInput = Read-Host "Commit message [Enter = '$defaultMsg']"
 $commitMsg = if ($userInput.Trim()) { $userInput.Trim() } else { $defaultMsg }
 
 # ─────────────────────────────────────────────
-# STEP 1 - GITHUB (branche beta)
+# STEP 1 - Commiter sur main + sync branche beta
 # ─────────────────────────────────────────────
-Write-Step "[1/2] Push GitHub -> beta"
-
-$currentBranch = git rev-parse --abbrev-ref HEAD
-
-# Creer la branche beta si elle n'existe pas
-$betaExists = git branch --list beta
-if (-not $betaExists) {
-    Write-Warn "Branche 'beta' inexistante - creation depuis main..."
-    git checkout main
-    git checkout -b beta
-} elseif ($currentBranch -ne "beta") {
-    Write-Warn "Passage sur la branche beta..."
-    git checkout beta
-    if ($LASTEXITCODE -ne 0) { Write-Err "git checkout beta failed."; exit 1 }
-    # Fusionner les changements de main dans beta
-    Write-Warn "Merge main -> beta..."
-    git merge main --no-edit
-    if ($LASTEXITCODE -ne 0) { Write-Err "Merge failed. Resolvez les conflits manuellement."; exit 1 }
-}
+Write-Step "[1/2] Git : main -> beta"
 
 git add .
-
 $changed = git status --porcelain
-if (-not $changed) {
-    Write-Warn "No changes to commit - skipping push."
-} else {
+if ($changed) {
     git commit -m $commitMsg
     if ($LASTEXITCODE -ne 0) { Write-Err "git commit failed."; exit 1 }
+    Write-Ok "Commit cree sur main."
+} else {
+    Write-Warn "Aucun changement a commiter sur main."
+}
+
+# Synchroniser la branche beta avec main
+$betaExists = git branch --list beta
+if (-not $betaExists) {
+    Write-Warn "Creation de la branche beta depuis main..."
+    git checkout -b beta
+} else {
+    git checkout beta
+    if ($LASTEXITCODE -ne 0) { Write-Err "git checkout beta failed."; exit 1 }
+    git merge main --no-edit
+    if ($LASTEXITCODE -ne 0) { Write-Err "Merge main->beta failed. Resolvez les conflits."; exit 1 }
 }
 
 $remoteBeta = git ls-remote --heads origin beta
@@ -53,23 +56,31 @@ if ($remoteBeta) {
 } else {
     git push --set-upstream origin beta
 }
-if ($LASTEXITCODE -ne 0) { Write-Err "git push failed."; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Err "git push beta failed."; exit 1 }
 
-Write-Ok "Pushed to GitHub (beta)."
+# Retour immediat sur main
+git checkout main
+if ($LASTEXITCODE -ne 0) { Write-Err "git checkout main failed."; exit 1 }
+Write-Ok "GitHub beta mis a jour. Retour sur main."
 
 # ─────────────────────────────────────────────
-# STEP 2 - FIREBASE BETA
+# STEP 2 - Firebase : BETA SEULEMENT
+# On passe le site ID direct (asset-tracker-beta)
+# pour eviter tout risque de deployer prod
 # ─────────────────────────────────────────────
 Write-Step "[2/2] Firebase deploy -> BETA (asset-tracker-beta.web.app)"
 
 if (-not (Test-Path ".\functions\node_modules")) {
-    Write-Warn "functions/node_modules not found - running npm install..."
+    Write-Warn "functions/node_modules introuvable - npm install..."
     npm --prefix .\functions install
     if ($LASTEXITCODE -ne 0) { Write-Err "npm install failed."; exit 1 }
 }
 
 firebase deploy --only hosting:beta
-if ($LASTEXITCODE -ne 0) { Write-Err "Firebase deploy failed."; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Err "Firebase beta deploy failed."; exit 1 }
 
-Write-Ok "Deploy BETA complete -> https://asset-tracker-beta.web.app"
-Write-Warn "Rappel : repassez sur main pour continuer le dev (git checkout main)"
+Write-Host ""
+Write-Ok "====================================="
+Write-Ok " BETA deploye : https://asset-tracker-beta.web.app"
+Write-Ok " Branche actuelle : $(git rev-parse --abbrev-ref HEAD)"
+Write-Ok "====================================="

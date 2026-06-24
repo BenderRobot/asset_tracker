@@ -8,6 +8,16 @@ function Write-Err($msg)  { Write-Host "  ERROR: $msg" -ForegroundColor Red }
 Set-Location $PSScriptRoot
 
 Write-Host "`n  DEPLOIEMENT PRODUCTION  " -ForegroundColor White -BackgroundColor DarkRed
+Write-Host "  -> asset-tracker.fr UNIQUEMENT`n" -ForegroundColor DarkRed
+
+# Verifier qu'on est sur main - bloquer sinon
+$currentBranch = git rev-parse --abbrev-ref HEAD
+if ($currentBranch -ne "main") {
+    Write-Err "Vous etes sur la branche '$currentBranch'. Impossible de deployer en prod depuis cette branche."
+    Write-Host "  Repassez sur main d'abord :" -ForegroundColor Yellow
+    Write-Host "    git checkout main" -ForegroundColor Yellow
+    exit 1
+}
 
 # --- COMMIT MESSAGE ---
 $defaultMsg = "deploy: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
@@ -18,13 +28,6 @@ $commitMsg = if ($userInput.Trim()) { $userInput.Trim() } else { $defaultMsg }
 # STEP 1 - GITHUB (branche main)
 # ─────────────────────────────────────────────
 Write-Step "[1/2] Push GitHub -> main"
-
-$currentBranch = git rev-parse --abbrev-ref HEAD
-if ($currentBranch -ne "main") {
-    Write-Warn "Vous etes sur la branche '$currentBranch'. Passage sur main..."
-    git checkout main
-    if ($LASTEXITCODE -ne 0) { Write-Err "git checkout main failed."; exit 1 }
-}
 
 git add .
 
