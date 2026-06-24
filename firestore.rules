@@ -2,10 +2,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Admin helper — uses the email claim from the Firebase Auth token
+    // Admin helper — reads isAdmin flag from the user's own Firestore document.
+    // No PII in rules. Managed via the admin panel (users/{uid}.isAdmin = true).
     function isAdmin() {
       return request.auth != null
-          && request.auth.token.email == 'blaurens31@gmail.com';
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
 
     function isOwner(userId) {
@@ -14,8 +15,10 @@ service cloud.firestore {
 
     // ── Invitation codes ────────────────────────────────────────────────
     match /invitationCodes/{codeId} {
-      // Public read: code validation happens before the user is authenticated
-      allow read: if true;
+      // get: allow unauthenticated read of a single code (needed for pre-login validation)
+      // list: admin only — prevents enumeration of all codes
+      allow get: if true;
+      allow list: if isAdmin();
       // Only admin can create or delete codes
       allow create, delete: if isAdmin();
       // Any authenticated user can mark an available code as "used" (registration)
