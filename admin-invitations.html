@@ -14,10 +14,9 @@
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
-    <!-- Iframe mode: hide sidebar & header -->
     <script>
-        if (window.self !== window.top) {
-            document.write('<style>.app-sidebar,.mobile-header{display:none!important}.main-content{margin-left:0!important;width:100%!important;padding:0!important}</style>');
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
         }
     </script>
 
@@ -473,6 +472,7 @@
 </head>
 
 <body>
+    <header class="mobile-header" id="mobile-header"></header>
     <aside class="app-sidebar" id="app-sidebar"></aside>
     <script src="./src/sidebar-render.js"></script>
 
