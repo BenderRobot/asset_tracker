@@ -8,8 +8,13 @@
 
 const ALLOWED_ORIGIN = 'https://asset-tracker.fr';
 
+const EXTRA_ORIGINS = [
+  'https://asset-tracker-beta.web.app',
+  'https://asset-tracker-479809-b80f1.web.app',
+];
+
 function corsHeaders(origin) {
-  const allowed = origin === ALLOWED_ORIGIN || origin === 'https://asset-tracker-479809-b80f1.web.app';
+  const allowed = origin === ALLOWED_ORIGIN || EXTRA_ORIGINS.includes(origin);
   return {
     'Access-Control-Allow-Origin': allowed ? origin : ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',

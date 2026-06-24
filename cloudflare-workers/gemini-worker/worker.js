@@ -11,9 +11,14 @@
 const ALLOWED_ORIGIN = 'https://asset-tracker.fr';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent';
 
+const EXTRA_ORIGINS = [
+  'https://asset-tracker-beta.web.app',
+  'https://asset-tracker-479809-b80f1.web.app',
+];
+
 function corsHeaders(origin) {
   const isLocalhost = origin.startsWith('http://localhost:') || origin === 'http://localhost' || origin.startsWith('http://127.0.0.1:') || origin === 'http://127.0.0.1';
-  const allowed = origin === ALLOWED_ORIGIN || origin === 'https://asset-tracker-479809-b80f1.web.app' || isLocalhost;
+  const allowed = origin === ALLOWED_ORIGIN || EXTRA_ORIGINS.includes(origin) || isLocalhost;
   return {
     'Access-Control-Allow-Origin': allowed ? origin : ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
