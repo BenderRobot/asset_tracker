@@ -1,11 +1,8 @@
 // ========================================
 // api.js - Cloudflare Workers Proxy
 // ========================================
-import { YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE } from './config.js?v=2';
+import { YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE, PRICE_PROXY_URL } from './config.js?v=2';
 import { sleep } from './utils.js';
-
-// URLs des Workers Cloudflare (migration depuis GCP Cloud Run)
-const PRICE_PROXY_URL = 'https://asset-tracker-prices.blaurens31.workers.dev';
 
 // Les anciennes clés et proxys ont été retirés pour la sécurité
 

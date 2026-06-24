@@ -1,6 +1,78 @@
 import { auth, db } from './firebaseConfig.js';
 import logger from '../utils/logger.js';
 
+// ── Sidebar HTML injection ─────────────────────────────────────────────────
+// Single source of truth for sidebar markup — no more copy-paste across pages.
+
+const NAV_ITEMS = [
+    { href: 'dashboard.html',   icon: '🚀', label: 'Dashboard' },
+    { href: 'investments.html', icon: '📈', label: 'Assets' },
+    { href: 'index.html',       icon: '📋', label: 'Transactions' },
+    { href: 'analytics.html',   icon: '📊', label: 'Analytics' },
+    { href: 'watchlist.html',   icon: '👁️', label: 'Watchlist' },
+    { href: 'screener.html',    icon: '🔍', label: 'Screener' },
+    { href: 'news.html',        icon: '📰', label: 'News Feeds' },
+    { href: 'realestate.html',  icon: '🏢', label: 'Immobilier' },
+    { href: 'assistant.html',   icon: '🤖', label: 'Assistant IA' },
+];
+
+function buildSidebar() {
+    const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+
+    const sidebarEl = document.getElementById('app-sidebar');
+    const mobileHeaderEl = document.getElementById('mobile-header');
+
+    if (sidebarEl && sidebarEl.children.length === 0) {
+        const navHTML = NAV_ITEMS.map(({ href, icon, label }) =>
+            `<a href="${href}" class="nav-item${href === currentPage ? ' active' : ''}">
+                <div class="nav-icon">${icon}</div><span class="nav-text">${label}</span>
+            </a>`
+        ).join('');
+
+        sidebarEl.innerHTML = `
+            <div class="sidebar-header">
+                <div class="nav-icon" style="display:flex;align-items:center;justify-content:center;">
+                    <img src="/icons/android-chrome-192x192.png" alt="Logo" style="width:32px;height:32px;object-fit:contain;">
+                </div>
+                <span class="app-logo-text">Asset Tracker</span>
+            </div>
+            <nav class="sidebar-nav">
+                ${navHTML}
+                <a href="admin-invitations.html" class="nav-item" id="admin-invitations-link" style="display:none;">
+                    <div class="nav-icon"><i class="fas fa-star"></i></div>
+                    <span class="nav-text">Administration</span>
+                </a>
+            </nav>
+            <div class="sidebar-settings">
+                <div class="settings-title">Paramètres</div>
+                <a href="settings.html" class="nav-item${currentPage === 'settings.html' ? ' active' : ''}">
+                    <div class="nav-icon"><i class="fas fa-cog"></i></div>
+                    <span class="nav-text">Paramètres</span>
+                </a>
+                <a href="#" class="nav-item" id="auth-btn">
+                    <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                    <span class="nav-text">Déconnexion</span>
+                </a>
+            </div>
+            <div class="sidebar-footer">
+                <button id="sidebar-toggle" title="Toggle Menu">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+            </div>`;
+    }
+
+    if (mobileHeaderEl && mobileHeaderEl.children.length === 0) {
+        mobileHeaderEl.innerHTML = `
+            <button id="mobile-menu-btn" title="Menu"><i class="fas fa-bars"></i></button>
+            <div class="mobile-logo" style="display:flex;align-items:center;margin-left:auto;margin-right:16px;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo" style="height:24px;width:24px;margin-right:8px;">
+                Asset Tracker
+            </div>`;
+    }
+}
+
+buildSidebar();
+
 // ── Modules : application immédiate depuis localStorage ────────────────────
 // loginApp.js sauvegarde les modules au moment de la connexion.
 // sidebar.js les lit et les applique synchroniquement (pas d'appel Firestore ici).

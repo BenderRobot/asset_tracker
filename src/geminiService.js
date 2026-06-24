@@ -1,7 +1,5 @@
 // geminiService.js - Service centralisé (Cloudflare Workers Proxy)
-
-// URL du Worker Cloudflare (migration depuis GCP Cloud Run)
-const GEMINI_PROXY_URL = 'https://asset-tracker-gemini.blaurens31.workers.dev';
+import { GEMINI_PROXY_URL } from './config.js';
 
 /**
  * Nettoie le texte pour l'utilisation dans les prompts Gemini.
