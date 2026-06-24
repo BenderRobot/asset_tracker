@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Gestion utilisateurs</title>
+
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <!-- Iframe mode: hide sidebar & header -->
+    <script>
+        if (window.self !== window.top) {
+            document.write('<style>.app-sidebar,.mobile-header{display:none!important}.main-content{margin-left:0!important;width:100%!important;padding:0!important}</style>');
+        }
+    </script>
+
+    <style>
+        /* ── Layout ── */
+        .admin-container { max-width: 860px; margin: 0 auto; }
+
+        .admin-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .admin-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* ── Stats bar ── */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+        }
+
+        .stat-value {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* ── Tabs ── */
+        .admin-tabs {
+            display: flex;
+            gap: 4px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .admin-tab {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .admin-tab:hover { color: var(--text-primary); }
+
+        .admin-tab.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* ── Code list ── */
+        .code-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 14px 16px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .code-value {
+            font-family: monospace;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--accent-blue);
+            flex: 1;
+        }
+
+        .code-meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 3px;
+        }
+
+        .status-badge {
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .badge-available { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+        .badge-used      { background: rgba(239, 68, 68, 0.15);  color: #ef4444; }
+        .badge-expired   { background: rgba(107, 114, 128, 0.2); color: #6b7280; }
+
+        .btn-icon {
+            width: 34px;
+            height: 34px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            font-size: 13px;
+        }
+
+        .btn-icon:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+        .btn-icon.danger:hover { border-color: var(--accent-red); color: var(--accent-red); }
+
+        /* ── User cards ── */
+        .user-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .user-card:hover { border-color: rgba(59, 130, 246, 0.3); }
+
+        .user-card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 700;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .user-email {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .user-meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .user-badges {
+            margin-left: auto;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .badge-admin {
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            background: rgba(139, 92, 246, 0.15);
+            color: #8b5cf6;
+            border: 1px solid rgba(139, 92, 246, 0.3);
+        }
+
+        /* ── Module toggles ── */
+        .modules-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .modules-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .module-chip {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            user-select: none;
+        }
+
+        .module-chip.enabled {
+            background: rgba(16, 185, 129, 0.12);
+            border-color: rgba(16, 185, 129, 0.3);
+            color: #10b981;
+        }
+
+        .module-chip.disabled {
+            background: var(--bg-secondary);
+            border-color: var(--border-color);
+            color: var(--text-muted);
+        }
+
+        .module-chip:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+
+        .module-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .module-chip.enabled .module-dot { background: #10b981; }
+        .module-chip.disabled .module-dot { background: var(--text-muted); }
+
+        /* Saving spinner */
+        .saving-indicator {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: none;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .saving-indicator.visible { display: flex; }
+
+        /* ── Empty state ── */
+        .empty-state {
+            text-align: center;
+            padding: 48px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-state i { font-size: 40px; margin-bottom: 14px; display: block; opacity: 0.4; }
+
+        /* ── Generation modal ── */
+        /* Force initial hidden state — overrides components.css display:flex + opacity:0 + visibility:hidden */
+        #email-modal-overlay {
+            display: none;
+            opacity: 1;
+            visibility: visible;
+        }
+
+        #gen-modal-overlay {
+            display: none;
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 28px;
+            width: min(480px, 92vw);
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+            animation: fadeIn 0.2s ease;
+        }
+
+        .modal-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .preset-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+
+        .preset-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .preset-btn:hover { border-color: var(--accent-blue); color: var(--text-primary); }
+
+        .preset-btn.active {
+            background: rgba(102,126,234,0.15);
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .modal-section-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .modal-modules-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .modal-module-chip {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 13px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.15s;
+            border: 1px solid transparent;
+            user-select: none;
+        }
+
+        .modal-module-chip.on {
+            background: rgba(16,185,129,0.12);
+            border-color: rgba(16,185,129,0.35);
+            color: #10b981;
+        }
+
+        .modal-module-chip.off {
+            background: var(--bg-secondary);
+            border-color: var(--border-color);
+            color: var(--text-muted);
+        }
+
+        .modal-module-chip .dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .modal-module-chip.on .dot { background: #10b981; }
+        .modal-module-chip.off .dot { background: var(--text-muted); }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .btn-cancel {
+            padding: 10px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-cancel:hover { border-color: var(--text-muted); color: var(--text-primary); }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.96); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+
+        /* ── Email input ── */
+        .modal-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .modal-input:focus { border-color: var(--accent-blue); }
+        .modal-input::placeholder { color: var(--text-muted); }
+
+        /* ── Responsive ── */
+        @media (max-width: 600px) {
+            .stats-bar { grid-template-columns: 1fr 1fr; }
+            .stats-bar .stat-card:last-child { grid-column: 1 / -1; }
+            .admin-tab { padding: 10px 14px; font-size: 13px; }
+        }
+    </style>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon"><img src="/icons/android-chrome-192x192.png" alt="Logo" style="width:32px;height:32px;"></div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item"><div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span></a>
+            <a href="investments.html" class="nav-item"><div class="nav-icon">📈</div><span class="nav-text">Assets</span></a>
+            <a href="index.html" class="nav-item"><div class="nav-icon">📋</div><span class="nav-text">Transactions</span></a>
+            <a href="analytics.html" class="nav-item"><div class="nav-icon">📊</div><span class="nav-text">Analytics</span></a>
+            <a href="watchlist.html" class="nav-item"><div class="nav-icon">👁️</div><span class="nav-text">Watchlist</span></a>
+            <a href="screener.html" class="nav-item"><div class="nav-icon">🔍</div><span class="nav-text">Screener</span></a>
+            <a href="news.html" class="nav-item"><div class="nav-icon">📰</div><span class="nav-text">News Feeds</span></a>
+            <a href="realestate.html" class="nav-item"><div class="nav-icon">🏢</div><span class="nav-text">Immobilier</span></a>
+            <a href="assistant.html" class="nav-item"><div class="nav-icon">🤖</div><span class="nav-text">Assistant IA</span></a>
+        </nav>
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="settings.html" class="nav-item active"><div class="nav-icon"><i class="fas fa-cog"></i></div><span class="nav-text">Paramètres</span></a>
+            <a href="#" class="nav-item" id="auth-btn"><div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div><span class="nav-text">Déconnexion</span></a>
+        </div>
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu"><i class="fas fa-chevron-left"></i></button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="container">
+            <div class="admin-container">
+
+                <div class="admin-header">
+                    <div class="admin-title">
+                        <i class="fas fa-shield-alt" style="color: var(--accent-purple);"></i>
+                        Administration
+                    </div>
+                    <button id="generate-code-btn" class="btn-primary" style="display:flex;align-items:center;gap:8px;">
+                        <i class="fas fa-plus"></i> Générer un code
+                    </button>
+                </div>
+
+                <!-- Stats -->
+                <div class="stats-bar">
+                    <div class="stat-card">
+                        <div class="stat-label">Codes disponibles</div>
+                        <div class="stat-value" id="stat-available">—</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Codes utilisés</div>
+                        <div class="stat-value" id="stat-used">—</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Utilisateurs</div>
+                        <div class="stat-value" id="stat-users">—</div>
+                    </div>
+                </div>
+
+                <!-- Tabs -->
+                <div class="admin-tabs">
+                    <button class="admin-tab active" data-tab="codes">
+                        <i class="fas fa-ticket-alt"></i> Codes d'invitation
+                    </button>
+                    <button class="admin-tab" data-tab="users">
+                        <i class="fas fa-users"></i> Utilisateurs &amp; Modules
+                    </button>
+                </div>
+
+                <!-- Codes tab -->
+                <div id="tab-codes" class="tab-panel active">
+                    <div id="codes-list">
+                        <div class="empty-state"><i class="fas fa-ticket-alt"></i><p>Aucun code généré.</p></div>
+                    </div>
+                </div>
+
+                <!-- Users tab -->
+                <div id="tab-users" class="tab-panel">
+                    <div id="users-list">
+                        <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Chargement...</p></div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- Email send modal -->
+    <div class="modal-overlay" id="email-modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <div class="modal-title">
+                <i class="fas fa-paper-plane" style="color:#667eea;"></i> Envoyer par email
+            </div>
+
+            <div style="margin-bottom:20px;">
+                <div class="modal-section-label">Code d'invitation</div>
+                <div id="email-modal-code" style="font-family:monospace;font-size:20px;font-weight:700;color:var(--accent-blue);padding:8px 0;letter-spacing:1px;"></div>
+            </div>
+
+            <div style="margin-bottom:24px;">
+                <div class="modal-section-label">Email du destinataire</div>
+                <input type="email" id="email-modal-input" class="modal-input" placeholder="ami@example.com" autocomplete="off">
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn-cancel" id="email-modal-cancel">Annuler</button>
+                <button class="btn-primary" id="email-modal-confirm" style="display:flex;align-items:center;gap:8px;">
+                    <i class="fas fa-paper-plane"></i> Envoyer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Code generation modal -->
+    <div class="modal-overlay" id="gen-modal-overlay">
+        <div class="modal-box">
+            <div class="modal-title"><i class="fas fa-ticket-alt" style="color:#667eea;"></i> Générer un code d'invitation</div>
+
+            <div class="modal-section-label">Accès par défaut</div>
+            <div class="preset-row">
+                <button class="preset-btn" data-preset="basic">Basique</button>
+                <button class="preset-btn" data-preset="full">Complet</button>
+                <button class="preset-btn active" data-preset="custom">Personnalisé</button>
+            </div>
+
+            <div class="modal-section-label">Modules inclus</div>
+            <div class="modal-modules-grid" id="gen-modules-grid"></div>
+
+            <div class="modal-footer">
+                <button class="btn-cancel" id="gen-modal-cancel">Annuler</button>
+                <button class="btn-primary" id="gen-modal-confirm" style="display:flex;align-items:center;gap:8px;">
+                    <i class="fas fa-plus"></i> Générer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script type="module" src="./src/adminInvitations.js?v=5"></script>
+    <script type="module" src="./src/sidebar.js?v=31"></script>
+</body>
+
+</html>

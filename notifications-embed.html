@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Notifications</title>
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+        }
+
+        .main-content {
+            margin-left: 0 !important;
+            width: 100% !important;
+        }
+
+        select option {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+
+<body>
+    <main class="main-content">
+        <div class="container">
+            <h2 style="margin-bottom: 32px; color: var(--text-primary);">
+                <i class="fas fa-bell" style="color: var(--accent-blue);"></i> Gestion des Notifications
+            </h2>
+
+            <div class="card" style="padding: 24px; margin-bottom: 24px;">
+                <h3 style="margin-top: 0;">Param�tres G�n�raux</h3>
+
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <label style="display: flex; align-items: center; gap: 12px;">
+                        <input type="checkbox" id="globalNotif" checked>
+                        <span>Portefeuille Global (Variation > <input type="number" id="globalThreshold" value="0.1"
+                                step="0.1" style="width: 60px; padding: 4px;"> %)</span>
+                    </label>
+
+                    <label style="display: flex; align-items: center; gap: 12px;">
+                        <input type="checkbox" id="cryptoNotif" checked>
+                        <span>Indices / Crypto (Mouvements > <input type="number" id="cryptoThreshold" value="1"
+                                step="0.1" style="width: 60px; padding: 4px;"> %)</span>
+                    </label>
+
+                    <label style="display: flex; align-items: center; gap: 12px;">
+                        <input type="checkbox" id="stockNotif" checked>
+                        <span>Actions (Mouvements > <input type="number" id="stockThreshold" value="3" step="0.1"
+                                style="width: 60px; padding: 4px;"> %)</span>
+                    </label>
+                </div>
+
+                <button id="saveSettings" class="btn-primary" style="margin-top: 24px;">
+                    Enregistrer les param�tres
+                </button>
+            </div>
+
+            <div class="card" style="padding: 24px;">
+                <h3 style="margin-top: 0;">Mes R�gles</h3>
+                <div id="rulesList"></div>
+
+                <h4 style="margin-top: 32px;">Ajouter une r�gle</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; align-items: end;">
+                    <div>
+                        <label>Actif</label>
+                        <select id="newRuleAsset" style="width: 100%; padding: 8px;"></select>
+                    </div>
+                    <div>
+                        <label>M�trique</label>
+                        <select id="newRuleMetric" style="width: 100%; padding: 8px;">
+                            <option value="price">% Variation</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Condition</label>
+                        <input type="number" id="newRuleThreshold" step="0.1" placeholder="0.1"
+                            style="width: 100%; padding: 8px;">
+                    </div>
+                    <button id="addRule" class="btn-secondary">Ajouter</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script type="module">
+        import { auth, db } from './src/firebaseConfig.js';
+        import { Storage } from './src/storage.js';
+
+        const storage = new Storage();
+        let notificationRules = [];
+
+        // Load settings
+        auth.onAuthStateChanged(async (user) => {
+            if (!user) return;
+
+            const settingsDoc = await db.collection('notificationSettings').doc(user.uid).get();
+            if (settingsDoc.exists) {
+                const settings = settingsDoc.data();
+                document.getElementById('globalNotif').checked = settings.globalEnabled !== false;
+                document.getElementById('globalThreshold').value = settings.globalThreshold || 0.1;
+                document.getElementById('cryptoNotif').checked = settings.cryptoEnabled !== false;
+                document.getElementById('cryptoThreshold').value = settings.cryptoThreshold || 1;
+                document.getElementById('stockNotif').checked = settings.stockEnabled !== false;
+                document.getElementById('stockThreshold').value = settings.stockThreshold || 3;
+                notificationRules = settings.rules || [];
+            }
+
+            loadAssets();
+            renderRules();
+        });
+
+        // Load assets for dropdown
+        function loadAssets() {
+            const purchases = storage.getPurchases();
+            const tickers = [...new Set(purchases.map(p => p.ticker))];
+            const select = document.getElementById('newRuleAsset');
+            select.innerHTML = '<option value="">S�lectionner...</option>' +
+                tickers.map(t => `<option value="${t}">${t}</option>`).join('');
+        }
+
+        // Render rules
+        function renderRules() {
+            const list = document.getElementById('rulesList');
+            if (notificationRules.length === 0) {
+                list.innerHTML = '<p style="color: var(--text-secondary);">Aucune r�gle personnalis�e</p>';
+                return;
+            }
+
+            list.innerHTML = notificationRules.map((rule, i) => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 8px;">
+                    <span>${rule.ticker} - % Variation > ${rule.threshold}%</span>
+                    <button onclick="window.deleteRule(${i})" class="btn-secondary" style="padding: 6px 12px;">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Save settings
+        document.getElementById('saveSettings').addEventListener('click', async () => {
+            const user = auth.currentUser;
+            if (!user) return;
+
+            await db.collection('notificationSettings').doc(user.uid).set({
+                globalEnabled: document.getElementById('globalNotif').checked,
+                globalThreshold: parseFloat(document.getElementById('globalThreshold').value),
+                cryptoEnabled: document.getElementById('cryptoNotif').checked,
+                cryptoThreshold: parseFloat(document.getElementById('cryptoThreshold').value),
+                stockEnabled: document.getElementById('stockNotif').checked,
+                stockThreshold: parseFloat(document.getElementById('stockThreshold').value),
+                rules: notificationRules
+            });
+
+            alert('Param�tres enregistr�s !');
+        });
+
+        // Add rule
+        document.getElementById('addRule').addEventListener('click', async () => {
+            const ticker = document.getElementById('newRuleAsset').value;
+            const threshold = parseFloat(document.getElementById('newRuleThreshold').value);
+
+            if (!ticker || !threshold) {
+                alert('Veuillez remplir tous les champs');
+                return;
+            }
+
+            notificationRules.push({ ticker, metric: 'price', threshold });
+            renderRules();
+
+            document.getElementById('newRuleAsset').value = '';
+            document.getElementById('newRuleThreshold').value = '';
+        });
+
+        // Delete rule
+        window.deleteRule = (index) => {
+            notificationRules.splice(index, 1);
+            renderRules();
+        };
+    </script>
+</body>
+
+</html>

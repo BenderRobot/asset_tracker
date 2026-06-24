@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migration - Asset Tracker</title>
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <link rel="stylesheet" href="css/migration.css">
+    <link rel="stylesheet" href="css/migration-mobile.css">
+
+
+    <script>
+        // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        // Show admin link immediately if user is admin (no flash)
+        if (localStorage.getItem('isAdmin') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const adminLink = document.getElementById('admin-invitations-link');
+                if (adminLink) adminLink.style.display = 'flex';
+            });
+        }
+        // HIDE SIDEBAR IF IN IFRAME
+        if (window.self !== window.top) {
+            document.write('<style>.app-sidebar, .mobile-header { display: none !important; } .main-content { margin-left: 0 !important; width: 100% !important; }</style>');
+        }
+    </script>
+
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px; object-fit: contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">🚀</div>
+                <span class="nav-text">Dashboard</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">📈</div>
+                <span class="nav-text">Assets</span>
+            </a>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div>
+                <span class="nav-text">Transactions</span>
+            </a>
+            <a href="analytics.html" class="nav-item">
+                <div class="nav-icon">📊</div>
+                <span class="nav-text">Analytics</span>
+            </a>
+            <a href="watchlist.html" class="nav-item">
+                <div class="nav-icon">👁️</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item">
+                <div class="nav-icon">🔍</div>
+                <span class="nav-text">Screener</span>
+            </a>
+            <a href="news.html" class="nav-item">
+                <div class="nav-icon">📰</div>
+                <span class="nav-text">News Feeds</span>
+            </a>
+            <a href="realestate.html" class="nav-item">
+                <div class="nav-icon">🏢</div>
+                <span class="nav-text">Immobilier</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="settings.html" class="nav-item">
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
+                <span class="nav-text">Paramètres</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">Déconnexion</span>
+            </a>
+        </div>
+
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="container">
+
+            <div class="migration-header">
+                <h2>🔄 Asset Migration</h2>
+                <p>Sélectionnez les actifs et configurez la destination</p>
+            </div>
+
+            <div class="filter-bar">
+                <input type="text" id="search-assets" placeholder="🔍 Rechercher par ticker ou nom..." />
+                <button id="show-all" class="active">Tous</button>
+                <button id="show-crypto">Crypto</button>
+                <button id="show-stocks">Actions</button>
+            </div>
+
+            <div class="select-all-bar">
+                <div>
+                    <span id="selection-count" style="color: var(--accent-blue); font-weight: 600;">0 sélectionné</span>
+                    <span style="color: var(--text-muted);"> / </span>
+                    <span id="total-assets" style="color: var(--text-muted);">0 total</span>
+                </div>
+                <div style="display: flex; gap: 12px;">
+                    <button id="select-all-btn">Tout sélectionner</button>
+                    <button id="deselect-all-btn">Tout désélectionner</button>
+                </div>
+            </div>
+
+            <div id="assets-grid" class="assets-grid"></div>
+
+            <div id="empty-state" class="empty-state" style="display: none;">
+                <i class="fas fa-folder-open"></i>
+                <h3>Aucun actif trouvé</h3>
+                <p>Ajoutez des transactions d'abord</p>
+            </div>
+
+            <div class="migration-actions" id="migration-actions" style="display: none;">
+                <div class="migration-summary">
+                    <div class="migration-summary-title">Prêt à migrer</div>
+                    <div class="migration-summary-value" id="migrate-count">0 actifs</div>
+                </div>
+
+                <div class="migration-buttons">
+                    <button class="btn-cancel" id="cancel-migration">
+                        <i class="fas fa-times"></i> Annuler
+                    </button>
+                    <button class="btn-migrate" id="start-migration">
+                        <i class="fas fa-check"></i> Démarrer Migration
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script type="module" src="./src/authGuard.js"></script>
+    <script type="module" src="./src/migrationApp.js"></script>
+    <script src="./src/cacheRefresh.js"></script>
+    <script type="module" src="./src/sidebar.js"></script>
+</body>
+
+</html>

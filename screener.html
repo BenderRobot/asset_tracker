@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screener - Asset Tracker</title>
+    <meta name="description"
+        content="Analysez n'importe quelle action : graphique, valorisation, profil quantitatif et données fondamentales.">
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/screener.css?v=113">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <script>
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        if (localStorage.getItem('isAdmin') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const adminLink = document.getElementById('admin-invitations-link');
+                if (adminLink) adminLink.style.display = 'flex';
+            });
+        }
+    </script>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu"><i class="fas fa-bars"></i></button>
+        <div class="mobile-logo" style="display:flex;align-items:center;margin-left:auto;margin-right:16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo" style="height:24px;width:24px;margin-right:8px;">
+            Asset Tracker
+        </div>
+    </header>
+
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="display:flex;align-items:center;justify-content:center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width:32px;height:32px;object-fit:contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">📈</div><span class="nav-text">Assets</span>
+            </a>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div><span class="nav-text">Transactions</span>
+            </a>
+            <a href="analytics.html" class="nav-item">
+                <div class="nav-icon">📊</div><span class="nav-text">Analytics</span>
+            </a>
+            <a href="watchlist.html" class="nav-item">
+                <div class="nav-icon">👁️</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item active">
+                <div class="nav-icon">🔍</div><span class="nav-text">Screener</span>
+            </a>
+            <a href="news.html" class="nav-item">
+                <div class="nav-icon">📰</div><span class="nav-text">News Feeds</span>
+            </a>
+            <a href="realestate.html" class="nav-item">
+                <div class="nav-icon">🏢</div><span class="nav-text">Immobilier</span>
+            </a>
+            <a href="assistant.html" class="nav-item">
+                <div class="nav-icon">🤖</div><span class="nav-text">Assistant IA</span>
+            </a>
+        </nav>
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="settings.html" class="nav-item">
+                <div class="nav-icon"><i class="fas fa-cog"></i></div><span class="nav-text">Paramètres</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div><span class="nav-text">Déconnexion</span>
+            </a>
+        </div>
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu"><i class="fas fa-chevron-left"></i></button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="screener-wrapper">
+
+            <!-- SEARCH BAR -->
+            <div class="screener-search-section">
+                <div class="screener-search-bar">
+                    <i class="fas fa-search screener-search-icon"></i>
+                    <input type="text" id="screener-search-input"
+                        placeholder="Rechercher une action… ex: AAPL, NVIDIA, TotalEnergies" autocomplete="off"
+                        spellcheck="false">
+                    <button id="screener-search-clear" class="screener-clear-btn" style="display:none"><i
+                            class="fas fa-times"></i></button>
+                </div>
+                <div id="screener-suggestions" class="screener-suggestions"></div>
+            </div>
+
+            <!-- DEFAULT STATE -->
+            <div id="screener-welcome" class="screener-welcome">
+                <div class="screener-welcome-icon">🔍</div>
+                <h2>Analyser une action</h2>
+                <p>Recherchez n'importe quelle action par son ticker ou son nom pour obtenir une analyse complète :
+                    graphique, profil quantitatif, valorisation et informations fondamentales.</p>
+
+                <!-- Popular Assets Grid -->
+                <div class="popular-assets-section">
+                    <div class="popular-assets-header">
+                        <span class="popular-assets-label"><i class="fas fa-fire"></i> Actifs populaires</span>
+                    </div>
+                    <div class="popular-assets-grid" id="popular-assets-grid">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- LOADING STATE -->
+            <div id="screener-loading" class="screener-loading" style="display:none">
+                <div class="screener-spinner"></div>
+                <p>Chargement des données…</p>
+            </div>
+
+            <!-- ERROR STATE -->
+            <div id="screener-error" class="screener-error" style="display:none">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p id="screener-error-msg">Impossible de charger les données.</p>
+            </div>
+
+            <!-- STOCK ANALYSIS PANEL -->
+            <div id="screener-panel" class="screener-panel" style="display:none">
+
+                <!-- HEADER -->
+                <div class="stock-header">
+                    <div class="stock-header-left">
+                        <div id="stock-logo" class="stock-logo-container"></div>
+                        <div class="stock-header-info">
+                            <h1 id="stock-name" class="stock-name">—</h1>
+                            <div class="stock-meta">
+                                <span id="stock-ticker-badge" class="stock-ticker-badge">—</span>
+                                <span id="stock-exchange" class="stock-exchange">—</span>
+                                <span id="stock-currency" class="stock-currency">—</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stock-header-right">
+                        <div class="stock-price-block">
+                            <div id="stock-price" class="stock-price">—</div>
+                            <div id="stock-change" class="stock-change">—</div>
+                        </div>
+                        <div id="stock-score-badge" class="stock-score-badge" title="Score quantitatif calculé">
+                            <span id="stock-score-value">—</span>
+                            <span class="score-label">/20</span>
+                        </div>
+                        <button id="screener-watchlist-btn" class="btn-add-portfolio"
+                            style="cursor:pointer;border:none;font-family:inherit;">
+                            <i class="fas fa-eye"></i> Ajouter à la Watchlist
+                        </button>
+                    </div>
+                </div>
+
+                <!-- TABS -->
+                <div class="screener-tabs">
+                    <button class="screener-tab active" data-tab="resume">Résumé</button>
+                    <button class="screener-tab" data-tab="quantitatif">Quantitatif</button>
+                    <button class="screener-tab disabled" data-tab="dividende"
+                        title="Bientôt disponible">Dividende</button>
+                    <button class="screener-tab disabled" data-tab="finances"
+                        title="Bientôt disponible">Finances</button>
+                    <button class="screener-tab" data-tab="valorisation">Valorisation</button>
+                </div>
+
+                <!-- RESUME TAB CONTENT -->
+                <div id="tab-resume" class="screener-tab-content active">
+                    <!-- ROW 1: Charts -->
+                    <div class="screener-grid-3">
+
+                        <!-- Price Chart -->
+                        <div class="screener-card chart-card">
+                            <div class="screener-card-header">
+                                <span id="price-chart-label" class="card-title">—</span>
+                                <div class="chart-period-btns">
+                                    <button class="period-btn" data-period="1mo">1M</button>
+                                    <button class="period-btn" data-period="3mo">3M</button>
+                                    <button class="period-btn" data-period="6mo">6M</button>
+                                    <button class="period-btn active" data-period="1y">1A</button>
+                                    <button class="period-btn" data-period="5y">5A</button>
+                                </div>
+                                <button class="kpi-expand-btn" data-kpi="price" title="Voir les détails">
+                                    <i class="fas fa-expand-alt"></i>
+                                </button>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="price-chart"></canvas>
+                            </div>
+                            <div class="chart-stats">
+                                <div class="chart-stat"><span class="cs-label">Perf.</span><span id="cs-perf"
+                                        class="cs-value">—</span></div>
+                                <div class="chart-stat"><span class="cs-label">CAGR</span><span id="cs-cagr"
+                                        class="cs-value">—</span></div>
+                                <div class="chart-stat"><span class="cs-label">Volatilité</span><span id="cs-vol"
+                                        class="cs-value">—</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Regression lineaire -->
+                        <div class="screener-card chart-card">
+                            <div class="screener-card-header">
+                                <span class="card-title">Régression linéaire</span>
+                                <button class="kpi-expand-btn" data-kpi="regression" title="Voir les détails">
+                                    <i class="fas fa-expand-alt"></i>
+                                </button>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="regression-chart"></canvas>
+                            </div>
+                            <div class="chart-stats">
+                                <div class="chart-stat"><span class="cs-label">Prix actuel</span><span id="reg-current"
+                                        class="cs-value">—</span></div>
+                                <div class="chart-stat"><span class="cs-label">Régression</span><span id="reg-value"
+                                        class="cs-value">—</span></div>
+                                <div class="chart-stat"><span class="cs-label">Pente /an</span><span id="reg-slope"
+                                        class="cs-value">—</span></div>
+                            </div>
+                        </div>
+
+                        <!-- S&P 500 Comparison -->
+                        <div class="screener-card chart-card">
+                            <div class="screener-card-header">
+                                <span class="card-title">Comparaison S&P 500</span>
+                                <button class="kpi-expand-btn" data-kpi="sp500" title="Voir les détails">
+                                    <i class="fas fa-expand-alt"></i>
+                                </button>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="sp500-chart"></canvas>
+                            </div>
+                            <div class="chart-stats">
+                                <div class="chart-stat"><span class="cs-label">Dif 5A</span><span id="sp-diff"
+                                        class="cs-value">—</span></div>
+                                <div class="chart-stat"><span class="cs-label">CAGR actif</span><span id="sp-cagr-stock"
+                                        class="cs-value">—</span></div>
+                                <div class="chart-stat"><span class="cs-label">CAGR S&P</span><span id="sp-cagr-sp"
+                                        class="cs-value">—</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ROW 2: Info, Radar, Valuation -->
+                    <div class="screener-grid-3">
+
+                        <!-- Company Info -->
+                        <div class="screener-card">
+                            <div class="screener-card-header">
+                                <span class="card-title">Informations</span>
+                            </div>
+                            <div class="info-grid">
+                                <div class="info-row"><span class="info-label">TICKER</span><span id="info-ticker"
+                                        class="info-value">—</span></div>
+                                <div class="info-row"><span class="info-label">CAPITALISATION</span><span
+                                        id="info-mktcap" class="info-value">—</span></div>
+                                <div class="info-row"><span class="info-label">BOURSE</span><span id="info-exchange"
+                                        class="info-value">—</span></div>
+                                <div class="info-row"><span class="info-label">SITE INTERNET</span><span
+                                        id="info-website" class="info-value">—</span></div>
+                                <div class="info-row"><span class="info-label">ISIN</span><span id="info-isin"
+                                        class="info-value">—</span></div>
+                                <div class="info-row"><span class="info-label">SECTEUR</span><span id="info-sector"
+                                        class="info-value">—</span></div>
+                                <div class="info-row"><span class="info-label">PAYS</span><span id="info-country"
+                                        class="info-value">—</span></div>
+                                <div class="info-row"><span class="info-label">INDUSTRIE</span><span id="info-industry"
+                                        class="info-value">—</span></div>
+                                <div class="info-row"><span class="info-label">DEVISE</span><span id="info-currency"
+                                        class="info-value">—</span></div>
+                                <div class="info-row"><span class="info-label">SOUS-INDUSTRIE</span><span
+                                        id="info-subindustry" class="info-value">—</span></div>
+                            </div>
+                            <div class="info-badges">
+                                <div id="info-pea-badge" class="info-badge badge-red"><i
+                                        class="fas fa-times-circle"></i> PEA : Non éligible</div>
+                                <div id="info-div-badge" class="info-badge badge-green"><i
+                                        class="fas fa-check-circle"></i> Dividende : Oui</div>
+                            </div>
+                        </div>
+
+                        <!-- Quantitative Radar -->
+                        <div class="screener-card">
+                            <div class="screener-card-header">
+                                <span class="card-title">Profil quantitatif</span>
+                                <div id="radar-score-badge" class="score-mini-badge">—/20</div>
+                                <button class="kpi-expand-btn" data-kpi="radar" title="Voir les détails">
+                                    <i class="fas fa-expand-alt"></i>
+                                </button>
+                            </div>
+                            <div class="radar-container">
+                                <canvas id="radar-chart"></canvas>
+                            </div>
+                            <div class="radar-legend" id="radar-legend"></div>
+                        </div>
+
+                        <!-- Valuation -->
+                        <div class="screener-card">
+                            <div class="screener-card-header">
+                                <span class="card-title">Valorisation</span>
+                                <span id="valuation-diff" class="valuation-diff">—</span>
+                                <button class="kpi-expand-btn" data-kpi="valuation" title="Voir les détails">
+                                    <i class="fas fa-expand-alt"></i>
+                                </button>
+                            </div>
+                            <div class="valuation-list" id="valuation-list">
+                                <div class="valuation-skeleton">Chargement…</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- end tab-resume -->
+
+                <!-- QUANTITATIF TAB CONTENT -->
+                <div id="tab-quantitatif" class="screener-tab-content">
+                    <div class="quant-dashboard-grid">
+                        <!-- 1. Revenus -->
+                        <div class="quant-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Revenus</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-revenue"></canvas>
+                            </div>
+                            <div class="quant-card-footer" id="footer-revenue"></div>
+                        </div>
+
+                        <!-- 2. Bénéfices -->
+                        <div class="quant-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Bénéfices</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-earnings"></canvas>
+                            </div>
+                            <div class="quant-card-footer" id="footer-earnings"></div>
+                        </div>
+
+                        <!-- 3. Free Cash Flow -->
+                        <div class="quant-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Free Cash Flow</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-fcf"></canvas>
+                            </div>
+                            <div class="quant-card-footer" id="footer-fcf"></div>
+                        </div>
+
+                        <!-- 4. Marges -->
+                        <div class="quant-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Marges</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-margins"></canvas>
+                            </div>
+                            <div class="quant-card-footer" id="footer-margins"></div>
+                        </div>
+
+                        <!-- 5. Retours sur capitaux -->
+                        <div class="quant-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Retours sur capitaux</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-returns"></canvas>
+                            </div>
+                            <div class="quant-card-footer" id="footer-returns"></div>
+                        </div>
+
+                        <!-- 6. Cash & Dette -->
+                        <div class="quant-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Cash & Dette</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-cash-debt"></canvas>
+                            </div>
+                            <div class="quant-card-footer" id="footer-cash-debt"></div>
+                        </div>
+
+                        <!-- 7. Dividende -->
+                        <div class="quant-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Dividende</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-dividend"></canvas>
+                            </div>
+                            <div class="quant-card-footer" id="footer-dividend"></div>
+                        </div>
+
+                        <!-- 8. Actions en circulation -->
+                        <div class="quant-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Actions en circulation</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-shares"></canvas>
+                            </div>
+                            <div class="quant-card-footer" id="footer-shares"></div>
+                        </div>
+
+                        <!-- 9. Dépenses (CAPEX) -->
+                        <div class="quant-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Dépenses</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-capex"></canvas>
+                            </div>
+                            <div class="quant-card-footer" id="footer-capex"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VALORISATION TAB CONTENT -->
+                <div id="tab-valorisation" class="screener-tab-content">
+                    <div class="valuation-tab-layout">
+                        <!-- Left: Chart & Stats -->
+                        <div class="valuation-tab-main">
+                            <div class="valuation-tab-header">
+                                <h2 class="valuation-tab-title">Calculateur de prix juste</h2>
+                                <div id="val-tab-kpi-header" class="kpi-val-header">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+                            <div class="valuation-tab-chart-container">
+                                <canvas id="valuation-tab-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Right: Parameters Sidebar -->
+                        <div class="valuation-tab-sidebar">
+                            <div class="valuation-tab-sidebar-header">
+                                <h3>Paramètres</h3>
+                            </div>
+                            <div class="valuation-tab-sidebar-content">
+                                <div class="kpi-modal-field">
+                                    <label>Données utilisées</label>
+                                    <div class="custom-select" id="val-tab-metric-wrapper">
+                                        <div class="custom-select-trigger" id="val-tab-metric-trigger">
+                                            <span id="val-tab-metric-label">FCF/Actions</span>
+                                            <i class="fas fa-chevron-down custom-select-arrow"></i>
+                                        </div>
+                                        <div class="custom-select-options" id="val-tab-metric-options">
+                                            <div class="custom-select-option selected" data-value="fcf">FCF/Actions
+                                            </div>
+                                            <div class="custom-select-option" data-value="eps">BPA (EPS)</div>
+                                        </div>
+                                        <input type="hidden" id="val-tab-metric" value="fcf">
+                                    </div>
+                                </div>
+                                <div class="kpi-modal-field">
+                                    <label>Croissance estimée (%/an) <span id="val-tab-growth-hint"
+                                            class="kpi-val-hint"></span></label>
+                                    <input type="number" id="val-tab-growth" class="kpi-val-input" step="0.1">
+                                </div>
+                                <div class="kpi-modal-field">
+                                    <label>Multiple final estimé <span id="val-tab-multiple-hint"
+                                            class="kpi-val-hint"></span></label>
+                                    <input type="number" id="val-tab-multiple" class="kpi-val-input" step="0.1">
+                                </div>
+                                <div class="kpi-modal-field">
+                                    <label>Rendement cible (%/an)</label>
+                                    <input type="number" id="val-tab-target-return" class="kpi-val-input" value="12"
+                                        step="0.5">
+                                </div>
+                                <div class="kpi-modal-settings-group" style="margin-bottom:24px;">
+                                    <label class="kpi-modal-checkbox">
+                                        <input type="checkbox" id="val-tab-include-div" checked>
+                                        <span class="checkbox-custom"></span>
+                                        <span>Inclure les dividendes</span>
+                                    </label>
+                                </div>
+                                <div class="kpi-val-actions">
+                                    <button class="kpi-val-btn kpi-val-btn-primary" id="val-tab-recalc">
+                                        <i class="fas fa-chart-line"></i> Recalculer
+                                    </button>
+                                    <button class="kpi-val-btn kpi-val-btn-ghost" id="val-tab-reset">
+                                        <i class="fas fa-undo"></i> Réinitialiser
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- NOUVELLE GRILLE DE VALORISATION EN DESSOUS -->
+                    <div class="val-dashboard-grid">
+                        <!-- 1. Métriques Clés -->
+                        <div class="quant-card val-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Métriques clés</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="val-metrics-grid" id="val-metrics-list">
+                                <!-- Populated via JS -->
+                            </div>
+                        </div>
+
+                        <!-- 2. Communauté -->
+                        <div class="quant-card val-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Communauté</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="val-community-content" id="val-community-block">
+                                <!-- Populated via JS -->
+                            </div>
+                        </div>
+
+                        <!-- 3. Free Cash Flow / Action -->
+                        <div class="quant-card val-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Free Cash Flow / Action</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-val-fcf-ps"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- 4. Régression linéaire -->
+                        <div class="quant-card val-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Régression linéaire</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-val-regression"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- 5. Forward P/E projeté -->
+                        <div class="quant-card val-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Forward P/E projeté</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-val-forward-pe"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- 6. Price / Earnings (P/E) -->
+                        <div class="quant-card val-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Price / Earnings (P/E)</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-val-pe"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- 7. Price / FCF (P/FCF) -->
+                        <div class="quant-card val-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Price / Free Cash Flow (P/FCF)</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-val-pfcf"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- 8. Price / OCF (P/OCF) -->
+                        <div class="quant-card val-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Price / Operating Cash Flow (P/OCF)</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-val-pocf"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- 9. Price / Sales (P/S) -->
+                        <div class="quant-card val-card">
+                            <div class="quant-card-header">
+                                <span class="quant-card-title">Price / Sales (P/S)</span>
+                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                            </div>
+                            <div class="quant-chart-container">
+                                <canvas id="chart-val-ps"></canvas>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+            <!-- end screener-panel -->
+
+        </div>
+    </main>
+
+    <!-- KPI Detail Modal -->
+    <div id="kpi-modal" class="kpi-modal" style="display:none;">
+        <div class="kpi-modal-overlay"></div>
+        <div class="kpi-modal-content">
+
+            <!-- MAIN AREA (Left) -->
+            <div class="kpi-modal-main">
+                <div class="kpi-modal-main-header">
+                    <div class="kpi-modal-info-wrapper">
+                        <div id="kpi-modal-logo" class="kpi-modal-main-logo"></div>
+                        <div class="kpi-modal-info">
+                            <div id="kpi-modal-price" class="kpi-modal-main-price">—</div>
+                            <div class="kpi-modal-sub-info">
+                                <span id="kpi-modal-ticker" class="kpi-modal-main-ticker">—</span>
+                                <span id="kpi-modal-change" class="kpi-modal-main-change">—</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="kpi-modal-period-btns">
+                        <button class="kpi-period-btn" data-period="1mo">1M</button>
+                        <button class="kpi-period-btn" data-period="3mo">3M</button>
+                        <button class="kpi-period-btn" data-period="6mo">6M</button>
+                        <button class="kpi-period-btn" data-period="ytd">YTD</button>
+                        <button class="kpi-period-btn" data-period="1y">1A</button>
+                        <button class="kpi-period-btn" data-period="3y">3A</button>
+                        <button class="kpi-period-btn" data-period="5y">5A</button>
+                        <button class="kpi-period-btn active" data-period="10y">10A</button>
+                        <button class="kpi-period-btn" data-period="max">MAX</button>
+                    </div>
+                </div>
+
+                <div class="kpi-modal-chart-section">
+                    <div class="kpi-modal-chart-wrapper">
+                        <canvas id="kpi-modal-chart"></canvas>
+                    </div>
+                </div>
+
+                <div id="kpi-modal-stats" class="kpi-modal-stats-pills">
+                    <!-- Stat pills populated by JS -->
+                </div>
+            </div>
+
+            <!-- SIDEBAR (Right) -->
+            <div class="kpi-modal-sidebar">
+                <div class="kpi-modal-sidebar-header">
+                    <h3>Paramètres</h3>
+                    <button class="kpi-modal-close" id="kpi-modal-close">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="kpi-modal-sidebar-content">
+                    <div class="kpi-modal-settings-group">
+                        <label class="kpi-modal-checkbox" id="kpi-show-dividends-wrapper">
+                            <input type="checkbox" id="kpi-show-dividends">
+                            <span class="checkbox-custom"></span>
+                            <span>Inclure les dividendes</span>
+                        </label>
+                        <label class="kpi-modal-checkbox" id="kpi-show-ma-wrapper">
+                            <input type="checkbox" id="kpi-show-ma">
+                            <span class="checkbox-custom"></span>
+                            <span>Afficher les moyennes mobiles (MM50/MM200)</span>
+                        </label>
+                        <label class="kpi-modal-checkbox" id="kpi-show-fair-price-wrapper">
+                            <input type="checkbox" id="kpi-show-fair-price">
+                            <span class="checkbox-custom"></span>
+                            <span>Afficher le prix juste</span>
+                            <i class="fas fa-circle-info info-icon"
+                                title="Prix basé sur la régression linéaire et les fondamentaux"></i>
+                        </label>
+                    </div>
+
+                    <div class="kpi-modal-field">
+                        <label>Devise</label>
+                        <div class="custom-select" id="kpi-currency-select-wrapper">
+                            <div class="custom-select-trigger" id="kpi-currency-trigger">
+                                <span id="kpi-currency-label">USD</span>
+                                <i class="fas fa-chevron-down custom-select-arrow"></i>
+                            </div>
+                            <div class="custom-select-options" id="kpi-currency-options">
+                                <div class="custom-select-option" data-value="USD">USD — Dollar américain</div>
+                                <div class="custom-select-option" data-value="EUR">EUR — Euro</div>
+                                <div class="custom-select-option" data-value="XAU">XAU — Once troy (Or)</div>
+                            </div>
+                            <input type="hidden" id="kpi-currency-select" value="USD">
+                        </div>
+                    </div>
+
+                    <!-- Régression settings (affichés dynamiquement) -->
+                    <div id="kpi-regression-settings" style="display:none;">
+                        <div class="kpi-modal-field">
+                            <label>Modèle de régression</label>
+                            <div class="custom-select" id="kpi-reg-model-wrapper">
+                                <div class="custom-select-trigger" id="kpi-reg-model-trigger">
+                                    <span id="kpi-reg-model-label">Semi-Log (exponentiel)</span>
+                                    <i class="fas fa-chevron-down custom-select-arrow"></i>
+                                </div>
+                                <div class="custom-select-options" id="kpi-reg-model-options" style="display:none;">
+                                    <div class="custom-select-option selected" data-value="semilog">Semi-Log
+                                        (exponentiel)</div>
+                                    <div class="custom-select-option" data-value="loglog">Log-Log (loi de puissance)
+                                    </div>
+                                    <div class="custom-select-option" data-value="linear">Linéaire</div>
+                                </div>
+                                <input type="hidden" id="kpi-reg-model" value="semilog">
+                            </div>
+                        </div>
+                        <div class="kpi-modal-field">
+                            <label style="display:flex;justify-content:space-between;align-items:center;">
+                                <span>Projection</span>
+                                <span id="kpi-proj-years-label" style="color:#60a5fa;font-weight:700;font-size:13px;">2
+                                    ans</span>
+                            </label>
+                            <input type="range" id="kpi-proj-years" min="0" max="10" value="2" step="1"
+                                style="width:100%;margin-top:8px;accent-color:#60a5fa;">
+                        </div>
+                        <div class="kpi-modal-settings-group">
+                            <label class="kpi-modal-checkbox">
+                                <input type="checkbox" id="kpi-show-bands" checked>
+                                <span class="checkbox-custom"></span>
+                                <span>Afficher les bandes σ</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Comparaison settings -->
+                    <div id="kpi-comparison-settings" style="display:none;">
+                        <div class="kpi-modal-field">
+                            <label>Benchmark de comparaison</label>
+                            <div class="custom-select" id="kpi-comp-benchmark-wrapper">
+                                <div class="custom-select-trigger" id="kpi-comp-benchmark-trigger">
+                                    <span id="kpi-comp-benchmark-label">S&P 500</span>
+                                    <i class="fas fa-chevron-down custom-select-arrow"></i>
+                                </div>
+                                <div class="custom-select-options" id="kpi-comp-benchmark-options"
+                                    style="display:none;">
+                                    <div class="custom-select-option selected" data-value="^GSPC" data-label="S&P 500">
+                                        S&P 500</div>
+                                    <div class="custom-select-option" data-value="^NDX" data-label="Nasdaq 100">Nasdaq
+                                        100</div>
+                                    <div class="custom-select-option" data-value="^STOXX50E" data-label="Euro Stoxx 50">
+                                        Euro Stoxx 50</div>
+                                    <div class="custom-select-option" data-value="GC=F" data-label="Or (Gold)">Or (Gold)
+                                    </div>
+                                </div>
+                                <input type="hidden" id="kpi-comp-benchmark" value="^GSPC">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Valorisation settings -->
+                    <div id="kpi-valuation-settings" style="display:none;">
+                        <div class="kpi-modal-field">
+                            <label>Données utilisées</label>
+                            <div class="custom-select" id="kpi-val-metric-wrapper">
+                                <div class="custom-select-trigger" id="kpi-val-metric-trigger">
+                                    <span id="kpi-val-metric-label">FCF/Actions</span>
+                                    <i class="fas fa-chevron-down custom-select-arrow"></i>
+                                </div>
+                                <div class="custom-select-options" id="kpi-val-metric-options">
+                                    <div class="custom-select-option selected" data-value="fcf">FCF/Actions</div>
+                                    <div class="custom-select-option" data-value="eps">BPA (EPS)</div>
+                                </div>
+                                <input type="hidden" id="kpi-val-metric" value="fcf">
+                            </div>
+                        </div>
+                        <div class="kpi-modal-field">
+                            <label>Croissance estimée (%/an) <span id="kpi-val-growth-hint"
+                                    class="kpi-val-hint"></span></label>
+                            <input type="number" id="kpi-val-growth" class="kpi-val-input" step="0.1"
+                                placeholder="ex: 11.86">
+                        </div>
+                        <div class="kpi-modal-field">
+                            <label>Multiple final estimé <span id="kpi-val-multiple-hint"
+                                    class="kpi-val-hint"></span></label>
+                            <input type="number" id="kpi-val-multiple" class="kpi-val-input" step="0.1"
+                                placeholder="ex: 23.12">
+                        </div>
+                        <div class="kpi-modal-field">
+                            <label>Rendement cible (%/an)</label>
+                            <input type="number" id="kpi-val-target-return" class="kpi-val-input" value="12" step="0.5">
+                        </div>
+                        <div class="kpi-modal-settings-group" style="margin-bottom:24px;">
+                            <label class="kpi-modal-checkbox">
+                                <input type="checkbox" id="kpi-val-include-div" checked>
+                                <span class="checkbox-custom"></span>
+                                <span>Inclure les dividendes</span>
+                            </label>
+                        </div>
+                        <div class="kpi-val-actions">
+                            <button class="kpi-val-btn kpi-val-btn-primary" id="kpi-val-recalc">
+                                <i class="fas fa-chart-line"></i> Recalculer
+                            </button>
+                            <button class="kpi-val-btn kpi-val-btn-ghost" id="kpi-val-reset">
+                                <i class="fas fa-undo"></i> Réinitialiser
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script type="module" src="./src/authGuard.js"></script>
+    <script type="module" src="./src/screenerApp.js?v=57"></script>
+    <script src="./src/cacheRefresh.js"></script>
+    <script type="module" src="./src/sidebar.js?v=31"></script>
+
+
+
+    <!-- Modal Profil Quantitatif Détaillé -->
+    <div id="quant-profile-modal" class="quant-profile-modal" style="display:none;">
+        <div class="quant-profile-overlay"></div>
+        <div class="quant-profile-content">
+            <div class="quant-profile-header">
+                <h2>Profil quantitatif détaillé</h2>
+                <div id="quant-profile-score-badge" class="quant-profile-score-badge">—/20</div>
+                <button class="quant-profile-close" id="quant-profile-close"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="quant-profile-grid" id="quant-profile-grid">
+                <!-- Blocs dynamiques JS -->
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

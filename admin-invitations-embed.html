@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Invitations</title>
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .code-item,
+        .user-item {
+            background: var(--bg-tertiary);
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid var(--border-color);
+        }
+
+        .code-value {
+            font-family: monospace;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-available {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .status-used {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        /* ── Email modal ── */
+        #email-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-box {
+            background: var(--bg-card, #1a2238);
+            border: 1px solid var(--border-color, rgba(255,255,255,0.1));
+            border-radius: 16px;
+            padding: 28px;
+            width: min(480px, 92vw);
+            box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+            animation: fadeInModal 0.2s ease;
+        }
+
+        @keyframes fadeInModal {
+            from { opacity: 0; transform: scale(0.96); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+
+        .modal-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary, #fff);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .modal-section-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted, #6b7280);
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .modal-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color, rgba(255,255,255,0.1));
+            background: var(--bg-secondary, #0f1629);
+            color: var(--text-primary, #fff);
+            font-size: 14px;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .modal-input:focus { border-color: var(--accent-blue, #3b82f6); }
+        .modal-input::placeholder { color: var(--text-muted, #6b7280); }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 24px;
+        }
+
+        .btn-cancel {
+            padding: 10px 20px;
+            background: var(--bg-secondary, #0f1629);
+            border: 1px solid var(--border-color, rgba(255,255,255,0.1));
+            border-radius: 10px;
+            color: var(--text-secondary, #9fa6bc);
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+        }
+
+        .btn-icon {
+            width: 34px;
+            height: 34px;
+            background: var(--bg-card, #1a2238);
+            border: 1px solid var(--border-color, rgba(255,255,255,0.1));
+            border-radius: 8px;
+            color: var(--text-secondary, #9fa6bc);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+        }
+
+        .btn-icon:hover { border-color: var(--accent-blue, #3b82f6); color: var(--accent-blue, #3b82f6); }
+        .btn-icon.danger:hover { border-color: #ef4444; color: #ef4444; }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="admin-header">
+            <h2 style="margin: 0; color: var(--text-primary);">
+                <i class="fas fa-ticket-alt" style="color: var(--accent-blue);"></i> Gestion des Invitations
+            </h2>
+            <button id="generate-code-btn" class="btn-primary">
+                <i class="fas fa-plus"></i> G�n�rer un code
+            </button>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Codes Disponibles</div>
+                <div class="stat-value" id="stat-available">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Codes Utilis�s</div>
+                <div class="stat-value" id="stat-used">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Utilisateurs</div>
+                <div class="stat-value" id="stat-users">0</div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" data-tab="codes">Codes d'invitation</button>
+            <button class="tab" data-tab="users">Utilisateurs</button>
+        </div>
+
+        <div id="tab-codes" class="tab-content active">
+            <div class="card" style="padding: 24px;">
+                <div id="codes-list">
+                    <div class="empty-state">
+                        <i class="fas fa-ticket-alt" style="font-size: 48px; margin-bottom: 16px;"></i>
+                        <p>Aucun code d'invitation g�n�r�.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-users" class="tab-content">
+            <div class="card" style="padding: 24px;">
+                <div id="users-list">
+                    <div class="empty-state">
+                        <i class="fas fa-users" style="font-size: 48px; margin-bottom: 16px;"></i>
+                        <p>Chargement...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Email send modal -->
+    <div id="email-modal-overlay">
+        <div class="modal-box">
+            <div class="modal-title">
+                <i class="fas fa-paper-plane" style="color:#667eea;"></i> Envoyer par email
+            </div>
+            <div style="margin-bottom:20px;">
+                <div class="modal-section-label">Code d'invitation</div>
+                <div id="email-modal-code" style="font-family:monospace;font-size:20px;font-weight:700;color:#667eea;padding:8px 0;letter-spacing:1px;"></div>
+            </div>
+            <div>
+                <div class="modal-section-label">Email du destinataire</div>
+                <input type="email" id="email-modal-input" class="modal-input" placeholder="ami@example.com" autocomplete="off">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" id="email-modal-cancel">Annuler</button>
+                <button class="btn-primary" id="email-modal-confirm" style="display:flex;align-items:center;gap:8px;">
+                    <i class="fas fa-paper-plane"></i> Envoyer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script type="module" src="/src/adminInvitations.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Admin helper — uses the email claim from the Firebase Auth token
+    function isAdmin() {
+      return request.auth != null
+          && request.auth.token.email == 'blaurens31@gmail.com';
+    }
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // ── Invitation codes ────────────────────────────────────────────────
+    match /invitationCodes/{codeId} {
+      // Public read: code validation happens before the user is authenticated
+      allow read: if true;
+      // Only admin can create or delete codes
+      allow create, delete: if isAdmin();
+      // Any authenticated user can mark an available code as "used" (registration)
+      allow update: if (isAdmin())
+                    || (request.auth != null
+                        && resource.data.status == 'available'
+                        && request.resource.data.status == 'used');
+    }
+
+    // ── Per-user data ────────────────────────────────────────────────────
+    match /users/{userId} {
+      // Admin can read/write all user documents (for module management)
+      // Users can read/write their own document
+      allow read:  if isAdmin() || isOwner(userId);
+      allow write: if isAdmin() || isOwner(userId);
+
+      match /purchases/{purchaseId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /market_cache/{cacheId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /settings/{settingId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /marketData/{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /watchlist/{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /liveMetrics/{document} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /assistantConversations/{convId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}

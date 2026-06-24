@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watchlist - Asset Tracker</title>
+    <meta name="description" content="Analysez n'importe quelle action : graphique, valorisation, profil quantitatif et données fondamentales.">
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/screener.css?v=12">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <style>
+        .group-card {
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s !important;
+        }
+
+        .group-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            border-color: #3b82f6;
+        }
+
+        .group-card .group-name {
+            transition: color 0.2s;
+        }
+
+        .group-card:hover .group-name {
+            color: #3b82f6;
+        }
+
+        .group-actions button:hover {
+            background: rgba(255, 255, 255, 0.1) !important;
+            color: #ef4444 !important;
+        }
+
+        .group-actions button.group-edit-btn:hover {
+            color: #f59e0b !important;
+        }
+
+        @media (max-width: 768px) {
+            #watchlist-groups-grid {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
+            }
+        }
+    </style>
+
+    <script>
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        if (localStorage.getItem('isAdmin') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const adminLink = document.getElementById('admin-invitations-link');
+                if (adminLink) adminLink.style.display = 'flex';
+            });
+        }
+    </script>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+<body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu"><i class="fas fa-bars"></i></button>
+        <div class="mobile-logo" style="display:flex;align-items:center;margin-left:auto;margin-right:16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo" style="height:24px;width:24px;margin-right:8px;">
+            Asset Tracker
+        </div>
+    </header>
+
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="display:flex;align-items:center;justify-content:center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo" style="width:32px;height:32px;object-fit:contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item"><div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span></a>
+            <a href="investments.html" class="nav-item"><div class="nav-icon">📈</div><span class="nav-text">Assets</span></a>
+            <a href="index.html" class="nav-item"><div class="nav-icon">📋</div><span class="nav-text">Transactions</span></a>
+            <a href="analytics.html" class="nav-item"><div class="nav-icon">📊</div><span class="nav-text">Analytics</span></a>
+            <a href="watchlist.html" class="nav-item active">
+                <div class="nav-icon">👁️</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item"><div class="nav-icon">🔍</div><span class="nav-text">Screener</span></a>
+            <a href="news.html" class="nav-item"><div class="nav-icon">📰</div><span class="nav-text">News Feeds</span></a>
+            <a href="realestate.html" class="nav-item"><div class="nav-icon">🏢</div><span class="nav-text">Immobilier</span></a>
+            <a href="assistant.html" class="nav-item"><div class="nav-icon">🤖</div><span class="nav-text">Assistant IA</span></a>
+        </nav>
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="settings.html" class="nav-item"><div class="nav-icon"><i class="fas fa-cog"></i></div><span class="nav-text">Paramètres</span></a>
+            <a href="#" class="nav-item" id="auth-btn"><div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div><span class="nav-text">Déconnexion</span></a>
+        </div>
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu"><i class="fas fa-chevron-left"></i></button>
+        </div>
+    </aside>
+
+        <main class="main-content">
+        <div class="container">
+            <div class="main-header" style="margin-top: 10px; margin-bottom: 20px;">
+                <h2>👁️ Ma Watchlist</h2>
+            </div>
+
+        <div class="dashboard-content">
+            <div class="widget-card" style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0; font-size: 18px; font-weight: 500;">📁 Mes Groupes</h2>
+                    <button id="add-group-btn" class="btn-primary" style="padding: 8px 16px; font-size: 13px; font-weight: 500;">+ Créer un groupe</button>
+                </div>
+                
+                <div id="watchlist-groups-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 30px;">
+                    <!-- Groupes seront générés ici -->
+                </div>
+            </div>
+
+            <div class="widget-card" style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <h2 style="margin: 0; font-size: 18px; font-weight: 500;">Actions suivies</h2>
+                        <span id="group-filter-badge" style="display:none; background:#3b82f6; color:white; padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600;">
+                            Groupe: <span id="group-filter-name"></span>
+                            <button id="clear-group-filter" style="background:none; border:none; color:white; cursor:pointer; margin-left:8px; font-size:14px;">×</button>
+                        </span>
+                    </div>
+                    <a href="screener.html" class="btn-primary" style="padding: 8px 16px; font-size: 13px; font-weight: 500; display: inline-block;">Rechercher une action</a>
+                </div>
+                
+                <div class="table-responsive" style="overflow-x: auto;">
+                    <table class="transactions-table" style="width: 100%; border-collapse: collapse; min-width: 600px;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted); font-size: 12px; text-transform: uppercase; text-align: left;">
+                                <th style="padding: 12px 10px; font-weight: 500; cursor: pointer; user-select: none;" class="sortable-header" data-column="ticker">Actif <span class="sort-icon">⇅</span></th>
+                                <th style="padding: 12px 10px; font-weight: 500; text-align: right; cursor: pointer; user-select: none;" class="sortable-header" data-column="price">Prix Actuel <span class="sort-icon">⇅</span></th>
+                                <th style="padding: 12px 10px; font-weight: 500; text-align: center; cursor: pointer; user-select: none;" class="sortable-header" data-column="score">Score /20 <span class="sort-icon">⇅</span></th>
+                                <th style="padding: 12px 10px; font-weight: 500; text-align: right; cursor: pointer; user-select: none;" class="sortable-header" data-column="pe">P/E <span class="sort-icon">⇅</span></th>
+                                <th style="padding: 12px 10px; font-weight: 500; text-align: right; cursor: pointer; user-select: none;" class="sortable-header" data-column="dividend">Rend. Div. <span class="sort-icon">⇅</span></th>
+                                <th style="padding: 12px 10px; font-weight: 500; text-align: right; cursor: pointer; user-select: none;" class="sortable-header" data-column="change">Var. Jour <span class="sort-icon">⇅</span></th>
+                                <th style="padding: 12px 10px; font-weight: 500; text-align: center;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="watchlist-table-body">
+                            <tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">Chargement de la Watchlist...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        </div>
+    </main>
+
+    <!-- Modal pour créer/éditer un groupe -->
+    <div id="group-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:var(--bg-card); border-radius:12px; padding:24px; max-width:500px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 id="group-modal-title" style="margin:0; font-size:18px; font-weight:600;">Créer un groupe</h3>
+                <button id="group-modal-close" style="background:none; border:none; font-size:24px; cursor:pointer; color:var(--text-muted);">×</button>
+            </div>
+            <input id="group-name-input" type="text" placeholder="Nom du groupe (ex: Tech, Dividendes...)" style="width:100%; padding:10px 12px; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-input); color:var(--text-color); font-size:14px; margin-bottom:20px; box-sizing:border-box;">
+            <div style="display:flex; gap:12px; justify-content:flex-end;">
+                <button id="group-modal-cancel" class="btn-secondary" style="padding:8px 16px; font-size:13px;">Annuler</button>
+                <button id="group-modal-save" class="btn-primary" style="padding:8px 16px; font-size:13px;">Créer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal pour ajouter des actifs au groupe -->
+    <div id="group-assets-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:var(--bg-card); border-radius:12px; padding:24px; max-width:600px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:0; background:var(--bg-card); padding-bottom:12px; border-bottom:1px solid var(--border-color);">
+                <h3 id="group-assets-modal-title" style="margin:0; font-size:18px; font-weight:600;">Ajouter des actifs au groupe</h3>
+                <button id="group-assets-modal-close" style="background:none; border:none; font-size:24px; cursor:pointer; color:var(--text-muted);">×</button>
+            </div>
+            
+            <div style="margin-bottom:16px;">
+                <input id="group-assets-search" type="text" placeholder="Chercher un actif..." style="width:100%; padding:10px 12px; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-input); color:var(--text-color); font-size:14px; box-sizing:border-box;">
+            </div>
+
+            <div id="group-assets-list" style="display:flex; flex-direction:column; gap:8px; margin-bottom:20px;">
+                <!-- Actifs seront générés ici -->
+            </div>
+
+            <div style="display:flex; gap:12px; justify-content:flex-end; border-top:1px solid var(--border-color); padding-top:16px;">
+                <button id="group-assets-modal-cancel" class="btn-secondary" style="padding:8px 16px; font-size:13px;">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script type="module" src="./src/authGuard.js"></script>
+    <script type="module" src="./src/watchlistApp.js?v=13"></script>
+    
+    <script src="./src/cacheRefresh.js"></script>
+    <script type="module" src="./src/sidebar.js?v=31"></script>
+</body>
+</html>
+

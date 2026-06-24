@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transactions - Asset Tracker</title>
+  <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+  <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
+
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/layout.css?v=51">
+  <link rel="stylesheet" href="css/components.css">
+
+  <link rel="stylesheet" href="css/transactions.css?v=5">
+  <link rel="stylesheet" href="css/transactions-mobile.css">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <script>
+    // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
+    if (localStorage.getItem('sidebarState') === 'true') {
+      document.documentElement.classList.add('sidebar-collapsed');
+    }
+    // Show admin link immediately if user is admin (no flash)
+    if (localStorage.getItem('isAdmin') === 'true') {
+      document.addEventListener('DOMContentLoaded', () => {
+        const adminLink = document.getElementById('admin-invitations-link');
+        if (adminLink) adminLink.style.display = 'flex';
+      });
+    }
+  </script>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+  <header class="mobile-header">
+    <button id="mobile-menu-btn" title="Menu">
+      <i class="fas fa-bars"></i>
+    </button>
+    <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+      <img src="/icons/android-chrome-192x192.png" alt="Logo" style="height: 24px; width: 24px; margin-right: 8px;">
+      Asset Tracker
+    </div>
+  </header>
+
+  <aside class="app-sidebar" id="app-sidebar">
+    <div class="sidebar-header">
+      <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+        <img src="/icons/android-chrome-192x192.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;">
+      </div>
+      <span class="app-logo-text">Asset Tracker</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="dashboard.html" class="nav-item">
+        <div class="nav-icon">🚀</div>
+        <span class="nav-text">Dashboard</span>
+      </a>
+      <a href="investments.html" class="nav-item">
+        <div class="nav-icon">📈</div>
+        <span class="nav-text">Assets</span>
+      </a>
+      <a href="index.html" class="nav-item active">
+        <div class="nav-icon">📋</div>
+        <span class="nav-text">Transactions</span>
+      </a>
+      <a href="analytics.html" class="nav-item">
+        <div class="nav-icon">📊</div>
+        <span class="nav-text">Analytics</span>
+      </a>
+            <a href="watchlist.html" class="nav-item">
+                <div class="nav-icon">👁️</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item">
+                <div class="nav-icon">🔍</div>
+                <span class="nav-text">Screener</span>
+            </a>
+      <a href="news.html" class="nav-item">
+        <div class="nav-icon">📰</div>
+        <span class="nav-text">News Feeds</span>
+      </a>
+      <a href="realestate.html" class="nav-item">
+        <div class="nav-icon">🏢</div>
+        <span class="nav-text">Immobilier</span>
+      </a>
+      <a href="assistant.html" class="nav-item">
+        <div class="nav-icon">🤖</div>
+        <span class="nav-text">Assistant IA</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-settings">
+      <div class="settings-title">Paramètres</div>
+      <a href="settings.html" class="nav-item">
+        <div class="nav-icon"><i class="fas fa-cog"></i></div>
+        <span class="nav-text">Paramètres</span>
+      </a>
+      <a href="#" class="nav-item" id="auth-btn">
+        <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+        <span class="nav-text">Déconnexion</span>
+      </a>
+    </div>
+
+    <div class="sidebar-footer">
+      <button id="sidebar-toggle" title="Toggle Menu">
+        <i class="fas fa-chevron-left"></i>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="container">
+
+      <!-- NOUVEAU CONTENEUR MASQUÉ (Wrapper) -->
+      <div id="add-transaction-wrapper" class="hidden-wrapper">
+        <!-- CARTE PRINCIPALE RESTAURÉE (Le CSS dépend de cet élément) -->
+        <div class="add-transaction-card">
+          <div class="tabs-header">
+            <button class="tab-btn active" data-tab="asset">
+              <i class="fas fa-chart-line tab-icon"></i> Actif
+            </button>
+            <button class="tab-btn" data-tab="cash">
+              <i class="fas fa-wallet tab-icon"></i> Cash
+            </button>
+            <button class="tab-btn" data-tab="dividend">
+              <i class="fas fa-coins tab-icon"></i> Dividende
+            </button>
+            <button class="tab-btn" data-tab="data">
+              <i class="fas fa-database tab-icon"></i> Données
+            </button>
+          </div>
+
+          <!-- TAB DIVIDEND (NEW) -->
+          <div id="tab-dividend" class="tab-content">
+            <form id="dividend-form" class="purchase-form-grid">
+              <select id="div-ticker-select" required style="grid-column: span 2;">
+                <option value="">Choisir l'actif...</option>
+              </select>
+
+              <input type="date" id="div-date" required>
+              <input type="number" id="div-amount" placeholder="Montant Net perçu" step="0.01" required>
+
+              <div class="form-group-inline" style="grid-column: span 2;">
+                <select id="div-currency" required>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="USD">USD ($)</option>
+                </select>
+                <select id="div-broker" required>
+                  <option value="">Courtier...</option>
+                </select>
+              </div>
+
+              <input type="hidden" id="div-type" value="dividend">
+
+              <button type="submit" class="btn-submit">Ajouter le dividende</button>
+            </form>
+          </div>
+
+          <div id="tab-asset" class="tab-content active">
+            <form id="purchase-form" class="purchase-form-grid">
+              <div id="ticker-wrapper" style="position: relative;">
+                <input type="text" id="ticker" placeholder="Ticker (e.g. AAPL)" required autocomplete="off">
+                <div id="ticker-suggestions" class="ticker-suggestions"></div>
+              </div>
+              <select id="ticker-select" style="display: none;">
+                <option value="" disabled selected>Choisir un actif...</option>
+              </select>
+              <input type="text" id="name" placeholder="Nom de l'entreprise" required>
+
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <select id="transaction-type" style="flex: 1; min-width: 0;" required>
+                  <option value="buy">Achat</option>
+                  <option value="sell">Vente</option>
+                </select>
+                <label id="use-cash-wrapper" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); white-space: nowrap; cursor: pointer; flex-shrink: 0;">
+                  <input type="checkbox" id="use-cash" style="width: 16px; height: 16px; padding: 0; margin: 0; flex-shrink: 0; border: 1px solid var(--border-color); background: var(--bg-secondary); cursor: pointer; accent-color: var(--accent-blue);">
+                  <span id="use-cash-label">Déduire du Cash</span>
+                </label>
+              </div>
+
+              <div class="form-group-inline">
+                <input type="number" id="price" placeholder="Prix unitaire" step="any" required>
+                <select id="currency-select" required>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="USD">USD ($)</option>
+                </select>
+              </div>
+
+              <input type="date" id="date" required>
+              <input type="number" id="quantity" placeholder="Quantité" step="any" required>
+
+              <select id="asset-type-select" required>
+                <option value="">Type d'actif...</option>
+                <option value="Stock">Stock</option>
+                <option value="ETF">ETF</option>
+                <option value="Crypto">Crypto</option>
+                <option value="Real Estate">Immobilier (Crowdfunding)</option>
+                <option value="Dividend">Dividend</option>
+              </select>
+
+              <!-- CHAMPS SPÉCIFIQUES IMMO (Masqués par défaut) -->
+              <div id="real-estate-fields" style="display: none; grid-column: span 2; gap: 12px; margin-top: 8px;">
+                <div class="form-group-inline">
+                  <input type="number" id="yield" placeholder="Rendement (%)" step="0.01" min="0" max="100">
+                  <input type="date" id="maturity" placeholder="Date d'échéance">
+                </div>
+              </div>
+
+              <select id="broker-select" required>
+                <option value="">Courtier...</option>
+              </select>
+
+              <button type="submit" class="btn-submit">Add transaction</button>
+            </form>
+          </div>
+
+          <div id="tab-cash" class="tab-content">
+            <form id="cash-form" class="purchase-form-grid">
+              <select id="cash-type" required>
+                <option value="Dépôt">Dépôt (J'ajoute du cash)</option>
+                <option value="Retrait">Retrait (Je retire du cash)</option>
+              </select>
+
+              <select id="cash-broker" required>
+                <option value="">Courtier...</option>
+              </select>
+
+              <input type="number" id="cash-amount" placeholder="Montant (€)" step="0.01" required>
+
+              <input type="date" id="cash-date" required>
+
+              <input type="text" id="cash-currency" value="EUR" hidden>
+              <input type="text" id="cash-asset-type" value="Cash" hidden>
+
+              <button type="submit" class="btn-submit">Enregistrer le mouvement</button>
+            </form>
+          </div>
+
+          <div id="tab-data" class="tab-content">
+            <div class="data-grid">
+              <div class="file-input-group">
+                <input type="file" id="csv-file" accept=".csv" hidden>
+                <button type="button" id="choose-file-btn" class="btn-secondary">
+                  <i class="fas fa-folder-open"></i> Choisir CSV
+                </button>
+                <span id="file-name" class="file-name">Aucun fichier choisi</span>
+              </div>
+
+              <button id="import-csv" class="btn-primary btn-import">
+                <i class="fas fa-upload"></i> Importer
+              </button>
+
+              <button id="export-csv" class="btn-secondary btn-export">
+                <i class="fas fa-download"></i> Exporter CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NOUVEL EN-TÊTE AVEC BOUTON DE BASCULE -->
+      <div class="main-header" style="position: relative;">
+        <h2>📋 All Transactions</h2>
+        <div class="header-buttons" style="position: relative;">
+          <button id="scan-dividends-btn" class="btn-secondary" style="margin-right: 8px;">
+            <i class="fas fa-search-dollar"></i> Scan Dividends
+          </button>
+          <button id="toggle-add-btn" class="btn-primary">
+            <i class="fas fa-plus"></i> Add
+          </button>
+          <!-- Bulle onboarding — pointe vers le bouton Add -->
+          <div id="add-hint-bubble" style="
+              display: none;
+              position: absolute;
+              top: calc(100% + 14px);
+              right: 0;
+              background: var(--accent-blue);
+              color: white;
+              border-radius: 10px;
+              padding: 10px 16px;
+              font-size: 13px;
+              font-weight: 500;
+              white-space: nowrap;
+              box-shadow: 0 4px 16px rgba(59,130,246,0.4);
+              z-index: 100;
+              animation: bubble-pulse 2s ease-in-out infinite;
+          ">
+            <span style="pointer-events:none;">👆 Cliquez ici pour ajouter votre première transaction</span>
+            <!-- Flèche vers le haut -->
+            <div style="
+                position: absolute;
+                top: -7px;
+                right: 18px;
+                width: 0; height: 0;
+                border-left: 7px solid transparent;
+                border-right: 7px solid transparent;
+                border-bottom: 7px solid var(--accent-blue);
+            "></div>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        @keyframes bubble-pulse {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-4px); }
+        }
+      </style>
+
+      <!-- MODAL SCAN EN COURS -->
+      <div class="modal-overlay" id="scan-loading-modal" style="display:none;">
+        <div class="modal-content" style="max-width:380px;text-align:center;padding:44px 32px;">
+          <div style="margin-bottom:20px;">
+            <i class="fas fa-search-dollar fa-spin" style="font-size:42px;color:var(--accent-blue);"></i>
+          </div>
+          <h3 style="margin:0 0 10px;font-size:17px;font-weight:600;">Scan en cours...</h3>
+          <p style="color:var(--text-muted);font-size:13px;margin:0;line-height:1.6;">
+            Analyse des dividendes sur Yahoo Finance.<br>
+            Cela peut prendre quelques secondes selon le nombre d'actifs.
+          </p>
+        </div>
+      </div>
+
+      <!-- MODAL DIVIDENDES DÉTECTÉS -->
+      <div class="modal-overlay" id="dividend-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 600px;">
+          <div class="modal-header">
+            <h3>💰 Dividendes Détectés</h3>
+            <button class="modal-close" id="close-div-modal">×</button>
+          </div>
+          <div class="modal-body">
+            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
+              Voici les dividendes trouvés basés sur votre historique.
+              Veuillez vérifier les montants et appliquer la fiscalité adéquate.
+            </p>
+
+            <div id="dividend-list" style="max-height: 300px; overflow-y: auto; margin-bottom: 16px;">
+              <!-- Liste générée par JS -->
+            </div>
+
+            <div
+              style="display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+              <button class="btn-secondary" id="cancel-div-btn">Annuler</button>
+              <button class="btn-primary" id="confirm-div-btn">Ajouter la sélection</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="filters-container">
+
+        <div class="search-row">
+          <input type="text" id="search-input" placeholder="Search ticker, name or date...">
+        </div>
+
+        <div class="filter-row">
+          <div id="ticker-filter-dropdown">
+            <div class="custom-dropdown-host">
+              <button id="filter-toggle">
+                <span>All Assets</span>
+                <span>▼</span>
+              </button>
+            </div>
+          </div>
+
+          <select id="filter-asset-type">
+            <option value="">All Asset Types</option>
+            <option value="Stock">Stock</option>
+            <option value="ETF">ETF</option>
+            <option value="Crypto">Crypto</option>
+            <option value="Dividend">Dividend</option>
+          </select>
+
+          <select id="filter-broker">
+            <option value="">All Brokers</option>
+          </select>
+
+          <button id="clear-filters" class="btn-secondary" title="Clear Filters" style="margin-left: auto;">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="bulk-actions" id="bulk-actions" style="display:none;">
+        <button id="select-all-btn">Select All</button>
+        <button id="bulk-edit-type" class="btn-secondary">Edit Asset Type</button>
+        <button id="bulk-edit-broker" class="btn-secondary">Edit Broker</button>
+        <button id="delete-selected" class="danger">Delete Selected</button>
+        <span id="selected-count">0 selected</span>
+      </div>
+
+      <table id="purchases-table">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="select-all-header"></th>
+            <th data-sort="assetType">ASSET</th>
+            <th data-sort="broker">BROKER</th>
+            <th data-sort="date">DATE</th>
+            <th data-sort="ticker">TICKER</th>
+            <th data-sort="name">NAME</th>
+            <th data-sort="currency">CCY</th>
+            <th data-sort="currentPriceOriginal">CURRENT</th>
+            <th data-sort="quantity">QTY</th>
+            <th data-sort="gainEUR">P&L</th>
+            <th data-sort="gainPct">RT %</th>
+            <th data-sort="buyPriceOriginal">PRICE</th>
+            <th data-sort="investedEUR">INVESTED</th>
+            <th data-sort="currentValueEUR">VALUE</th>
+            <th>ACTION</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="pagination" id="pagination">
+        <!-- Exemple de rendu généré par JS (tu peux garder ton JS actuel, il marchera parfaitement) -->
+        <button class="nav-arrow" disabled>«</button>
+        <button class="active">1</button>
+        <button>2</button>
+        <button>6</button>
+        <button>4</button>
+        <button>5</button>
+        <span class="ellipsis">…</span>
+        <button>10</button>
+        <button class="nav-arrow">»</button>
+      </div>
+
+    </div>
+  </main>
+
+  <div class="modal-overlay" id="edit-modal" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3>✏️ Modifier la transaction</h3>
+        <button class="modal-close" id="close-modal">×</button>
+      </div>
+      <div class="modal-body">
+        <form id="edit-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label><i class="fas fa-tag"></i> Ticker</label>
+              <input type="text" id="edit-ticker" required placeholder="Ex: AAPL" style="text-transform: uppercase;">
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-building"></i> Nom</label>
+              <input type="text" id="edit-name" required placeholder="Ex: Apple Inc.">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label><i class="fas fa-euro-sign"></i> Prix d'achat</label>
+              <input type="number" id="edit-price" step="any" min="0" required>
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-boxes"></i> Quantité</label>
+              <input type="number" id="edit-quantity" step="any" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label><i class="fas fa-calendar"></i> Date</label>
+              <input type="date" id="edit-date" required>
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-dollar-sign"></i> Devise</label>
+              <select id="edit-currency" required>
+                <option value="EUR">Euro (€)</option>
+                <option value="USD">Dollar ($)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label><i class="fas fa-chart-line"></i> Type d'actif</label>
+              <select id="edit-asset-type" required>
+                <option value="Stock">Stock</option>
+                <option value="ETF">ETF</option>
+                <option value="Crypto">Crypto</option>
+                <option value="Dividend">Dividend</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-university"></i> Broker</label>
+              <select id="edit-broker" required>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-actions" style="margin-top: 24px;">
+            <button type="button" class="btn-cancel" id="cancel-edit">
+              <i class="fas fa-times"></i> Annuler
+            </button>
+            <button type="submit" class="btn-save">
+              <i class="fas fa-check"></i> Sauvegarder
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+  <script type="module" src="./src/authGuard.js"></script>
+  <script type="module" src="./src/app.js?v=12"></script>
+  <script src="./src/cacheRefresh.js"></script>
+  <script type="module" src="./src/sidebar.js?v=31"></script>
+</body>
+
+</html>

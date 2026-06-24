@@ -1,0 +1,1341 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics - Asset Tracker</title>
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 24px 0;
+        }
+
+        .analytics-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .analytics-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            border-color: #3b82f6;
+            /* Start with primary blue, typical for this app */
+        }
+
+        .analytics-card h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .metric-row:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .metric-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 16px;
+        }
+
+        .risk-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .risk-low {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .risk-moderate {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .risk-high {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .performer-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .performer-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+
+        .performer-ticker {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .performer-gain {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .recommendation-box {
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 3px solid var(--accent-blue);
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+
+        .recommendation-box p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        /* === MODAL STYLES === */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 10000;
+            /* High Z-Index to show above everything */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            width: 100%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            animation: modalSlideUp 0.3s ease-out;
+            position: relative;
+        }
+
+        @keyframes modalSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1.5rem;
+            padding: 4px;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+
+        .close-modal:hover {
+            color: var(--text-primary);
+        }
+
+        /* FIX: Match HTML Structure */
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 1.25rem;
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            color: var(--text-primary);
+        }
+
+        /* Fix match for HTML class="modal-close" */
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+
+        .modal-close:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+    </style>
+    <script>
+        // Script Anti-Flash : Applique l'Ã©tat rÃ©duit avant le rendu visuel
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        // Show admin link immediately if user is admin (no flash)
+        if (localStorage.getItem('isAdmin') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const adminLink = document.getElementById('admin-invitations-link');
+                if (adminLink) adminLink.style.display = 'flex';
+            });
+        }
+    </script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px; object-fit: contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">ðŸš€</div>
+                <span class="nav-text">Dashboard</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">ðŸ“ˆ</div>
+                <span class="nav-text">Assets</span>
+            </a>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">ðŸ“‹</div>
+                <span class="nav-text">Transactions</span>
+            </a>
+            <a href="analytics.html" class="nav-item active">
+                <div class="nav-icon">ðŸ“Š</div>
+                <span class="nav-text">Analytics</span>
+            </a>
+            <a href="watchlist.html" class="nav-item">
+                <div class="nav-icon">ðŸ‘ï¸</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item">
+                <div class="nav-icon">ðŸ”</div>
+                <span class="nav-text">Screener</span>
+            </a>
+            <a href="news.html" class="nav-item">
+                <div class="nav-icon">ðŸ“°</div>
+                <span class="nav-text">News Feeds</span>
+            </a>
+            <a href="realestate.html" class="nav-item">
+                <div class="nav-icon">ðŸ¢</div>
+                <span class="nav-text">Immobilier</span>
+            </a>
+            <a href="assistant.html" class="nav-item">
+                <div class="nav-icon">ðŸ¤–</div>
+                <span class="nav-text">Assistant IA</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-settings">
+            <div class="settings-title">ParamÃ¨tres</div>
+            <a href="settings.html" class="nav-item">
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
+                <span class="nav-text">ParamÃ¨tres</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">DÃ©connexion</span>
+            </a>
+        </div>
+
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="container">
+
+            <div class="portfolio-summary-enhanced">
+                <div class="summary-grid">
+                    <div class="summary-card summary-card-primary">
+                        <div class="summary-card-label">Total Value</div>
+                        <div id="total-value" class="summary-card-value">â‚¬0.00</div>
+                        <div id="total-invested" class="summary-card-sub"
+                            style="font-size: 14px; opacity: 0.8; margin-top: 4px;">Invested: â‚¬0.00</div>
+                    </div>
+
+                    <div class="summary-card">
+                        <div class="summary-card-label">Total Return</div>
+                        <div id="total-return" class="summary-card-value">â‚¬0.00</div>
+                        <div class="summary-card-meta">
+                            <span id="return-pct" class="meta-large">0.00%</span>
+                        </div>
+                    </div>
+
+                    <div class="summary-card">
+                        <div class="summary-card-label">Win Rate</div>
+                        <div id="win-rate" class="summary-card-value">0%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ROW 1: REVENUS & EXTRÃŠMES (4 Colonnes) -->
+            <div class="analytics-row-1"
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 24px;">
+
+                <!-- 1. DIVIDENDES -->
+                <div class="analytics-card" id="dividend-card" style="cursor: pointer; transition: transform 0.2s;">
+                    <h3>ðŸ’° Dividendes PerÃ§us <i class="fas fa-external-link-alt"
+                            style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Total PerÃ§u</span>
+                        <span id="realized-dividends-total" class="metric-value">â‚¬0.00</span>
+                    </div>
+                    <!-- Broker List w/o Border -->
+                    <div id="dividend-broker-list" style="margin-top: 12px; margin-bottom: 12px;"></div>
+
+                    <div class="recommendation-box">
+                        <p id="realized-dividends-monthly-container" style="font-size: 13px;">Moyenne Mensuelle:
+                            <strong id="realized-dividends-monthly">â‚¬0.00</strong>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 2. IMMO -->
+                <div class="analytics-card" id="real-estate-card" style="cursor: pointer; transition: transform 0.2s;">
+                    <h3>ðŸ—ï¸ Rendement Immo <i class="fas fa-external-link-alt"
+                            style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
+                    <div class="metric-row">
+                        <span class="metric-label">ProjetÃ©s (An)</span>
+                        <span id="passive-realestate" class="metric-value">â‚¬0.00</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Acquis (Latent)</span>
+                        <span id="passive-realestate-accrued" class="metric-value" style="color: #10b981;">â‚¬0.00</span>
+                    </div>
+                    <div class="recommendation-box">
+                        <p id="passive-realestate-monthly" style="font-size: 13px;">Mensuel: <strong>â‚¬0.00</strong>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 3. TOP PERF -->
+                <div class="analytics-card" id="top-performers-card"
+                    style="cursor: pointer; transition: transform 0.2s;">
+                    <h3>ðŸ† Top Performers <i class="fas fa-external-link-alt"
+                            style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
+                    <div id="top-performers" class="performer-list" style="font-size: 13px;"></div>
+                </div>
+
+                <!-- 4. WORST PERF -->
+                <div class="analytics-card" id="worst-performers-card"
+                    style="cursor: pointer; transition: transform 0.2s;">
+                    <h3>ðŸ“‰ Worst Performers <i class="fas fa-external-link-alt"
+                            style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
+                    <div id="worst-performers" class="performer-list" style="font-size: 13px;"></div>
+                </div>
+            </div>
+
+            <!-- ROW 2: ANALYSE PORTEFEUILLE (3 Colonnes) -->
+            <div class="analytics-row-2"
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 24px;">
+
+                <!-- 1. PERFORMANCE -->
+                <div class="analytics-card" id="performance-card" style="cursor: pointer; transition: transform 0.2s;">
+                    <h3>ðŸ“ˆ Performance Globale <i class="fas fa-external-link-alt"
+                            style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Moyenne gains</span>
+                        <span id="avg-gain" class="metric-value">0%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Win Rate</span>
+                        <span id="win-rate-card" class="metric-value">0%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Ratio G/P</span>
+                        <span class="metric-value"><span id="winners-count" style="color:#10b981">0</span> / <span
+                                id="losers-count" style="color:#ef4444">0</span></span>
+                    </div>
+                </div>
+
+                <!-- 2. DIVERSIFICATION -->
+                <div class="analytics-card" id="diversification-card"
+                    style="cursor: pointer; transition: transform 0.2s;">
+                    <h3>ðŸŽ¯ Diversification <i class="fas fa-external-link-alt"
+                            style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Score</span>
+                        <span id="diversity-score" class="metric-value">0/100</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Actifs (Eff./Tot.)</span>
+                        <span class="metric-value"><span id="effective-assets">0</span> / <span
+                                id="total-assets">0</span></span>
+                    </div>
+                    <div class="recommendation-box">
+                        <p id="diversity-recommendation" style="font-size: 13px;">-</p>
+                    </div>
+                </div>
+
+                <!-- 3. RISQUE -->
+                <div class="analytics-card" id="risk-card" style="cursor: pointer; transition: transform 0.2s;">
+                    <h3>âš ï¸ Risque <i class="fas fa-external-link-alt"
+                            style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
+                    <div class="metric-row">
+                        <span class="metric-label">VolatilitÃ©</span>
+                        <span id="volatility" class="metric-value">0%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Max Drawdown</span>
+                        <span id="max-drawdown" class="metric-value">0%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Niveau</span>
+                        <span id="risk-level" class="metric-value risk-badge">-</span>
+                    </div>
+                </div>
+
+                <!-- 4. HISTORIQUE DES VERSEMENTS -->
+                <div class="analytics-card" id="investment-timeline-card" style="cursor: pointer; transition: transform 0.2s;">
+                    <h3>ðŸ“… Versements <i class="fas fa-external-link-alt"
+                            style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <div>
+                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">Total investi</div>
+                            <div id="timeline-total" style="font-size: 18px; font-weight: 700; color: var(--text-primary);">â‚¬0</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">Dernier versement</div>
+                            <div id="timeline-last" style="font-size: 14px; font-weight: 600; color: var(--text-primary);">-</div>
+                            <div id="timeline-last-date" style="font-size: 11px; color: var(--text-muted);">-</div>
+                        </div>
+                    </div>
+                    <!-- Toggle -->
+                    <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+                        <button id="timeline-btn-monthly"
+                            style="flex:1; padding: 5px 0; border-radius: 6px; border: 1px solid var(--accent-blue); background: var(--accent-blue); color: white; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+                            Mensuel
+                        </button>
+                        <button id="timeline-btn-yearly"
+                            style="flex:1; padding: 5px 0; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+                            Annuel
+                        </button>
+                    </div>
+                    <!-- Mini chart -->
+                    <div style="position: relative; height: 130px;">
+                        <canvas id="investment-timeline-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- MODAL DETAIL VERSEMENTS -->
+                <div class="modal-overlay" id="timeline-detail-modal" style="display: none;">
+                    <div class="modal-content" style="max-width: 800px; width: 90%;">
+                        <div class="modal-header">
+                            <h3>ðŸ“… DÃ©tail des Versements</h3>
+                            <button class="modal-close" id="close-timeline-modal">Ã—</button>
+                        </div>
+                        <div class="modal-body">
+                            
+                            <!-- Stats Overview -->
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+                                <div>
+                                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">PÃ©riode d'Investissement</div>
+                                    <div id="timeline-active-months" style="font-size: 20px; font-weight: 600; color: var(--text-primary);">-</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Moyenne Mensuelle</div>
+                                    <div id="timeline-avg-month" style="font-size: 20px; font-weight: 600; color: var(--accent-blue);">â‚¬0</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Plus Gros Mois</div>
+                                    <div id="timeline-best-month" style="font-size: 20px; font-weight: 600; color: #10b981;">â‚¬0</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Total des Achats</div>
+                                    <div id="timeline-total-trades" style="font-size: 20px; font-weight: 600; color: var(--text-primary);">0</div>
+                                </div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+                                <!-- Left Column: Charts -->
+                                <div style="display: flex; flex-direction: column; gap: 24px;">
+                                    <!-- Doughnut Chart -->
+                                    <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px;">
+                                        <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 14px;">ðŸ“Š RÃ©partition par Classe d'Actifs</h4>
+                                        <div style="position: relative; height: 260px;">
+                                            <canvas id="timeline-doughnut-chart"></canvas>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Bar Chart (Timeline) -->
+                                    <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                                            <h4 style="color: var(--text-primary); margin: 0; font-size: 14px;">ðŸ“ˆ Historique des Versements</h4>
+                                            <div style="display: flex; gap: 6px;">
+                                                <button class="btn-primary" id="modal-timeline-btn-monthly" style="padding: 4px 12px; font-size: 11px; border-radius: 6px;">Mensuel</button>
+                                                <button class="btn-secondary" id="modal-timeline-btn-yearly" style="padding: 4px 12px; font-size: 11px; border-radius: 6px;">Annuel</button>
+                                            </div>
+                                        </div>
+                                        <div style="position: relative; height: 200px;">
+                                            <canvas id="timeline-modal-bar-chart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Top 10 Table -->
+                                <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px;">
+                                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 14px;">ðŸ† Top 10 des Versements RÃ©cents</h4>
+                                    <div style="overflow-x: auto;">
+                                        <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: var(--text-primary);">
+                                            <thead>
+                                                <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
+                                                    <th style="padding: 8px; font-weight: 600; color: var(--text-muted);">Date</th>
+                                                    <th style="padding: 8px; font-weight: 600; color: var(--text-muted);">Actif</th>
+                                                    <th style="padding: 8px; font-weight: 600; color: var(--text-muted); text-align: right;">Montant</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="timeline-top-table-body">
+                                                <!-- Populated by JS -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MODAL DETAIL IMMOBILIER -->
+                <div class="modal-overlay" id="real-estate-detail-modal" style="display: none;">
+                    <div class="modal-content" style="max-width: 800px; width: 90%;">
+                        <div class="modal-header">
+                            <h3>ðŸ—ï¸ DÃ©tail Immobilier (Crowdfunding)</h3>
+                            <button class="modal-close" id="close-re-modal">Ã—</button>
+                        </div>
+                        <div class="modal-body">
+                            <div style="overflow-x: auto;">
+                                <table
+                                    style="width: 100%; border-collapse: collapse; font-size: 14px; color: var(--text-primary);">
+                                    <thead>
+                                        <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
+                                            <th style="padding: 12px 8px; font-weight: 600; color: var(--text-muted);">
+                                                Projet</th>
+                                            <th
+                                                style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
+                                                Investi</th>
+                                            <th
+                                                style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
+                                                Rendement</th>
+                                            <th
+                                                style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
+                                                IntÃ©rÃªts (An)</th>
+                                            <th
+                                                style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
+                                                Acquis (Latent)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="real-estate-table-body">
+                                        <!-- Populated by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- UNIFIED VISUALIZATION CARD WITH VIEW SWITCHER (MOVED TO BOTTOM) -->
+            <div class="analytics-card" id="unified-visualization-card" style="margin-bottom: 24px;">
+                <!-- Header with View Toggle Buttons -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <h3 id="viz-title">ðŸ“Š Vos Investissements</h3>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="btn-treemap-view" class="viz-toggle-btn active"
+                            style="padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--accent-blue); color: white; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s;">
+                            <i class="fas fa-th"></i> Treemap
+                        </button>
+                        <button id="btn-allocation-view" class="viz-toggle-btn"
+                            style="padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s;">
+                            <i class="fas fa-chart-pie"></i> Allocation
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Treemap View -->
+                <div id="treemap-view" style="display: block;">
+
+                    <!-- Color scale legend -->
+                    <div class="color-scale"
+                        style="display: flex; justify-content: flex-end; gap: 2px; margin-bottom: 12px; font-size: 10px;">
+                        <span style="margin-right: 8px; color: var(--text-secondary);">Variation de la journÃ©e
+                            (%):</span>
+                        <div
+                            style="padding: 4px 8px; background: #ef4444; border-radius: 4px; font-weight: 600; color: white;">
+                            â‰¤-3</div>
+                        <div
+                            style="padding: 4px 8px; background: #f87171; border-radius: 4px; font-weight: 600; color: white;">
+                            -2</div>
+                        <div
+                            style="padding: 4px 8px; background: #fca5a5; border-radius: 4px; font-weight: 600; color: white;">
+                            -1</div>
+                        <div
+                            style="padding: 4px 8px; background: #9ca3af; border-radius: 4px; font-weight: 600; color: white;">
+                            0</div>
+                        <div
+                            style="padding: 4px 8px; background: #6ee7b7; border-radius: 4px; font-weight: 600; color: #1f2937;">
+                            +1</div>
+                        <div
+                            style="padding: 4px 8px; background: #34d399; border-radius: 4px; font-weight: 600; color: #1f2937;">
+                            +2</div>
+                        <div
+                            style="padding: 4px 8px; background: #10b981; border-radius: 4px; font-weight: 600; color: white;">
+                            â‰¥+3</div>
+                    </div>
+
+                    <!-- Treemap container -->
+                    <svg id="treemap-container"
+                        style="width: 100%; height: 400px; background: var(--bg-hover); border-radius: 8px;"></svg>
+                </div>
+
+                <!-- Allocation View (Hidden by default) -->
+                <div id="allocation-view" style="display: none;">
+                    <!-- Filter Section -->
+                    <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
+                        <select id="allocation-type-filter"
+                            style="padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-size: 13px; cursor: pointer;">
+                            <option value="">Tous les types</option>
+                            <option value="Stock">Stock</option>
+                            <option value="ETF">ETF</option>
+                            <option value="Crypto">Crypto</option>
+                            <option value="Real Estate">Immobilier</option>
+                        </select>
+
+                        <select id="allocation-broker-filter"
+                            style="padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-size: 13px; cursor: pointer;">
+                            <option value="">Tous les courtiers</option>
+                        </select>
+
+                        <button id="clear-allocation-filters" class="btn-secondary"
+                            style="padding: 8px 16px; font-size: 13px;">
+                            <i class="fas fa-times"></i> RÃ©initialiser
+                        </button>
+                    </div>
+
+                    <div class="chart-container" style="height: 400px;">
+                        <canvas id="allocation-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin: 24px 0;">
+                <button id="export-report" class="btn-secondary">Export Report (JSON)</button>
+                <button id="refresh-analytics" class="btn-primary">Refresh Analytics</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- MODAL TOP PERFORMERS -->
+    <div class="modal-overlay" id="top-performers-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 800px; width: 90%;">
+            <div class="modal-header">
+                <h3>ðŸ† Top Performers - DÃ©tails</h3>
+                <button class="modal-close" id="close-top-modal">Ã—</button>
+            </div>
+            <div class="modal-body">
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: var(--text-primary);">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
+                                <th style="padding: 12px 8px; font-weight: 600; color: var(--text-muted);">Actif</th>
+                                <th
+                                    style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
+                                    Gain (â‚¬)</th>
+                                <th
+                                    style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
+                                    Gain (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="top-performers-table-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL WORST PERFORMERS -->
+    <div class="modal-overlay" id="worst-performers-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 800px; width: 90%;">
+            <div class="modal-header">
+                <h3>ðŸ“‰ Worst Performers - DÃ©tails</h3>
+                <button class="modal-close" id="close-worst-modal">Ã—</button>
+            </div>
+            <div class="modal-body">
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: var(--text-primary);">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
+                                <th style="padding: 12px 8px; font-weight: 600; color: var(--text-muted);">Actif</th>
+                                <th
+                                    style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
+                                    Perte (â‚¬)</th>
+                                <th
+                                    style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
+                                    Perte (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="worst-performers-table-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DETAIL DIVIDENDES -->
+    <div class="modal-overlay" id="dividend-detail-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 800px; width: 90%;">
+            <div class="modal-header">
+                <h3>ðŸ’° DÃ©tail des Dividendes</h3>
+                <button class="modal-close" id="close-dividend-modal">Ã—</button>
+            </div>
+            <div class="modal-body">
+
+                <div style="margin-bottom: 24px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 12px;">Ã‰volution Mensuelle</h4>
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="dividend-evolution-chart"></canvas>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                    <button class="btn-primary" id="view-monthly-btn">Vue Mensuelle</button>
+                    <button class="btn-secondary" id="view-yearly-btn">Vue Annuelle</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL PERFORMANCE GLOBALE -->
+    <div class="modal-overlay" id="performance-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 650px; width: 90%;">
+            <div class="modal-header">
+                <h3>ðŸ“ˆ Performance Globale - Analyse DÃ©taillÃ©e</h3>
+                <button class="modal-close" id="close-performance-modal">Ã—</button>
+            </div>
+            <div class="modal-body">
+                <!-- Overview Section -->
+                <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;">ðŸ“Š Vue d'Ensemble</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Moyenne des
+                                Gains</div>
+                            <div id="perf-avg-gain"
+                                style="font-size: 20px; font-weight: 600; color: var(--text-primary);">0%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Win Rate
+                            </div>
+                            <div id="perf-win-rate" style="font-size: 20px; font-weight: 600; color: #10b981;">0%</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Total Gains
+                            </div>
+                            <div id="perf-total-gains" style="font-size: 20px; font-weight: 600; color: #10b981;">+0,00
+                                â‚¬</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Total Pertes
+                            </div>
+                            <div id="perf-total-losses" style="font-size: 20px; font-weight: 600; color: #ef4444;">-0,00
+                                â‚¬</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top & Worst Performers Section -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;">
+                    <!-- Top Performers -->
+                    <div>
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">ðŸ† Top 5
+                            Performers</h4>
+                        <div id="perf-top-5" style="font-size: 13px;"></div>
+                    </div>
+                    <!-- Worst Performers -->
+                    <div>
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">ðŸ“‰ Worst 5
+                            Performers</h4>
+                        <div id="perf-worst-5" style="font-size: 13px;"></div>
+                    </div>
+                </div>
+
+                <!-- Distribution & Stats Section -->
+                <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;">ðŸ“ˆ Statistiques
+                        AvancÃ©es</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+                        <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary);">Perf. PondÃ©rÃ©e</div>
+                            <div id="perf-weighted-avg"
+                                style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-top: 4px;">
+                                0%</div>
+                        </div>
+                        <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary);">Ã‰cart-type</div>
+                            <div id="perf-std-dev"
+                                style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-top: 4px;">
+                                0%</div>
+                        </div>
+                        <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary);">Meilleur Gain</div>
+                            <div id="perf-best-gain"
+                                style="font-size: 16px; font-weight: 600; color: #10b981; margin-top: 4px;">+0 â‚¬</div>
+                            <div id="perf-best-gain-ticker"
+                                style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;"></div>
+                        </div>
+                        <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary);">Pire Perte</div>
+                            <div id="perf-worst-loss"
+                                style="font-size: 16px; font-weight: 600; color: #ef4444; margin-top: 4px;">-0 â‚¬</div>
+                            <div id="perf-worst-loss-ticker"
+                                style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;"></div>
+                        </div>
+                        <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary);">Min Performance</div>
+                            <div id="perf-min"
+                                style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-top: 4px;">
+                                0%</div>
+                            <div id="perf-min-ticker"
+                                style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;"></div>
+                        </div>
+                        <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary);">Max Performance</div>
+                            <div id="perf-max"
+                                style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-top: 4px;">
+                                0%</div>
+                            <div id="perf-max-ticker"
+                                style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DIVERSIFICATION -->
+    <div class="modal-overlay" id="diversification-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 700px; width: 90%;">
+            <div class="modal-header">
+                <h3>ðŸŽ¯ Diversification - Analyse DÃ©taillÃ©e</h3>
+                <button class="modal-close" id="close-diversification-modal">Ã—</button>
+            </div>
+            <div class="modal-body">
+                <!-- Overview Section -->
+                <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;">ðŸ“Š Vue d'Ensemble</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Score</div>
+                            <div id="div-score" style="font-size: 20px; font-weight: 600;">0/100</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Indice HHI
+                            </div>
+                            <div id="div-hhi" style="font-size: 20px; font-weight: 600; color: var(--text-primary);">0
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Actifs
+                                Effectifs</div>
+                            <div id="div-effective"
+                                style="font-size: 20px; font-weight: 600; color: var(--text-primary);">0</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Top 3 Poids
+                            </div>
+                            <div id="div-top3-weight" style="font-size: 20px; font-weight: 600; color: #f59e0b;">0%
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Asset Type Breakdown -->
+                <div style="margin-bottom: 24px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">ðŸ“ˆ RÃ©partition par
+                        Type</h4>
+                    <div id="div-asset-types" style="font-size: 13px;"></div>
+                </div>
+
+                <!-- Concentration Analysis -->
+                <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 14px;">âš–ï¸ Analyse de
+                        Concentration</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
+                        <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary);">Actifs > 10%</div>
+                            <div id="div-heavy-count"
+                                style="font-size: 16px; font-weight: 600; color: #ef4444; margin-top: 4px;">0</div>
+                        </div>
+                        <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary);">Actifs 5-10%</div>
+                            <div id="div-medium-count"
+                                style="font-size: 16px; font-weight: 600; color: #f59e0b; margin-top: 4px;">0</div>
+                        </div>
+                        <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                            <div style="font-size: 11px; color: var(--text-secondary);">Actifs < 5%</div>
+                                    <div id="div-light-count"
+                                        style="font-size: 16px; font-weight: 600; color: #10b981; margin-top: 4px;">0
+                                    </div>
+                            </div>
+                            <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
+                                <div style="font-size: 11px; color: var(--text-secondary);">Plus Grande Position</div>
+                                <div id="div-largest-position"
+                                    style="font-size: 13px; font-weight: 600; color: var(--text-primary); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    -</div>
+                                <div id="div-largest-weight"
+                                    style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">0%</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gemini AI Section -->
+                    <div
+                        style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 8px; padding: 20px;">
+                        <div
+                            style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                            <h4
+                                style="color: var(--text-primary); font-size: 14px; margin: 0; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 18px;">ðŸ¤–</span> Conseils Gemini AI
+                            </h4>
+                            <button id="refresh-gemini-advice"
+                                style="background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(139, 92, 246, 0.4); color: #a78bfa; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                                <span>â†»</span> Actualiser
+                            </button>
+                        </div>
+                        <div id="gemini-advice-content"
+                            style="color: var(--text-primary); font-size: 13px; line-height: 1.6;">
+                            <div style="text-align: center; padding: 20px; color: var(--text-secondary);">
+                                <div class="spinner"
+                                    style="border: 3px solid rgba(139, 92, 246, 0.2); border-top: 3px solid #a78bfa; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 12px;">
+                                </div>
+                                <div>Analyse en cours...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- MODAL RISQUE - TO BE INSERTED IN analytics.html BEFORE CLOSING </body> -->
+        <!-- MODAL RISQUE -->
+        <div class="modal-overlay" id="risk-modal" style="display: none;">
+            <div class="modal-content" style="max-width: 700px; width: 90%;">
+                <div class="modal-header">
+                    <h3>âš ï¸ Analyse de Risque - DÃ©tails</h3>
+                    <button class="modal-close" id="close-risk-modal">Ã—</button>
+                </div>
+                <div class="modal-body">
+                    <!-- Overview Section -->
+                    <div
+                        style="background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+                        <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;">ðŸ“Š MÃ©triques
+                            Principales</h4>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px;">
+                            <div>
+                                <div
+                                    style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                                    VolatilitÃ©
+                                    <span class="info-tooltip"
+                                        data-tooltip="Mesure la dispersion des rendements. Une volatilitÃ© Ã©levÃ©e signifie que vos actifs fluctuent beaucoup."
+                                        style="cursor: help; opacity: 0.6;">â„¹ï¸</span>
+                                </div>
+                                <div id="risk-volatility" style="font-size: 20px; font-weight: 600; color: #f59e0b;">0%
+                                </div>
+                            </div>
+                            <div>
+                                <div
+                                    style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                                    Max Drawdown
+                                    <span class="info-tooltip"
+                                        data-tooltip="La plus grande perte depuis un pic. Indique combien vous pourriez perdre dans le pire scÃ©nario."
+                                        style="cursor: help; opacity: 0.6;">â„¹ï¸</span>
+                                </div>
+                                <div id="risk-drawdown" style="font-size: 20px; font-weight: 600; color: #ef4444;">0%
+                                </div>
+                            </div>
+                            <div>
+                                <div
+                                    style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                                    Niveau
+                                    <span class="info-tooltip"
+                                        data-tooltip="Ã‰valuation globale : Faible = stable, ModÃ©rÃ© = volatilitÃ© moyenne, Ã‰levÃ© = trÃ¨s volatile."
+                                        style="cursor: help; opacity: 0.6;">â„¹ï¸</span>
+                                </div>
+                                <div id="risk-level-modal"
+                                    style="font-size: 16px; font-weight: 600; padding: 4px 12px; border-radius: 6px; display: inline-block;">
+                                    -</div>
+                            </div>
+                            <div>
+                                <div
+                                    style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+                                    Sharpe Ratio
+                                    <span class="info-tooltip"
+                                        data-tooltip="Rendement par unitÃ© de risque. >1 = bon, <1 = risque Ã©levÃ© pour le rendement."
+                                        style="cursor: help; opacity: 0.6;">â„¹ï¸</span>
+                                </div>
+                                <div id="risk-sharpe"
+                                    style="font-size: 20px; font-weight: 600; color: var(--text-primary);">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Risk Distribution -->
+                    <div style="margin-bottom: 24px;">
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">ðŸ“ˆ RÃ©partition par
+                            VolatilitÃ©</h4>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                            <div
+                                style="padding: 12px; background: var(--bg-card); border-radius: 6px; border-left: 3px solid #10b981;">
+                                <div style="font-size: 11px; color: var(--text-secondary);">Faible (10%)</div>
+                                <div id="risk-low-count"
+                                    style="font-size: 18px; font-weight: 600; color: #10b981; margin-top: 4px;">
+                                    0</div>
+                                <div id="risk-low-pct"
+                                    style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">0%
+                                    du total</div>
+                            </div>
+                            <div
+                                style="padding: 12px; background: var(--bg-card); border-radius: 6px; border-left: 3px solid #f59e0b;">
+                                <div style="font-size: 11px; color: var(--text-secondary);">ModÃ©rÃ© (10-20%)</div>
+                                <div id="risk-med-count"
+                                    style="font-size: 18px; font-weight: 600; color: #f59e0b; margin-top: 4px;">0
+                                </div>
+                                <div id="risk-med-pct"
+                                    style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">0% du
+                                    total</div>
+                            </div>
+                            <div
+                                style="padding: 12px; background: var(--bg-card); border-radius: 6px; border-left: 3px solid #ef4444;">
+                                <div style="font-size: 11px; color: var(--text-secondary);">Ã‰levÃ© (>20%)</div>
+                                <div id="risk-high-count"
+                                    style="font-size: 18px; font-weight: 600; color: #ef4444; margin-top: 4px;">0
+                                </div>
+                                <div id="risk-high-pct"
+                                    style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">0% du
+                                    total</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top Risky Assets -->
+                    <div style="margin-bottom: 24px;">
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">âš¡ Top 5 Actifs
+                            les Plus Volatils</h4>
+                        <div id="risk-top-volatile" style="font-size: 13px;"></div>
+                    </div>
+
+                    <!-- Gemini AI Section -->
+                    <div
+                        style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(245, 158, 11, 0.1) 100%); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 20px;">
+                        <div
+                            style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                            <h4
+                                style="color: var(--text-primary); font-size: 14px; margin: 0; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 18px;">ðŸ¤–</span> Conseils Gemini AI - Gestion du Risque
+                            </h4>
+                            <button id="refresh-risk-advice"
+                                style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                                <span>â†»</span> Actualiser
+                            </button>
+                        </div>
+                        <div id="risk-advice-content"
+                            style="color: var(--text-primary); font-size: 13px; line-height: 1.6;">
+                            <div style="text-align: center; padding: 20px; color: var(--text-secondary);">
+                                <div class="spinner"
+                                    style="border: 3px solid rgba(239, 68, 68, 0.2); border-top: 3px solid #fca5a5; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 12px;">
+                                </div>
+                                <div>Analyse en cours...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add to existing <style> block -->
+        <style>
+            .info-tooltip {
+                font-size: 14px;
+                transition: opacity 0.2s;
+                position: relative;
+                display: inline-block;
+                cursor: help;
+            }
+
+            /* Treemap cell styles */
+            .treemap-cell {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                border-radius: 6px;
+                padding: 8px;
+                cursor: pointer;
+                transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .treemap-cell:hover {
+                transform: scale(1.05);
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+                z-index: 10;
+                opacity: 1 !important;
+            }
+
+            .treemap-ticker {
+                font-weight: 700;
+                text-align: center;
+                line-height: 1.2;
+            }
+
+            .treemap-change {
+                font-weight: 600;
+                text-align: center;
+                margin-top: 4px;
+            }
+
+            .treemap-value {
+                font-size: 10px;
+                opacity: 0.8;
+                text-align: center;
+                margin-top: 2px;
+            }
+
+            .info-tooltip:hover {
+                opacity: 1 !important;
+            }
+
+            /* Custom tooltip styling */
+            .info-tooltip::before {
+                content: attr(data-tooltip);
+                position: absolute;
+                bottom: 125%;
+                left: 50%;
+                transform: translateX(-50%);
+                background-color: rgba(0, 0, 0, 0.95);
+                color: #fff;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                white-space: normal;
+                width: 220px;
+                text-align: center;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.3s, transform 0.3s;
+                z-index: 10000;
+                line-height: 1.4;
+                font-weight: 400;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            }
+
+            /* Tooltip arrow */
+            .info-tooltip::after {
+                content: '';
+                position: absolute;
+                bottom: 105%;
+                left: 50%;
+                transform: translateX(-50%);
+                border: 6px solid transparent;
+                border-top-color: rgba(0, 0, 0, 0.95);
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.3s;
+                z-index: 10000;
+            }
+
+            /* Show tooltip on hover */
+            .info-tooltip:hover::before,
+            .info-tooltip:hover::after {
+                opacity: 1;
+            }
+
+            .info-tooltip:hover::before {
+                transform: translateX(-50%) translateY(-4px);
+            }
+
+            #refresh-risk-advice:hover {
+                background: rgba(239, 68, 68, 0.3);
+            }
+
+            @keyframes spin {
+                0% {
+                    transform: rotate(0deg);
+                }
+
+                100% {
+                    transform: rotate(360deg);
+                }
+            }
+
+            #refresh-gemini-advice:hover {
+                background: rgba(139, 92, 246, 0.3);
+            }
+        </style>
+
+        <!-- View Toggle Script -->
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const btnTreemap = document.getElementById('btn-treemap-view');
+                const btnAllocation = document.getElementById('btn-allocation-view');
+                const treemapView = document.getElementById('treemap-view');
+                const allocationView = document.getElementById('allocation-view');
+                const vizTitle = document.getElementById('viz-title');
+
+                function switchToTreemap() {
+                    // Show treemap, hide allocation
+                    treemapView.style.display = 'block';
+                    allocationView.style.display = 'none';
+
+                    // Update button styles
+                    btnTreemap.style.background = 'var(--accent-blue)';
+                    btnTreemap.style.color = 'white';
+                    btnAllocation.style.background = 'var(--bg-secondary)';
+                    btnAllocation.style.color = 'var(--text-secondary)';
+
+                    // Update title
+                    vizTitle.innerHTML = 'ðŸ“Š Vos Investissements';
+                }
+
+                function switchToAllocation() {
+                    // Hide treemap, show allocation
+                    treemapView.style.display = 'none';
+                    allocationView.style.display = 'block';
+
+                    // Update button styles
+                    btnAllocation.style.background = 'var(--accent-blue)';
+                    btnAllocation.style.color = 'white';
+                    btnTreemap.style.background = 'var(--bg-secondary)';
+                    btnTreemap.style.color = 'var(--text-secondary)';
+
+                    // Update title
+                    vizTitle.innerHTML = 'ðŸ“Š Asset Allocation';
+                }
+
+                btnTreemap.addEventListener('click', switchToTreemap);
+                btnAllocation.addEventListener('click', switchToAllocation);
+            });
+        </script>
+
+        <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+        <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+        <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+        <script type="module" src="./src/authGuard.js"></script>
+        <script type="module" src="./src/analyticsApp.js?v=28"></script>
+        <script src="./src/cacheRefresh.js"></script>
+        <script type="module" src="./src/sidebar.js"></script>
+</body>
+
+</html>
+>>>>>>> eefd394 (chore: organize app structure and prepare GitHub push)

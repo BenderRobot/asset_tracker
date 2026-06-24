@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asset Tracker - Real Estate</title>
+
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/dashboard.css?v=43">
+    <link rel="stylesheet" href="css/dashboard-mobile.css?v=3">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script
+        src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
+    <script>
+        // Anti-flash scripts
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        // Show admin link immediately if user is admin (no flash)
+        if (localStorage.getItem('isAdmin') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const adminLink = document.getElementById('admin-invitations-link');
+                if (adminLink) adminLink.style.display = 'flex';
+            });
+        }
+    </script>
+    <style>
+        /* Specific Styles for Real Estate Cards */
+        .project-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 24px;
+        }
+
+        .project-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            transition: transform 0.2s;
+        }
+
+        .project-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary-color);
+        }
+
+        .project-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .project-title {
+            font-weight: 600;
+            font-size: 16px;
+            color: var(--text-primary);
+        }
+
+        .project-tag {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            margin: 12px 0;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--primary-color);
+            border-radius: 3px;
+        }
+
+        .project-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .stat-val {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+    </style>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+</head>
+
+<body>
+    <header class="mobile-header">
+        <button id="mobile-menu-btn" title="Menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="mobile-logo" style="display: flex; align-items: center; margin-left: auto; margin-right: 16px;">
+            <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                style="height: 24px; width: 24px; margin-right: 8px;">
+            Asset Tracker
+        </div>
+    </header>
+
+    <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-header">
+            <div class="nav-icon" style="display: flex; align-items: center; justify-content: center;">
+                <img src="/icons/android-chrome-192x192.png" alt="Logo"
+                    style="width: 32px; height: 32px; object-fit: contain;">
+            </div>
+            <span class="app-logo-text">Asset Tracker</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item">
+                <div class="nav-icon">🚀</div><span class="nav-text">Dashboard</span>
+            </a>
+            <a href="investments.html" class="nav-item">
+                <div class="nav-icon">📈</div><span class="nav-text">Assets</span>
+            </a>
+            <a href="index.html" class="nav-item">
+                <div class="nav-icon">📋</div><span class="nav-text">Transactions</span>
+            </a>
+            <a href="analytics.html" class="nav-item">
+                <div class="nav-icon">📊</div><span class="nav-text">Analytics</span>
+            </a>
+            <a href="watchlist.html" class="nav-item">
+                <div class="nav-icon">👁️</div>
+                <span class="nav-text">Watchlist</span>
+            </a>
+
+            <a href="screener.html" class="nav-item">
+                <div class="nav-icon">🔍</div>
+                <span class="nav-text">Screener</span>
+            </a>
+            <a href="news.html" class="nav-item">
+                <div class="nav-icon">📰</div>
+                <span class="nav-text">News Feeds</span>
+            </a>
+            <a href="realestate.html" class="nav-item active">
+                <div class="nav-icon">🏢</div><span class="nav-text">Immobilier</span>
+            </a>
+            <a href="assistant.html" class="nav-item">
+                <div class="nav-icon">🤖</div><span class="nav-text">Assistant IA</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-settings">
+            <div class="settings-title">Paramètres</div>
+            <a href="settings.html" class="nav-item">
+                <div class="nav-icon"><i class="fas fa-cog"></i></div>
+                <span class="nav-text">Paramètres</span>
+            </a>
+            <a href="#" class="nav-item" id="auth-btn">
+                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <span class="nav-text">Déconnexion</span>
+            </a>
+        </div>
+
+        <div class="sidebar-footer">
+            <button id="sidebar-toggle" title="Toggle Menu"><i class="fas fa-chevron-left"></i></button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="container">
+
+            <div class="dashboard-top-section" style="display: flex; flex-direction: column; align-items: center;">
+                <!-- LEFT: Summary Cards + Charts -->
+                <div class="dashboard-left-column" style="width: 100%; max-width: 1200px;">
+
+                    <!-- SECTION 1: RÉSIDENCE PRINCIPALE -->
+                    <div style="margin-bottom: 24px;">
+                        <h2
+                            style="font-size: 20px; font-weight: 600; color: var(--text-primary); margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+                            <span
+                                style="background: rgba(59, 130, 246, 0.1); padding: 8px; border-radius: 8px; font-size: 24px;">🏡</span>
+                            Ma Résidence Principale
+                        </h2>
+                        <div id="primary-residence-section">
+                            <!-- Rendered by JS -->
+                        </div>
+                    </div>
+
+                    <!-- DIVIDER -->
+                    <div style="border-top: 1px solid var(--border-color); margin-bottom: 24px;"></div>
+
+                    <!-- SECTION 2: CROWDFUNDING -->
+                    <div>
+                        <h2
+                            style="font-size: 20px; font-weight: 600; color: var(--text-primary); margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+                            <span
+                                style="background: rgba(16, 185, 129, 0.1); padding: 8px; border-radius: 8px; font-size: 24px;">🏗️</span>
+                            Crowdfunding Immobilier
+                        </h2>
+
+                        <!-- HERO KPIs -->
+                        <div class="dashboard-hero-row summary-grid" style="margin-bottom: 32px;">
+                            <div class="summary-card summary-card-primary">
+                                <div class="summary-card-label">Valeur Simulée</div>
+                                <div id="total-simulated-value" class="summary-card-value">€0.00</div>
+                                <div class="summary-card-meta">
+                                    <span id="total-invested" class="meta-info"
+                                        style="font-size: 14px; opacity: 0.9; color: var(--text-secondary);">Investi:
+                                        €0.00</span>
+                                </div>
+                            </div>
+
+                            <div class="summary-card">
+                                <div class="summary-card-label">Rendement Moyen</div>
+                                <div id="avg-yield" class="summary-card-value">0.00%</div>
+                                <div class="summary-card-meta">
+                                    <span class="meta-info">Objectif Annuel</span>
+                                </div>
+                            </div>
+
+                            <div class="summary-card">
+                                <div class="summary-card-label">Gain Latent (Intérêts)</div>
+                                <div id="accrued-interest" class="summary-card-value">€0.00</div>
+                                <div class="summary-card-meta">
+                                    <span class="meta-info" style="color: #10b981;">+ Intérêts courus</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- PROJECTION CHART -->
+                        <div class="dashboard-chart-section" style="margin-bottom: 32px;">
+                            <div class="chart-header-mini">
+                                <div class="title-mini">
+                                    <h3 class="chart-title"><span class="title-icon">📅</span>Projection de Valeur
+                                        (Jusqu'à
+                                        Maturité)</h3>
+                                </div>
+                            </div>
+                            <div class="chart-wrapper tall">
+                                <canvas id="projection-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- PROJECTS GRID -->
+                        <h3 style="margin-bottom: 24px; font-size: 18px; color: var(--text-primary);">Projets en cours
+                        </h3>
+                        <div id="projects-container" class="project-grid">
+                            <!-- Project Cards generated by JS -->
+                            <div
+                                style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-muted);">
+                                Chargement des projets...
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- MODAL RESIDENCE PRINCIPALE -->
+    <div class="modal-overlay" id="primary-residence-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 950px; width: 95%;">
+            <div class="modal-header">
+                <h3>🏠 Ma Résidence Principale</h3>
+                <button class="modal-close" onclick="window.realEstateApp.closePrimaryResidenceModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="primary-residence-form"
+                    onsubmit="event.preventDefault(); window.realEstateApp.savePrimaryResidence();">
+
+                    <!-- Property Details -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+                        <div class="form-group">
+                            <label>Nom du bien</label>
+                            <input type="text" id="residence-name" class="form-input" placeholder="Ex: Maison Lyon"
+                                required>
+                        </div>
+                        <div class="form-group">
+                            <label>Date d'achat</label>
+                            <input type="date" id="residence-date" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Prix d'achat (€)</label>
+                            <input type="number" id="residence-price" class="form-input" step="any" placeholder="0"
+                                required>
+                        </div>
+                        <div class="form-group">
+                            <label>Valeur Actuelle Estimée (€)</label>
+                            <input type="number" id="residence-value" class="form-input" step="any" placeholder="0"
+                                required>
+                        </div>
+                    </div>
+
+                    <div style="border-top: 1px solid var(--border-color); margin: 24px 0;"></div>
+
+                    <!-- Credits Section -->
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h4 style="margin: 0;">Financement (Crédits)</h4>
+                        <button type="button" class="btn-secondary btn-sm"
+                            onclick="window.realEstateApp.addCreditRow()">
+                            <i class="fas fa-plus"></i> Ajouter un crédit
+                        </button>
+                    </div>
+
+                    <div id="credits-list-container"
+                        style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
+                        <!-- Credits rows populated by JS -->
+                    </div>
+
+                    <div class="modal-footer"
+                        style="margin-top: 32px; display: flex; justify-content: flex-end; gap: 12px;">
+                        <button type="button" class="btn-secondary"
+                            onclick="window.realEstateApp.closePrimaryResidenceModal()">Annuler</button>
+                        <button type="submit" class="btn-primary">Enregistrer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
+    <script type="module" src="./src/authGuard.js?v=27"></script>
+    <script type="module" src="./src/realEstateApp.js?v=67"></script>
+    <script type="module" src="./src/sidebar.js?v=31"></script>
+</body>
+
+</html>
