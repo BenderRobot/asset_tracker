@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 
 <head>
@@ -14,7 +14,7 @@
     <link rel="stylesheet" href="css/news.css">
     <link rel="stylesheet" href="css/news-mobile.css">
     <script>
-        // Script Anti-Flash : Applique l'Ã©tat rÃ©duit avant le rendu visuel
+        // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
         if (localStorage.getItem('sidebarState') === 'true') {
             document.documentElement.classList.add('sidebar-collapsed');
         }
@@ -54,53 +54,53 @@
 
         <nav class="sidebar-nav">
             <a href="dashboard.html" class="nav-item">
-                <div class="nav-icon">ðŸš€</div>
+                <div class="nav-icon">🚀</div>
                 <span class="nav-text">Dashboard</span>
             </a>
             <a href="investments.html" class="nav-item">
-                <div class="nav-icon">ðŸ“ˆ</div>
+                <div class="nav-icon">📈</div>
                 <span class="nav-text">Assets</span>
             </a>
             <a href="index.html" class="nav-item">
-                <div class="nav-icon">ðŸ“‹</div>
+                <div class="nav-icon">📋</div>
                 <span class="nav-text">Transactions</span>
             </a>
             <a href="analytics.html" class="nav-item">
-                <div class="nav-icon">ðŸ“Š</div>
+                <div class="nav-icon">📊</div>
                 <span class="nav-text">Analytics</span>
             </a>
             <a href="watchlist.html" class="nav-item">
-                <div class="nav-icon">ðŸ‘ï¸</div>
+                <div class="nav-icon">👁️</div>
                 <span class="nav-text">Watchlist</span>
             </a>
 
             <a href="screener.html" class="nav-item">
-                <div class="nav-icon">ðŸ”</div>
+                <div class="nav-icon">🔍</div>
                 <span class="nav-text">Screener</span>
             </a>
             <a href="news.html" class="nav-item active">
-                <div class="nav-icon">ðŸ“°</div>
+                <div class="nav-icon">📰</div>
                 <span class="nav-text">News Feeds</span>
             </a>
             <a href="realestate.html" class="nav-item">
-                <div class="nav-icon">ðŸ¢</div>
+                <div class="nav-icon">🏢</div>
                 <span class="nav-text">Immobilier</span>
             </a>
             <a href="assistant.html" class="nav-item">
-                <div class="nav-icon">ðŸ¤–</div>
+                <div class="nav-icon">🤖</div>
                 <span class="nav-text">Assistant IA</span>
             </a>
         </nav>
 
         <div class="sidebar-settings">
-            <div class="settings-title">ParamÃ¨tres</div>
+            <div class="settings-title">Paramètres</div>
             <a href="settings.html" class="nav-item">
                 <div class="nav-icon"><i class="fas fa-cog"></i></div>
-                <span class="nav-text">ParamÃ¨tres</span>
+                <span class="nav-text">Paramètres</span>
             </a>
             <a href="#" class="nav-item" id="auth-btn">
                 <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
-                <span class="nav-text">DÃ©connexion</span>
+                <span class="nav-text">Déconnexion</span>
             </a>
         </div>
 
@@ -113,9 +113,9 @@
     <main class="main-content">
         <div class="container">
             <div class="news-header">
-                <h2>ðŸ“° News Feeds</h2>
+                <h2>📰 News Feeds</h2>
                 <div class="news-actions">
-                    <button id="refresh-news-btn" class="btn-primary"><i class="fas fa-sync"></i> RafraÃ®chir</button>
+                    <button id="refresh-news-btn" class="btn-primary"><i class="fas fa-sync"></i> Rafraîchir</button>
                     <button id="filter-my-assets-btn" class="btn-secondary" style="min-width: 150px;"><i
                             class="fas fa-wallet"></i> Mes Actifs</button>
                     <select id="filter-feed-select"></select>
@@ -123,7 +123,7 @@
             </div>
 
             <div id="news-feed-container" class="news-grid">
-                <div class="loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement des actualitÃ©s...</div>
+                <div class="loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement des actualités...</div>
             </div>
         </div>
     </main>
@@ -132,7 +132,7 @@
             <div class="modal-header" style="flex-direction: column; align-items: flex-start; gap: 8px;">
                 <div style="display: flex; justify-content: space-between; width: 100%;">
                     <div class="news-modal-ticker" id="modal-news-ticker">FEED LABEL</div>
-                    <button class="modal-close" id="close-news-modal">Ã—</button>
+                    <button class="modal-close" id="close-news-modal">×</button>
                 </div>
                 <div style="font-size: 11px; color: var(--text-muted); font-weight: 500;" id="modal-news-pubdate">
                 </div>
@@ -141,7 +141,7 @@
                 <h3 id="modal-news-title" style="margin-bottom: 16px; line-height: 1.4;">Titre</h3>
 
                 <div class="ai-summary-header">
-                    <div class="news-ai-badge"><i class="fas fa-robot"></i> RÃ©sumÃ© Gemini AI</div>
+                    <div class="news-ai-badge"><i class="fas fa-robot"></i> Résumé Gemini AI</div>
                     <button class="ai-context-btn" id="analyze-context-btn"
                         title="Pourquoi cette news est-elle importante ?">
                         <i class="fas fa-question-circle"></i>
