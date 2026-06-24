@@ -521,8 +521,8 @@ class DashboardApp {
             return 'POST_MARKET';
         }
 
-        // Indices US (S&P 500, NASDAQ, Dow Jones, Russell)
-        const US_INDICES = ['^GSPC', '^IXIC', '^DJI', '^RUT'];
+        // Indices US + Volatilité CBOE + Taux US (tous sur horaires NYSE)
+        const US_INDICES = ['^GSPC', '^IXIC', '^DJI', '^RUT', '^VIX', '^VXN', '^RVX', '^VVIX', '^TNX', '^TYX', '^FVX', '^IRX'];
         if (US_INDICES.includes(ticker)) {
             if (hour >= 10 && hour < 15) return 'PRE_MARKET';
             if (hour === 15 && minutes >= 30) return 'MARKET_OPEN';
@@ -530,12 +530,16 @@ class DashboardApp {
             return 'POST_MARKET';
         }
 
-        // Indices asiatiques (heures approximatives en heure de Paris)
-        // Nikkei 225 : TSE 9h-15h30 JST = ~1h-8h30 Paris
-        // Hang Seng  : HKEX 9h30-16h HKT = ~2h30-10h Paris
-        if (ticker === '^N225' || ticker === '^HSI') {
+        // Indices asiatiques / Pacifique (heures approximatives en heure de Paris)
+        // Nikkei 225 ^N225  : TSE 9h-15h30 JST    = ~1h-8h30 Paris
+        // Hang Seng  ^HSI   : HKEX 9h30-16h HKT   = ~2h30-10h Paris
+        // KOSPI      ^KS11  : KRX 9h-15h30 KST    = ~1h-8h30 Paris
+        // BSE Sensex ^BSESN : BSE 9h15-15h30 IST  = ~3h45-11h Paris
+        // ASX 200    ^AXJO  : ASX 10h-16h AEST     = ~0h-7h Paris
+        const ASIAN_INDICES = ['^N225', '^HSI', '^KS11', '^BSESN', '^AXJO'];
+        if (ASIAN_INDICES.includes(ticker)) {
             const totalMinutes = hour * 60 + minutes;
-            if (totalMinutes >= 60 && totalMinutes < 10 * 60) return 'MARKET_OPEN';
+            if (totalMinutes < 11 * 60) return 'MARKET_OPEN';
             return 'POST_MARKET';
         }
 
@@ -1695,32 +1699,57 @@ class DashboardApp {
         const cdn = 'https://cdn.jsdelivr.net/npm/openmoji@14.0.0/color/svg/';
         return {
             'Indices': [
+                // US
                 { ticker: '^GSPC',     name: 'S&P 500',       icon: `${cdn}1F1FA-1F1F8.svg`, format: 'index' },
                 { ticker: '^IXIC',     name: 'NASDAQ 100',    icon: `${cdn}1F4BB.svg`,        format: 'index' },
                 { ticker: '^DJI',      name: 'Dow Jones',     icon: `${cdn}1F1FA-1F1F8.svg`, format: 'index' },
                 { ticker: '^RUT',      name: 'Russell 2000',  icon: `${cdn}1F1FA-1F1F8.svg`, format: 'index' },
+                // Europe
                 { ticker: '^FCHI',     name: 'CAC 40',        icon: `${cdn}1F1EB-1F1F7.svg`, format: 'index' },
                 { ticker: '^STOXX50E', name: 'Euro Stoxx 50', icon: `${cdn}1F1EA-1F1FA.svg`, format: 'index' },
                 { ticker: '^GDAXI',    name: 'DAX 40',        icon: `${cdn}1F1E9-1F1EA.svg`, format: 'index' },
                 { ticker: '^FTSE',     name: 'FTSE 100',      icon: `${cdn}1F1EC-1F1E7.svg`, format: 'index' },
+                { ticker: '^IBEX',     name: 'IBEX 35',       icon: `${cdn}1F1EA-1F1F8.svg`, format: 'index' },
+                // Asie / Pacifique
                 { ticker: '^N225',     name: 'Nikkei 225',    icon: `${cdn}1F1EF-1F1F5.svg`, format: 'index' },
                 { ticker: '^HSI',      name: 'Hang Seng',     icon: `${cdn}1F1ED-1F1F0.svg`, format: 'index' },
-                { ticker: '^IBEX',     name: 'IBEX 35',       icon: `${cdn}1F1EA-1F1F8.svg`, format: 'index' },
+                { ticker: '^KS11',     name: 'KOSPI (Corée)', icon: `${cdn}1F1F0-1F1F7.svg`, format: 'index' },
+                { ticker: '^BSESN',    name: 'BSE Sensex',    icon: `${cdn}1F1EE-1F1F3.svg`, format: 'index' },
+                { ticker: '^AXJO',     name: 'ASX 200',       icon: `${cdn}1F1E6-1F1FA.svg`, format: 'index' },
+            ],
+            'Volatilité': [
+                { ticker: '^VIX',  name: 'VIX (S&P 500)',   icon: `${cdn}1F4C9.svg`, format: 'index' },
+                { ticker: '^VXN',  name: 'VXN (NASDAQ)',    icon: `${cdn}1F4C9.svg`, format: 'index' },
+                { ticker: '^RVX',  name: 'RVX (Russell)',   icon: `${cdn}1F4C9.svg`, format: 'index' },
+                { ticker: '^VVIX', name: 'VVIX (Volatilité du VIX)', icon: `${cdn}1F4C9.svg`, format: 'index' },
+            ],
+            'Taux': [
+                { ticker: '^TNX', name: 'US 10 ans',  icon: `${cdn}1F3E6.svg`, format: 'index' },
+                { ticker: '^TYX', name: 'US 30 ans',  icon: `${cdn}1F3E6.svg`, format: 'index' },
+                { ticker: '^FVX', name: 'US 5 ans',   icon: `${cdn}1F3E6.svg`, format: 'index' },
+                { ticker: '^IRX', name: 'US 3 mois',  icon: `${cdn}1F3E6.svg`, format: 'index' },
             ],
             'Crypto': [
-                { ticker: 'BTC-EUR', name: 'Bitcoin',  icon: '₿', format: 'crypto' },
-                { ticker: 'ETH-EUR', name: 'Ethereum', icon: 'Ξ', format: 'crypto' },
-                { ticker: 'SOL-EUR', name: 'Solana',   icon: '◎', format: 'crypto' },
-                { ticker: 'BNB-EUR', name: 'BNB',      icon: '⬡', format: 'crypto' },
-                { ticker: 'XRP-EUR', name: 'XRP',      icon: '✕', format: 'crypto' },
+                { ticker: 'BTC-EUR',  name: 'Bitcoin',   icon: '₿', format: 'crypto' },
+                { ticker: 'ETH-EUR',  name: 'Ethereum',  icon: 'Ξ', format: 'crypto' },
+                { ticker: 'SOL-EUR',  name: 'Solana',    icon: '◎', format: 'crypto' },
+                { ticker: 'BNB-EUR',  name: 'BNB',       icon: '⬡', format: 'crypto' },
+                { ticker: 'XRP-EUR',  name: 'XRP',       icon: '✕', format: 'crypto' },
+                { ticker: 'ADA-EUR',  name: 'Cardano',   icon: '₳', format: 'crypto' },
+                { ticker: 'DOGE-EUR', name: 'Dogecoin',  icon: 'Ð', format: 'crypto' },
+                { ticker: 'AVAX-EUR', name: 'Avalanche', icon: 'A', format: 'crypto' },
+                { ticker: 'LINK-EUR', name: 'Chainlink', icon: '⬡', format: 'crypto' },
             ],
             'Métaux': [
-                { ticker: 'GC=F', name: 'Or (Gold)',      icon: `${cdn}1FA99.svg`,   format: 'commodity' },
-                { ticker: 'SI=F', name: 'Argent (Silver)', icon: `${cdn}1FA99.svg`,  format: 'commodity' },
-                { ticker: 'PL=F', name: 'Platine',        icon: `${cdn}1FA99.svg`,   format: 'commodity' },
-                { ticker: 'HG=F', name: 'Cuivre',         icon: `${cdn}1FA99.svg`,   format: 'commodity' },
-                { ticker: 'CL=F', name: 'Pétrole WTI',    icon: `${cdn}1F6E2.svg`,   format: 'commodity' },
-                { ticker: 'BZ=F', name: 'Pétrole Brent',  icon: `${cdn}1F6E2.svg`,   format: 'commodity' },
+                { ticker: 'GC=F', name: 'Or (Gold)',        icon: `${cdn}1FA99.svg`,  format: 'commodity' },
+                { ticker: 'SI=F', name: 'Argent (Silver)',  icon: `${cdn}1FA99.svg`,  format: 'commodity' },
+                { ticker: 'PL=F', name: 'Platine',          icon: `${cdn}1FA99.svg`,  format: 'commodity' },
+                { ticker: 'HG=F', name: 'Cuivre',           icon: `${cdn}1FA99.svg`,  format: 'commodity' },
+                { ticker: 'CL=F', name: 'Pétrole WTI',      icon: `${cdn}1F6E2.svg`,  format: 'commodity' },
+                { ticker: 'BZ=F', name: 'Pétrole Brent',    icon: `${cdn}1F6E2.svg`,  format: 'commodity' },
+                { ticker: 'NG=F', name: 'Gaz Naturel',      icon: `${cdn}1F525.svg`,  format: 'commodity' },
+                { ticker: 'ZW=F', name: 'Blé (Wheat)',      icon: `${cdn}1F33E.svg`,  format: 'commodity' },
+                { ticker: 'ZC=F', name: 'Maïs (Corn)',      icon: `${cdn}1F33D.svg`,  format: 'commodity' },
             ],
             'Forex': [
                 { ticker: 'EURUSD=X', name: 'EUR / USD', icon: `${cdn}1F4B1.svg`,        format: 'forex' },
@@ -1730,6 +1759,8 @@ class DashboardApp {
                 { ticker: 'USDCHF=X', name: 'USD / CHF', icon: `${cdn}1F1E8-1F1ED.svg`, format: 'forex' },
                 { ticker: 'AUDUSD=X', name: 'AUD / USD', icon: `${cdn}1F1E6-1F1FA.svg`, format: 'forex' },
                 { ticker: 'USDCAD=X', name: 'USD / CAD', icon: `${cdn}1F1E8-1F1E6.svg`, format: 'forex' },
+                { ticker: 'USDCNY=X', name: 'USD / CNY', icon: `${cdn}1F1E8-1F1F3.svg`, format: 'forex' },
+                { ticker: 'NZDUSD=X', name: 'NZD / USD', icon: `${cdn}1F1F3-1F1FF.svg`, format: 'forex' },
             ],
         };
     }

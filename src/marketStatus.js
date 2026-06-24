@@ -71,8 +71,9 @@ export class MarketStatus {
             return { label: '24/5', color: '#fbbf24' };
         }
 
-        // Marchés US (NYSE/NASDAQ 9h30-16h NY = ~15h30-22h Paris)
-        if (['^GSPC', '^IXIC', '^DJI', '^RUT'].includes(ticker)) {
+        // Marchés US + Volatilité CBOE + Taux US (NYSE 9h30-16h NY = ~15h30-22h Paris)
+        const US_TICKERS = ['^GSPC', '^IXIC', '^DJI', '^RUT', '^VIX', '^VXN', '^RVX', '^VVIX', '^TNX', '^TYX', '^FVX', '^IRX'];
+        if (US_TICKERS.includes(ticker)) {
             const ny = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
             const h = ny.getHours();
             const m = ny.getMinutes();
@@ -92,9 +93,10 @@ export class MarketStatus {
             };
         }
 
-        // Marchés asiatiques (heures approximatives en heure de Paris)
-        if (ticker === '^N225' || ticker === '^HSI') {
-            const isOpen = !isWeekend && parisMinutes >= 60 && parisMinutes < 10 * 60;
+        // Marchés Asie / Pacifique (heures approximatives en heure de Paris)
+        // ^N225 ^HSI ^KS11 ^BSESN ^AXJO → ouverts entre ~0h et ~11h Paris
+        if (['^N225', '^HSI', '^KS11', '^BSESN', '^AXJO'].includes(ticker)) {
+            const isOpen = !isWeekend && parisMinutes < 11 * 60;
             return {
                 label: isOpen ? 'LIVE' : 'CLOSED',
                 color: isOpen ? '#10b981' : '#fbbf24'
