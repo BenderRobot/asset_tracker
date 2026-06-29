@@ -84,17 +84,14 @@ if (toggleModeBtn) {
 
 // Validate invitation code
 async function validateInvitationCode(code) {
-    const snapshot = await db.collection('invitationCodes')
-        .where('code', '==', code.toUpperCase())
-        .where('status', '==', 'available')
-        .get();
+    const doc = await db.collection('invitationCodes').doc(code.toUpperCase()).get();
 
-    if (snapshot.empty) return null;
+    if (!doc.exists) return null;
 
-    const doc = snapshot.docs[0];
     const data = doc.data();
 
-    // Check expiration
+    if (data.status !== 'available') return null;
+
     if (data.expiresAt && Date.now() > data.expiresAt) {
         return null;
     }

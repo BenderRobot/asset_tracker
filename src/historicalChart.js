@@ -1600,7 +1600,7 @@ export class HistoricalChart {
                                     }
 
                                     // Total Return: live kpiData → matches KPI cards (avoids EUR/USD rate divergence)
-                                    if (kpiData && kpiData.totalReturn !== undefined && kpiData.invested > 0) {
+                                    if (kpiData && kpiData.totalReturn !== null && kpiData.totalReturn !== undefined) {
                                         const sign = kpiData.totalReturn >= 0 ? '+' : '';
                                         lines.push(`📊 Total Return : ${sign}${kpiData.totalReturn.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € (${sign}${kpiData.totalReturnPct.toFixed(2)}%)`);
                                     } else if (val !== null && inv !== null && inv > 0) {

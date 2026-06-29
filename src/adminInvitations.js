@@ -159,7 +159,7 @@ function setupGenerateBtn() {
         const code = generateRandomCode();
         const modules = getModalModules();
         try {
-            await db.collection('invitationCodes').add({
+            await db.collection('invitationCodes').doc(code).set({
                 code,
                 createdAt: Date.now(),
                 createdBy: auth.currentUser.email,
