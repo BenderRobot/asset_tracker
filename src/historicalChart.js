@@ -1410,7 +1410,7 @@ export class HistoricalChart {
                         if (btn.classList.contains('active')) return;
                         viewToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
                         btn.classList.add('active');
-                        this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData, currentTicker);
+                        this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData, currentTicker, unifiedClose, kpiData);
                     };
                 });
             }
