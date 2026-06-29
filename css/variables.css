@@ -33,6 +33,7 @@ body {
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.6;
+    touch-action: pan-x pan-y;
     /* overflow-x: hidden; */
     /* DISABLED - breaks position:fixed on mobile header */
     min-height: 100vh;
