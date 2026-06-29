@@ -367,28 +367,12 @@
         padding-right: 8px !important;
     }
 
-    /* Badge Style */
-    #investments-table tbody td:nth-child(11)::before,
-    #investments-table tbody td:nth-child(9)::before {
-        content: attr(data-percentage);
-        display: inline-block;
-        padding: 4px 6px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 600;
-        min-width: 50px;
-        text-align: center;
-        vertical-align: middle;
-    }
-
-    #investments-table tbody td.positive::before {
-        background: rgba(16, 185, 129, 0.15);
-        color: #10b981;
-    }
-
-    #investments-table tbody td.negative::before {
-        background: rgba(239, 68, 68, 0.15);
-        color: #ef4444;
+    /* Compact badge in last column on mobile */
+    #investments-table tbody td:nth-child(11) .badge,
+    #investments-table tbody td:nth-child(9) .badge {
+        min-width: 44px;
+        font-size: 10px;
+        padding: 3px 5px;
     }
 
     /* Chevrons */

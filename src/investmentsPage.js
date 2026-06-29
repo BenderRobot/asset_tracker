@@ -652,6 +652,10 @@ export class InvestmentsPage {
       th.style.cursor = 'pointer';
       th.addEventListener('click', () => {
         const col = th.dataset.sort;
+        if (window.innerWidth <= 768 && (col === 'dayPct' || col === 'gainPct')) {
+          document.getElementById('investments-table').classList.toggle('show-total-gain');
+          return;
+        }
         if (this.sortColumn === col) this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
         else { this.sortColumn = col; this.sortDirection = 'asc'; }
         document.querySelectorAll('th[data-sort]').forEach(header => header.classList.remove('sort-asc', 'sort-desc'));
