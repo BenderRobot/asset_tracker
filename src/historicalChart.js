@@ -1591,13 +1591,19 @@ export class HistoricalChart {
                                         const signPct = portfolioPct >= 0 ? '+' : '';
                                         const signAbs = perfAbs >= 0 ? '+' : '';
                                         lines.push(`🔵 Performance : ${signPct}${portfolioPct.toFixed(2)}% (${signAbs}${perfAbs.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €)`);
-                                        lines.push(`💰 Total Value : ${val.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`);
+                                        // Total Value: live kpiData → matches KPI cards exactly
+                                        const displayTotal = (kpiData && kpiData.totalValue) ? kpiData.totalValue : val;
+                                        lines.push(`💰 Total Value : ${displayTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`);
                                     } else {
                                         const signPct = portfolioPct >= 0 ? '+' : '';
                                         lines.push(`🔵 Performance : ${signPct}${portfolioPct.toFixed(2)}%`);
                                     }
 
-                                    if (val !== null && inv !== null && inv > 0) {
+                                    // Total Return: live kpiData → matches KPI cards (avoids EUR/USD rate divergence)
+                                    if (kpiData && kpiData.totalReturn !== undefined && kpiData.invested > 0) {
+                                        const sign = kpiData.totalReturn >= 0 ? '+' : '';
+                                        lines.push(`📊 Total Return : ${sign}${kpiData.totalReturn.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € (${sign}${kpiData.totalReturnPct.toFixed(2)}%)`);
+                                    } else if (val !== null && inv !== null && inv > 0) {
                                         const totalReturn = val - inv;
                                         const totalReturnPct = (totalReturn / inv) * 100;
                                         const sign = totalReturn >= 0 ? '+' : '';
