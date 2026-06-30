@@ -639,6 +639,7 @@ export class Storage {
     cleanOldData() {
         const twoYearsAgo = Date.now() - (2 * 365 * 24 * 60 * 60 * 1000);
         this.purchases = this.purchases.filter(p => new Date(p.date).getTime() > twoYearsAgo);
+        this.rebuildIndex();
     }
 
     // === UTILITAIRES ===
