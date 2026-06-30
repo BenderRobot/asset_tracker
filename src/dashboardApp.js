@@ -632,7 +632,7 @@ class DashboardApp {
 
         selectEl.innerHTML = '<option value="">Tout voir (Max 15)</option>' +
             sortedAssets.map(asset =>
-                `<option value="${asset.name}" ${this.selectedAssetFilter === asset.name ? 'selected' : ''}>${asset.ticker} - ${asset.name}</option>`
+                `<option value="${escHtml(asset.name)}" ${this.selectedAssetFilter === asset.name ? 'selected' : ''}>${escHtml(asset.ticker)} - ${escHtml(asset.name)}</option>`
             ).join('');
     }
 
@@ -954,7 +954,7 @@ class DashboardApp {
             listHTML += `
                 <div class="kpi-list-row">
                     <div class="kpi-row-left">
-                        <span class="kpi-row-name" title="${item.name}">${item.name}</span>
+                        <span class="kpi-row-name" title="${escHtml(item.name)}">${escHtml(item.name)}</span>
                     </div>
                     <div class="kpi-row-right">
                         <div class="${valueColor}">${valueHTML}</div>
@@ -1861,7 +1861,7 @@ class DashboardApp {
             if (type === 'gainer' || type === 'loser') {
                 html += `<tr>
                     <td>${i + 1}</td>
-                    <td><div class="kpi-modal-name">${h.name}</div><div class="kpi-modal-sub">${h.ticker} · ${h.assetType || ''}</div></td>
+                    <td><div class="kpi-modal-name">${escHtml(h.name)}</div><div class="kpi-modal-sub">${escHtml(h.ticker)} · ${escHtml(h.assetType || '')}</div></td>
                     <td>${fmt(h.invested || 0)}</td>
                     <td>${fmt(h.currentValue || 0)}</td>
                     <td style="color:${color};font-weight:600;">${sign}${fmt(gainEUR)}</td>
@@ -1871,7 +1871,7 @@ class DashboardApp {
                 const pct = totalValue > 0 ? (h.currentValue / totalValue) * 100 : 0;
                 html += `<tr>
                     <td>${i + 1}</td>
-                    <td><div class="kpi-modal-name">${h.name}</div><div class="kpi-modal-sub">${h.ticker} · ${h.assetType || ''}</div></td>
+                    <td><div class="kpi-modal-name">${escHtml(h.name)}</div><div class="kpi-modal-sub">${escHtml(h.ticker)} · ${escHtml(h.assetType || '')}</div></td>
                     <td style="font-weight:600;">${fmt(h.currentValue || 0)}</td>
                     <td>${pct.toFixed(1)}%</td>
                     <td style="color:${color};font-weight:600;">${sign}${gainPct.toFixed(2)}%</td>
