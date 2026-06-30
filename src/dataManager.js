@@ -414,10 +414,11 @@ export class DataManager {
             const currentPriceOriginal = d.price;
             const buyPriceOriginal = p.price;
 
-            const rate = assetCurrency === 'USD' ? dynamicRate : 1;
-
-            const currentPriceEUR = currentPriceOriginal * rate;
-            const buyPriceEUR = buyPriceOriginal * rate;
+            // currentPriceOriginal is already in EUR — storage.js converts USD→EUR at storage time
+            const currentPriceEUR = currentPriceOriginal ?? null;
+            // buyPriceOriginal is in p.currency (original purchase currency, never converted by storage)
+            const buyRate = p.currency === 'USD' ? dynamicRate : 1;
+            const buyPriceEUR = buyPriceOriginal * buyRate;
 
             const investedEUR = buyPriceEUR * p.quantity;
             const currentValueEUR = currentPriceEUR ? currentPriceEUR * p.quantity : null;
