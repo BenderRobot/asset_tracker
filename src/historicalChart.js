@@ -1597,9 +1597,13 @@ export class HistoricalChart {
                                         lines.push(`🔵 Performance : ${signPct}${portfolioPct.toFixed(2)}%`);
                                     }
 
-                                    if (val !== null && inv !== null && inv > 0) {
-                                        const totalReturn = val - inv;
-                                        const totalReturnPct = (totalReturn / inv) * 100;
+                                    // Invested basis from KPI for consistency (graphData.invested excludes cash reserve)
+                                    const investedBasis = (kpiData && kpiData.totalValue != null && kpiData.totalReturn != null)
+                                        ? kpiData.totalValue - kpiData.totalReturn
+                                        : (inv != null ? inv : null);
+                                    if (val !== null && investedBasis !== null && investedBasis > 0) {
+                                        const totalReturn = val - investedBasis;
+                                        const totalReturnPct = (totalReturn / investedBasis) * 100;
                                         const sign = totalReturn >= 0 ? '+' : '';
                                         lines.push(`📊 Total Return : ${sign}${totalReturn.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € (${sign}${totalReturnPct.toFixed(2)}%)`);
                                     }
