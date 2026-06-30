@@ -149,7 +149,7 @@ class DashboardApp {
         await this.loadMarketIndices();
 
         //Auto-refresh every 30 seconds to keep KPIs (Top Asset, Asset Allocation) in sync with Index prices
-        setInterval(() => this.refreshDashboard(), 30 * 1000);
+        this._refreshInterval = setInterval(() => this.refreshDashboard(), 30 * 1000);
 
         // PWA Service Worker Registration
         if ('serviceWorker' in navigator) {
@@ -2150,9 +2150,11 @@ class DashboardApp {
     }
 
     refreshDashboard() {
-        this.loadPortfolioData();
+        if (this._refreshing) return;
+        this._refreshing = true;
         if (this.chart) this.chart.update(false, true);
-        this.loadMarketIndices();
+        Promise.all([this.loadPortfolioData(), this.loadMarketIndices()])
+            .finally(() => { this._refreshing = false; });
     }
 }
 
