@@ -664,7 +664,7 @@ class DashboardApp {
 
     initHistoricalChart() {
         try {
-            if (this.chart && this.chart.chart) this.chart.chart.destroy();
+            if (this.chart) { this.chart.destroy(); this.chart = null; }
 
             const mockInvestmentsPage = {
                 filterManager: this.mockPageInterface.filterManager,

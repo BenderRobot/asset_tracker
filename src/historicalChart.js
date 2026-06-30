@@ -41,22 +41,21 @@ export class HistoricalChart {
         // Gestionnaire des KPIs (statistiques sous le graphique)
         this.kpiManager = new ChartKPIManager(this.api, this.storage, this.dataManager, this.marketStatus);
 
-        eventBus.addEventListener('showAssetChart', (e) => {
-            // Mise à jour de l'état interne pour forcer la mise à jour par 'update'
+        this._onShowAsset = (e) => {
             this.currentMode = 'asset';
             this.selectedAssets = [e.detail.ticker];
             this.update(true, false);
-        });
-
-        eventBus.addEventListener('clearAssetChart', () => {
-            // Réinitialisation de l'état pour revenir au mode portefeuille/filtré
+        };
+        this._onClearAsset = () => {
             this.currentMode = 'portfolio';
             this.selectedAssets = [];
             this.currentBenchmark = null;
             const benchmarkSelect = document.getElementById('benchmark-select');
             if (benchmarkSelect) benchmarkSelect.value = '';
             this.update(true, false);
-        });
+        };
+        eventBus.addEventListener('showAssetChart', this._onShowAsset);
+        eventBus.addEventListener('clearAssetChart', this._onClearAsset);
     }
 
     hexToRgba(hex, alpha) {
@@ -1768,5 +1767,7 @@ export class HistoricalChart {
     destroy() {
         this.stopAutoRefresh();
         if (this.chart) { this.chart.destroy(); this.chart = null; }
+        eventBus.removeEventListener('showAssetChart', this._onShowAsset);
+        eventBus.removeEventListener('clearAssetChart', this._onClearAsset);
     }
 }
