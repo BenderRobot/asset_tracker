@@ -52,7 +52,8 @@ export class InvestmentsPage {
    * CRITICAL: This is called ONCE at init and displays KPIs whenever graph updates them
    */
   subscribeToKPIs() {
-    portfolioKPIs.addListener((kpis) => {
+    if (this._kpiListener) portfolioKPIs.removeListener(this._kpiListener);
+    this._kpiListener = (kpis) => {
       if (!kpis || kpis.source !== 'graph') {
         return;
       }
@@ -69,7 +70,7 @@ export class InvestmentsPage {
         return `${value >= 0 ? '+' : ''}${value.toFixed(2)} %`;
       };
 
-      const updateEl = (id, text, colorClass = null) => {
+      const updateEl = (id, text) => {
         const el = document.getElementById(id);
         if (el) {
           el.innerHTML = text; // Use innerHTML to support spans if needed
@@ -97,7 +98,8 @@ export class InvestmentsPage {
       updateEl('avg-cost-per-share', `<span style="color: ${dayColor}">${fmtPct(kpis.varTodayPct)}</span>`);
 
       console.log('[Investments] ✅ KPIs displayed successfully via IDs');
-    });
+    };
+    portfolioKPIs.addListener(this._kpiListener);
   }
 
   setupChartControls() {

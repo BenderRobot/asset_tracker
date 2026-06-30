@@ -164,7 +164,8 @@ class DashboardApp {
      * CRITICAL: This is called ONCE at init and displays KPIs whenever graph updates them
      */
     subscribeToKPIs() {
-        portfolioKPIs.addListener((kpis) => {
+        if (this._kpiListener) portfolioKPIs.removeListener(this._kpiListener);
+        this._kpiListener = (kpis) => {
             if (!kpis || kpis.source !== 'graph') {
                 return;
             }
@@ -188,7 +189,7 @@ class DashboardApp {
                     if (colorClass) {
                         // Remove old color classes
                         el.classList.remove('positive', 'negative', 'neutral');
-                        // Add new color class if it's a simple element, 
+                        // Add new color class if it's a simple element,
                         // BUT for some elements like total-gain-loss, coloring is inline or specific.
                         // Let's rely on the HTML structure from ui.js reference.
                     }
@@ -216,7 +217,8 @@ class DashboardApp {
             updateEl('avg-cost-per-share', `<span style="color: ${dayColor}">${fmtPct(kpis.varTodayPct)}</span>`);
 
             console.log('[Dashboard] ✅ KPIs displayed successfully via IDs');
-        });
+        };
+        portfolioKPIs.addListener(this._kpiListener);
     }
 
     /**
