@@ -399,7 +399,12 @@ export class Storage {
         } catch (e) {
             if (e.name === 'QuotaExceededError') {
                 this.cleanOldData();
-                localStorage.setItem('purchases', JSON.stringify(this.purchases));
+                try {
+                    localStorage.setItem('purchases', JSON.stringify(this.purchases));
+                } catch {
+                    console.error('[storage] Quota localStorage dépassé — synchronisation Firestore requise');
+                    this.showStorageWarning?.();
+                }
             }
         }
     }
