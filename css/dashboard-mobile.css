@@ -509,9 +509,9 @@
         display: none !important;
     }
 
-    /* Holdings : masquer "% Port." (col 4) */
-    .kpi-detail-table--holding th:nth-child(4),
-    .kpi-detail-table--holding td:nth-child(4) {
+    /* Top Asset : masquer "% Port." (col 4) */
+    .kpi-detail-table--asset th:nth-child(4),
+    .kpi-detail-table--asset td:nth-child(4) {
         display: none !important;
     }
 }
