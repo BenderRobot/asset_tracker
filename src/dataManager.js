@@ -411,7 +411,7 @@ export class DataManager {
             const t = p.ticker.toUpperCase();
             const d = this.storage.getCurrentPrice(t) || {};
             const assetCurrency = d.currency || p.currency || 'EUR';
-            const currentPriceOriginal = d.price;
+            const currentPriceOriginal = d.price ?? null;
             const buyPriceOriginal = p.price;
 
             // currentPriceOriginal is already in EUR — storage.js converts USD→EUR at storage time
