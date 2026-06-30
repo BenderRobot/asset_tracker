@@ -39,9 +39,10 @@ export class PriceAPI {
     const yahooSymbol = YAHOO_MAP[upperTicker] || upperTicker;
     const assetCategory = this.storage.getAssetCategory(upperTicker);
 
-    return USD_TICKERS.has(upperTicker) ||
-      assetCategory === 'USA' ||
-      (!yahooSymbol.includes('.F') && !yahooSymbol.includes('.PA') && !yahooSymbol.includes('.AS'));
+    if (USD_TICKERS.has(upperTicker) || assetCategory === 'USA') return true;
+    if (/\.(PA|AS|F|DE|MI|BR|MC|LS|VI|SW|ST|CO|HE|OL|L|AX)$/i.test(yahooSymbol)) return false;
+    if (yahooSymbol.includes('-EUR')) return false;
+    return true;
   }
 
   formatTicker(ticker) {

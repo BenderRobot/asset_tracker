@@ -66,6 +66,10 @@ service cloud.firestore {
       match /cache/{cacheId} {
         allow read, write: if isOwner(userId);
       }
+
+      match /watchlistGroups/{document=**} {
+        allow read, write: if isOwner(userId);
+      }
     }
   }
 }
