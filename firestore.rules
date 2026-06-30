@@ -62,6 +62,10 @@ service cloud.firestore {
       match /assistantConversations/{convId} {
         allow read, write: if isOwner(userId);
       }
+
+      match /cache/{cacheId} {
+        allow read, write: if isOwner(userId);
+      }
     }
   }
 }
