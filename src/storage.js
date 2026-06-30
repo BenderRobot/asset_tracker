@@ -213,12 +213,7 @@ export class Storage {
 
         const docId = year ? `${ticker}_${interval}_${year}` : `${ticker}_${interval}`;
 
-        // 1. Essai Cache Public (Optionnel) - Try/Catch isolé
-        try {
-            // const doc = await db.collection('market_cache').doc(docId).get(); 
-        } catch (e) { }
-
-        // 2. Essai Cache Privé User
+        // 1. Essai Cache Privé User
         try {
             const userDoc = await db.collection('users').doc(user.uid).collection('market_cache').doc(docId).get();
 

@@ -114,7 +114,7 @@ async function cacheUserModules(user) {
         const snap = await db.collection('users').doc(user.uid).get();
         const data = snap.exists ? snap.data() : {};
         const isAdmin = data.isAdmin === true;
-        localStorage.setItem('isAdmin', isAdmin);
+        localStorage.setItem('isAdmin', isAdmin ? 'true' : 'false');
         if (isAdmin) {
             localStorage.removeItem('userModules');
             return;
@@ -192,7 +192,7 @@ form.addEventListener('submit', async (e) => {
             await markCodeAsUsed(codeDoc.id, email);
 
             // Mettre en cache les modules du nouveau compte
-            localStorage.setItem('isAdmin', false);
+            localStorage.setItem('isAdmin', 'false');
             localStorage.setItem('userModules', JSON.stringify(modules));
 
             isRegistering = false;

@@ -889,7 +889,7 @@ export class HistoricalChart {
         }
 
         // Stats
-        const finalYesterdayClose = (isUnitView || isIndexMode) ? this.lastYesterdayClose : this.lastYesterdayClose;
+        const finalYesterdayClose = this.lastYesterdayClose;
         const firstIndex = displayValues.findIndex(v => v !== null && !isNaN(v));
         let lastIndex = displayValues.length - 1;
         while (lastIndex >= 0 && (displayValues[lastIndex] === null || isNaN(displayValues[lastIndex]))) lastIndex--;
