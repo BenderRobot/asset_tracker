@@ -226,18 +226,15 @@ class DashboardApp {
     /**
      * Wait for Firebase Auth to be ready
      */
-    async waitForAuth(maxWait = 3000) {
-        const startTime = Date.now();
-
-        while (!auth.currentUser && (Date.now() - startTime < maxWait)) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        if (auth.currentUser) {
-            console.log('[Auth] User ready:', auth.currentUser.uid);
-        } else {
-            console.log('[Auth] Timeout waiting for user');
-        }
+    async waitForAuth() {
+        return new Promise(resolve => {
+            const unsub = auth.onAuthStateChanged(user => {
+                unsub();
+                if (user) console.log('[Auth] User ready:', user.uid);
+                else console.log('[Auth] No user');
+                resolve();
+            });
+        });
     }
 
     checkOnboardingBanner() {

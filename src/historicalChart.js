@@ -1710,10 +1710,6 @@ export class HistoricalChart {
                             maxRotation: 0,
                             autoSkip: true,
                             maxTicksLimit: 8,
-                            color: '#888',
-                            // Formater les labels pour afficher uniquement l'heure
-                            autoSkip: true,
-                            maxTicksLimit: 8,
                             color: '#888'
                         },
                         grid: { color: 'rgba(255, 255, 255, 0.05)' },
@@ -1796,6 +1792,7 @@ export class HistoricalChart {
 
     destroy() {
         this.stopAutoRefresh();
+        if (this._rangeController) this._rangeController.abort();
         if (this.chart) { this.chart.destroy(); this.chart = null; }
         eventBus.removeEventListener('showAssetChart', this._onShowAsset);
         eventBus.removeEventListener('clearAssetChart', this._onClearAsset);

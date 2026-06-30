@@ -4,7 +4,7 @@
 // investmentsPage.js - (v11 - Chargement Non-Bloquant)
 // ========================================
 
-import { PAGE_SIZE } from './config.js';
+import { PAGE_SIZE, USD_TO_EUR_FALLBACK_RATE } from './config.js';
 import { formatCurrency, formatPercent, formatQuantity } from './utils.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
@@ -373,17 +373,15 @@ export class InvestmentsPage {
 
         // Gain total de cet achat
         const buyValue = (purchase.price || 0) * (purchase.quantity || 0);
-        const currentPriceRaw = p.currentPrice || 0;
-        // Convert currentPrice to purchase currency if needed
-        const currentValueOfPurchase = currentPriceRaw * (purchase.quantity || 0);
+        const usdRate = buyCurrency === 'USD' ? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE) : 1;
         const purchaseGainEUR = p.currentPrice && purchase.price
-          ? (p.currentPrice - purchase.price) * (purchase.quantity || 0)
+          ? (p.currentPrice - purchase.price) * (purchase.quantity || 0) * usdRate
           : null;
         const purchaseGainPct = purchase.price && purchaseGainEUR !== null
           ? ((p.currentPrice - purchase.price) / purchase.price) * 100
           : null;
         const purchaseCurrentValue = p.currentPrice
-          ? p.currentPrice * (purchase.quantity || 0)
+          ? p.currentPrice * (purchase.quantity || 0) * usdRate
           : null;
 
         const gainClass = purchaseGainEUR > 0 ? 'positive' : purchaseGainEUR < 0 ? 'negative' : '';
@@ -629,10 +627,8 @@ export class InvestmentsPage {
         const searchInput = document.getElementById('search-input');
         if (searchInput) searchInput.value = '';
         this.currentSearchQuery = '';
-        // FIX: Call clearAllFilters twice to ensure single-click reset
         if (this.filterManager) {
           this.filterManager.clearAllFilters();
-          this.filterManager.clearAllFilters(); // Force complete reset
         }
         this.currentPage = 1;
         const benchmarkSelect = document.getElementById('benchmark-select');

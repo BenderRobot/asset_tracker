@@ -34,9 +34,10 @@ service cloud.firestore {
     // ── Per-user data ────────────────────────────────────────────────────
     match /users/{userId} {
       // Admin can read/write all user documents (for module management)
-      // Users can read/write their own document
-      allow read:  if isAdmin() || isOwner(userId);
-      allow write: if isAdmin() || isOwner(userId);
+      // Users can read/write their own document (but not delete it)
+      allow read:          if isAdmin() || isOwner(userId);
+      allow create, update: if isAdmin() || isOwner(userId);
+      allow delete:         if isAdmin();
 
       match /purchases/{purchaseId} {
         allow read, write: if isOwner(userId) || isAdmin();

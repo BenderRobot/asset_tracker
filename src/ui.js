@@ -2,6 +2,10 @@
 // ui.js - (v4 - Market Status dans Var Today)
 // ========================================
 
+function escHtml(str) {
+    return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 export class UIComponents {
     constructor(storage) {
         this.storage = storage;
@@ -91,8 +95,8 @@ export class UIComponents {
 		if (summary.bestAsset) {
 			const bestColor = summary.bestAsset.gainPct >= 0 ? '#10b981' : '#ef4444';
 			updateHTML('best-asset', `
-				<div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.bestAsset.name}">
-					${summary.bestAsset.name}
+				<div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escHtml(summary.bestAsset.name)}">
+					${escHtml(summary.bestAsset.name)}
 				</div>
 				<div style="font-size: 12px; color: ${bestColor}; margin-top: 2px;">
 					${formatPctSimple(summary.bestAsset.gainPct)}
@@ -103,8 +107,8 @@ export class UIComponents {
 		if (summary.worstAsset) {
 			const worstColor = summary.worstAsset.gainPct >= 0 ? '#10b981' : '#ef4444';
 			updateHTML('worst-asset', `
-				<div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.worstAsset.name}">
-					${summary.worstAsset.name}
+				<div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escHtml(summary.worstAsset.name)}">
+					${escHtml(summary.worstAsset.name)}
 				</div>
 				<div style="font-size: 12px; color: ${worstColor}; margin-top: 2px;">
 					${formatPctSimple(summary.worstAsset.gainPct)}
