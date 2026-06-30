@@ -1139,11 +1139,10 @@ class DashboardApp {
 
         container.querySelectorAll('.news-item-compact').forEach(item => {
             item.addEventListener('click', () => {
-                const idx = item.dataset.index;
+                const idx = parseInt(item.dataset.index, 10);
                 const dataType = item.dataset.type;
                 const data = dataType === 'portfolio' ? this.portfolioNews[idx] : this.globalNews[idx];
-                console.log('[News Click] Opening modal for:', data?.title);
-                console.log('[News Click] openNewsModal exists?', typeof this.openNewsModal);
+                if (!data) return;
                 this.openNewsModal(data);
             });
         });
