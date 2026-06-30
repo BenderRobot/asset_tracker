@@ -1,4 +1,4 @@
-import { auth } from './firebase.js';
+import { auth } from './firebaseConfig.js';
 import { MarketDataSync } from './marketDataSync.js';
 
 /**

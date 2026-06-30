@@ -249,7 +249,10 @@ export class PortfolioCalculator {
                 if (purchaseDate.getTime() <= ts) {
                     const t = p.ticker.toUpperCase();
                     quantities.set(t, (quantities.get(t) || 0) + p.quantity);
-                    if (p.quantity > 0) investedAtTs += p.price * p.quantity;
+                    if (p.quantity > 0) {
+                        const pRate = (p.currency === 'USD') ? dynamicRate : 1;
+                        investedAtTs += p.price * p.quantity * pRate;
+                    }
                 }
             });
 

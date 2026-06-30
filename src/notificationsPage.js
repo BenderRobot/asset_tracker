@@ -64,9 +64,10 @@ class NotificationsPage {
     }
 
     subscribeToRulesUI(uid) {
-        // Redundant listener specifically for rendering the list
-        // (NM listener is for checking alerts in background)
-        this.nm.db.collection('users').doc(uid).collection('notificationRules')
+        if (this._unsubRules)    this._unsubRules();
+        if (this._unsubSettings) this._unsubSettings();
+
+        this._unsubRules = this.nm.db.collection('users').doc(uid).collection('notificationRules')
             .onSnapshot(snapshot => {
                 const rules = [];
                 snapshot.forEach(doc => {
@@ -75,8 +76,7 @@ class NotificationsPage {
                 this.renderRules(rules);
             });
 
-        // Listener for Settings UI
-        this.nm.db.collection('users').doc(uid).collection('settings').doc('notifications')
+        this._unsubSettings = this.nm.db.collection('users').doc(uid).collection('settings').doc('notifications')
             .onSnapshot(doc => {
                 if (doc.exists) {
                     this.updateSettingsUI(doc.data());
