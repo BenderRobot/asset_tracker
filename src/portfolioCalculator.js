@@ -232,7 +232,8 @@ export class PortfolioCalculator {
             let investedAtTs = 0;
 
             assetPurchases.forEach(p => {
-                if (p.date.getTime() <= ts) {
+                const purchaseDate = p.date instanceof Date ? p.date : new Date(p.date);
+                if (purchaseDate.getTime() <= ts) {
                     const t = p.ticker.toUpperCase();
                     quantities.set(t, (quantities.get(t) || 0) + p.quantity);
                     investedAtTs += p.price * p.quantity; // Simplifié (devrait gérer devise)
