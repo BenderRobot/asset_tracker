@@ -18,9 +18,6 @@ auth.onAuthStateChanged(async user => {
         return;
     }
 
-    // L'admin a accès à tout
-    if (localStorage.getItem('isAdmin') === 'true') return;
-
     // Vérifier si cette page nécessite un module
     const currentPage = window.location.pathname.split('/').pop() || 'index.html';
     const requiredModule = PAGE_TO_MODULE[currentPage];
@@ -28,9 +25,13 @@ auth.onAuthStateChanged(async user => {
 
     try {
         const snap = await db.collection('users').doc(user.uid).get();
-        const modules = snap.exists ? (snap.data().modules || {}) : {};
+        const data = snap.exists ? snap.data() : {};
+
+        // L'admin a accès à tout — vérifié depuis Firestore, jamais depuis localStorage
+        if (data.isAdmin === true) return;
+
+        const modules = data.modules || {};
         if (modules[requiredModule] === false) {
-            // Module désactivé → rediriger vers dashboard
             window.location.href = 'dashboard.html';
         }
     } catch (e) {
