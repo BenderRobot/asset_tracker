@@ -1112,6 +1112,14 @@ export class HistoricalChart {
             const periodMap = { 1: '1d', 7: '1w', 30: '1m', 90: '3m', 365: '1y', 1825: '5y' };
             const periodLabel = periodMap[this.currentPeriod] || `${this.currentPeriod}d`;
 
+            // For 1D portfolio: intraday graph data is fresher than snapshot prices at market open.
+            // Use priceEnd (last graph value) as source of truth for Total Value / Total Return.
+            const use1DGraphForKPI = this.currentPeriod === 1 && !isSingleAsset && !isIndexMode
+                && priceEnd !== null && !isNaN(priceEnd) && priceEnd > 0;
+            const kpiInvestedBasis = (kpiData && kpiData.totalValue != null && kpiData.totalReturn != null)
+                ? kpiData.totalValue - kpiData.totalReturn
+                : null;
+
             portfolioKPIs.updateFromGraph({
                 values: graphData.values,
                 invested: summary.totalInvestedEUR,
@@ -1119,9 +1127,9 @@ export class HistoricalChart {
                 vsYesterdayPct: vsYesterdayPct,
                 period: periodLabel,
                 cashDetails: { total: kpiData ? kpiData.cash : 0 },
-                liveTotalValue: kpiData ? kpiData.totalValue : null,
-                liveTotalReturn: kpiData ? kpiData.totalReturn : null,
-                liveTotalReturnPct: kpiData ? kpiData.totalReturnPct : null
+                liveTotalValue: use1DGraphForKPI ? priceEnd : (kpiData ? kpiData.totalValue : null),
+                liveTotalReturn: (use1DGraphForKPI && kpiInvestedBasis != null) ? priceEnd - kpiInvestedBasis : (kpiData ? kpiData.totalReturn : null),
+                liveTotalReturnPct: (use1DGraphForKPI && kpiInvestedBasis > 0) ? ((priceEnd - kpiInvestedBasis) / kpiInvestedBasis) * 100 : (kpiData ? kpiData.totalReturnPct : null)
             });
 
 
