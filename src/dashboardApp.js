@@ -132,6 +132,7 @@ class DashboardApp {
 
         // Load fresh data in background
         this.refreshDataInBackground();
+        this.loadPortfolioData();
 
         // Setup controls AVANT l'init du graphique pour que activeView soit déjà lisible
         // (initHistoricalChart tourne dans un setTimeout(50ms) mais loadMarketIndices est awaited
