@@ -239,6 +239,7 @@ export class PortfolioCalculator {
             }
         });
 
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
         displayTimestamps.forEach(ts => {
             // A. Calculer la quantité détenue à cet instant 'ts'
             const quantities = new Map();

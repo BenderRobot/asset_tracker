@@ -834,7 +834,7 @@ export class HistoricalChart {
         // La logique de filtrage des données (UTC fix dans getStartEndTs) suffit à garantir la bonne journée.
         let chartXMin = undefined;
         let chartXMax = undefined;
-        const canvasCtx = canvas.getContext('2d'); // eslint-disable-line no-unused-vars
+        const canvasCtx = canvas.getContext('2d');
         const info = document.getElementById('chart-info');
         if (info) info.style.display = 'none';
 
@@ -1584,7 +1584,7 @@ export class HistoricalChart {
             }
         };
 
-        this.chart = new Chart(ctx, {
+        this.chart = new Chart(canvasCtx, {
             type: 'line',
             plugins: [_bicolorPlugin, _rangePlugin],
             data: { labels: graphData.labels, datasets },
