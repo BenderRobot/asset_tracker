@@ -110,19 +110,25 @@ class AnalyticsApp {
             if (el) el.textContent = value;
         };
 
-        setValue('total-value', this.formatEUR(summary.totalValue));
+        // Total Value: assets (incl. RE) + cash deposits only (matches investments page + RE)
+        const dividends = summary.dividendsReceived || 0;
+        const displayValue = summary.totalValue + (summary.cashReserve || 0) - dividends;
+        setValue('total-value', this.formatEUR(displayValue));
         setValue('total-invested', `Invested: ${this.formatEUR(summary.totalInvested)}`);
 
+        // Total Return: matches investments page formula (financial gain - dividends + RE gain)
+        const displayReturn = summary.totalGain - dividends;
         const returnEl = document.getElementById('total-return');
         if (returnEl) {
-            returnEl.textContent = this.formatEUR(summary.totalGain);
-            returnEl.style.color = summary.totalGain >= 0 ? '#10b981' : '#ef4444';
+            returnEl.textContent = this.formatEUR(displayReturn);
+            returnEl.style.color = displayReturn >= 0 ? '#10b981' : '#ef4444';
         }
 
         const pctEl = document.getElementById('return-pct');
         if (pctEl) {
-            pctEl.textContent = this.formatPct(summary.totalGainPct);
-            pctEl.style.color = summary.totalGainPct >= 0 ? '#10b981' : '#ef4444';
+            const displayReturnPct = summary.totalInvested > 0 ? (displayReturn / summary.totalInvested) * 100 : 0;
+            pctEl.textContent = this.formatPct(displayReturnPct);
+            pctEl.style.color = displayReturnPct >= 0 ? '#10b981' : '#ef4444';
         }
 
         // Update Win Rate from summary

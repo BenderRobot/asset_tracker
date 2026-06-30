@@ -569,6 +569,10 @@ export class DataManager {
         const summary = this.calculateSummary(holdings);
         const cashReserve = this.calculateCashReserve(cashPurchases);
 
+        const dividendsReceived = cashPurchases
+            .filter(p => (p.assetType || '').toLowerCase() === 'dividend' || p.type === 'dividend')
+            .reduce((sum, p) => sum + (p.price || 0) * (p.quantity || 1), 0);
+
         // Calculate performance before creating summary to get winRate
         const performance = this.analyzePerformance(holdings);
 
@@ -584,6 +588,7 @@ export class DataManager {
                 dayChange: summary.totalDayChangeEUR,
                 dayChangePct: summary.dayChangePct,
                 cashReserve: cashReserve.total,
+                dividendsReceived,
                 winRate: performance.winRate  // Add winRate to summary
             },
             diversification: this.calculateDiversification(holdings),
