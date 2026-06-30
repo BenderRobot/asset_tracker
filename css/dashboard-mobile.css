@@ -466,4 +466,52 @@
         flex-shrink: 0 !important;
         margin-left: 4px !important;
     }
+
+    /* --- KPI DETAIL MODAL (Top Gainer / Loser / Holdings) --- */
+    .kpi-modal-overlay {
+        padding: 8px !important;
+        align-items: flex-end !important;
+    }
+
+    .kpi-modal-box {
+        max-height: 80vh !important;
+        border-radius: 16px 16px 0 0 !important;
+    }
+
+    .kpi-modal-header {
+        padding: 12px 14px !important;
+    }
+
+    /* Compact cells */
+    .kpi-detail-table thead th,
+    .kpi-detail-table tbody td {
+        padding: 8px 6px !important;
+        font-size: 11px !important;
+    }
+
+    .kpi-modal-name {
+        font-size: 11px !important;
+    }
+
+    .kpi-modal-sub {
+        font-size: 9px !important;
+    }
+
+    /* Gainer / Loser : masquer "Investi" (col 3) et "+/- €" (col 5) */
+    .kpi-detail-table--gainer th:nth-child(3),
+    .kpi-detail-table--gainer td:nth-child(3),
+    .kpi-detail-table--gainer th:nth-child(5),
+    .kpi-detail-table--gainer td:nth-child(5),
+    .kpi-detail-table--loser th:nth-child(3),
+    .kpi-detail-table--loser td:nth-child(3),
+    .kpi-detail-table--loser th:nth-child(5),
+    .kpi-detail-table--loser td:nth-child(5) {
+        display: none !important;
+    }
+
+    /* Holdings : masquer "% Port." (col 4) */
+    .kpi-detail-table--holding th:nth-child(4),
+    .kpi-detail-table--holding td:nth-child(4) {
+        display: none !important;
+    }
 }

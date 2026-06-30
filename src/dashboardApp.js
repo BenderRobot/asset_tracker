@@ -1890,7 +1890,7 @@ class DashboardApp {
         const fmt = v => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(v);
         const totalValue = sortedItems.reduce((s, h) => s + (h.currentValue || 0), 0);
 
-        let html = '<table class="kpi-detail-table"><thead><tr>';
+        let html = `<table class="kpi-detail-table kpi-detail-table--${type}"><thead><tr>`;
         if (type === 'gainer' || type === 'loser') {
             html += '<th>#</th><th>Actif</th><th>Investi</th><th>Valeur</th><th>+/- €</th><th>+/- %</th>';
         } else {
