@@ -82,30 +82,20 @@ if (toggleModeBtn) {
     });
 }
 
-// Validate invitation code
-async function validateInvitationCode(code) {
-    const doc = await db.collection('invitationCodes').doc(code.toUpperCase()).get();
-
-    if (!doc.exists) return null;
-
-    const data = doc.data();
-
-    if (data.status !== 'available') return null;
-
-    if (data.expiresAt && Date.now() > data.expiresAt) {
-        return null;
-    }
-
-    return { id: doc.id, ...data };
-}
-
-// Mark code as used
-async function markCodeAsUsed(codeId, userEmail) {
-    await db.collection('invitationCodes').doc(codeId).update({
-        status: 'used',
-        usedBy: userEmail,
-        usedAt: Date.now()
+// Validate and atomically consume an invitation code (prevents TOCTOU race)
+async function validateAndConsumeInvitationCode(code, userEmail) {
+    const ref = db.collection('invitationCodes').doc(code.toUpperCase());
+    let codeData = null;
+    await db.runTransaction(async (txn) => {
+        const doc = await txn.get(ref);
+        if (!doc.exists) throw new Error('invalid');
+        const data = doc.data();
+        if (data.status !== 'available') throw new Error('invalid');
+        if (data.expiresAt && Date.now() > data.expiresAt) throw new Error('invalid');
+        codeData = { id: doc.id, ...data };
+        txn.update(ref, { status: 'used', usedBy: userEmail, usedAt: Date.now() });
     });
+    return codeData;
 }
 
 // Charger et mettre en cache les modules de l'utilisateur dans localStorage
@@ -162,8 +152,11 @@ form.addEventListener('submit', async (e) => {
         }
 
         try {
-            const codeDoc = await validateInvitationCode(invitationCode);
-            if (!codeDoc) {
+            // Atomically claim the code before creating the account — prevents race conditions
+            let codeDoc;
+            try {
+                codeDoc = await validateAndConsumeInvitationCode(invitationCode, email);
+            } catch {
                 setLoading(false);
                 displayError("Code d'invitation invalide, expiré ou déjà utilisé.");
                 return;
@@ -187,9 +180,6 @@ form.addEventListener('submit', async (e) => {
                 invitationCode: invitationCode,
                 modules
             });
-
-            // Mark code as used — DOIT s'exécuter avant le redirect
-            await markCodeAsUsed(codeDoc.id, email);
 
             // Mettre en cache les modules du nouveau compte
             localStorage.setItem('isAdmin', 'false');
