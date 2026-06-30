@@ -301,35 +301,15 @@ class DashboardApp {
         return /^[A-Z]+-[A-Z]{3}$/.test(ticker);
     }
 
-    async loadPortfolioData() {
+    async loadPortfolioDataLight() {
         try {
             const purchases = this.storage.getPurchases();
-            // FILTER: Exclure Real Estate du Dashboard Global
             const marketPurchases = purchases.filter(p => p.assetType !== 'Real Estate');
-
             const holdings = this.dataManager.calculateHoldings(marketPurchases);
-            const cash = this.dataManager.calculateCashReserve(marketPurchases); // Important: Cash lié aux transactions filtrées
-
-            // NOTE: Si le cash est global, il faudrait peut-être ne pas filtrer 'marketPurchases' pour le cash
-            // Mais pour l'instant, on suppose que tout ce qui n'est pas Real Estate est "Marché"
-
             const summary = this.dataManager.calculateSummary(holdings);
-
-            console.log('Dashboard Data Loaded:', { holdingsCount: holdings.length, totalValue: summary.totalValue });
-
-            // CRITICAL: DO NOT call renderData here - it would overwrite portfolioKPIs values!
-            // KPIs are managed by portfolioKPIs singleton (updated by graph, displayed by subscribeToKPIs)
-            // this.mockPageInterface.renderData(holdings, summary, cash.total);
-
-            // Mise à jour du graphique principal avec les données filtrées
-            if (this.historicalChart) {
-                // On doit passer les données filtrées au chart si possible
-                // Actuellement le chart lit directement depuis le storage.
-                // Il faudra peut-être adapter HistoricalChart pour accepter un filtre
-            }
-
+            console.log('Dashboard Data Loaded (light):', { holdingsCount: holdings.length, totalValue: summary.totalValue });
         } catch (error) {
-            console.error('Error loading portfolio data:', error);
+            console.error('Error loading portfolio data (light):', error);
         }
     }
 
