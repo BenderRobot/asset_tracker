@@ -282,7 +282,10 @@ export class HistoricalChart {
     }
 
     async update(showLoading = true, forceApi = true) {
-        if (this.isLoading) return;
+        if (this.isLoading) {
+            this._pendingUpdate = { showLoading, forceApi };
+            return;
+        }
         const canvas = document.getElementById('historical-portfolio-chart');
         if (!canvas) return;
 
@@ -699,6 +702,11 @@ export class HistoricalChart {
         } finally {
             if (showLoading && loading) loading.style.display = 'none';
             this.isLoading = false;
+            if (this._pendingUpdate) {
+                const p = this._pendingUpdate;
+                this._pendingUpdate = null;
+                this.update(p.showLoading, p.forceApi);
+            }
         }
     }
 
@@ -819,7 +827,7 @@ export class HistoricalChart {
         // La logique de filtrage des données (UTC fix dans getStartEndTs) suffit à garantir la bonne journée.
         let chartXMin = undefined;
         let chartXMax = undefined;
-        const ctx = canvas.getContext('2d');
+        const canvasCtx = canvas.getContext('2d'); // eslint-disable-line no-unused-vars
         const info = document.getElementById('chart-info');
         if (info) info.style.display = 'none';
 
@@ -1760,7 +1768,8 @@ export class HistoricalChart {
     showMessage(message, type = 'info') {
         const info = document.getElementById('chart-info');
         if (!info) return;
-        info.innerHTML = `${type === 'error' ? '⚠️' : 'ℹ️'} ${message}`;
+        info.textContent = '';
+        info.appendChild(document.createTextNode((type === 'error' ? '⚠️ ' : 'ℹ️ ') + message));
         info.style.display = 'block';
         info.style.color = type === 'error' ? '#dc3545' : '#666';
         const loading = document.getElementById('chart-loading');
