@@ -84,8 +84,9 @@ export class DataManager {
         cashMovements.forEach(move => {
             const broker = move.broker || 'Unknown';
             if (!byBroker[broker]) byBroker[broker] = 0;
-            byBroker[broker] += move.price;
-            total += move.price;
+            const amount = (move.price || 0) * (move.quantity || 1);
+            byBroker[broker] += amount;
+            total += amount;
         });
         return { total, byBroker };
     }

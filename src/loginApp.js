@@ -164,21 +164,35 @@ form.addEventListener('submit', async (e) => {
             // Bloquer le redirect automatique de onAuthStateChanged pendant l'inscription
             isRegistering = true;
 
-            // Create account
-            const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+            // Create account — if Auth fails, rollback the invitation code
+            let userCredential;
+            try {
+                userCredential = await auth.createUserWithEmailAndPassword(email, password);
+            } catch (authError) {
+                try {
+                    await db.collection('invitationCodes').doc(invitationCode.toUpperCase())
+                        .update({ status: 'available', usedBy: null, usedAt: null });
+                } catch (_) {}
+                throw authError;
+            }
 
             // Apply modules from the invitation code (fallback: all enabled)
             const modules = (codeDoc.modules && typeof codeDoc.modules === 'object')
                 ? codeDoc.modules
                 : allModulesEnabled();
 
-            // Create user document in Firestore
-            await db.collection('users').doc(userCredential.user.uid).set({
-                email: email,
-                createdAt: Date.now(),
-                invitationCode: invitationCode,
-                modules
-            });
+            // Create user document in Firestore — if Firestore fails, delete the Auth account
+            try {
+                await db.collection('users').doc(userCredential.user.uid).set({
+                    email: email,
+                    createdAt: Date.now(),
+                    invitationCode: invitationCode,
+                    modules
+                });
+            } catch (firestoreError) {
+                await userCredential.user.delete();
+                throw firestoreError;
+            }
 
             // Mettre en cache les modules du nouveau compte
             localStorage.setItem('isAdmin', 'false');
