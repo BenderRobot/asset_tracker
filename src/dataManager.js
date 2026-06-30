@@ -185,9 +185,9 @@ export class DataManager {
             // FIX: Re-calculate avgPriceEUR after investedEUR is finalized
             const avgPriceEUR = (data.quantity > 0) ? investedEUR / data.quantity : 0;
 
-            const currentValueEUR = currentValue || null; // currentRate already applied above
-            const gainEUR = currentValueEUR ? currentValueEUR - investedEUR : null;
-            const gainPct = investedEUR > 0 && gainEUR ? (gainEUR / investedEUR) * 100 : null;
+            const currentValueEUR = currentValue ?? null; // currentRate already applied above
+            const gainEUR = currentValueEUR !== null ? currentValueEUR - investedEUR : null;
+            const gainPct = investedEUR > 0 && gainEUR !== null ? (gainEUR / investedEUR) * 100 : null;
 
             let dayChange = null;
             let dayPct = null;

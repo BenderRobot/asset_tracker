@@ -290,7 +290,7 @@ export class InvestmentsPage {
         if (this.api.isMarketClosed()) {
           this.render(this.currentSearchQuery, false);
         }
-      });
+      }).catch(err => console.warn('[investmentsPage] yesterdayClose background calc failed:', err));
     }
   }
 
@@ -516,7 +516,7 @@ export class InvestmentsPage {
     // --- FIN LOGIQUE D'ÉCRASEMENT ---
 
     // === MODIF : Passage de marketStatus (utilise finalSummary) ===
-    this.ui.updatePortfolioSummary(finalSummary, summary.movementsCount, cashReserveTotal, this.marketStatus); // <-- Utilise finalSummary
+    this.ui.updatePortfolioSummary(finalSummary, filteredSummary.movementsCount, cashReserveTotal, this.marketStatus);
 
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;

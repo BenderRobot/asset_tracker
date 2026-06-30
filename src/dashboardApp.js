@@ -93,7 +93,7 @@ class DashboardApp {
             } else {
                 console.log('[Dashboard] FCM initialization failed or not supported');
             }
-        });
+        }).catch(err => console.warn('[Dashboard] FCM init error:', err));
 
         this.init();
     }
@@ -1484,7 +1484,7 @@ class DashboardApp {
                 priceStr = currentPrice.toFixed(4);
                 changeDecimals = 4;
             } else {
-                priceStr = currentPrice.toFixed(2).toLocaleString('fr');
+                priceStr = currentPrice.toLocaleString('fr', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             }
 
             const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(changeDecimals)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;

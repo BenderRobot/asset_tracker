@@ -135,7 +135,7 @@ export class HistoricalChart {
     startAutoRefresh() {
         this.stopAutoRefresh();
         if (this.currentPeriod === 1) {
-            setTimeout(() => {
+            this._autoRefreshTimeout = setTimeout(() => {
                 if (this.currentPeriod === 1) this.silentUpdate();
             }, 30000);
             this.autoRefreshInterval = setInterval(() => {
@@ -145,6 +145,10 @@ export class HistoricalChart {
     }
 
     stopAutoRefresh() {
+        if (this._autoRefreshTimeout) {
+            clearTimeout(this._autoRefreshTimeout);
+            this._autoRefreshTimeout = null;
+        }
         if (this.autoRefreshInterval) {
             clearInterval(this.autoRefreshInterval);
             this.autoRefreshInterval = null;
@@ -1016,14 +1020,11 @@ export class HistoricalChart {
         if (isSingleAsset && !isUnitView && !isIndexMode && currentTicker) {
             const currentPriceData = this.storage.getCurrentPrice(currentTicker);
             if (currentPriceData && currentPriceData.price) {
-                // Calculer la Valeur Totale Live
-                const purchases = this.storage.getPurchases();
+                // Calculer la Valeur Totale Live (utiliser le même filtre que le graphique)
+                const purchases = this.getFilteredPurchasesFromPage(false)
+                    .filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
                 let totalQty = 0;
-                purchases.forEach(p => {
-                    if (p.ticker.toUpperCase() === currentTicker.toUpperCase()) {
-                        totalQty += p.quantity;
-                    }
-                });
+                purchases.forEach(p => { totalQty += p.quantity; });
                 if (totalQty > 0) {
                     const liveTotalValue = currentPriceData.price * totalQty;
                     console.log(`[KPI AUTO-FIX] Sycing PriceEnd (${priceEnd.toFixed(2)}) with Live Snapshot (${liveTotalValue.toFixed(2)})`);

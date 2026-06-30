@@ -13,8 +13,9 @@ export class PortfolioCalculator {
 
     calculateHoldings(purchases) {
         const assetMap = new Map();
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
 
-        // A. Agrégation des achats par ticker
+        // A. Agrégation des achats par ticker — invested est toujours en EUR
         purchases.forEach(p => {
             if (p.type === 'dividend') return; // Les dividendes sont traités à part (Cash)
 
@@ -30,9 +31,10 @@ export class PortfolioCalculator {
             }
             const asset = assetMap.get(ticker);
             const qty = parseFloat(p.quantity);
+            const purchaseRate = (p.currency === 'USD') ? dynamicRate : 1;
             if (qty > 0) {
                 asset.quantity += qty;
-                asset.invested += parseFloat(p.price) * qty;
+                asset.invested += parseFloat(p.price) * qty * purchaseRate; // toujours en EUR
             } else {
                 const sellQty = Math.abs(qty);
                 if (asset.quantity > 0) {
@@ -71,14 +73,13 @@ export class PortfolioCalculator {
             const previousCloseOriginal = currentPriceData.previousClose || currentPriceOriginal;
             const currency = currentPriceData.currency || 'EUR';
 
-            const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
             const rate = (currency === 'USD') ? dynamicRate : 1;
 
             const currentPrice = currentPriceOriginal;
             const previousClose = previousCloseOriginal;
 
-            const avgPriceEUR = data.quantity > 0 ? (data.invested / data.quantity) * rate : 0; // Approx si achats mixtes devises
-            const investedEUR = data.invested * rate; // Approx
+            const investedEUR = data.invested; // déjà en EUR (normalisé à l'achat)
+            const avgPriceEUR = data.quantity > 0 ? investedEUR / data.quantity : 0;
             const currentValueEUR = currentPrice * rate * data.quantity;
 
             const gainEUR = currentValueEUR - investedEUR;
@@ -248,7 +249,7 @@ export class PortfolioCalculator {
                 if (purchaseDate.getTime() <= ts) {
                     const t = p.ticker.toUpperCase();
                     quantities.set(t, (quantities.get(t) || 0) + p.quantity);
-                    investedAtTs += p.price * p.quantity; // Simplifié (devrait gérer devise)
+                    if (p.quantity > 0) investedAtTs += p.price * p.quantity;
                 }
             });
 
