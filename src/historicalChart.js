@@ -1112,9 +1112,9 @@ export class HistoricalChart {
             const periodMap = { 1: '1d', 7: '1w', 30: '1m', 90: '3m', 365: '1y', 1825: '5y' };
             const periodLabel = periodMap[this.currentPeriod] || `${this.currentPeriod}d`;
 
-            // For 1D portfolio: intraday graph data is fresher than snapshot prices at market open.
+            // Graph's last value is always more accurate than stale snapshot prices (all periods).
             // Use priceEnd (last graph value) as source of truth for Total Value / Total Return.
-            const use1DGraphForKPI = this.currentPeriod === 1 && !isSingleAsset && !isIndexMode
+            const use1DGraphForKPI = !isSingleAsset && !isIndexMode
                 && priceEnd !== null && !isNaN(priceEnd) && priceEnd > 0;
             const kpiInvestedBasis = (kpiData && kpiData.totalValue != null && kpiData.totalReturn != null)
                 ? kpiData.totalValue - kpiData.totalReturn
