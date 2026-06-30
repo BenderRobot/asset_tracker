@@ -29,12 +29,24 @@ export class PortfolioCalculator {
                 });
             }
             const asset = assetMap.get(ticker);
-            asset.quantity += parseFloat(p.quantity);
-            // Sell logic usually negative quantity, but confirm:
-            // Standard purchases have positive quantity/price.
-            // If selling, quantity should be negative in input or handled here.
-            // Assuming p.quantity is signed correctly in storage.js or here.
-            asset.invested += parseFloat(p.price) * parseFloat(p.quantity);
+            const qty = parseFloat(p.quantity);
+            if (qty > 0) {
+                asset.quantity += qty;
+                asset.invested += parseFloat(p.price) * qty;
+            } else {
+                const sellQty = Math.abs(qty);
+                if (asset.quantity > 0) {
+                    const ratio = Math.min(sellQty / asset.quantity, 1);
+                    asset.invested -= asset.invested * ratio;
+                    asset.quantity -= sellQty;
+                } else {
+                    asset.quantity -= sellQty;
+                }
+                if (asset.quantity <= 0.000001) {
+                    asset.quantity = 0;
+                    asset.invested = 0;
+                }
+            }
             asset.purchases.push(p);
         });
 
