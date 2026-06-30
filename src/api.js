@@ -465,7 +465,6 @@ export class PriceAPI {
         });
 
         tickersResult.push(ticker);
-        await sleep(500);
 
       } catch (err) {
         console.warn(`Price Proxy error for ${ticker}: ${err.message}`);

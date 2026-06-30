@@ -125,15 +125,14 @@ form.addEventListener('submit', async (e) => {
 
     if (isLoginMode) {
         // LOGIN
-        auth.signInWithEmailAndPassword(email, password)
-            .then(async (userCredential) => {
-                await cacheUserModules(userCredential.user);
-                window.location.href = 'dashboard.html';
-            })
-            .catch(error => {
-                setLoading(false);
-                firebaseError(error);
-            });
+        try {
+            const userCredential = await auth.signInWithEmailAndPassword(email, password);
+            await cacheUserModules(userCredential.user);
+            window.location.href = 'dashboard.html';
+        } catch (error) {
+            setLoading(false);
+            firebaseError(error);
+        }
     } else {
         // REGISTER
         const confirmPassword = confirmPasswordInput.value;
