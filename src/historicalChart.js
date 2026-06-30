@@ -233,6 +233,10 @@ export class HistoricalChart {
 
     async changePeriod(days) {
         if (this.isLoading) return;
+        if (days !== 1) {
+            this.cached1DVarToday = undefined;
+            this.cached1DVarTodayPct = undefined;
+        }
         this.stopAutoRefresh();
         await this.update(true, true);
         this.startAutoRefresh();
@@ -791,6 +795,9 @@ export class HistoricalChart {
         } else if (days === 2) {
             const twoDaysAgo = new Date(today);
             twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);
+            while (twoDaysAgo.getDay() === 0 || twoDaysAgo.getDay() === 6) {
+                twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);
+            }
             displayStartUTC = new Date(Date.UTC(twoDaysAgo.getFullYear(), twoDaysAgo.getMonth(), twoDaysAgo.getDate(), 0, 0, 0));
         } else if (days === 'ytd') {
             displayStartUTC = new Date(Date.UTC(today.getFullYear(), 0, 1, 0, 0, 0));
@@ -1263,6 +1270,16 @@ export class HistoricalChart {
                         break;
                     }
                 }
+                if (!startBenchPrice) {
+                    // Benchmark commence après le début du portfolio : chercher le premier point commun
+                    for (let fi = firstIndex; fi < graphData.timestamps.length; fi++) {
+                        const gTs = graphData.timestamps[fi];
+                        for (let bi = benchTs.length - 1; bi >= 0; bi--) {
+                            if (benchTs[bi] <= gTs) { startBenchPrice = benchmarkData[benchTs[bi]]; break; }
+                        }
+                        if (startBenchPrice) { firstIndex = fi; break; }
+                    }
+                }
                 if (!startBenchPrice) startBenchPrice = benchmarkData[benchTs[0]];
 
                 if (startBenchPrice) {
@@ -1653,6 +1670,7 @@ export class HistoricalChart {
                                             // Pour la vue 1D Portfolio : utiliser le TWR du point survolé
                                             if (this.currentPeriod === 1 && !isSingleAsset && !isIndexMode && graphData.twr && ctx.dataIndex !== undefined) {
                                                 const twrAtPoint = graphData.twr[ctx.dataIndex];
+                                                if (twrAtPoint === null || twrAtPoint === undefined) return lines;
                                                 // TWR 1.0 = yesterdayClose → 0%, utiliser closeVal (= referenceClose = yesterdayClose) comme base monétaire
                                                 changePct = (twrAtPoint - 1.0) * 100;
                                                 changeAbs = (changePct / 100) * closeVal;

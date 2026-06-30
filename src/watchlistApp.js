@@ -3,6 +3,10 @@ import { PRICE_PROXY_URL } from './config.js';
 import { auth } from './firebaseConfig.js';
 import logger from '../utils/logger.js';
 
+function escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 const PROXY = PRICE_PROXY_URL;
 
 class WatchlistApp {
@@ -151,7 +155,7 @@ class WatchlistApp {
                                 word-break:break-word;
                                 max-height:40px;
                                 overflow:hidden;
-                            ">${group.name}</div>
+                            ">${escHtml(group.name)}</div>
                         </div>
                         <div style="
                             background:rgba(59,130,246,0.2);
@@ -356,8 +360,8 @@ class WatchlistApp {
                     background:var(--bg-lighter);
                 ">
                     <div>
-                        <div style="font-weight:600; color:var(--text-color);">${asset.ticker}</div>
-                        <div style="font-size:12px; color:var(--text-muted);">${asset.name}</div>
+                        <div style="font-weight:600; color:var(--text-color);">${escHtml(asset.ticker)}</div>
+                        <div style="font-size:12px; color:var(--text-muted);">${escHtml(asset.name)}</div>
                     </div>
                     <button class="asset-toggle-btn ${btnClass}" data-ticker="${asset.ticker}" data-in-group="${isInGroup}" style="
                         padding:6px 12px; 
@@ -443,8 +447,8 @@ class WatchlistApp {
                     bVal = (b.detail?.dividendYield?.raw ?? b.detail?.trailingAnnualDividendYield?.raw ?? 0) * 100;
                     break;
                 case 'change':
-                    aVal = a.priceData?.regularMarketChange?.raw ?? 0;
-                    bVal = b.priceData?.regularMarketChange?.raw ?? 0;
+                    aVal = a.priceData?.regularMarketChangePercent?.raw ?? 0;
+                    bVal = b.priceData?.regularMarketChangePercent?.raw ?? 0;
                     break;
                 default:
                     return 0;

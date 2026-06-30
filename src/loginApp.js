@@ -190,7 +190,11 @@ form.addEventListener('submit', async (e) => {
                     modules
                 });
             } catch (firestoreError) {
-                await userCredential.user.delete();
+                try {
+                    await db.collection('invitationCodes').doc(invitationCode.toUpperCase())
+                        .update({ status: 'available', usedBy: null, usedAt: null });
+                } catch (_) {}
+                try { await userCredential.user.delete(); } catch (_) {}
                 throw firestoreError;
             }
 

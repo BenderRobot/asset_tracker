@@ -8,6 +8,12 @@ import { sleep } from './utils.js';
 
 const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 
+function _fetchTimeout(url, ms) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(tid));
+}
+
 // Les providerStats sont simplifiés car le proxy est la seule source du Frontend
 const providerStats = {
   GCP_PROXY: { success: 0, fails: 0, lastError: null }
@@ -128,7 +134,7 @@ export class PriceAPI {
       const interval = isBitcoin ? '5m' : '1d';
       const url = `${PRICE_PROXY_URL}?symbol=${symbol}&type=${type}&range=5d&interval=${interval}`;
 
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const res = await _fetchTimeout(url, 8000);
       if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
 
       const data = await res.json();
@@ -305,7 +311,7 @@ export class PriceAPI {
         // L'intervalle 5m renvoyait parfois des NAV post-clôture ou des incohérences pour les ETF.
         const url = `${PRICE_PROXY_URL}?symbol=${symbol}&type=${type}&range=5d&interval=1d`;
 
-        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const res = await _fetchTimeout(url, 8000);
         if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
 
         const data = await res.json();
@@ -540,7 +546,7 @@ export class PriceAPI {
 
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
-        const response = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
+        const response = await _fetchTimeout(proxyUrl, 10000);
         if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
 
         const data = await response.json();
@@ -651,7 +657,7 @@ export class PriceAPI {
     console.log(`[Binance Fallback] Fetching ${ticker} (${symbol}) from Binance...`);
 
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const res = await _fetchTimeout(url, 8000);
       if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
 
       const data = await res.json();

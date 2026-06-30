@@ -165,7 +165,7 @@ class NotificationsPage {
 
                 // Now try notification
                 try {
-                    await this.nm.sendTestNotification();
+                    await this.nm.trigger('Test', 'Notification de test depuis Asset Tracker');
                 } catch (e) {
                     alert("❌ Erreur: " + e.message);
                 }

@@ -484,13 +484,12 @@ export class DataManager {
 
             if (cacheDoc.exists) {
                 const cached = cacheDoc.data();
-                const cacheAge = Date.now() - cached.timestamp;
+                const normalizedTs = cached.timestamp?.toMillis ? cached.timestamp.toMillis() : cached.timestamp;
+                const cacheAge = Date.now() - normalizedTs;
 
                 if (cacheAge < MAX_AGE) {
                     console.log(`[Cache] ✅ Loaded from Firestore (age: ${Math.round(cacheAge / 1000)}s)`);
-                    // Update LocalStorage to keep it in sync
                     try {
-                        const normalizedTs = cached.timestamp?.toMillis ? cached.timestamp.toMillis() : cached.timestamp;
                         localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cached, timestamp: normalizedTs }));
                     } catch (e) { }
                     return cached.data;

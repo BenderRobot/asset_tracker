@@ -150,6 +150,7 @@ class DashboardApp {
         await this.loadMarketIndices();
 
         //Auto-refresh every 30 seconds to keep KPIs (Top Asset, Asset Allocation) in sync with Index prices
+        if (this._refreshInterval) clearInterval(this._refreshInterval);
         this._refreshInterval = setInterval(() => this.refreshDashboard(), 30 * 1000);
 
         // PWA Service Worker Registration
@@ -1505,7 +1506,7 @@ class DashboardApp {
             // Icône normalisée (Conteneur fixe pour éviter les décalages de hauteur sur BTC)
             const iconContent = idx.icon.includes('http')
                 ? `<img src="${idx.icon}" alt="" style="width:100%; height:100%; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">`
-                : `<span style="font-size:24px; line-height:1; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6)); display:flex; align-items:center; justify-content:center; height:100%; width:100%;">${idx.icon}</span>`;
+                : `<span style="font-size:24px; line-height:1; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6)); display:flex; align-items:center; justify-content:center; height:100%; width:100%;">${escHtml(idx.icon)}</span>`;
 
             const iconHTML = `<div style="width:26px; height:26px; display:flex; align-items:center; justify-content:center;">${iconContent}</div>`;
 
@@ -1513,7 +1514,7 @@ class DashboardApp {
 				<button class="market-card-delete" title="Supprimer"><i class="fas fa-trash-alt"></i></button>
 				${sparklineBg}
 				<div style="position:relative; z-index:2; display:flex; justify-content:space-between; align-items:flex-start;">
-					<span style="font-weight:600; font-size:13px; color:#e2e8f0; line-height:1.3;">${idx.name}</span>
+					<span style="font-weight:600; font-size:13px; color:#e2e8f0; line-height:1.3;">${escHtml(idx.name)}</span>
 					${iconHTML}
 				</div>
 				<div style="position:relative; z-index:2;">
@@ -1753,13 +1754,13 @@ class DashboardApp {
             const isAdded = currentTickers.has(item.ticker);
             const iconHTML = item.icon.includes('http')
                 ? `<img src="${item.icon}" alt="" style="width:22px;height:22px;object-fit:contain;">`
-                : `<span style="font-size:18px;line-height:1;">${item.icon}</span>`;
+                : `<span style="font-size:18px;line-height:1;">${escHtml(item.icon)}</span>`;
             return `
-                <div class="add-index-item${isAdded ? ' already-added' : ''}" data-ticker="${item.ticker}">
+                <div class="add-index-item${isAdded ? ' already-added' : ''}" data-ticker="${escHtml(item.ticker)}">
                     <div class="add-index-item-icon">${iconHTML}</div>
                     <div>
-                        <div class="add-index-item-name">${item.name}</div>
-                        <div class="add-index-item-ticker">${item.ticker}</div>
+                        <div class="add-index-item-name">${escHtml(item.name)}</div>
+                        <div class="add-index-item-ticker">${escHtml(item.ticker)}</div>
                     </div>
                     <span class="add-index-item-action" style="color:${isAdded ? '#10b981' : '#818cf8'};">${isAdded ? '✓' : '+'}</span>
                 </div>`;

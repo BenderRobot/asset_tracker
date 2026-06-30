@@ -656,8 +656,9 @@ export class Storage {
         // On utilise l'ID Firestore s'il existe pour une identification unique
         if (purchase.firestoreId) return purchase.firestoreId;
 
-        // Fallback sur l'ancienne méthode pour compatibilité
-        return `${purchase.ticker.toUpperCase()}|${purchase.date}|${purchase.price}|${purchase.quantity}`;
+        // Fallback : inclure addedAt pour différencier deux DCA identiques le même jour
+        const ts = purchase.addedAt || '';
+        return `${purchase.ticker.toUpperCase()}|${purchase.date}|${purchase.price}|${purchase.quantity}|${ts}`;
     }
 
     getAssetType(ticker) {
