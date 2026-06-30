@@ -823,7 +823,9 @@ export class Storage {
      * Charge la résidence depuis Firestore (au démarrage)
      */
     async loadPrimaryResidenceFromFirestore() {
-        const user = auth.currentUser;
+        const user = await new Promise(resolve => {
+            const unsub = auth.onAuthStateChanged(u => { unsub(); resolve(u); });
+        });
         if (!user) return null;
 
         try {
