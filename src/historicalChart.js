@@ -1414,11 +1414,11 @@ export class HistoricalChart {
                 */
 
                 viewToggle.querySelectorAll('.toggle-btn').forEach(btn => {
-                    btn.onclick = (e) => {
+                    btn.onclick = () => {
                         if (btn.classList.contains('active')) return;
                         viewToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
                         btn.classList.add('active');
-                        this.renderChart(canvas, graphData, summary, titleConfig, benchmarkData, currentTicker, unifiedClose, kpiData);
+                        this.update(false, false);
                     };
                 });
             }

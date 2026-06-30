@@ -494,16 +494,19 @@ export class Storage {
         // 2. Update Firestore
         const user = auth.currentUser;
         if (user) {
+            const item = this.watchlist.find(i => i.ticker === upperTicker);
             try {
                 await db.collection('users').doc(user.uid).collection('watchlist').doc(upperTicker).update(data);
                 console.log(`[Storage] Watchlist item ${upperTicker} updated in Firestore`);
                 return true;
             } catch (error) {
                 // If it doesn't exist, we fallback to set
-                try {
-                    await db.collection('users').doc(user.uid).collection('watchlist').doc(upperTicker).set(this.watchlist[idx]);
-                    return true;
-                } catch (e) { }
+                if (item) {
+                    try {
+                        await db.collection('users').doc(user.uid).collection('watchlist').doc(upperTicker).set(item);
+                        return true;
+                    } catch (e) { }
+                }
                 console.error("Error updating watchlist data: ", error);
             }
         }

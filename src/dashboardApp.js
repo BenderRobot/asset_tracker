@@ -662,37 +662,6 @@ class DashboardApp {
         });
     }
 
-    handleContextAnalysis() {
-        const contextBox = document.getElementById('modal-news-context');
-        const contextContent = document.getElementById('modal-context-content');
-        if (!contextBox || !contextContent) return;
-
-        const newsItem = this.currentModalNewsItem;
-        const currentSummary = this.currentGeminiSummary;
-
-        if (!newsItem || !currentSummary) {
-            contextContent.innerHTML = 'Impossible de trouver le résumé principal.';
-            contextBox.style.display = 'block';
-            setTimeout(() => contextBox.classList.add('show'), 10);
-            return;
-        }
-
-        if (contextBox.style.display === 'block') {
-            contextBox.classList.remove('show');
-            setTimeout(() => contextBox.style.display = 'none', 300);
-            return;
-        }
-
-        contextBox.style.display = 'block';
-        contextBox.classList.remove('show');
-        contextContent.innerHTML = '<span class="loading-text">Gemini contextualise...</span>';
-        setTimeout(() => contextBox.classList.add('show'), 10);
-
-        this.fetchGeminiContext(newsItem.title, currentSummary)
-            .then(contextSummary => { contextContent.textContent = contextSummary; })
-            .catch(() => { contextContent.innerHTML = "Échec de l'analyse contextuelle."; });
-    }
-
     initHistoricalChart() {
         try {
             if (this.chart && this.chart.chart) this.chart.chart.destroy();
@@ -1077,44 +1046,41 @@ class DashboardApp {
 
         const url = PROXY_URL + encodeURIComponent(rssUrl);
 
-        try {
-            const response = fetch(url, { signal: AbortSignal.timeout(30000) });
-            return response
-                .then(res => {
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    return res.text();
-                })
-                .then(xmlText => {
-                    const data = new window.DOMParser().parseFromString(xmlText, "text/xml");
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-                    return Array.from(data.querySelectorAll("item")).slice(0, limit).map(item => {
-                        const pubDate = item.querySelector("pubDate")?.textContent;
-                        const fullTitle = item.querySelector("title")?.textContent || "";
-                        const description = item.querySelector("description")?.textContent || "";
-                        const parts = fullTitle.split(" - ");
-                        const source = parts.length > 1 ? parts.pop() : "Google";
+        return fetch(url, { signal: controller.signal })
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.text();
+            })
+            .then(xmlText => {
+                const data = new window.DOMParser().parseFromString(xmlText, "text/xml");
 
-                        return {
-                            ticker: fixedLabel || source,
-                            name: query,
-                            title: parts.join(" - "),
-                            source: source,
-                            url: item.querySelector("link")?.textContent,
-                            datetime: pubDate ? new Date(pubDate).getTime() / 1000 : Date.now() / 1000,
-                            fullDescription: description,
-                            label: fixedLabel || 'Macro Éco'
-                        };
-                    });
-                })
-                .catch(e => {
-                    console.warn(`Échec Fetch RSS pour "${query}":`, e);
-                    return [];
+                return Array.from(data.querySelectorAll("item")).slice(0, limit).map(item => {
+                    const pubDate = item.querySelector("pubDate")?.textContent;
+                    const fullTitle = item.querySelector("title")?.textContent || "";
+                    const description = item.querySelector("description")?.textContent || "";
+                    const parts = fullTitle.split(" - ");
+                    const source = parts.length > 1 ? parts.pop() : "Google";
+
+                    return {
+                        ticker: fixedLabel || source,
+                        name: query,
+                        title: parts.join(" - "),
+                        source: source,
+                        url: item.querySelector("link")?.textContent,
+                        datetime: pubDate ? new Date(pubDate).getTime() / 1000 : Date.now() / 1000,
+                        fullDescription: description,
+                        label: fixedLabel || 'Macro Éco'
+                    };
                 });
-
-        } catch (e) {
-            console.warn(`Échec Fetch RSS pour "${query}":`, e);
-            return Promise.resolve([]);
-        }
+            })
+            .catch(e => {
+                console.warn(`Échec Fetch RSS pour "${query}":`, e);
+                return [];
+            })
+            .finally(() => clearTimeout(timeoutId));
     }
 
     renderNewsList(container, newsData, type) {
@@ -1954,7 +1920,7 @@ class DashboardApp {
             const totalRaw = purchases.reduce((s, p) => s + p.price * p.quantity, 0);
             purchases.forEach(p => {
                 const weight = totalRaw > 0 ? (p.price * p.quantity) / totalRaw : 1 / purchases.length;
-                events.push({ date: p.date.substring(0, 10), type, amount: (h.currentValue || 0) * weight });
+                events.push({ date: p.date.substring(0, 10), type, amount: p.price * p.quantity });
             });
         });
 
