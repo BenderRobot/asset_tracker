@@ -784,6 +784,8 @@ export class HistoricalChart {
             const twoDaysAgo = new Date(today);
             twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);
             displayStartUTC = new Date(Date.UTC(twoDaysAgo.getFullYear(), twoDaysAgo.getMonth(), twoDaysAgo.getDate(), 0, 0, 0));
+        } else if (days === 'ytd') {
+            displayStartUTC = new Date(Date.UTC(today.getFullYear(), 0, 1, 0, 0, 0));
         } else if (days === 'all') {
             const purchases = this.storage.getPurchases();
             let minDate = new Date();
