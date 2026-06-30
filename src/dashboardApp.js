@@ -904,7 +904,8 @@ class DashboardApp {
         // Recalcul du total spécifique "Boursier" pour les pourcentages
         const marketTotalValue = marketAssets.reduce((sum, h) => sum + h.currentValue, 0);
 
-        if (!container || marketTotalValue === 0) {
+        if (!container) return;
+        if (marketTotalValue === 0) {
             container.innerHTML = '<div style="color:var(--text-muted); font-size:12px; text-align:center; padding: 20px;">Aucun actif boursier (Actions, ETF, Crypto).</div>';
             return;
         }
