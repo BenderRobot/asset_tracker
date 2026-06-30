@@ -22,10 +22,13 @@ service cloud.firestore {
       // Only admin can create or delete codes
       allow create, delete: if isAdmin();
       // Any authenticated user can mark an available code as "used" (registration)
+      // Field restriction: only status/usedBy/usedAt may change — prevents self-granting modules
       allow update: if (isAdmin())
                     || (request.auth != null
                         && resource.data.status == 'available'
-                        && request.resource.data.status == 'used');
+                        && request.resource.data.status == 'used'
+                        && request.resource.data.diff(resource.data)
+                            .affectedKeys().hasOnly(['status', 'usedBy', 'usedAt']));
     }
 
     // ── Per-user data ────────────────────────────────────────────────────
@@ -36,39 +39,39 @@ service cloud.firestore {
       allow write: if isAdmin() || isOwner(userId);
 
       match /purchases/{purchaseId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
 
       match /market_cache/{cacheId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
 
       match /settings/{settingId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
 
       match /marketData/{document=**} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
 
       match /watchlist/{document=**} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
 
       match /liveMetrics/{document} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
 
       match /assistantConversations/{convId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
 
       match /cache/{cacheId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
 
       match /watchlistGroups/{document=**} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
     }
   }
