@@ -49,9 +49,6 @@ export class PriceAPI {
     ticker = ticker.toUpperCase().trim();
     if (YAHOO_MAP[ticker]) return YAHOO_MAP[ticker];
     if (ticker.startsWith('^')) return ticker;
-    if (ticker === '^IXIC') return '^IXIC';
-    if (ticker === '^FCHI') return '^FCHI';
-    if (ticker === '^STOXX50E') return '^STOXX50E';
     if (ticker === 'EURUSD=X') return 'EURUSD=X';
     if (ticker === 'GC=F') return 'GC=F';
     const cryptos = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'LTC', 'XRP', 'XLM', 'BNB', 'AVAX'];

@@ -203,7 +203,7 @@ export class PortfolioCalculator {
         // On rassemble tous les timestamps disponibles
         const allTimestamps = new Set();
         historicalDataMap.forEach(hist => {
-            Object.keys(hist).forEach(ts => allTimestamps.add(parseInt(ts)));
+            Object.keys(hist).forEach(ts => allTimestamps.add(parseInt(ts) * 1000)); // normaliser en ms
         });
 
         // Ajout du point "Maintenant" avec les prix live
@@ -264,8 +264,9 @@ export class PortfolioCalculator {
                     let price = null;
 
                     // 1. Prix historique exact ?
-                    if (hist && hist[ts]) {
-                        price = hist[ts];
+                    const tsSeconds = Math.floor(ts / 1000);
+                    if (hist && hist[tsSeconds]) {
+                        price = hist[tsSeconds];
                     }
                     // 2. Prix Live pour le dernier point ?
                     else if (ts === nowAligned) {

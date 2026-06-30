@@ -1268,8 +1268,6 @@ class DashboardApp {
 
         if (container.querySelector('.market-loading') || container.children.length === 0) {
             container.innerHTML = '';
-        } else if (container.children.length === 0) {
-            container.innerHTML = '<div class="market-loading" style="padding:20px; text-align:center;">Loading...</div>';
         }
 
         const indices = this.getCustomIndices();

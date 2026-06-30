@@ -379,7 +379,9 @@ export class Storage {
                 const ref = db.collection('users').doc(user.uid).collection('purchases').doc(id);
                 batch.delete(ref);
             });
-            batch.commit().then(() => console.log("Batch delete successful"));
+            batch.commit()
+                .then(() => console.log("Batch delete successful"))
+                .catch(err => console.error('[Storage] Batch delete failed:', err));
         }
     }
 
@@ -641,8 +643,12 @@ export class Storage {
 
     cleanOldData() {
         const twoYearsAgo = Date.now() - (2 * 365 * 24 * 60 * 60 * 1000);
-        this.purchases = this.purchases.filter(p => new Date(p.date).getTime() > twoYearsAgo);
-        this.rebuildIndex();
+        const trimmed = this.purchases.filter(p => new Date(p.date).getTime() > twoYearsAgo);
+        try {
+            localStorage.setItem('purchases', JSON.stringify(trimmed));
+        } catch (e) {
+            console.warn('[Storage] cleanOldData: localStorage save failed', e);
+        }
     }
 
     // === UTILITAIRES ===
