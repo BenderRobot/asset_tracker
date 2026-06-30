@@ -22,6 +22,12 @@ import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI mana
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
 
+function escHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str ?? '';
+    return d.innerHTML;
+}
+
 function getColorForSource(sourceName) {
     let hash = 0;
     sourceName = sourceName || 'Inconnu';
@@ -700,7 +706,7 @@ class DashboardApp {
         setTimeout(() => contextBox.classList.add('show'), 10);
 
         this.fetchGeminiContext(newsItem.title, currentSummary)
-            .then(contextSummary => { contextContent.innerHTML = contextSummary; })
+            .then(contextSummary => { contextContent.textContent = contextSummary; })
             .catch(() => { contextContent.innerHTML = "Échec de l'analyse contextuelle."; });
     }
 
@@ -1140,10 +1146,10 @@ class DashboardApp {
             return `
                 <div class="news-item-compact" data-type="${type}" data-index="${i}">
                     <div class="news-meta-row">
-                        <span class="news-ticker-tag" style="background-color: ${sourceColor}; color: white;">${n.source}</span>
+                        <span class="news-ticker-tag" style="background-color: ${sourceColor}; color: white;">${escHtml(n.source)}</span>
                         <span>${formattedDate}</span>
                     </div>
-                    <div class="news-title-compact">${n.title}</div>
+                    <div class="news-title-compact">${escHtml(n.title)}</div>
                 </div>
             `;
         }).join('');
@@ -1219,7 +1225,7 @@ class DashboardApp {
             console.log('[openNewsModal] Got summary:', summary);
 
             this.currentGeminiSummary = summary;
-            summaryDiv.innerHTML = summary;
+            summaryDiv.textContent = summary;
         } catch (error) {
             console.error('[openNewsModal] Error:', error);
             summaryDiv.innerHTML = "Analyse indisponible (Erreur API).";
@@ -1291,7 +1297,7 @@ class DashboardApp {
 
         // APPEL CENTRALISÉ avec les données du portefeuille
         fetchGeminiContext(newsItem.title, currentSummary, holdingDetails)
-            .then(contextSummary => { contextContent.innerHTML = contextSummary; })
+            .then(contextSummary => { contextContent.textContent = contextSummary; })
             .catch(() => { contextContent.innerHTML = "Échec de l'analyse contextuelle."; });
     }
 
