@@ -203,12 +203,16 @@ export default {
         const interval = url.searchParams.get('interval') || '1d';
         const period1 = url.searchParams.get('period1');
         const period2 = url.searchParams.get('period2');
+        const events = url.searchParams.get('events'); // ex: div, div|split
 
         let yahooParams = `interval=${interval}&includePrePost=false`;
         if (period1 && period2) {
           yahooParams += `&period1=${period1}&period2=${period2}`;
         } else {
           yahooParams += `&range=${range}`;
+        }
+        if (events) {
+          yahooParams += `&events=${encodeURIComponent(events)}`;
         }
 
         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${yahooParams}`;

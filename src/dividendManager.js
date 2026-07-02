@@ -1,35 +1,27 @@
 
 // dividendManager.js - Gestion des Dividendes
-
-// corsproxy.io a été retiré : il renvoie systématiquement 403 pour ce domaine
-// (confirmé en prod), il ne fait donc qu'ajouter un aller-retour inutile.
-// allorigins est le seul proxy qui fonctionne réellement, mais c'est un service
-// public gratuit et surchargé (timeouts fréquents) : on le retente avant
-// d'abandonner, plutôt que de passer tout de suite à codetabs (souvent mort aussi).
-const CORS_PROXIES = [
-    'https://api.allorigins.win/raw?url=',
-    'https://api.codetabs.com/v1/proxy?quest=',
-];
+//
+// Historiquement ce module tapait directement Yahoo Finance via des proxys CORS
+// publics (allorigins/corsproxy.io/codetabs). Ces services gratuits sont trop
+// peu fiables (403 permanents, timeouts massifs, pannes) pour un usage régulier :
+// constaté en prod, un scan pouvait échouer sur 90%+ des tickers. On passe donc
+// par le Cloudflare Worker de l'appli (PRICE_PROXY_URL), déjà utilisé pour les
+// prix, qui gère crumb/cookie Yahoo et le retry côté serveur — bien plus fiable.
+import { PRICE_PROXY_URL } from './config.js';
 
 // Nombre de tickers scannés en parallèle. Le scan était strictement séquentiel
-// (un ticker après l'autre, chacun pouvant tenter jusqu'à 4 candidats x proxies),
-// ce qui rendait le scan très long dès que le portefeuille contenait plusieurs actifs.
-// Gardé volontairement bas : allorigins est un service gratuit partagé, trop de
-// requêtes simultanées le font timeout encore plus (constaté en prod).
-const SCAN_CONCURRENCY = 3;
+// (un ticker après l'autre), ce qui rendait le scan très long dès que le
+// portefeuille contenait plusieurs actifs.
+const SCAN_CONCURRENCY = 5;
 
 // Durée de vie du cache local des historiques de dividendes (évite de retaper
-// Yahoo/les proxies à chaque clic sur "Scan Dividends" pendant la même session).
+// le Worker à chaque clic sur "Scan Dividends" pendant la même session).
 const DIVIDEND_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12h
 
 function _fetchWithTimeout(url, ms) {
     const ctrl = new AbortController();
     const timeoutId = setTimeout(() => ctrl.abort(), ms);
     return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timeoutId));
-}
-
-function _sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Exécute `fn` sur chaque item de `items` avec au plus `limit` exécutions en parallèle.
@@ -85,37 +77,29 @@ export class DividendManager {
         this.dataManager = dataManager;
     }
 
-    // Fetch dividends pour un ticker donné depuis Yahoo Finance (direct)
+    // Fetch dividends pour un ticker donné via le Worker Cloudflare de l'appli
+    // (query1.finance.yahoo.com/v8/finance/chart avec events=div, côté serveur).
     // range=10y (au lieu de 5y) pour ne pas rater les dividendes plus anciens.
-    // Chaque tentative de proxy est bornée dans le temps : un proxy qui ne répond
-    // pas (fréquent avec allorigins) ne doit pas geler tout le scan. On retente
-    // 1 fois chaque proxy (timeouts/erreurs réseau constatés en prod sont souvent
-    // transitoires : un ticker qui échoue peut réussir 1s plus tard) avant de
-    // passer au proxy suivant.
+    // Le Worker gère déjà crumb/cookie Yahoo + retry query1/query2 côté serveur,
+    // inutile de dupliquer cette logique côté client.
     async _fetchDividendsFromYahoo(ticker) {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=10y&interval=1d&events=div`;
-        for (const proxy of CORS_PROXIES) {
-            for (let attempt = 0; attempt < 2; attempt++) {
-                try {
-                    const res = await _fetchWithTimeout(`${proxy}${encodeURIComponent(url)}`, 15000);
-                    if (res.status === 404) return [];
-                    if (!res.ok) break; // erreur "définitive" (403/500...) : inutile de réessayer ce proxy
-                    const data = await res.json();
-                    const events = data.chart?.result?.[0]?.events?.dividends;
-                    if (events) {
-                        return Object.keys(events).map(ts => ({
-                            date: new Date(parseInt(ts) * 1000).toISOString().split('T')[0],
-                            amount: events[ts].amount
-                        }));
-                    }
-                    return [];
-                } catch (e) {
-                    console.warn(`[Dividend] fetch failed for ${ticker} on ${proxy} (essai ${attempt + 1}/2):`, e.name === 'AbortError' ? 'timeout' : e.message);
-                    if (attempt === 0) await _sleep(600);
-                }
+        const url = `${PRICE_PROXY_URL}?symbol=${encodeURIComponent(ticker)}&type=STOCK&range=10y&interval=1d&events=div`;
+        try {
+            const res = await _fetchWithTimeout(url, 15000);
+            if (!res.ok) return [];
+            const data = await res.json();
+            const events = data.chart?.result?.[0]?.events?.dividends;
+            if (events) {
+                return Object.keys(events).map(ts => ({
+                    date: new Date(parseInt(ts) * 1000).toISOString().split('T')[0],
+                    amount: events[ts].amount
+                }));
             }
+            return [];
+        } catch (e) {
+            console.warn(`[Dividend] fetch failed for ${ticker}:`, e.name === 'AbortError' ? 'timeout' : e.message);
+            return [];
         }
-        return [];
     }
 
     _readDividendCache(ticker) {
@@ -181,35 +165,27 @@ export class DividendManager {
     async fetchExchangeRates() {
         // Fetch EURUSD=X history (1 EUR = x USD)
         // We need this to convert USD dividends to EUR (USD / Rate = EUR)
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/EURUSD=X?range=5y&interval=1d`;
         const rates = new Map();
+        try {
+            const url = `${PRICE_PROXY_URL}?symbol=${encodeURIComponent('EURUSD=X')}&type=STOCK&range=5y&interval=1d`;
+            const res = await _fetchWithTimeout(url, 15000);
+            if (!res.ok) return rates;
 
-        for (const proxy of CORS_PROXIES) {
-            for (let attempt = 0; attempt < 2; attempt++) {
-                try {
-                    const target = `${proxy}${encodeURIComponent(url)}`;
-                    const res = await _fetchWithTimeout(target, 15000);
-                    if (!res.ok) break;
+            const data = await res.json();
+            const result = data.chart?.result?.[0];
+            const timestamps = result?.timestamp;
+            const quotes = result?.indicators?.quote?.[0]?.close;
 
-                    const data = await res.json();
-                    const result = data.chart.result?.[0];
-                    const timestamps = result?.timestamp;
-                    const quotes = result?.indicators?.quote?.[0]?.close;
-
-                    if (timestamps && quotes) {
-                        timestamps.forEach((ts, i) => {
-                            if (quotes[i]) {
-                                const date = new Date(ts * 1000).toISOString().split('T')[0];
-                                rates.set(date, quotes[i]);
-                            }
-                        });
-                        return rates;
+            if (timestamps && quotes) {
+                timestamps.forEach((ts, i) => {
+                    if (quotes[i]) {
+                        const date = new Date(ts * 1000).toISOString().split('T')[0];
+                        rates.set(date, quotes[i]);
                     }
-                } catch (e) {
-                    console.warn(`Rate fetch failed (essai ${attempt + 1}/2)`, e.name === 'AbortError' ? 'timeout' : e.message);
-                    if (attempt === 0) await _sleep(600);
-                }
+                });
             }
+        } catch (e) {
+            console.warn('Rate fetch failed:', e.name === 'AbortError' ? 'timeout' : e.message);
         }
         return rates;
     }
@@ -240,7 +216,7 @@ export class DividendManager {
         // Chaque ticker était traité l'un après l'autre (attente réseau complète avant
         // de passer au suivant). On les traite maintenant par lots en parallèle
         // (SCAN_CONCURRENCY à la fois), ce qui réduit la durée totale du scan
-        // d'un facteur proche de SCAN_CONCURRENCY sans surcharger les proxys CORS.
+        // d'un facteur proche de SCAN_CONCURRENCY.
         const perTickerResults = await _mapWithConcurrency(tickers, SCAN_CONCURRENCY, async (ticker) => {
             const dividends = await this.fetchDividendHistory(ticker);
             const assetInfo = purchases.find(p => p.ticker === ticker);
