@@ -546,8 +546,8 @@ export class AchatsPage {
                          
                          <!-- Settings Row -->
                          <div style="display:flex; gap:6px; align-items:center;">
-                            <label style="font-size:10px; color:var(--text-secondary); display:flex; align-items:center;">
-                                <input type="checkbox" class="div-usd-check" ${isConverted ? 'checked' : ''} style="width:auto; margin-right:4px;">
+                            <label style="font-size:10px; color:var(--text-secondary); display:flex; align-items:center; ${isConverted ? '' : 'opacity:0.4; cursor:not-allowed;'}" title="${isConverted ? '' : 'Aucun montant brut USD disponible pour cette ligne : rien à convertir.'}">
+                                <input type="checkbox" class="div-usd-check" ${isConverted ? 'checked' : ''} ${isConverted ? '' : 'disabled'} style="width:auto; margin-right:4px;">
                                 Force USD
                             </label>
                             

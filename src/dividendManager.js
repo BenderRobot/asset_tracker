@@ -53,8 +53,14 @@ const DIVIDEND_TICKER_MAP = {
     // Alphabet
     'ABEA': 'GOOGL', 'ABEA.F': 'GOOGL',
     // Applied Materials
+    // NOTE: l'ancien override '9D5'/'9D5.F' → 'AMAT' a été retiré : chez cet
+    // utilisateur, le ticker "9D5" correspond en réalité à "Aduro Clean
+    // Technologies", pas à Applied Materials (Xetra). L'override attribuait donc
+    // le vrai dividende trimestriel d'Applied Materials à un tout autre titre.
+    // "9D5" n'étant pas garanti unique d'un portefeuille à l'autre, ce genre de
+    // remappage global est dangereux ; mieux vaut ne rien trouver que se tromper
+    // de société.
     'AMAT': 'AMAT', 'AMAT.F': 'AMAT',
-    '9D5': 'AMAT',  '9D5.F': 'AMAT',
     // Tesla
     'TL0': 'TSLA', 'TL0.DE': 'TSLA', 'TLO': 'TSLA',
     // Meta
@@ -104,7 +110,7 @@ export class DividendManager {
 
     _readDividendCache(ticker) {
         try {
-            const raw = localStorage.getItem(`divhist_v1_${ticker}`);
+            const raw = localStorage.getItem(`divhist_v2_${ticker}`);
             if (!raw) return null;
             const parsed = JSON.parse(raw);
             if (!parsed || (Date.now() - parsed.ts) > DIVIDEND_CACHE_TTL_MS) return null;
@@ -116,7 +122,7 @@ export class DividendManager {
 
     _writeDividendCache(ticker, divs) {
         try {
-            localStorage.setItem(`divhist_v1_${ticker}`, JSON.stringify({ ts: Date.now(), divs }));
+            localStorage.setItem(`divhist_v2_${ticker}`, JSON.stringify({ ts: Date.now(), divs }));
         } catch (e) {
             // Quota localStorage dépassé ou navigation privée : on ignore, ce n'est qu'un cache.
         }
@@ -131,18 +137,22 @@ export class DividendManager {
         const formatted = this.dataManager.api.formatTicker(raw);
 
         // Build ordered list of tickers to try (deduplicated).
-        // IMPORTANT: `formatted` (le symbole Yahoo qualifié, ex: ESE.PA) est essayé
-        // AVANT `raw` (le ticker interne nu, ex: ESE). Sur Yahoo, un ticker nu peut
-        // par coïncidence correspondre à une société US totalement différente et
-        // sans rapport (ex: notre "ESE" = BNP Paribas Easy S&P 500, mais "ESE" sur
-        // Yahoo = ESCO Technologies, qui verse de vrais dividendes US) : essayer
-        // `raw` en premier avait causé l'attribution de faux dividendes. `raw`
-        // reste en dernier recours si le symbole qualifié ne renvoie rien.
+        // IMPORTANT : on ne retente PLUS le ticker "nu" (`raw`) dès qu'on dispose
+        // d'un symbole Yahoo qualifié différent (`formatted`, via YAHOO_MAP ou
+        // l'heuristique EUR de formatTicker). Un ticker nu peut par coïncidence
+        // correspondre à une société US totalement différente et sans rapport :
+        // "ESE" (BNP Paribas Easy S&P 500) = ESCO Technologies sur Yahoo, "GXG"
+        // (Nanoco Group, Xetra) = Global X MSCI Colombia ETF sur Yahoo. Les deux
+        // versent de VRAIS dividendes US, qui remontaient à tort ici. Si le
+        // symbole qualifié n'a légitimement aucun dividende (ex: ETF capitalisant),
+        // la bonne réponse est "aucun dividende", pas une devinette risquée sur le
+        // ticker nu. `raw` n'est retenté que quand il est identique à `formatted`
+        // (rien à perdre) ou en l'absence de tout symbole qualifié différent.
         const candidates = [...new Set([
             DIVIDEND_TICKER_MAP[raw],       // ex: NVD → NVDA
             DIVIDEND_TICKER_MAP[formatted], // ex: NVD.F → NVDA
             formatted,                      // ex: ESE.PA, EUEA.AS (symbole qualifié)
-            raw,                            // ex: AMAT (dernier recours)
+            ...(formatted === raw ? [raw] : []),
         ].filter(Boolean))];
 
         const cached = this._readDividendCache(raw);
@@ -206,7 +216,8 @@ export class DividendManager {
         const US_STOCKS_EUR = [
             'ABEA', 'MSF', 'NVD', 'APC', 'AMZ', 'TSLA', 'META', 'NFLX',
             'KO', 'PEP', 'JNJ', 'PG', 'MCD',
-            '9D5',  // Applied Materials (Xetra : dividendes Yahoo en USD via AMAT)
+            // '9D5' retiré : voir note dans DIVIDEND_TICKER_MAP, ce ticker ne
+            // désigne pas forcément Applied Materials selon le portefeuille.
         ];
 
         // Unique tickers actifs (Stock/ETF), en excluant uniquement les dividendes
