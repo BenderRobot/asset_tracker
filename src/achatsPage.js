@@ -854,6 +854,7 @@ export class AchatsPage {
 
   saveEdit() {
     const key = this.currentEditKey;
+    const original = this.storage.getPurchaseByKey(key);
 
     const updates = {
       ticker: document.getElementById('edit-ticker').value.toUpperCase().trim(),
@@ -865,6 +866,12 @@ export class AchatsPage {
       broker: document.getElementById('edit-broker').value,
       currency: document.getElementById('edit-currency').value
     };
+
+    // Les lignes dividende affichent/agrègent "amount" en priorité sur "price" :
+    // il faut garder les deux champs synchronisés sinon l'édition semble ne rien faire.
+    if (original && (original.type === 'dividend' || original.assetType === 'Dividend')) {
+      updates.amount = updates.price;
+    }
 
     if (!updates.ticker || !updates.name || !updates.price ||
       !updates.quantity || !updates.date || !updates.assetType ||

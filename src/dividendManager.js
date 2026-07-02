@@ -4,7 +4,37 @@
 const CORS_PROXIES = [
     'https://api.allorigins.win/raw?url=',
     'https://corsproxy.io/?',
+    'https://api.codetabs.com/v1/proxy?quest=',
 ];
+
+// Nombre de tickers scannés en parallèle. Le scan était strictement séquentiel
+// (un ticker après l'autre, chacun pouvant tenter jusqu'à 4 candidats x 3 proxies),
+// ce qui rendait le scan très long dès que le portefeuille contenait plusieurs actifs.
+const SCAN_CONCURRENCY = 5;
+
+// Durée de vie du cache local des historiques de dividendes (évite de retaper
+// Yahoo/les proxies à chaque clic sur "Scan Dividends" pendant la même session).
+const DIVIDEND_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+
+function _fetchWithTimeout(url, ms) {
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timeoutId));
+}
+
+// Exécute `fn` sur chaque item de `items` avec au plus `limit` exécutions en parallèle.
+async function _mapWithConcurrency(items, limit, fn) {
+    const results = new Array(items.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (next < items.length) {
+            const i = next++;
+            results[i] = await fn(items[i], i);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
 
 // Mapping ticker interne → listing primaire Yahoo Finance pour les dividendes.
 // Les cotations Frankfurt/Paris (.F / .PA) n'ont souvent pas de données dividendes sur Yahoo.
@@ -46,11 +76,14 @@ export class DividendManager {
     }
 
     // Fetch dividends pour un ticker donné depuis Yahoo Finance (direct)
+    // range=10y (au lieu de 5y) pour ne pas rater les dividendes plus anciens.
+    // Chaque tentative de proxy est bornée dans le temps : un proxy qui ne répond
+    // pas (fréquent avec allorigins/corsproxy.io) ne doit pas geler tout le scan.
     async _fetchDividendsFromYahoo(ticker) {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=5y&interval=1d&events=div`;
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=10y&interval=1d&events=div`;
         for (const proxy of CORS_PROXIES) {
             try {
-                const res = await fetch(`${proxy}${encodeURIComponent(url)}`);
+                const res = await _fetchWithTimeout(`${proxy}${encodeURIComponent(url)}`, 9000);
                 if (res.status === 404) return [];
                 if (!res.ok) continue;
                 const data = await res.json();
@@ -63,10 +96,30 @@ export class DividendManager {
                 }
                 return [];
             } catch (e) {
-                console.warn(`[Dividend] fetch failed for ${ticker} on ${proxy}:`, e);
+                console.warn(`[Dividend] fetch failed for ${ticker} on ${proxy}:`, e.name === 'AbortError' ? 'timeout' : e.message);
             }
         }
         return [];
+    }
+
+    _readDividendCache(ticker) {
+        try {
+            const raw = localStorage.getItem(`divhist_v1_${ticker}`);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (!parsed || (Date.now() - parsed.ts) > DIVIDEND_CACHE_TTL_MS) return null;
+            return parsed.divs;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    _writeDividendCache(ticker, divs) {
+        try {
+            localStorage.setItem(`divhist_v1_${ticker}`, JSON.stringify({ ts: Date.now(), divs }));
+        } catch (e) {
+            // Quota localStorage dépassé ou navigation privée : on ignore, ce n'est qu'un cache.
+        }
     }
 
     /**
@@ -85,14 +138,23 @@ export class DividendManager {
             formatted,                      // ex: EUEA.AS (ETF Euronext)
         ].filter(Boolean))];
 
+        const cached = this._readDividendCache(raw);
+        if (cached) {
+            console.log(`[Dividend] ${raw} : ${cached.length} dividende(s) (cache)`);
+            return cached;
+        }
+
         for (const ticker of candidates) {
             const divs = await this._fetchDividendsFromYahoo(ticker);
             if (divs.length > 0) {
                 console.log(`[Dividend] ${raw} → ${ticker} : ${divs.length} dividende(s) trouvé(s)`);
+                this._writeDividendCache(raw, divs);
                 return divs;
             }
         }
         console.log(`[Dividend] Aucun dividende trouvé pour ${raw} (candidats: ${candidates.join(', ')})`);
+        // On ne met PAS en cache les résultats vides : un échec de proxy temporaire
+        // ne doit pas bloquer la détection pendant 12h au prochain scan.
         return [];
     }
 
@@ -109,7 +171,7 @@ export class DividendManager {
         for (const proxy of CORS_PROXIES) {
             try {
                 const target = `${proxy}${encodeURIComponent(url)}`;
-                const res = await fetch(target);
+                const res = await _fetchWithTimeout(target, 9000);
                 if (!res.ok) continue;
 
                 const data = await res.json();
@@ -154,14 +216,18 @@ export class DividendManager {
         )];
         console.log(`[Dividend Scan] ${tickers.length} actifs à analyser :`, tickers);
 
-        const suggestions = [];
         const exchangeRates = await this.fetchExchangeRates();
 
-        for (const ticker of tickers) {
+        // Chaque ticker était traité l'un après l'autre (attente réseau complète avant
+        // de passer au suivant). On les traite maintenant par lots en parallèle
+        // (SCAN_CONCURRENCY à la fois), ce qui réduit la durée totale du scan
+        // d'un facteur proche de SCAN_CONCURRENCY sans surcharger les proxys CORS.
+        const perTickerResults = await _mapWithConcurrency(tickers, SCAN_CONCURRENCY, async (ticker) => {
             const dividends = await this.fetchDividendHistory(ticker);
             const assetInfo = purchases.find(p => p.ticker === ticker);
             const assetCurrency = assetInfo ? assetInfo.currency : 'USD';
             const assetName = assetInfo ? assetInfo.name : ticker;
+            const tickerSuggestions = [];
 
             for (const div of dividends) {
                 // Check if already recorded (Normalize Dates)
@@ -207,7 +273,7 @@ export class DividendManager {
                         exchangeRateUsed = potentialRate;
                     }
 
-                    suggestions.push({
+                    tickerSuggestions.push({
                         ticker: ticker,
                         name: assetName,
                         date: div.date,
@@ -223,8 +289,10 @@ export class DividendManager {
                     });
                 }
             }
-        }
-        return suggestions;
+            return tickerSuggestions;
+        });
+
+        return perTickerResults.flat();
     }
 
     /**
