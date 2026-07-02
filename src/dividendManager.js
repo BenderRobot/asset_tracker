@@ -1,16 +1,22 @@
 
 // dividendManager.js - Gestion des Dividendes
 
+// corsproxy.io a été retiré : il renvoie systématiquement 403 pour ce domaine
+// (confirmé en prod), il ne fait donc qu'ajouter un aller-retour inutile.
+// allorigins est le seul proxy qui fonctionne réellement, mais c'est un service
+// public gratuit et surchargé (timeouts fréquents) : on le retente avant
+// d'abandonner, plutôt que de passer tout de suite à codetabs (souvent mort aussi).
 const CORS_PROXIES = [
     'https://api.allorigins.win/raw?url=',
-    'https://corsproxy.io/?',
     'https://api.codetabs.com/v1/proxy?quest=',
 ];
 
 // Nombre de tickers scannés en parallèle. Le scan était strictement séquentiel
-// (un ticker après l'autre, chacun pouvant tenter jusqu'à 4 candidats x 3 proxies),
+// (un ticker après l'autre, chacun pouvant tenter jusqu'à 4 candidats x proxies),
 // ce qui rendait le scan très long dès que le portefeuille contenait plusieurs actifs.
-const SCAN_CONCURRENCY = 5;
+// Gardé volontairement bas : allorigins est un service gratuit partagé, trop de
+// requêtes simultanées le font timeout encore plus (constaté en prod).
+const SCAN_CONCURRENCY = 3;
 
 // Durée de vie du cache local des historiques de dividendes (évite de retaper
 // Yahoo/les proxies à chaque clic sur "Scan Dividends" pendant la même session).
@@ -20,6 +26,10 @@ function _fetchWithTimeout(url, ms) {
     const ctrl = new AbortController();
     const timeoutId = setTimeout(() => ctrl.abort(), ms);
     return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timeoutId));
+}
+
+function _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Exécute `fn` sur chaque item de `items` avec au plus `limit` exécutions en parallèle.
@@ -78,25 +88,31 @@ export class DividendManager {
     // Fetch dividends pour un ticker donné depuis Yahoo Finance (direct)
     // range=10y (au lieu de 5y) pour ne pas rater les dividendes plus anciens.
     // Chaque tentative de proxy est bornée dans le temps : un proxy qui ne répond
-    // pas (fréquent avec allorigins/corsproxy.io) ne doit pas geler tout le scan.
+    // pas (fréquent avec allorigins) ne doit pas geler tout le scan. On retente
+    // 1 fois chaque proxy (timeouts/erreurs réseau constatés en prod sont souvent
+    // transitoires : un ticker qui échoue peut réussir 1s plus tard) avant de
+    // passer au proxy suivant.
     async _fetchDividendsFromYahoo(ticker) {
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=10y&interval=1d&events=div`;
         for (const proxy of CORS_PROXIES) {
-            try {
-                const res = await _fetchWithTimeout(`${proxy}${encodeURIComponent(url)}`, 9000);
-                if (res.status === 404) return [];
-                if (!res.ok) continue;
-                const data = await res.json();
-                const events = data.chart?.result?.[0]?.events?.dividends;
-                if (events) {
-                    return Object.keys(events).map(ts => ({
-                        date: new Date(parseInt(ts) * 1000).toISOString().split('T')[0],
-                        amount: events[ts].amount
-                    }));
+            for (let attempt = 0; attempt < 2; attempt++) {
+                try {
+                    const res = await _fetchWithTimeout(`${proxy}${encodeURIComponent(url)}`, 15000);
+                    if (res.status === 404) return [];
+                    if (!res.ok) break; // erreur "définitive" (403/500...) : inutile de réessayer ce proxy
+                    const data = await res.json();
+                    const events = data.chart?.result?.[0]?.events?.dividends;
+                    if (events) {
+                        return Object.keys(events).map(ts => ({
+                            date: new Date(parseInt(ts) * 1000).toISOString().split('T')[0],
+                            amount: events[ts].amount
+                        }));
+                    }
+                    return [];
+                } catch (e) {
+                    console.warn(`[Dividend] fetch failed for ${ticker} on ${proxy} (essai ${attempt + 1}/2):`, e.name === 'AbortError' ? 'timeout' : e.message);
+                    if (attempt === 0) await _sleep(600);
                 }
-                return [];
-            } catch (e) {
-                console.warn(`[Dividend] fetch failed for ${ticker} on ${proxy}:`, e.name === 'AbortError' ? 'timeout' : e.message);
             }
         }
         return [];
@@ -169,27 +185,30 @@ export class DividendManager {
         const rates = new Map();
 
         for (const proxy of CORS_PROXIES) {
-            try {
-                const target = `${proxy}${encodeURIComponent(url)}`;
-                const res = await _fetchWithTimeout(target, 9000);
-                if (!res.ok) continue;
+            for (let attempt = 0; attempt < 2; attempt++) {
+                try {
+                    const target = `${proxy}${encodeURIComponent(url)}`;
+                    const res = await _fetchWithTimeout(target, 15000);
+                    if (!res.ok) break;
 
-                const data = await res.json();
-                const result = data.chart.result?.[0];
-                const timestamps = result?.timestamp;
-                const quotes = result?.indicators?.quote?.[0]?.close;
+                    const data = await res.json();
+                    const result = data.chart.result?.[0];
+                    const timestamps = result?.timestamp;
+                    const quotes = result?.indicators?.quote?.[0]?.close;
 
-                if (timestamps && quotes) {
-                    timestamps.forEach((ts, i) => {
-                        if (quotes[i]) {
-                            const date = new Date(ts * 1000).toISOString().split('T')[0];
-                            rates.set(date, quotes[i]);
-                        }
-                    });
-                    return rates;
+                    if (timestamps && quotes) {
+                        timestamps.forEach((ts, i) => {
+                            if (quotes[i]) {
+                                const date = new Date(ts * 1000).toISOString().split('T')[0];
+                                rates.set(date, quotes[i]);
+                            }
+                        });
+                        return rates;
+                    }
+                } catch (e) {
+                    console.warn(`Rate fetch failed (essai ${attempt + 1}/2)`, e.name === 'AbortError' ? 'timeout' : e.message);
+                    if (attempt === 0) await _sleep(600);
                 }
-            } catch (e) {
-                console.warn('Rate fetch failed', e);
             }
         }
         return rates;
