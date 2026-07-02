@@ -124,18 +124,25 @@ export class DividendManager {
 
     /**
      * Fetch dividend history for a specific ticker.
-     * Tries multiple ticker formats: override map → raw → formatted.
+     * Tries multiple ticker formats: override map → formatted → raw.
      */
     async fetchDividendHistory(tickerRaw) {
         const raw = tickerRaw.toUpperCase().trim();
         const formatted = this.dataManager.api.formatTicker(raw);
 
-        // Build ordered list of tickers to try (deduplicated)
+        // Build ordered list of tickers to try (deduplicated).
+        // IMPORTANT: `formatted` (le symbole Yahoo qualifié, ex: ESE.PA) est essayé
+        // AVANT `raw` (le ticker interne nu, ex: ESE). Sur Yahoo, un ticker nu peut
+        // par coïncidence correspondre à une société US totalement différente et
+        // sans rapport (ex: notre "ESE" = BNP Paribas Easy S&P 500, mais "ESE" sur
+        // Yahoo = ESCO Technologies, qui verse de vrais dividendes US) : essayer
+        // `raw` en premier avait causé l'attribution de faux dividendes. `raw`
+        // reste en dernier recours si le symbole qualifié ne renvoie rien.
         const candidates = [...new Set([
             DIVIDEND_TICKER_MAP[raw],       // ex: NVD → NVDA
             DIVIDEND_TICKER_MAP[formatted], // ex: NVD.F → NVDA
-            raw,                            // ex: AMAT (direct US ticker)
-            formatted,                      // ex: EUEA.AS (ETF Euronext)
+            formatted,                      // ex: ESE.PA, EUEA.AS (symbole qualifié)
+            raw,                            // ex: AMAT (dernier recours)
         ].filter(Boolean))];
 
         const cached = this._readDividendCache(raw);
@@ -225,12 +232,18 @@ export class DividendManager {
             const tickerSuggestions = [];
 
             for (const div of dividends) {
-                // Check if already recorded (Normalize Dates)
-                const divDate = new Date(div.date).toISOString().split('T')[0];
+                // Un dividende déjà enregistré manuellement l'est souvent à la date de
+                // versement (payment date), alors que Yahoo renvoie la date ex-dividende
+                // (ex-date), qui la précède typiquement de quelques jours à quelques
+                // semaines. Une égalité stricte de date laissait passer des doublons :
+                // on tolère une fenêtre de ±15 jours autour de la date Yahoo.
+                const DEDUP_WINDOW_DAYS = 15;
+                const divDateMs = new Date(div.date).getTime();
 
                 const alreadyExists = existingDividends.some(d => {
-                    const existingDate = new Date(d.date).toISOString().split('T')[0];
-                    return d.ticker === ticker && existingDate === divDate;
+                    if (d.ticker !== ticker) return false;
+                    const diffDays = Math.abs(new Date(d.date).getTime() - divDateMs) / (1000 * 60 * 60 * 24);
+                    return diffDays <= DEDUP_WINDOW_DAYS;
                 });
 
                 if (alreadyExists) continue;
@@ -238,7 +251,12 @@ export class DividendManager {
                 // Calculate quantity held at Ex-Date
                 const quantityHeld = this.getQuantityAtDate(ticker, div.date);
 
-                if (quantityHeld > 0) {
+                // Tolérance pour résidus d'arithmétique flottante : un actif entièrement
+                // revendu (achat 300 - vente 300) peut ne pas retomber exactement sur 0
+                // (ex: 1.4e-13), ce qui passait à tort le test ">, 0" et faisait
+                // apparaître des dividendes pour des positions déjà soldées.
+                const QUANTITY_EPSILON = 1e-6;
+                if (quantityHeld > QUANTITY_EPSILON) {
                     let grossAmount = quantityHeld * div.amount;
                     let currency = assetCurrency;
                     let originalAmount = null;
