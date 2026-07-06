@@ -604,51 +604,49 @@ class AnalyticsApp {
         // valeur/retour "officiels" = actifs + dépôts cash − dividendes déjà perçus.
         // Sans filtre, la sélection = tout le portefeuille : on doit afficher
         // exactement ces mêmes totaux pour ne pas contredire les cartes du haut.
-        // Avec un filtre (type/courtier), le cash/les dividendes ne se rattachent
-        // à aucun type précis : on reste sur la somme des actifs filtrés.
+        // Avec un filtre (type/courtier) OU une désélection dans la légende, le
+        // cash/les dividendes ne se rattachent à aucun actif précis : on reste
+        // sur la somme des actifs actuellement sélectionnés/visibles.
         const dividends = reportSummary?.dividendsReceived || 0;
         const officialTotalValue = reportSummary
             ? (reportSummary.totalValue || 0) + (reportSummary.cashReserve || 0) - dividends
             : assets.reduce((s, a) => s + (a.currentValue || 0), 0);
         const officialTotalReturn = reportSummary ? (reportSummary.totalGain || 0) - dividends : null;
+        const portfolioTotalValue = officialTotalValue;
         const portfolioTotalInvested = reportSummary
             ? (reportSummary.totalInvested || 0)
             : assets.reduce((s, a) => s + (a.invested || 0), 0);
 
-        const selectionInvested = filteredAssets.reduce((s, a) => s + (a.invested || 0), 0);
-        const selectionValue = hasFilter
-            ? filteredAssets.reduce((s, a) => s + (a.currentValue || 0), 0)
-            : officialTotalValue;
-        const selectionReturn = (!hasFilter && officialTotalReturn !== null)
-            ? officialTotalReturn
-            : selectionValue - selectionInvested;
-        const selectionReturnPct = selectionInvested > 0 ? (selectionReturn / selectionInvested) * 100 : 0;
+        // Recalcule et affiche les stats de gauche à partir d'un sous-ensemble
+        // d'actifs "actifs" (= filtrés ET actuellement visibles dans la légende).
+        // `allSelected` indique si c'est exactement l'ensemble filtré complet
+        // (aucune désélection de légende) — seul ce cas peut utiliser le raccourci
+        // "total officiel" (qui inclut cash/dividendes, non attribuables à un actif).
+        const computeAndRenderStats = (activeAssets, allSelected) => {
+            const activeInvested = activeAssets.reduce((s, a) => s + (a.invested || 0), 0);
+            const useOfficial = !hasFilter && allSelected;
+            const activeValue = useOfficial ? officialTotalValue : activeAssets.reduce((s, a) => s + (a.currentValue || 0), 0);
+            const activeReturn = (useOfficial && officialTotalReturn !== null) ? officialTotalReturn : activeValue - activeInvested;
+            const activeReturnPct = activeInvested > 0 ? (activeReturn / activeInvested) * 100 : 0;
+            const pctOfValue = portfolioTotalValue > 0 ? (activeValue / portfolioTotalValue) * 100 : 0;
+            const pctOfInvested = portfolioTotalInvested > 0 ? (activeInvested / portfolioTotalInvested) * 100 : 0;
+            this.renderAllocationSelectionStats({
+                selectionValue: activeValue, pctOfValue,
+                selectionInvested: activeInvested, pctOfInvested,
+                selectionReturn: activeReturn, selectionReturnPct: activeReturnPct
+            });
+        };
 
-        const portfolioTotalValue = officialTotalValue;
-        const pctOfValue = portfolioTotalValue > 0 ? (selectionValue / portfolioTotalValue) * 100 : 0;
-        const pctOfInvested = portfolioTotalInvested > 0 ? (selectionInvested / portfolioTotalInvested) * 100 : 0;
+        computeAndRenderStats(filteredAssets, true);
 
-        this.renderAllocationSelectionStats({
-            selectionValue, pctOfValue,
-            selectionInvested, pctOfInvested,
-            selectionReturn, selectionReturnPct
-        });
-
-        const sorted = filteredAssets.sort((a, b) => b.currentValue - a.currentValue);
-
-        // LIMIT: Show top 20, group rest as "Autres"
-        const limit = 20;
-        const topAssets = sorted.slice(0, limit);
-        const others = sorted.slice(limit);
+        // Tous les actifs filtrés, individuellement — plus de regroupement "Autres".
+        const topAssets = filteredAssets.slice().sort((a, b) => b.currentValue - a.currentValue);
 
         const labels = topAssets.map(a => a.name || a.ticker);
         const data = topAssets.map(a => a.currentValue);
-
-        if (others.length > 0) {
-            const othersTotal = others.reduce((sum, a) => sum + a.currentValue, 0);
-            labels.push('Autres (' + others.length + ')');
-            data.push(othersTotal);
-        }
+        // Palette générée dynamiquement pour rester distincte quel que soit le
+        // nombre d'actifs (fini le risque d'épuiser une palette fixe de 20 couleurs).
+        const colors = topAssets.map((_, i) => `hsl(${Math.round((i * 360) / Math.max(topAssets.length, 1))}, 65%, 55%)`);
 
         const canvasEl = document.getElementById('allocation-chart');
         if (!canvasEl) return;
@@ -661,12 +659,7 @@ class AnalyticsApp {
                 labels: labels,
                 datasets: [{
                     data: data,
-                    backgroundColor: [
-                        '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-                        '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
-                        '#64748b', '#94a3b8', '#cbd5e1', '#a8a29e', '#78716c',
-                        '#d97706', '#059669', '#2563eb', '#db2777', '#7c3aed'
-                    ],
+                    backgroundColor: colors,
                     borderWidth: 2,
                     borderColor: '#1a2238'
                 }]
@@ -679,9 +672,19 @@ class AnalyticsApp {
                         position: 'right',
                         labels: {
                             color: '#ffffff',
-                            font: { size: 11 },
-                            padding: 10,
-                            boxWidth: 12
+                            font: { size: 10 },
+                            padding: 6,
+                            boxWidth: 10
+                        },
+                        // Comportement par défaut de Chart.js pour un doughnut (masquer/révéler
+                        // le secteur), PLUS recalcul des stats de gauche à partir des secteurs
+                        // restants visibles — c'est ce qui manquait pour "connecter" les deux.
+                        onClick: (evt, legendItem, legend) => {
+                            const chart = legend.chart;
+                            chart.toggleDataVisibility(legendItem.index);
+                            chart.update();
+                            const visibleAssets = topAssets.filter((_, i) => chart.getDataVisibility(i));
+                            computeAndRenderStats(visibleAssets, visibleAssets.length === topAssets.length);
                         }
                     },
                     tooltip: {
