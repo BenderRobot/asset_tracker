@@ -598,23 +598,33 @@ class AnalyticsApp {
             });
         }
 
-        const selectionValue = filteredAssets.reduce((s, a) => s + (a.currentValue || 0), 0);
-        const selectionInvested = filteredAssets.reduce((s, a) => s + (a.invested || 0), 0);
-        const selectionReturn = selectionValue - selectionInvested;
-        const selectionReturnPct = selectionInvested > 0 ? (selectionReturn / selectionInvested) * 100 : 0;
-
-        // Portefeuille total: report.summary.totalValue exclut le cash (c'est la
-        // valeur des positions uniquement) — il faut y rajouter cashReserve pour
-        // obtenir la vraie valeur totale du portefeuille (celle affichée ailleurs
-        // dans l'app, ex. dashboard).
+        const hasFilter = !!(typeFilter || brokerFilter);
         const reportSummary = this.lastReport?.summary;
-        const portfolioTotalValue = reportSummary
-            ? (reportSummary.totalValue || 0) + (reportSummary.cashReserve || 0)
+        // Même formule que les cartes KPI du haut (updateSummary, ligne ~113-120):
+        // valeur/retour "officiels" = actifs + dépôts cash − dividendes déjà perçus.
+        // Sans filtre, la sélection = tout le portefeuille : on doit afficher
+        // exactement ces mêmes totaux pour ne pas contredire les cartes du haut.
+        // Avec un filtre (type/courtier), le cash/les dividendes ne se rattachent
+        // à aucun type précis : on reste sur la somme des actifs filtrés.
+        const dividends = reportSummary?.dividendsReceived || 0;
+        const officialTotalValue = reportSummary
+            ? (reportSummary.totalValue || 0) + (reportSummary.cashReserve || 0) - dividends
             : assets.reduce((s, a) => s + (a.currentValue || 0), 0);
+        const officialTotalReturn = reportSummary ? (reportSummary.totalGain || 0) - dividends : null;
         const portfolioTotalInvested = reportSummary
             ? (reportSummary.totalInvested || 0)
             : assets.reduce((s, a) => s + (a.invested || 0), 0);
 
+        const selectionInvested = filteredAssets.reduce((s, a) => s + (a.invested || 0), 0);
+        const selectionValue = hasFilter
+            ? filteredAssets.reduce((s, a) => s + (a.currentValue || 0), 0)
+            : officialTotalValue;
+        const selectionReturn = (!hasFilter && officialTotalReturn !== null)
+            ? officialTotalReturn
+            : selectionValue - selectionInvested;
+        const selectionReturnPct = selectionInvested > 0 ? (selectionReturn / selectionInvested) * 100 : 0;
+
+        const portfolioTotalValue = officialTotalValue;
         const pctOfValue = portfolioTotalValue > 0 ? (selectionValue / portfolioTotalValue) * 100 : 0;
         const pctOfInvested = portfolioTotalInvested > 0 ? (selectionInvested / portfolioTotalInvested) * 100 : 0;
 
