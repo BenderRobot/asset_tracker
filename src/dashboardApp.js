@@ -1887,10 +1887,26 @@ class DashboardApp {
         const wrap = document.getElementById('alloc-svg-wrap');
         const legend = document.getElementById('alloc-modal-legend');
         const breakdown = document.getElementById('alloc-current-breakdown');
-        this.buildAllocationChart(this.lastHoldings || [], wrap, legend, breakdown);
+        const basisToggle = document.getElementById('alloc-basis-toggle');
+
+        const render = (basis) => this.buildAllocationChart(this.lastHoldings || [], wrap, legend, breakdown, basis);
+
+        if (basisToggle) {
+            basisToggle.querySelectorAll('.toggle-btn').forEach(btn => {
+                btn.onclick = () => {
+                    if (btn.classList.contains('active')) return;
+                    basisToggle.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    render(btn.dataset.basis);
+                };
+            });
+        }
+
+        const activeBtn = basisToggle?.querySelector('.toggle-btn.active');
+        render(activeBtn?.dataset.basis || 'invested');
     }
 
-    buildAllocationChart(holdings, chartWrap, legend, breakdown) {
+    buildAllocationChart(holdings, chartWrap, legend, breakdown, basis = 'invested') {
         const TYPES = {
             'ETF':         { color: '#10b981', label: 'ETF' },
             'Stock':       { color: '#3b82f6', label: 'Actions' },
@@ -1914,9 +1930,17 @@ class DashboardApp {
             const purchases = (h.purchases || []).filter(p => p.quantity > 0 && p.date);
             if (!purchases.length) return;
             const totalRaw = purchases.reduce((s, p) => s + p.price * p.quantity, 0);
+            // Vue "Portefeuille": valorise les quantités historiques au prix ACTUEL
+            // (pas de vrai mark-to-market historique), pour rester cohérent avec
+            // "Répartition actuelle" sans appel API supplémentaire. Un actif sans
+            // currentValue live (ex: cotation manquante) contribue pour 0, comme
+            // dans "Répartition actuelle" — pas de repli sur le prix d'achat, pour
+            // que le dernier point du graphique corresponde toujours au résumé.
+            const pricePerUnitEUR = (h.quantity > 0 && h.currentValue > 0) ? h.currentValue / h.quantity : 0;
             purchases.forEach(p => {
                 const weight = totalRaw > 0 ? (p.price * p.quantity) / totalRaw : 1 / purchases.length;
-                events.push({ date: p.date.substring(0, 10), type, amount: p.price * p.quantity });
+                const amount = basis === 'market' ? pricePerUnitEUR * p.quantity : p.price * p.quantity;
+                events.push({ date: p.date.substring(0, 10), type, amount });
             });
         });
 
@@ -2070,24 +2094,32 @@ class DashboardApp {
                 <span style="font-size:12px;color:var(--text-secondary);">${TYPES[k].label}</span>
             </div>`).join('');
 
-        // Valeurs actuelles réelles par type (currentValue, pas le cumulative du chart)
-        const currentByType = {};
-        typeKeys.forEach(k => currentByType[k] = 0);
-        holdings.forEach(h => {
-            const t = normalizeType(h.assetType);
-            if ((h.currentValue || 0) > 0) currentByType[t] += h.currentValue;
-        });
-        const totalCurrent = typeKeys.reduce((s, k) => s + currentByType[k], 0);
+        // Basis "market": valeur actuelle réelle par type (currentValue).
+        // Basis "invested": montant investi par type (cumulative, déjà calculé plus haut).
+        let byType, totalByType, breakdownLabel;
+        if (basis === 'market') {
+            byType = {};
+            typeKeys.forEach(k => byType[k] = 0);
+            holdings.forEach(h => {
+                const t = normalizeType(h.assetType);
+                if ((h.currentValue || 0) > 0) byType[t] += h.currentValue;
+            });
+            breakdownLabel = 'Répartition actuelle (valeur totale)';
+        } else {
+            byType = cumulative;
+            breakdownLabel = 'Répartition actuelle (montant investi)';
+        }
+        totalByType = typeKeys.reduce((s, k) => s + (byType[k] || 0), 0);
 
         const fmtK = v => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v);
         breakdown.innerHTML = `
-            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Répartition actuelle (valeur totale)</div>
+            <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">${breakdownLabel}</div>
             <div style="display:flex;gap:16px;flex-wrap:wrap;">
                 ${activeTypes.map(k => {
-                    const pct = totalCurrent > 0 ? (currentByType[k] / totalCurrent) * 100 : 0;
+                    const pct = totalByType > 0 ? ((byType[k] || 0) / totalByType) * 100 : 0;
                     return `<div style="display:flex;flex-direction:column;gap:2px;">
                         <span style="font-size:15px;font-weight:700;color:${TYPES[k].color};">${pct.toFixed(1)}%</span>
-                        <span style="font-size:11px;color:var(--text-muted);">${TYPES[k].label} · ${fmtK(currentByType[k])}</span>
+                        <span style="font-size:11px;color:var(--text-muted);">${TYPES[k].label} · ${fmtK(byType[k] || 0)}</span>
                     </div>`;
                 }).join('')}
             </div>`;
