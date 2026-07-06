@@ -599,10 +599,30 @@ class AnalyticsApp {
         }
 
         const selectionValue = filteredAssets.reduce((s, a) => s + (a.currentValue || 0), 0);
-        const portfolioTotal = this.lastReport?.summary?.totalValue
-            || assets.reduce((s, a) => s + (a.currentValue || 0), 0);
-        const pctOfPortfolio = portfolioTotal > 0 ? (selectionValue / portfolioTotal) * 100 : 0;
-        this.renderAllocationSelectionStats(selectionValue, pctOfPortfolio);
+        const selectionInvested = filteredAssets.reduce((s, a) => s + (a.invested || 0), 0);
+        const selectionReturn = selectionValue - selectionInvested;
+        const selectionReturnPct = selectionInvested > 0 ? (selectionReturn / selectionInvested) * 100 : 0;
+
+        // Portefeuille total: report.summary.totalValue exclut le cash (c'est la
+        // valeur des positions uniquement) — il faut y rajouter cashReserve pour
+        // obtenir la vraie valeur totale du portefeuille (celle affichée ailleurs
+        // dans l'app, ex. dashboard).
+        const reportSummary = this.lastReport?.summary;
+        const portfolioTotalValue = reportSummary
+            ? (reportSummary.totalValue || 0) + (reportSummary.cashReserve || 0)
+            : assets.reduce((s, a) => s + (a.currentValue || 0), 0);
+        const portfolioTotalInvested = reportSummary
+            ? (reportSummary.totalInvested || 0)
+            : assets.reduce((s, a) => s + (a.invested || 0), 0);
+
+        const pctOfValue = portfolioTotalValue > 0 ? (selectionValue / portfolioTotalValue) * 100 : 0;
+        const pctOfInvested = portfolioTotalInvested > 0 ? (selectionInvested / portfolioTotalInvested) * 100 : 0;
+
+        this.renderAllocationSelectionStats({
+            selectionValue, pctOfValue,
+            selectionInvested, pctOfInvested,
+            selectionReturn, selectionReturnPct
+        });
 
         const sorted = filteredAssets.sort((a, b) => b.currentValue - a.currentValue);
 
@@ -683,18 +703,27 @@ class AnalyticsApp {
         });
     }
 
-    renderAllocationSelectionStats(value, pct) {
+    renderAllocationSelectionStats({ selectionValue, pctOfValue, selectionInvested, pctOfInvested, selectionReturn, selectionReturnPct }) {
         const el = document.getElementById('allocation-selection-stats');
         if (!el) return;
-        const fmtValue = value.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const fmt = v => v.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const returnColor = selectionReturn >= 0 ? '#10b981' : '#ef4444';
+        const returnSign = selectionReturn >= 0 ? '+' : '';
         el.innerHTML = `
             <div>
-                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Valeur sélection</div>
-                <div style="font-size:22px;font-weight:700;color:var(--text-primary);">${fmtValue}</div>
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Valeur</div>
+                <div style="font-size:20px;font-weight:700;color:var(--text-primary);">${fmt(selectionValue)}</div>
+                <div style="font-size:12px;color:#3b82f6;font-weight:600;">${pctOfValue.toFixed(1)}% du portefeuille</div>
             </div>
             <div>
-                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Du portefeuille</div>
-                <div style="font-size:22px;font-weight:700;color:#3b82f6;">${pct.toFixed(1)}%</div>
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Investi</div>
+                <div style="font-size:20px;font-weight:700;color:var(--text-primary);">${fmt(selectionInvested)}</div>
+                <div style="font-size:12px;color:#3b82f6;font-weight:600;">${pctOfInvested.toFixed(1)}% de l'investi</div>
+            </div>
+            <div>
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Return</div>
+                <div style="font-size:20px;font-weight:700;color:${returnColor};">${returnSign}${fmt(selectionReturn)}</div>
+                <div style="font-size:12px;color:${returnColor};font-weight:600;">${returnSign}${selectionReturnPct.toFixed(1)}%</div>
             </div>`;
     }
 
