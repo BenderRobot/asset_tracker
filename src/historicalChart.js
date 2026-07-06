@@ -1210,20 +1210,29 @@ export class HistoricalChart {
 
         if (isPerformanceMode) {
             const portfolioData = [];
-            // Pour la vue 1D, la référence (0%) doit être la clôture de la veille (TWR=1.0).
-            // Pour la vue 2D, la référence doit être le premier point du graphique pour commencer à 0%.
-            const startIndexForPerf = (this.currentPeriod === 1) ? 0 : ((firstNonNull_forPerf >= 0) ? firstNonNull_forPerf : firstIndex);
-            const startTWR = (this.currentPeriod === 1)
-                ? 1.0
-                : (graphData.twr[startIndexForPerf] || 1.0);
+            const hasDailyTwr = Array.isArray(graphData.dailyTwr) && graphData.dailyTwr.length === graphData.twr.length;
 
-            // Si on est en "Performance View", on affiche la courbe TWR même sans benchmark
-            for (let i = 0; i < graphData.twr.length; i++) {
-                const twrVal = graphData.twr[i];
-                if (twrVal === null || twrVal === undefined) {
-                    portfolioData.push(null); // Respecte le séparateur (gap visuel)
-                } else {
-                    portfolioData.push(((twrVal - startTWR) / startTWR) * 100);
+            if (hasDailyTwr) {
+                // dailyTwr est déjà ancré à 1.0 (0%) sur la clôture de la veille de CHAQUE
+                // jour affiché : pas de re-normalisation globale nécessaire.
+                for (let i = 0; i < graphData.dailyTwr.length; i++) {
+                    const dailyVal = graphData.dailyTwr[i];
+                    portfolioData.push(dailyVal === null || dailyVal === undefined ? null : (dailyVal - 1) * 100);
+                }
+            } else {
+                // Fallback (ancien comportement) si dailyTwr n'est pas fourni.
+                const startIndexForPerf = (this.currentPeriod === 1) ? 0 : ((firstNonNull_forPerf >= 0) ? firstNonNull_forPerf : firstIndex);
+                const startTWR = (this.currentPeriod === 1)
+                    ? 1.0
+                    : (graphData.twr[startIndexForPerf] || 1.0);
+
+                for (let i = 0; i < graphData.twr.length; i++) {
+                    const twrVal = graphData.twr[i];
+                    if (twrVal === null || twrVal === undefined) {
+                        portfolioData.push(null); // Respecte le séparateur (gap visuel)
+                    } else {
+                        portfolioData.push(((twrVal - startTWR) / startTWR) * 100);
+                    }
                 }
             }
             datasets.push({
@@ -1620,8 +1629,18 @@ export class HistoricalChart {
                                     const periodStart = graphData.values
                                         ? graphData.values.find(v => v !== null && v > 0)
                                         : null;
+                                    // Quand dailyTwr alimente le graphique (voir dataset ci-dessus), le % affiché
+                                    // est déjà réinitialisé chaque jour : le € doit refléter la même base du jour,
+                                    // pas le début de toute la période affichée.
+                                    const dailyTwrVal = graphData.dailyTwr ? graphData.dailyTwr[idx] : null;
 
-                                    if (val !== null && periodStart !== null) {
+                                    if (val !== null && dailyTwrVal) {
+                                        const perfAbs = val - (val / dailyTwrVal);
+                                        const signPct = portfolioPct >= 0 ? '+' : '';
+                                        const signAbs = perfAbs >= 0 ? '+' : '';
+                                        lines.push(`🔵 Performance : ${signPct}${portfolioPct.toFixed(2)}% (${signAbs}${perfAbs.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €)`);
+                                        lines.push(`💰 Total Value : ${val.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`);
+                                    } else if (val !== null && periodStart !== null) {
                                         const perfAbs = val - periodStart;
                                         const signPct = portfolioPct >= 0 ? '+' : '';
                                         const signAbs = perfAbs >= 0 ? '+' : '';

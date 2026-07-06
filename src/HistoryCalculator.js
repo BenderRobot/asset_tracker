@@ -8,6 +8,7 @@ import {
     getIntervalForPeriod,
     getLabelFormat,
     getLastTradingDay,
+    getCalendarYesterdayClose,
     isCryptoTicker,
     isMixedPortfolio,
     findClosestPrice,
@@ -99,7 +100,7 @@ export class HistoryCalculator {
             }
         }
 
-        if (!firstPurchase) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [] };
+        if (!firstPurchase) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [], dailyTwr: [] };
 
         const today = new Date();
         const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
@@ -378,6 +379,7 @@ export class HistoryCalculator {
         const unitPrices = [];
         const purchasePoints = [];
         const twr = [];
+        const dailyTwr = [];
         const allTimestamps = new Set();
         historicalDataMap.forEach(hist => {
             Object.keys(hist).forEach(ts => {
@@ -569,6 +571,97 @@ export class HistoryCalculator {
         console.log(`[HistoryCalc] Daily reference ("clôture") at: ${new Date(lastMarketCloseTs).toISOString()}`);
         console.log(`[HistoryCalc] Today: ${today.toISOString()}, Last Trading Day: ${lastTradingDay.toISOString()}, Days: ${days}`);
 
+        // Résout la valeur du portefeuille à la clôture PRÉCÉDANT refDate, par actif.
+        // Les cryptos/cash tradent 24/7 : leur clôture de référence est le calendrier
+        // civil (refDate - 1 jour, 23:59:59), pas le dernier jour BOURSIER (qui saute
+        // le week-end). Les actions, elles, n'ont aucune cotation le week-end donc
+        // leur "dernier jour de trading" reste la bonne référence.
+        const resolveCloseValueBeforeDay = (refDate, label = '') => {
+            const cutoffForTicker = (t) => {
+                if (t.startsWith('CASH-') || isCryptoTicker(t)) {
+                    return getCalendarYesterdayClose(refDate).getTime();
+                }
+                const lastTradingDayForTicker = getLastTradingDay(refDate);
+                lastTradingDayForTicker.setHours(23, 59, 59, 999);
+                return lastTradingDayForTicker.getTime();
+            };
+
+            const quantities = new Map();
+            for (const t of tickers) quantities.set(t, 0);
+
+            for (const [t, buyList] of assetMap.entries()) {
+                const cutoffTs = cutoffForTicker(t);
+                for (const buy of buyList) {
+                    if (buy.date.getTime() <= cutoffTs) {
+                        quantities.set(t, quantities.get(t) + buy.quantity);
+                    }
+                }
+            }
+
+            let total = 0;
+            let assetsFound = 0;
+            const prices = new Map(); // Prix natif (avant taux de change) utilisé pour chaque ticker
+
+            for (const t of tickers) {
+                const qty = quantities.get(t);
+                if (qty > 0) {
+                    // Cash: price is always 1.0, no lookup needed
+                    if (t.startsWith('CASH-')) {
+                        total += qty;
+                        assetsFound++;
+                        prices.set(t, 1.0);
+                        continue;
+                    }
+
+                    const cutoffTs = cutoffForTicker(t);
+                    let closePrice = null;
+
+                    // Chercher dans historicalDataMap le dernier prix AVANT ou égal au cutoff
+                    // (pas le plus proche - on veut le prix de clôture, pas le lendemain matin)
+                    const hist = historicalDataMap.get(t);
+                    if (hist) {
+                        const histKeys = Object.keys(hist).map(Number).sort((a, b) => a - b);
+                        let bestTs = null;
+                        for (const ts of histKeys) {
+                            if (ts <= cutoffTs) {
+                                bestTs = ts;
+                            } else {
+                                break;
+                            }
+                        }
+                        if (bestTs !== null) closePrice = hist[bestTs];
+                    }
+
+                    // Fallback: storage.previousClose, puis prix actuel
+                    if (!closePrice || closePrice <= 0) {
+                        const priceData = this.storage.getCurrentPrice(t);
+                        if (priceData && priceData.previousClose > 0) closePrice = priceData.previousClose;
+                    }
+                    if (!closePrice || closePrice <= 0) {
+                        const priceData = this.storage.getCurrentPrice(t);
+                        if (priceData && priceData.price > 0) closePrice = priceData.price;
+                    }
+
+                    if (closePrice && closePrice > 0) {
+                        prices.set(t, closePrice);
+                        let rate = 1;
+                        if (!isSingleAsset) {
+                            const priceData = this.storage.getCurrentPrice(t);
+                            const currency = priceData?.currency || 'EUR';
+                            if (currency === 'USD') rate = dynamicRate;
+                        }
+                        total += closePrice * rate * qty;
+                        assetsFound++;
+                    }
+                }
+            }
+
+            console.log(`[HistoryCalc] resolveCloseValueBeforeDay${label} @ ${refDate.toISOString()}: total=${total.toFixed(2)}€, assets=${assetsFound}/${tickers.length}`);
+            return { total: assetsFound > 0 ? total : 0, quantities, prices };
+        };
+
+        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = resolveCloseValueBeforeDay(today, ' (yesterdayClose)');
+
         // Injecter un prix synthétique à minuit pour les actions (pas de cotation avant l'ouverture).
         // Le lundi, lastMarketCloseTs = dimanche 23:59 → l'ancienne condition (< 1h) ne s'appliquait pas.
         if (days === 1) {
@@ -582,47 +675,50 @@ export class HistoryCalculator {
                     const hist = historicalDataMap.get(t);
                     if (!hist || hist[displayStartTs]) continue;
 
-                    let midnightPrice = null;
-                    
-                    // PRIORITÉ: Utiliser le previousClose (c'est la vraie clôture d'hier)
-                    // Ne pas utiliser "le premier prix du jour" car cela distord la base de référence
-                    const priceData = this.storage.getCurrentPrice(t);
-                    if (priceData && priceData.previousClose > 0) {
-                        midnightPrice = priceData.previousClose;
+                    // PRIORITÉ: réutiliser exactement le prix de clôture déjà résolu pour
+                    // yesterdayClose (closePrices), pour garantir que le premier point
+                    // affiché du graphique 1D EST la base à 0%, au centime près.
+                    let midnightPrice = closePrices.get(t) || null;
+
+                    if (!midnightPrice) {
+                        const priceData = this.storage.getCurrentPrice(t);
+                        if (priceData && priceData.previousClose > 0) midnightPrice = priceData.previousClose;
                     }
-                    
+
                     // Fallback: chercher dans l'historique
                     if (!midnightPrice) {
                         midnightPrice = findClosestPrice(hist, displayStartTs - 3600000, '1h');
                     }
-                    
+
                     if (midnightPrice && midnightPrice > 0) {
                         hist[displayStartTs] = midnightPrice;
                         console.log(`[HistoryCalc] Injected synthetic midnight price for ${t}: ${midnightPrice.toFixed(2)}€ at ${new Date(displayStartTs).toISOString()}`);
                     }
                 }
-                
+
                 // AUSSI: Injecter les prix pour les cryptos à minuit
                 for (const t of tickers) {
                     if (!isCryptoTicker(t) || t.startsWith('CASH-')) continue;
                     const hist = historicalDataMap.get(t);
                     if (!hist || hist[displayStartTs]) continue;
 
-                    let midnightPrice = null;
-                    const priceData = this.storage.getCurrentPrice(t);
-                    
-                    // Pour les cryptos: utiliser previousClose si disponible
-                    if (priceData && priceData.previousClose > 0) {
-                        midnightPrice = priceData.previousClose;
-                    } else if (priceData && priceData.price > 0) {
-                        midnightPrice = priceData.price;
+                    // Même principe: réutiliser le prix déjà résolu par resolveCloseValueBeforeDay.
+                    let midnightPrice = closePrices.get(t) || null;
+
+                    if (!midnightPrice) {
+                        const priceData = this.storage.getCurrentPrice(t);
+                        if (priceData && priceData.previousClose > 0) {
+                            midnightPrice = priceData.previousClose;
+                        } else if (priceData && priceData.price > 0) {
+                            midnightPrice = priceData.price;
+                        }
                     }
-                    
+
                     // Fallback: chercher dans l'historique
                     if (!midnightPrice) {
                         midnightPrice = findClosestPrice(hist, displayStartTs - 3600000, '1h');
                     }
-                    
+
                     if (midnightPrice && midnightPrice > 0) {
                         hist[displayStartTs] = midnightPrice;
                         console.log(`[HistoryCalc] Injected midnight price for crypto ${t}: ${midnightPrice.toFixed(2)}€ at ${new Date(displayStartTs).toISOString()}`);
@@ -647,102 +743,6 @@ export class HistoryCalculator {
 
             displayTimestamps = Array.from(new Set(displayTimestamps)).sort((a, b) => a - b);
         }
-
-        let yesterdayClose = 0;
-        let closeAssetsFound = 0;
-
-        // Calculer les quantités détenues à la clôture du dernier jour de trading
-        const closeQuantities = new Map();
-        for (const t of tickers) closeQuantities.set(t, 0);
-
-        for (const [t, buyList] of assetMap.entries()) {
-            for (const buy of buyList) {
-                if (buy.date.getTime() <= lastMarketCloseTs) {
-                    closeQuantities.set(t, closeQuantities.get(t) + buy.quantity);
-                }
-            }
-        }
-
-        for (const t of tickers) {
-            const qty = closeQuantities.get(t);
-            if (qty > 0) {
-                // Cash: price is always 1.0, no lookup needed
-                if (t.startsWith('CASH-')) {
-                    yesterdayClose += qty;
-                    closeAssetsFound++;
-                    continue;
-                }
-
-                let closePrice = null;
-
-                // Chercher dans historicalDataMap le prix au DERNIER MOMENT AVANT lastMarketCloseTs
-                // (pas le plus proche - on veut le prix du dernier jour de trading, pas lundi matin)
-                if (!closePrice || closePrice <= 0) {
-                    const hist = historicalDataMap.get(t);
-                    if (hist) {
-                        const histKeys = Object.keys(hist).map(Number).sort((a, b) => a - b);
-                        // Chercher le dernier timestamp AVANT ou égal à lastMarketCloseTs
-                        let bestTs = null;
-                        for (const ts of histKeys) {
-                            if (ts <= lastMarketCloseTs) {
-                                bestTs = ts;
-                            } else {
-                                break; // Plus haut dans le temps, arrêter
-                            }
-                        }
-                        if (bestTs !== null) {
-                            closePrice = hist[bestTs];
-                        }
-                        console.log(`[HistoryCalc] ${t} looking for price at or before ${new Date(lastMarketCloseTs).toISOString()}, found at ${bestTs ? new Date(bestTs).toISOString() : 'null'}: ${closePrice ? closePrice.toFixed(2) : 'null'}`);
-                    }
-                }
-
-                // Fallback: utiliser storage.previousClose
-                if (!closePrice || closePrice <= 0) {
-                    const priceData = this.storage.getCurrentPrice(t);
-                    if (priceData && priceData.previousClose > 0) {
-                        closePrice = priceData.previousClose;
-                        const assetType = isCryptoTicker(t) ? 'crypto' : 'stock';
-                        console.log(`[HistoryCalc] Using storage.previousClose for ${assetType} ${t}: ${closePrice}`);
-                    }
-                }
-
-                // 3. Dernier recours: prix actuel (pour actifs sans previousClose)
-                if (!closePrice || closePrice <= 0) {
-                    const priceData = this.storage.getCurrentPrice(t);
-                    if (priceData && priceData.price > 0) {
-                        closePrice = priceData.price;
-                        console.log(`[HistoryCalc] Fallback to current price for ${t}: ${closePrice}`);
-                    }
-                }
-
-                if (closePrice && closePrice > 0) {
-                    let rate = 1;
-                    if (!isSingleAsset) {
-                        const priceData = this.storage.getCurrentPrice(t);
-                        const currency = priceData?.currency || 'EUR';
-                        if (currency === 'USD') rate = dynamicRate;
-                    }
-                    const closePriceEUR = closePrice * rate;
-                    yesterdayClose += closePriceEUR * qty;
-                    console.log(`[HistoryCalc] ${t}: qty=${qty}, price=${closePrice.toFixed(2)}, currency=${isSingleAsset ? 'N/A' : this.storage.getCurrentPrice(t)?.currency || 'EUR'}, rate=${rate.toFixed(4)}, priceEUR=${closePriceEUR.toFixed(2)}`);
-                    closeAssetsFound++;
-                }
-            }
-        }
-
-        if (closeAssetsFound === 0) {
-            // Si aucun actif n'était détenu à la clôture d'hier,
-            // la variation journalière d'aujourd'hui ne doit pas inclure ce nouvel achat.
-            console.log(`[HistoryCalc] No close assets found at lastMarketCloseTs; setting yesterdayClose to 0 for this series.`);
-            yesterdayClose = 0;
-        }
-
-        console.log(`[HistoryCalc] ========== YESTERDAYCLOSE CALCULATION SUMMARY ==========`);
-        console.log(`[HistoryCalc] yesterdayClose = ${yesterdayClose ? yesterdayClose.toFixed(2) : 'null'}€`);
-        console.log(`[HistoryCalc] Assets found: ${closeAssetsFound} / ${tickers.length}`);
-        console.log(`[HistoryCalc] Raw yesterdayClose before filtering: ${yesterdayClose}`);
-        console.log(`[HistoryCalc] ============================================================`);
 
         // --- CALCUL VALEUR DÉBUT JOURNÉE (POUR VUE 1D DES PORTFOLIOS 24/7) ---
         // Pour les portfolios qui tradent 24/7 (crypto), il y a un gap entre:
@@ -855,6 +855,14 @@ export class HistoryCalculator {
         // La vue 2D doit commencer à 0% au premier point affiché, pas à la clôture d'hier.
         let twrDenominator = (days === 1) ? yesterdayClose : null;
         const shouldUseTwrFromClose = (days === 1 || days === 2);
+
+        // Série "dailyTwr" : comme twr, mais la base (0%) est réinitialisée à chaque
+        // changement de jour civil, sur la clôture de la veille de CE jour-là (via
+        // resolveCloseValueBeforeDay). C'est cette série qui doit alimenter le tracé
+        // du graphique (twr[] reste un ancrage unique sur toute la période, utilisé
+        // par le "PERIOD RETURN" et la sélection au glisser-déposer).
+        let dailyTwrDenominator = null;
+        let dailyTwrDayKey = null;
 
         // ANCIEN CODE DÉSACTIVÉ: Utilisait dayStartValue pour 1D mixte, ce qui créait une discontinuité
         // if (days === 1 && isMixed && dayStartValue > 0) {
@@ -969,6 +977,18 @@ export class HistoryCalculator {
                 console.log(`[TWR BASE] 2D baseline initialized to first displayed value: ${twrDenominator.toFixed(2)}€`);
             }
 
+            // dailyTwr : à chaque nouveau jour civil rencontré, la base est recalculée
+            // sur la clôture de la veille de CE jour (00h00 de la veille), et non sur
+            // le point d'entrée de toute la fenêtre affichée.
+            if (shouldUseTwrFromClose) {
+                const dayKey = new Date(ts).toDateString();
+                if (dayKey !== dailyTwrDayKey) {
+                    dailyTwrDayKey = dayKey;
+                    const { total: dailyBase } = resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`);
+                    dailyTwrDenominator = dailyBase > 0 ? dailyBase : null;
+                }
+            }
+
             // Ajustement TWR pour achats intraday : le dénominateur doit être mis à l'échelle
             // pour que l'achat lui-même n'apparaisse pas comme un gain. On utilise le cash flow réel
             // de l'achat (prix d'achat × quantité) comme prix de référence.
@@ -980,6 +1000,14 @@ export class HistoryCalculator {
                     console.log(`[TWR FIX] Achat intraday: cashFlow=${cashFlow.toFixed(2)}, avant=${valueBeforePurchase.toFixed(2)}, après=${currentTsTotalValue.toFixed(2)}, nouveau denom=${twrDenominator.toFixed(2)}`);
                 } else {
                     console.warn(`[TWR FIX] Ignored intraday adjustment because valueBeforePurchase <= 0 (cashFlow=${cashFlow.toFixed(2)}, total=${currentTsTotalValue.toFixed(2)})`);
+                }
+            }
+
+            const useDailyTwr = shouldUseTwrFromClose && dailyTwrDenominator !== null && dailyTwrDenominator > 0;
+            if (tsChangedInvested && useDailyTwr && cashFlow > 0) {
+                const valueBeforePurchase = currentTsTotalValue - cashFlow;
+                if (valueBeforePurchase > 0) {
+                    dailyTwrDenominator *= (currentTsTotalValue / valueBeforePurchase);
                 }
             }
 
@@ -1010,6 +1038,15 @@ export class HistoryCalculator {
             }
 
             twr.push(currentTWR);
+
+            if (!hasAtLeastOnePrice && !tsChangedInvested) {
+                dailyTwr.push(null);
+            } else if (useDailyTwr) {
+                dailyTwr.push(currentTsTotalValue / dailyTwrDenominator);
+            } else {
+                dailyTwr.push(null);
+            }
+
             previousTotalValue = currentTsTotalValue;
 
             const label = labelFormatFunc(ts);
@@ -1072,6 +1109,7 @@ export class HistoryCalculator {
             purchasePoints,
             timestamps: displayTimestamps,
             twr,
+            dailyTwr,
             historicalDataMap,
             isMixed
         };
