@@ -1129,14 +1129,12 @@ export class HistoricalChart {
             const periodMap = { 1: '1d', 7: '1w', 30: '1m', 90: '3m', 365: '1y', 1825: '5y' };
             const periodLabel = periodMap[this.currentPeriod] || `${this.currentPeriod}d`;
 
-            // Graph's last value is always more accurate than stale snapshot prices (all periods).
-            // Use priceEnd (last graph value) as source of truth for Total Value / Total Return.
-            const use1DGraphForKPI = !isSingleAsset && !isIndexMode
-                && priceEnd !== null && !isNaN(priceEnd) && priceEnd > 0;
-            const kpiInvestedBasis = (kpiData && kpiData.totalValue != null && kpiData.totalReturn != null)
-                ? kpiData.totalValue - kpiData.totalReturn
-                : null;
-
+            // Total Value / Total Return doivent toujours refléter l'état LIVE actuel du
+            // portefeuille (kpiData, calculé depuis les prix courants), jamais le dernier
+            // point de la série historique affichée — sinon ces KPI varient selon la
+            // période sélectionnée (1D vs 1W vs All récupèrent des séries différentes,
+            // avec des derniers points différents). Même principe que "Var Today", qui
+            // est déjà toujours basé sur summary.totalDayChangeEUR (live), pas sur le graphe.
             portfolioKPIs.updateFromGraph({
                 values: graphData.values,
                 invested: summary.totalInvestedEUR,
@@ -1144,9 +1142,9 @@ export class HistoricalChart {
                 vsYesterdayPct: vsYesterdayPct,
                 period: periodLabel,
                 cashDetails: { total: kpiData ? kpiData.cash : 0 },
-                liveTotalValue: use1DGraphForKPI ? priceEnd : (kpiData ? kpiData.totalValue : null),
-                liveTotalReturn: (use1DGraphForKPI && kpiInvestedBasis != null) ? priceEnd - kpiInvestedBasis : (kpiData ? kpiData.totalReturn : null),
-                liveTotalReturnPct: (use1DGraphForKPI && kpiInvestedBasis > 0) ? ((priceEnd - kpiInvestedBasis) / kpiInvestedBasis) * 100 : (kpiData ? kpiData.totalReturnPct : null)
+                liveTotalValue: kpiData ? kpiData.totalValue : null,
+                liveTotalReturn: kpiData ? kpiData.totalReturn : null,
+                liveTotalReturnPct: kpiData ? kpiData.totalReturnPct : null
             });
 
 
