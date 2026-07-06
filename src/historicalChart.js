@@ -1210,7 +1210,14 @@ export class HistoricalChart {
 
         if (isPerformanceMode) {
             const portfolioData = [];
-            const hasDailyTwr = Array.isArray(graphData.dailyTwr) && graphData.dailyTwr.length === graphData.twr.length;
+            // dailyTwr n'est calculé côté backend que pour les vues 1D/2D (voir
+            // shouldUseTwrFromClose dans HistoryCalculator.js) — pour 1W et plus,
+            // le tableau existe mais ne contient que des null : ne pas le traiter
+            // comme "présent" dans ce cas, sous peine de vider toute la courbe.
+            const hasDailyTwr = (this.currentPeriod === 1 || this.currentPeriod === 2)
+                && Array.isArray(graphData.dailyTwr)
+                && graphData.dailyTwr.length === graphData.twr.length
+                && graphData.dailyTwr.some(v => v !== null && v !== undefined);
 
             if (hasDailyTwr) {
                 // dailyTwr est déjà ancré à 1.0 (0%) sur la clôture de la veille de CHAQUE
