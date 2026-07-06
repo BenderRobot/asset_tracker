@@ -653,6 +653,11 @@ class AnalyticsApp {
 
         const ctx = canvasEl.getContext('2d');
 
+        // Sur mobile, une légende à droite écrase le donut dans très peu d'espace
+        // horizontal — on la passe en dessous, plus compacte, comme sur les autres
+        // pages responsive de l'app (breakpoint 768px, cohérent avec le CSS).
+        const isMobile = window.innerWidth <= 768;
+
         this.allocationChart = new Chart(ctx, {
             type: 'doughnut',
             data: {
@@ -669,12 +674,12 @@ class AnalyticsApp {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'right',
+                        position: isMobile ? 'bottom' : 'right',
                         labels: {
                             color: '#ffffff',
-                            font: { size: 10 },
-                            padding: 6,
-                            boxWidth: 10
+                            font: { size: isMobile ? 9 : 10 },
+                            padding: isMobile ? 4 : 6,
+                            boxWidth: isMobile ? 8 : 10
                         },
                         // Comportement par défaut de Chart.js pour un doughnut (masquer/révéler
                         // le secteur), PLUS recalcul des stats de gauche à partir des secteurs
@@ -724,19 +729,19 @@ class AnalyticsApp {
         const returnSign = selectionReturn >= 0 ? '+' : '';
         el.innerHTML = `
             <div>
-                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Valeur</div>
-                <div style="font-size:20px;font-weight:700;color:var(--text-primary);">${fmt(selectionValue)}</div>
-                <div style="font-size:12px;color:#3b82f6;font-weight:600;">${pctOfValue.toFixed(1)}% du portefeuille</div>
+                <div class="alloc-stat-label">Valeur</div>
+                <div class="alloc-stat-value">${fmt(selectionValue)}</div>
+                <div class="alloc-stat-sub" style="color:#3b82f6;">${pctOfValue.toFixed(1)}% du portefeuille</div>
             </div>
             <div>
-                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Investi</div>
-                <div style="font-size:20px;font-weight:700;color:var(--text-primary);">${fmt(selectionInvested)}</div>
-                <div style="font-size:12px;color:#3b82f6;font-weight:600;">${pctOfInvested.toFixed(1)}% de l'investi</div>
+                <div class="alloc-stat-label">Investi</div>
+                <div class="alloc-stat-value">${fmt(selectionInvested)}</div>
+                <div class="alloc-stat-sub" style="color:#3b82f6;">${pctOfInvested.toFixed(1)}% de l'investi</div>
             </div>
             <div>
-                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Return</div>
-                <div style="font-size:20px;font-weight:700;color:${returnColor};">${returnSign}${fmt(selectionReturn)}</div>
-                <div style="font-size:12px;color:${returnColor};font-weight:600;">${returnSign}${selectionReturnPct.toFixed(1)}%</div>
+                <div class="alloc-stat-label">Return</div>
+                <div class="alloc-stat-value" style="color:${returnColor};">${returnSign}${fmt(selectionReturn)}</div>
+                <div class="alloc-stat-sub" style="color:${returnColor};">${returnSign}${selectionReturnPct.toFixed(1)}%</div>
             </div>`;
     }
 
