@@ -598,6 +598,12 @@ class AnalyticsApp {
             });
         }
 
+        const selectionValue = filteredAssets.reduce((s, a) => s + (a.currentValue || 0), 0);
+        const portfolioTotal = this.lastReport?.summary?.totalValue
+            || assets.reduce((s, a) => s + (a.currentValue || 0), 0);
+        const pctOfPortfolio = portfolioTotal > 0 ? (selectionValue / portfolioTotal) * 100 : 0;
+        this.renderAllocationSelectionStats(selectionValue, pctOfPortfolio);
+
         const sorted = filteredAssets.sort((a, b) => b.currentValue - a.currentValue);
 
         // LIMIT: Show top 20, group rest as "Autres"
@@ -675,6 +681,21 @@ class AnalyticsApp {
                 }
             }
         });
+    }
+
+    renderAllocationSelectionStats(value, pct) {
+        const el = document.getElementById('allocation-selection-stats');
+        if (!el) return;
+        const fmtValue = value.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        el.innerHTML = `
+            <div>
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Valeur sélection</div>
+                <div style="font-size:22px;font-weight:700;color:var(--text-primary);">${fmtValue}</div>
+            </div>
+            <div>
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Du portefeuille</div>
+                <div style="font-size:22px;font-weight:700;color:#3b82f6;">${pct.toFixed(1)}%</div>
+            </div>`;
     }
 
     // === DIVIDEND MODAL LOGIC ===
