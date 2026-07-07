@@ -639,17 +639,38 @@ export class HistoricalChart {
                     console.log(`[CHART] Using graphData.yesterdayClose as unifiedClose: ${unifiedClose}`);
                 }
 
-                // Les KPIs du haut (Total Value, Total Return) viennent TOUJOURS des holdings live.
-                // Le graphique sert à la visualisation historique ; ses valeurs ne doivent pas
-                // écraser la valeur actuelle du portefeuille qui dépend de la période sélectionnée.
+                // SOURCE UNIQUE DE VÉRITÉ : les KPIs du haut (Total Value, Total Return) sont
+                // dérivés du DERNIER POINT du graphique 1D (graphData.values, qui inclut déjà
+                // le cash puisque targetCashPurchases est fusionné dans calculateHistory ligne
+                // ~470 plus haut) — jamais d'un calcul "live quotes" séparé (calculateHoldings),
+                // qui pouvait légèrement diverger de la valeur affichée sur le graphique.
+                // Sur les périodes autres que 1D, on réutilise la dernière valeur 1D en cache
+                // pour ne pas faire "sauter" les cartes quand on change de période (même
+                // principe que cached1DVarToday pour Var Today).
                 const cash = targetCashReserve.total || 0;
-                const liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
-                const liveTotalReturn = targetSummary.gainTotal != null
-                    ? targetSummary.gainTotal
-                    : liveTotalValue - cash - (targetSummary.totalInvestedEUR || 0);
-                const liveTotalReturnPct = targetSummary.gainPct != null
-                    ? targetSummary.gainPct
-                    : ((targetSummary.totalInvestedEUR || 0) > 0 ? (liveTotalReturn / (targetSummary.totalInvestedEUR || 1)) * 100 : 0);
+
+                let graphLastValue = null;
+                if (!isSingleAsset && !isIndexMode && Array.isArray(graphData.values)) {
+                    for (let i = graphData.values.length - 1; i >= 0; i--) {
+                        const v = graphData.values[i];
+                        if (v !== null && v !== undefined && !isNaN(v)) { graphLastValue = v; break; }
+                    }
+                }
+
+                if (this.currentPeriod === 1 && graphLastValue !== null) {
+                    this.cached1DTotalValue = graphLastValue;
+                }
+
+                const liveTotalValue = (this.currentPeriod === 1 && graphLastValue !== null)
+                    ? graphLastValue
+                    : (this.cached1DTotalValue !== undefined
+                        ? this.cached1DTotalValue
+                        : ((targetSummary.totalCurrentEUR || 0) + cash)); // dernier recours si le 1D n'a jamais chargé
+
+                const liveTotalReturn = liveTotalValue - cash - (targetSummary.totalInvestedEUR || 0);
+                const liveTotalReturnPct = (targetSummary.totalInvestedEUR || 0) > 0
+                    ? (liveTotalReturn / targetSummary.totalInvestedEUR) * 100
+                    : 0;
 
                 const kpiData = {
                     totalValue: liveTotalValue,
@@ -1051,16 +1072,6 @@ export class HistoricalChart {
             }
         }
 
-        // 2bis. Portfolio global : aligner le DERNIER point de la série (celui que le tooltip
-        // affiche comme "Total Value"/"Total Return" quand on survole "maintenant") sur la
-        // valeur live (kpiData) déjà utilisée par les KPI du haut. Sans ça, le tooltip affiche
-        // la valeur de l'API historique (souvent en léger retard) alors que les cartes du haut
-        // affichent la cotation live, ce qui donne deux totaux différents pour le même instant.
-        // Ne touche que ce dernier point : les points passés du graphique restent inchangés.
-        if (!isSingleAsset && !isIndexMode && kpiData && kpiData.totalValue != null && lastIndex >= 0 && Array.isArray(graphData.values)) {
-            graphData.values[lastIndex] = kpiData.totalValue;
-        }
-
         // ---------------------------------------------------------
 
         // CRITICAL FALLBACK: Ensure referenceClose is NEVER null
@@ -1139,12 +1150,11 @@ export class HistoricalChart {
             const periodMap = { 1: '1d', 7: '1w', 30: '1m', 90: '3m', 365: '1y', 1825: '5y' };
             const periodLabel = periodMap[this.currentPeriod] || `${this.currentPeriod}d`;
 
-            // Total Value / Total Return doivent toujours refléter l'état LIVE actuel du
-            // portefeuille (kpiData, calculé depuis les prix courants), jamais le dernier
-            // point de la série historique affichée — sinon ces KPI varient selon la
-            // période sélectionnée (1D vs 1W vs All récupèrent des séries différentes,
-            // avec des derniers points différents). Même principe que "Var Today", qui
-            // est déjà toujours basé sur summary.totalDayChangeEUR (live), pas sur le graphe.
+            // Total Value / Total Return (kpiData) sont maintenant dérivés du dernier point du
+            // graphique 1D (voir construction de kpiData plus haut) : le graphique EST la
+            // source de vérité. En dehors de la vue 1D, kpiData réutilise la dernière valeur
+            // 1D mise en cache pour ne pas faire "sauter" ces KPI en changeant de période —
+            // même principe que "Var Today" (cached1DVarToday).
             portfolioKPIs.updateFromGraph({
                 values: graphData.values,
                 invested: summary.totalInvestedEUR,
