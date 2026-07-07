@@ -1051,6 +1051,16 @@ export class HistoricalChart {
             }
         }
 
+        // 2bis. Portfolio global : aligner le DERNIER point de la série (celui que le tooltip
+        // affiche comme "Total Value"/"Total Return" quand on survole "maintenant") sur la
+        // valeur live (kpiData) déjà utilisée par les KPI du haut. Sans ça, le tooltip affiche
+        // la valeur de l'API historique (souvent en léger retard) alors que les cartes du haut
+        // affichent la cotation live, ce qui donne deux totaux différents pour le même instant.
+        // Ne touche que ce dernier point : les points passés du graphique restent inchangés.
+        if (!isSingleAsset && !isIndexMode && kpiData && kpiData.totalValue != null && lastIndex >= 0 && Array.isArray(graphData.values)) {
+            graphData.values[lastIndex] = kpiData.totalValue;
+        }
+
         // ---------------------------------------------------------
 
         // CRITICAL FALLBACK: Ensure referenceClose is NEVER null
