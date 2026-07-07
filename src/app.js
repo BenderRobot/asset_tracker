@@ -9,7 +9,7 @@ import { UIComponents } from './ui.js';
 import { FilterManager } from './filters.js';
 import { AchatsPage } from './achatsPage.js?v=7';
 import { InvestmentsPage } from './investmentsPage.js?v=15';
-import { HistoricalChart } from './historicalChart.js?v=19';
+import { HistoricalChart } from './historicalChart.js?v=20';
 import { DataManager } from './dataManager.js?v=10';
 import { initMarketStatus } from './marketStatus.js?v=3';
 import { ASSET_TYPES, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED, DASHBOARD_INDICES, PRICE_PROXY_URL } from './config.js';
