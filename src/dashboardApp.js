@@ -2125,12 +2125,21 @@ class DashboardApp {
             </div>`;
     }
 
-    refreshDashboard() {
+    async refreshDashboard() {
         if (this._refreshing) return;
         this._refreshing = true;
-        if (this.chart) this.chart.update(false, true);
-        Promise.all([this.loadPortfolioData(), this.loadMarketIndices()])
-            .finally(() => { this._refreshing = false; });
+        try {
+            // Le graphique doit être rafraîchi EN PREMIER et attendu : c'est lui qui
+            // recalcule et pousse les 3 KPI principaux (Total Value, Total Return, Var Today)
+            // via portfolioKPIs. Le lancer en parallèle avec loadPortfolioData() faisait
+            // courir deux fetchBatchPrices concurrents sur les mêmes tickers, ce qui pouvait
+            // faire échouer/retarder silencieusement la mise à jour des prix live et donc
+            // désynchroniser les KPI du haut par rapport au graphique.
+            if (this.chart) await this.chart.update(false, true);
+            await Promise.all([this.loadPortfolioData(), this.loadMarketIndices()]);
+        } finally {
+            this._refreshing = false;
+        }
     }
 }
 
