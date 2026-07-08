@@ -1232,7 +1232,11 @@ export class HistoricalChart {
             // shouldUseTwrFromClose dans HistoryCalculator.js) — pour 1W et plus,
             // le tableau existe mais ne contient que des null : ne pas le traiter
             // comme "présent" dans ce cas, sous peine de vider toute la courbe.
-            const hasDailyTwr = (this.currentPeriod === 1 || this.currentPeriod === 2)
+            // NE PAS l'utiliser en 2D : dailyTwr recale la performance à 0% au début de
+            // CHAQUE jour affiché, ce qui crée une remontée artificielle à la frontière
+            // entre les 2 jours. En 2D on veut une performance continue sur toute la
+            // période (comme 1W/1M/...), donc on passe par le fallback ci-dessous.
+            const hasDailyTwr = (this.currentPeriod === 1)
                 && Array.isArray(graphData.dailyTwr)
                 && graphData.dailyTwr.length === graphData.twr.length
                 && graphData.dailyTwr.some(v => v !== null && v !== undefined);
