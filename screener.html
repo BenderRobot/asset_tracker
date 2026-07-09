@@ -126,10 +126,8 @@
                 <div class="screener-tabs">
                     <button class="screener-tab active" data-tab="resume">Résumé</button>
                     <button class="screener-tab" data-tab="quantitatif">Quantitatif</button>
-                    <button class="screener-tab disabled" data-tab="dividende"
-                        title="Bientôt disponible">Dividende</button>
-                    <button class="screener-tab disabled" data-tab="finances"
-                        title="Bientôt disponible">Finances</button>
+                    <button class="screener-tab" data-tab="dividende">Dividende</button>
+                    <button class="screener-tab" data-tab="finances">Finances</button>
                     <button class="screener-tab" data-tab="valorisation">Valorisation</button>
                 </div>
 
@@ -388,6 +386,76 @@
                                 <canvas id="chart-capex"></canvas>
                             </div>
                             <div class="quant-card-footer" id="footer-capex"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DIVIDENDE TAB CONTENT -->
+                <div id="tab-dividende" class="screener-tab-content">
+                    <div id="dividende-empty" class="valuation-skeleton" style="display:none;">Cette société ne verse pas de dividende (ou aucune donnée disponible).</div>
+                    <div id="dividende-content">
+                        <div class="quant-dashboard-grid" style="grid-template-columns: repeat(4, 1fr);">
+                            <div class="quant-card" style="min-height:auto;">
+                                <div class="quant-card-header"><span class="quant-card-title">Yield actuel</span></div>
+                                <div class="kpi-big-value" id="div-kpi-yield">—</div>
+                            </div>
+                            <div class="quant-card" style="min-height:auto;">
+                                <div class="quant-card-header"><span class="quant-card-title">Dividende / action</span></div>
+                                <div class="kpi-big-value" id="div-kpi-rate">—</div>
+                            </div>
+                            <div class="quant-card" style="min-height:auto;">
+                                <div class="quant-card-header"><span class="quant-card-title">Taux de distribution</span></div>
+                                <div class="kpi-big-value" id="div-kpi-payout">—</div>
+                            </div>
+                            <div class="quant-card" style="min-height:auto;">
+                                <div class="quant-card-header"><span class="quant-card-title">Croissance du dividende</span></div>
+                                <div class="kpi-big-value" id="div-kpi-cagr">—</div>
+                            </div>
+                        </div>
+                        <div class="quant-dashboard-grid">
+                            <div class="quant-card">
+                                <div class="quant-card-header">
+                                    <span class="quant-card-title">Historique des versements</span>
+                                </div>
+                                <div class="quant-chart-container">
+                                    <canvas id="chart-dividend-payments"></canvas>
+                                </div>
+                            </div>
+                            <div class="quant-card">
+                                <div class="quant-card-header">
+                                    <span class="quant-card-title">Dividende annuel / action</span>
+                                </div>
+                                <div class="quant-chart-container">
+                                    <canvas id="chart-dividend-annual"></canvas>
+                                </div>
+                                <div class="quant-card-footer" id="footer-dividend-annual"></div>
+                            </div>
+                            <div class="quant-card">
+                                <div class="quant-card-header">
+                                    <span class="quant-card-title">Taux de distribution (Payout Ratio)</span>
+                                </div>
+                                <div class="quant-chart-container">
+                                    <canvas id="chart-payout-ratio"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FINANCES TAB CONTENT -->
+                <div id="tab-finances" class="screener-tab-content">
+                    <div id="finances-empty" class="valuation-skeleton" style="display:none;">Données financières indisponibles pour ce titre.</div>
+                    <div id="finances-content">
+                        <div class="fin-statement-tabs">
+                            <button class="fin-statement-tab active" data-statement="income">Compte de résultat</button>
+                            <button class="fin-statement-tab" data-statement="balance">Bilan</button>
+                            <button class="fin-statement-tab" data-statement="cashflow">Flux de trésorerie</button>
+                        </div>
+                        <div class="fin-table-wrap">
+                            <table class="fin-table" id="fin-table">
+                                <thead><tr></tr></thead>
+                                <tbody></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>

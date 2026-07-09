@@ -3,8 +3,55 @@
  * Supports:
  *   - type=STOCK/CRYPTO (default): historical chart via /v8/finance/chart
  *   - type=QUOTE_SUMMARY: fundamental data via /v10/finance/quoteSummary
+ *   - type=FUNDAMENTALS: multi-year annual financial statements via /ws/fundamentals-timeseries
  *   - type=SEARCH: ticker search via /v1/finance/search
  */
+
+// quoteSummary's incomeStatementHistory/balanceSheetHistory/cashflowStatementHistory modules
+// only return { endDate, netIncome } per year now (Yahoo gutted them). fundamentals-timeseries
+// is the endpoint that still returns full historical line items — each key below is a Yahoo
+// "type" verified to return real annual data (income statement, balance sheet, cash flow, shares).
+const FUNDAMENTALS_METRICS = [
+  // Income statement
+  'annualTotalRevenue', 'annualCostOfRevenue', 'annualGrossProfit', 'annualOperatingExpense',
+  'annualOperatingIncome', 'annualPretaxIncome', 'annualTaxProvision', 'annualNetIncome',
+  'annualBasicEPS', 'annualDilutedEPS',
+  // Balance sheet
+  'annualTotalAssets', 'annualCurrentAssets', 'annualCashAndCashEquivalents',
+  'annualTotalLiabilitiesNetMinorityInterest', 'annualCurrentLiabilities', 'annualLongTermDebt',
+  'annualTotalDebt', 'annualStockholdersEquity',
+  // Cash flow
+  'annualOperatingCashFlow', 'annualCapitalExpenditure', 'annualFreeCashFlow',
+  'annualInvestingCashFlow', 'annualFinancingCashFlow', 'annualCommonStockDividendPaid',
+  'annualRepurchaseOfCapitalStock', 'annualEndCashPosition',
+  // Shares
+  'annualBasicAverageShares', 'annualDilutedAverageShares',
+];
+
+// Yahoo returns one { meta: { type: [name] }, [name]: [{ asOfDate, reportedValue }] } block per
+// requested metric. Reshape that into one row per fiscal year with all metrics as columns, which
+// is far easier for the frontend to consume than hunting through 28 separate arrays.
+function reshapeFundamentalsTimeseries(raw, symbol) {
+  const results = raw?.timeseries?.result || [];
+  const byYear = {};
+
+  for (const block of results) {
+    const metric = block?.meta?.type?.[0];
+    const series = metric ? block[metric] : null;
+    if (!metric || !Array.isArray(series)) continue;
+
+    for (const point of series) {
+      const asOfDate = point?.asOfDate;
+      if (!asOfDate) continue;
+      const year = asOfDate.slice(0, 4);
+      if (!byYear[year]) byYear[year] = { year, endDate: asOfDate };
+      byYear[year][metric] = point.reportedValue?.raw ?? null;
+    }
+  }
+
+  const years = Object.values(byYear).sort((a, b) => a.year.localeCompare(b.year));
+  return { symbol, years };
+}
 
 const ALLOWED_ORIGIN = 'https://asset-tracker.fr';
 
@@ -191,6 +238,21 @@ export default {
           return jsonResponse(data, 200, origin);
         } catch (err) {
           try { console.error(`[PricesProxy][QUOTE_SUMMARY] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
+          return jsonResponse({ error: err.message, url: null }, 500, origin);
+        }
+      }
+
+      // ─── FUNDAMENTALS (multi-year statements) ────────────────────────────────
+      if (type === 'FUNDAMENTALS') {
+        if (!symbol) return jsonResponse({ error: 'symbol required' }, 400, origin);
+        try {
+          const nowSec = Math.floor(Date.now() / 1000);
+          const period1 = nowSec - 15 * 365 * 24 * 3600; // 15 years of annual history
+          const fundamentalsUrl = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?symbol=${encodeURIComponent(symbol)}&type=${FUNDAMENTALS_METRICS.join(',')}&period1=${period1}&period2=${nowSec}`;
+          const data = await fetchYahoo(fundamentalsUrl, origin, { useCrumb: true });
+          return jsonResponse(reshapeFundamentalsTimeseries(data, symbol), 200, origin);
+        } catch (err) {
+          try { console.error(`[PricesProxy][FUNDAMENTALS] Error for ${symbol}.`, err.stack || err.message); } catch (e) { console.error(e); }
           return jsonResponse({ error: err.message, url: null }, 500, origin);
         }
       }

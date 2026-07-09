@@ -4,10 +4,55 @@
 import { Storage } from './storage.js';
 import { PRICE_PROXY_URL } from './config.js';
 import logger from '../utils/logger.js';
-import { QuantitativeTab } from './screenerQuantitativeTab.js';
 
 const PROXY = PRICE_PROXY_URL;
 const SP500_SYMBOL = '^GSPC'; // Used for S&P 500 comparison
+
+// Row definitions for the Finances tab's 3 statement tables — each `key` maps to a field
+// returned by the worker's FUNDAMENTALS endpoint (Yahoo fundamentals-timeseries).
+const FIN_STATEMENT_DEFS = {
+    income: {
+        label: 'Compte de résultat',
+        rows: [
+            { label: 'Revenus', key: 'annualTotalRevenue' },
+            { label: 'Coût des revenus', key: 'annualCostOfRevenue' },
+            { label: 'Marge brute', key: 'annualGrossProfit' },
+            { label: "Charges d'exploitation", key: 'annualOperatingExpense' },
+            { label: 'Résultat opérationnel', key: 'annualOperatingIncome' },
+            { label: 'Résultat avant impôts', key: 'annualPretaxIncome' },
+            { label: 'Impôts', key: 'annualTaxProvision' },
+            { label: 'Résultat net', key: 'annualNetIncome' },
+            { label: 'BPA de base', key: 'annualBasicEPS', decimals: true },
+            { label: 'BPA dilué', key: 'annualDilutedEPS', decimals: true },
+        ],
+    },
+    balance: {
+        label: 'Bilan',
+        rows: [
+            { label: 'Trésorerie', key: 'annualCashAndCashEquivalents' },
+            { label: 'Actifs courants', key: 'annualCurrentAssets' },
+            { label: 'Total actifs', key: 'annualTotalAssets' },
+            { label: 'Passifs courants', key: 'annualCurrentLiabilities' },
+            { label: 'Dette long terme', key: 'annualLongTermDebt' },
+            { label: 'Dette totale', key: 'annualTotalDebt' },
+            { label: 'Total passifs', key: 'annualTotalLiabilitiesNetMinorityInterest' },
+            { label: 'Capitaux propres', key: 'annualStockholdersEquity' },
+        ],
+    },
+    cashflow: {
+        label: 'Flux de trésorerie',
+        rows: [
+            { label: "Flux d'exploitation", key: 'annualOperatingCashFlow' },
+            { label: 'CAPEX', key: 'annualCapitalExpenditure' },
+            { label: 'Free Cash Flow', key: 'annualFreeCashFlow' },
+            { label: "Flux d'investissement", key: 'annualInvestingCashFlow' },
+            { label: 'Flux de financement', key: 'annualFinancingCashFlow' },
+            { label: 'Dividendes versés', key: 'annualCommonStockDividendPaid' },
+            { label: "Rachats d'actions", key: 'annualRepurchaseOfCapitalStock' },
+            { label: 'Trésorerie fin de période', key: 'annualEndCashPosition' },
+        ],
+    },
+};
 
 // ─── Popular Assets — groupés par thème ───────────────────────────────────────
 const POPULAR_ASSET_GROUPS = [
@@ -388,17 +433,18 @@ class ScreenerApp {
 
         try {
             // Fetch fundamentals + price history in parallel
-            const [quoteSummary, priceHistory, sp500History] = await Promise.all([
+            const [quoteSummary, priceHistory, sp500History, fundamentals] = await Promise.all([
                 this.fetchQuoteSummary(symbol),
                 this.fetchPriceHistory(symbol, this.currentPeriod),
                 this.fetchPriceHistory(SP500_SYMBOL, '5y'),
+                this.fetchFundamentals(symbol),
             ]);
 
             if (!quoteSummary || quoteSummary.error) {
                 throw new Error(`Aucune donnée trouvée pour "${symbol}"`);
             }
 
-            this.currentData = { quoteSummary, priceHistory, sp500History };
+            this.currentData = { quoteSummary, priceHistory, sp500History, fundamentals };
             this.render();
             this.showState('panel');
 
@@ -434,12 +480,17 @@ class ScreenerApp {
                         await this.renderValuationTab();
                     } else if (name === 'quantitatif') {
                         await this.renderQuantitativeTab();
+                    } else if (name === 'dividende') {
+                        await this.renderDividendeTab();
+                    } else if (name === 'finances') {
+                        await this.renderFinancesTab();
                     }
                 }
             });
         });
         // Initial setup for tab-specific listeners
         this.setupValuationTabListeners();
+        this.setupFinanceTabButtons();
     }
 
     setupWatchlistButton() {
@@ -530,6 +581,21 @@ class ScreenerApp {
         const url = `${PROXY}?symbol=${encodeURIComponent(symbol)}&type=QUOTE_SUMMARY&modules=${modules}`;
         const data = await this.safeFetchJson(url);
         return data?.quoteSummary?.result?.[0] || null;
+    }
+
+    // Multi-year annual financial statements (income statement, balance sheet, cash flow) via
+    // Yahoo's fundamentals-timeseries endpoint — richer than quoteSummary's gutted history modules.
+    // Never throws: statement data is a bonus for Quantitatif/Dividende/Finances, not required to
+    // show the Résumé tab, so a failure here shouldn't block the rest of the page from loading.
+    async fetchFundamentals(symbol) {
+        try {
+            const url = `${PROXY}?symbol=${encodeURIComponent(symbol)}&type=FUNDAMENTALS`;
+            const data = await this.safeFetchJson(url);
+            return data?.years || [];
+        } catch (err) {
+            logger.error('[Screener] fetchFundamentals failed:', err);
+            return [];
+        }
     }
 
     async fetchPriceHistory(symbol, period) {
@@ -3145,93 +3211,276 @@ class ScreenerApp {
         const fin = qs.financialData || {};
         const stats = qs.defaultKeyStatistics || {};
 
-        // 1. Revenue & Earnings (from incomeStatementHistory)
-        const isHistory = qs.incomeStatementHistory?.incomeStatementHistory || [];
-        const isData = isHistory.map(item => ({
-            date: item.endDate?.fmt?.split('-')[0] || 'N/A',
-            rev: item.totalRevenue?.raw || 0,
-            net: item.netIncome?.raw || 0
-        })).reverse();
-        
-        const labels = isData.map(d => d.date);
-        const revs = isData.map(d => d.rev);
-        const earns = isData.map(d => d.net);
+        // Multi-year annual statements from the FUNDAMENTALS worker endpoint (Yahoo's
+        // fundamentals-timeseries) — this is what actually still has real historical line
+        // items now that quoteSummary's incomeStatementHistory/balanceSheetHistory/
+        // cashflowStatementHistory modules mostly return just { endDate, netIncome }.
+        const fundamentals = this.currentData.fundamentals || [];
+        const hasFundamentals = fundamentals.length >= 2;
+        const years = fundamentals.map(y => y.year);
+        const fcfCurrent = fin.freeCashflow?.raw || 0;
+        const opCashflowCurrent = fin.operatingCashflow?.raw || 0;
 
-        this.renderQuantBarChart('chart-revenue', 'Revenus', labels, revs, '#3b82f6', 'footer-revenue', currency);
-        this.renderQuantBarChart('chart-earnings', 'Bénéfices', labels, earns, '#fbbf24', 'footer-earnings', currency);
-
-        // 3. FCF Chart — real historical series (Opérationnel & Free Cash Flow) from cashflowStatementHistory
-        const fcf = fin.freeCashflow?.raw || 0;
-        const opCashflow = fin.operatingCashflow?.raw || 0;
-        const cfHistory = qs.cashflowStatementHistory?.cashflowStatements || [];
-        const cfData = cfHistory.map(item => {
-            const ocf = item.totalCashFromOperatingActivities?.raw || 0;
-            const capex = item.capitalExpenditures?.raw || 0; // Yahoo reports this as negative
-            return { date: item.endDate?.fmt?.split('-')[0] || 'N/A', ocf, capex, fcf: ocf + capex };
-        }).reverse();
-
-        if (cfData.length >= 2) {
-            const cfLabels = cfData.map(d => d.date);
-            this.renderQuantGroupedBarChart('chart-fcf', cfLabels, [
-                { label: 'Opérationnel', data: cfData.map(d => d.ocf), color: '#f97316' },
-                { label: 'Free Cash Flow', data: cfData.map(d => d.fcf), color: '#fbbf24' }
-            ], 'footer-fcf', currency, 1); // footer computed on the FCF series
+        // 1. Revenue & Earnings
+        if (hasFundamentals) {
+            this.renderQuantBarChart('chart-revenue', 'Revenus', years, fundamentals.map(y => y.annualTotalRevenue || 0), '#3b82f6', 'footer-revenue', currency);
+            this.renderQuantBarChart('chart-earnings', 'Bénéfices', years, fundamentals.map(y => y.annualNetIncome || 0), '#fbbf24', 'footer-earnings', currency);
         } else {
-            // Fallback when historical cash flow data isn't available: current-period snapshot only
-            this.renderQuantBarChart('chart-fcf', 'Cash Flow', ['Opérationnel', 'Free Cash Flow'], [opCashflow, fcf], ['#f97316', '#fbbf24'], null, currency);
+            // Fallback: incomeStatementHistory still reports real totalRevenue/netIncome even
+            // though its other fields (grossProfit, operatingIncome...) are gutted by Yahoo.
+            const isHistory = qs.incomeStatementHistory?.incomeStatementHistory || [];
+            const isData = isHistory.map(item => ({
+                date: item.endDate?.fmt?.split('-')[0] || 'N/A',
+                rev: item.totalRevenue?.raw || 0,
+                net: item.netIncome?.raw || 0
+            })).reverse();
+            this.renderQuantBarChart('chart-revenue', 'Revenus', isData.map(d => d.date), isData.map(d => d.rev), '#3b82f6', 'footer-revenue', currency);
+            this.renderQuantBarChart('chart-earnings', 'Bénéfices', isData.map(d => d.date), isData.map(d => d.net), '#fbbf24', 'footer-earnings', currency);
         }
 
-        // 4. Margins Chart (from incomeStatementHistory)
-        const marginsData = isHistory.map(item => {
-            const rev = item.totalRevenue?.raw || 1;
-            return {
-                date: item.endDate?.fmt?.split('-')[0] || 'N/A',
-                gross: ((item.grossProfit?.raw || 0) / rev) * 100,
-                op: ((item.operatingIncome?.raw || 0) / rev) * 100,
-                net: ((item.netIncome?.raw || 0) / rev) * 100
-            };
-        }).reverse();
-        this.renderQuantLineChart('chart-margins', [
-            { label: 'Brute', data: marginsData.map(d => d.gross), color: '#3b82f6' },
-            { label: 'Opé.', data: marginsData.map(d => d.op), color: '#fbbf24' },
-            { label: 'Nette', data: marginsData.map(d => d.net), color: '#ef4444' }
-        ], marginsData.map(d => d.date), 'footer-margins', '%');
-
-        // 5. Returns Chart (Current only due to YF limits) — snapshot comparison, no Perf/CAGR:
-        // ROE and ROA are two different current-period ratios, not a time series, so a
-        // "growth rate" between them would be meaningless.
-        const roe = (fin.returnOnEquity?.raw || 0) * 100;
-        const roa = (fin.returnOnAssets?.raw || 0) * 100;
-        this.renderQuantBarChart('chart-returns', 'Retours sur Capitaux', ['ROE', 'ROA'], [roe, roa], ['#8b5cf6', '#10b981'], null, '%');
-
-        // 6. Cash & Dette (Current) — snapshot comparison, no Perf/CAGR (Trésorerie vs Dette
-        // aren't points on a timeline).
-        this.renderQuantBarChart('chart-cash-debt', 'Cash vs Dette', ['Trésorerie', 'Dette'], [fin.totalCash?.raw || 0, fin.totalDebt?.raw || 0], ['#10b981', '#ef4444'], null, currency);
-
-        // 7. Dividende — snapshot comparison, no Perf/CAGR (Yield % and Rate are different
-        // units — a % and a currency amount — so comparing them is meaningless).
-        const divRate = qs.summaryDetail?.dividendRate?.raw || 0;
-        const divYield = (qs.summaryDetail?.dividendYield?.raw || 0) * 100;
-        this.renderQuantBarChart('chart-dividend', 'Dividende (Actuel)', ['Yield %', 'Rate'], [divYield, divRate], '#14b8a6', null);
-
-        // 8. Actions en circulation — snapshot comparison, no Perf/CAGR.
-        const shares = stats.sharesOutstanding?.raw || 0;
-        const floatShares = stats.floatShares?.raw || 0;
-        this.renderQuantBarChart('chart-shares', 'Actions', ['Total', 'Flottant'], [shares, floatShares], ['#8b5cf6', '#a78bfa'], null);
-
-        // 9. Dépenses — real historical CAPEX per year from cashflowStatementHistory
-        if (cfData.length >= 2) {
-            this.renderQuantBarChart('chart-capex', 'CAPEX', cfData.map(d => d.date), cfData.map(d => Math.abs(d.capex)), '#ec4899', 'footer-capex', currency);
+        // 2. FCF Chart — real historical series (Opérationnel & Free Cash Flow)
+        if (hasFundamentals) {
+            this.renderQuantGroupedBarChart('chart-fcf', years, [
+                { label: 'Opérationnel', data: fundamentals.map(y => y.annualOperatingCashFlow || 0), color: '#f97316' },
+                { label: 'Free Cash Flow', data: fundamentals.map(y => y.annualFreeCashFlow || 0), color: '#fbbf24' }
+            ], 'footer-fcf', currency, 1); // footer computed on the FCF series
         } else {
-            // Fallback approximation when historical cash flow data isn't available
-            const capexApprox = Math.abs(opCashflow - fcf);
+            // Fallback when historical data isn't available: current-period snapshot only
+            this.renderQuantBarChart('chart-fcf', 'Cash Flow', ['Opérationnel', 'Free Cash Flow'], [opCashflowCurrent, fcfCurrent], ['#f97316', '#fbbf24'], null, currency);
+        }
+
+        // 3. Margins Chart — when revenue is missing or zero for a given year, report the
+        // margin as absent (null) instead of dividing by a fallback of 1, which used to blow
+        // up into meaningless axis scales (e.g. -500,000,000,000%).
+        if (hasFundamentals) {
+            const pct = (num, rev) => (rev ? (num / rev) * 100 : null);
+            this.renderQuantLineChart('chart-margins', [
+                { label: 'Brute', data: fundamentals.map(y => pct(y.annualGrossProfit, y.annualTotalRevenue)), color: '#3b82f6' },
+                { label: 'Opé.', data: fundamentals.map(y => pct(y.annualOperatingIncome, y.annualTotalRevenue)), color: '#fbbf24' },
+                { label: 'Nette', data: fundamentals.map(y => pct(y.annualNetIncome, y.annualTotalRevenue)), color: '#ef4444' }
+            ], years, 'footer-margins', '%');
+        } else {
+            const isHistoryFallback = qs.incomeStatementHistory?.incomeStatementHistory || [];
+            const marginsData = isHistoryFallback.map(item => {
+                const rev = item.totalRevenue?.raw;
+                const pct = (val) => (rev ? (val / rev) * 100 : null);
+                return {
+                    date: item.endDate?.fmt?.split('-')[0] || 'N/A',
+                    gross: pct(item.grossProfit?.raw || 0),
+                    op: pct(item.operatingIncome?.raw || 0),
+                    net: pct(item.netIncome?.raw || 0)
+                };
+            }).reverse();
+            this.renderQuantLineChart('chart-margins', [
+                { label: 'Brute', data: marginsData.map(d => d.gross), color: '#3b82f6' },
+                { label: 'Opé.', data: marginsData.map(d => d.op), color: '#fbbf24' },
+                { label: 'Nette', data: marginsData.map(d => d.net), color: '#ef4444' }
+            ], marginsData.map(d => d.date), 'footer-margins', '%');
+        }
+
+        // 4. Returns Chart — now a genuine historical time series (ROE = netIncome/equity,
+        // ROA = netIncome/assets, per fiscal year) when fundamentals are available, instead
+        // of two unrelated current-period ratios side by side.
+        if (hasFundamentals) {
+            this.renderQuantGroupedBarChart('chart-returns', years, [
+                { label: 'ROE', data: fundamentals.map(y => y.annualStockholdersEquity ? (y.annualNetIncome / y.annualStockholdersEquity) * 100 : null), color: '#8b5cf6' },
+                { label: 'ROA', data: fundamentals.map(y => y.annualTotalAssets ? (y.annualNetIncome / y.annualTotalAssets) * 100 : null), color: '#10b981' }
+            ], null, '%');
+        } else {
+            const roe = (fin.returnOnEquity?.raw || 0) * 100;
+            const roa = (fin.returnOnAssets?.raw || 0) * 100;
+            this.renderQuantBarChart('chart-returns', 'Retours sur Capitaux', ['ROE', 'ROA'], [roe, roa], ['#8b5cf6', '#10b981'], null, '%');
+        }
+
+        // 5. Cash & Dette — historical when possible, instead of a same-period snapshot.
+        if (hasFundamentals) {
+            this.renderQuantGroupedBarChart('chart-cash-debt', years, [
+                { label: 'Trésorerie', data: fundamentals.map(y => y.annualCashAndCashEquivalents || 0), color: '#10b981' },
+                { label: 'Dette', data: fundamentals.map(y => y.annualTotalDebt || 0), color: '#ef4444' }
+            ], null, currency);
+        } else {
+            this.renderQuantBarChart('chart-cash-debt', 'Cash vs Dette', ['Trésorerie', 'Dette'], [fin.totalCash?.raw || 0, fin.totalDebt?.raw || 0], ['#10b981', '#ef4444'], null, currency);
+        }
+
+        // 6. Dividende — historical dividend-per-share (dividendes payés ÷ actions moyennes)
+        // when the company actually has a paying history; this also makes the Perf/CAGR
+        // footer legitimate again (dividend growth rate is a real metric), unlike comparing
+        // a % yield to a currency amount as before.
+        const dpsSeries = fundamentals.map(y => {
+            const paid = Math.abs(y.annualCommonStockDividendPaid || 0);
+            const shares = y.annualBasicAverageShares || 0;
+            return shares > 0 ? paid / shares : 0;
+        });
+        const hasDividendHistory = hasFundamentals && dpsSeries.some(v => v > 0);
+        if (hasDividendHistory) {
+            this.renderQuantBarChart('chart-dividend', 'Dividende / action', years, dpsSeries, '#14b8a6', 'footer-dividend', currency);
+        } else {
+            const divRate = qs.summaryDetail?.dividendRate?.raw || 0;
+            const divYield = (qs.summaryDetail?.dividendYield?.raw || 0) * 100;
+            this.renderQuantBarChart('chart-dividend', 'Dividende (Actuel)', ['Yield %', 'Rate'], [divYield, divRate], '#14b8a6', null);
+        }
+
+        // 7. Actions en circulation — historical basic/diluted share count (reveals buybacks
+        // vs dilution over time), instead of a same-period Total-vs-Float snapshot.
+        if (hasFundamentals) {
+            this.renderQuantGroupedBarChart('chart-shares', years, [
+                { label: 'De base', data: fundamentals.map(y => y.annualBasicAverageShares || 0), color: '#8b5cf6' },
+                { label: 'Diluées', data: fundamentals.map(y => y.annualDilutedAverageShares || 0), color: '#a78bfa' }
+            ], 'footer-shares', '', 0);
+        } else {
+            const shares = stats.sharesOutstanding?.raw || 0;
+            const floatShares = stats.floatShares?.raw || 0;
+            this.renderQuantBarChart('chart-shares', 'Actions', ['Total', 'Flottant'], [shares, floatShares], ['#8b5cf6', '#a78bfa'], null);
+        }
+
+        // 8. Dépenses — real historical CAPEX per year
+        if (hasFundamentals) {
+            this.renderQuantBarChart('chart-capex', 'CAPEX', years, fundamentals.map(y => Math.abs(y.annualCapitalExpenditure || 0)), '#ec4899', 'footer-capex', currency);
+        } else {
+            // Fallback approximation when historical data isn't available
+            const capexApprox = Math.abs(opCashflowCurrent - fcfCurrent);
             this.renderQuantBarChart('chart-capex', 'CAPEX Est.', ['CAPEX (Actuel)'], [capexApprox], '#ec4899', null, currency);
         }
     }
 
+    // ─── Dividende Tab ────────────────────────────────────────────────────────
+    async renderDividendeTab() {
+        const qs = this.currentData.quoteSummary;
+        if (!qs) return;
+
+        const currency = qs.price?.currency || 'USD';
+        const detail = qs.summaryDetail || {};
+        const fundamentals = this.currentData.fundamentals || [];
+        const hasFundamentals = fundamentals.length >= 2;
+
+        const divYield = (detail.dividendYield?.raw ?? detail.trailingAnnualDividendYield?.raw ?? 0) * 100;
+        const divRate = detail.dividendRate?.raw ?? detail.trailingAnnualDividendRate?.raw ?? 0;
+        const payoutRatioCurrent = detail.payoutRatio?.raw ?? null;
+
+        const dpsSeries = fundamentals.map(y => {
+            const paid = Math.abs(y.annualCommonStockDividendPaid || 0);
+            const shares = y.annualBasicAverageShares || 0;
+            return shares > 0 ? paid / shares : 0;
+        });
+        const hasDividendHistory = hasFundamentals && dpsSeries.some(v => v > 0);
+        const hasAnyDividend = hasDividendHistory || divYield > 0 || divRate > 0;
+
+        const emptyEl = document.getElementById('dividende-empty');
+        const contentEl = document.getElementById('dividende-content');
+        if (emptyEl) emptyEl.style.display = hasAnyDividend ? 'none' : 'block';
+        if (contentEl) contentEl.style.display = hasAnyDividend ? '' : 'none';
+        if (!hasAnyDividend) return;
+
+        const el = (id) => document.getElementById(id);
+        if (el('div-kpi-yield')) el('div-kpi-yield').textContent = divYield ? `${divYield.toFixed(2)}%` : '—';
+        if (el('div-kpi-rate')) el('div-kpi-rate').textContent = divRate ? `${this.fmt(divRate, 2)} ${currency}` : '—';
+        if (el('div-kpi-payout')) el('div-kpi-payout').textContent = payoutRatioCurrent != null ? `${(payoutRatioCurrent * 100).toFixed(1)}%` : '—';
+
+        // Dividend growth CAGR, from the first year a dividend was actually paid to the last
+        let cagrText = '—';
+        if (hasDividendHistory) {
+            const firstIdx = dpsSeries.findIndex(v => v > 0);
+            const first = dpsSeries[firstIdx];
+            const last = dpsSeries[dpsSeries.length - 1];
+            const yearsSpan = dpsSeries.length - 1 - firstIdx;
+            if (first > 0 && last > 0 && yearsSpan > 0) {
+                const cagr = (Math.pow(last / first, 1 / yearsSpan) - 1) * 100;
+                cagrText = `${cagr >= 0 ? '+' : ''}${cagr.toFixed(1)}%/an`;
+            }
+        }
+        if (el('div-kpi-cagr')) el('div-kpi-cagr').textContent = cagrText;
+
+        // Chart 1: real per-payment history via events=div (same technique as DividendManager)
+        try {
+            const payHistUrl = `${PROXY}?symbol=${encodeURIComponent(this.currentSymbol)}&type=STOCK&range=10y&interval=1d&events=div`;
+            const payData = await this.safeFetchJson(payHistUrl);
+            const events = payData?.chart?.result?.[0]?.events?.dividends;
+            const payments = events
+                ? Object.keys(events).map(ts => ({ ts: parseInt(ts, 10), amount: events[ts].amount })).sort((a, b) => a.ts - b.ts)
+                : [];
+            const payLabels = payments.map(p => new Date(p.ts * 1000).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }));
+            this.renderQuantBarChart('chart-dividend-payments', 'Versement / action', payLabels, payments.map(p => p.amount), '#14b8a6', null, currency);
+        } catch (err) {
+            logger.error('[Dividende] payment history failed:', err);
+        }
+
+        // Chart 2: annual dividend per share (real growth metric, footer is legitimate here)
+        if (hasDividendHistory) {
+            this.renderQuantBarChart('chart-dividend-annual', 'Dividende / action', fundamentals.map(y => y.year), dpsSeries, '#14b8a6', 'footer-dividend-annual', currency);
+        }
+
+        // Chart 3: payout ratio history (dividends paid ÷ net income); null when net income <= 0
+        if (hasFundamentals) {
+            const payoutSeries = fundamentals.map(y => (y.annualNetIncome > 0 ? (Math.abs(y.annualCommonStockDividendPaid || 0) / y.annualNetIncome) * 100 : null));
+            this.renderQuantLineChart('chart-payout-ratio', [{ label: 'Payout Ratio', data: payoutSeries, color: '#14b8a6' }], fundamentals.map(y => y.year), null, '%');
+        }
+    }
+
+    // ─── Finances Tab ─────────────────────────────────────────────────────────
+    setupFinanceTabButtons() {
+        document.querySelectorAll('.fin-statement-tab').forEach(btn => {
+            btn.addEventListener('click', () => this.renderFinancesStatement(btn.dataset.statement));
+        });
+    }
+
+    async renderFinancesTab() {
+        const fundamentals = this.currentData.fundamentals || [];
+        const hasFundamentals = fundamentals.length >= 1;
+        const currency = this.currentData.quoteSummary?.price?.currency || 'USD';
+
+        const emptyEl = document.getElementById('finances-empty');
+        const contentEl = document.getElementById('finances-content');
+        if (emptyEl) emptyEl.style.display = hasFundamentals ? 'none' : 'block';
+        if (contentEl) contentEl.style.display = hasFundamentals ? '' : 'none';
+        if (!hasFundamentals) return;
+
+        this._finFundamentals = fundamentals;
+        this._finCurrency = currency;
+        this.renderFinancesStatement(this.currentFinStatement || 'income');
+    }
+
+    renderFinancesStatement(statementKey) {
+        const def = FIN_STATEMENT_DEFS[statementKey];
+        if (!def) return;
+        this.currentFinStatement = statementKey;
+        document.querySelectorAll('.fin-statement-tab').forEach(b => b.classList.toggle('active', b.dataset.statement === statementKey));
+
+        const fundamentals = this._finFundamentals || [];
+        const currency = this._finCurrency || 'USD';
+        const table = document.getElementById('fin-table');
+        if (!table) return;
+
+        const thead = table.querySelector('thead tr');
+        const tbody = table.querySelector('tbody');
+        thead.innerHTML = '<th>Ligne</th>' + fundamentals.map(y => `<th>${y.year}</th>`).join('');
+        tbody.innerHTML = def.rows.map(row => {
+            const cells = fundamentals.map(y => {
+                const val = y[row.key];
+                if (val == null) return '<td>—</td>';
+                const formatted = row.decimals ? this.fmt(val, 2) : this.fmtFinCell(val, currency);
+                return `<td${val < 0 ? ' class="fin-negative"' : ''}>${formatted}</td>`;
+            }).join('');
+            return `<tr><td>${row.label}</td>${cells}</tr>`;
+        }).join('');
+    }
+
+    // Same magnitude convention as fmtBig()/fmtSmall() (Md = 1e9, B = 1e12), but sign-aware:
+    // fmtBig() alone doesn't abbreviate negative values (CAPEX, dividends paid, financing
+    // cash flow are routinely negative), so it prints raw unabbreviated numbers for them.
+    fmtFinCell(val, currency) {
+        const abs = Math.abs(val);
+        const sign = val < 0 ? '-' : '';
+        if (abs >= 1e12) return `${sign}${(abs / 1e12).toFixed(2)} B ${currency}`.trim();
+        if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(2)} Md ${currency}`.trim();
+        if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(2)} M ${currency}`.trim();
+        return `${this.fmt(val, 0)} ${currency}`.trim();
+    }
+
     renderQuantBarChart(id, label, labels, data, color, footerId, currency = '') {
-        const ctx = document.getElementById(id)?.getContext('2d');
-        if (!ctx) return;
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        Chart.getChart(canvas)?.destroy(); // avoid "Canvas is already in use" on re-render (e.g. Dividende tab revisited)
+        const ctx = canvas.getContext('2d');
 
         const chart = new Chart(ctx, {
             type: 'bar',
@@ -3269,8 +3518,10 @@ class ScreenerApp {
     // Grouped bar chart for several datasets sharing the same year labels (e.g. OCF vs FCF).
     // footerSeriesIndex picks which dataset the Perf/CAGR footer is computed from.
     renderQuantGroupedBarChart(id, labels, datasets, footerId, currency = '', footerSeriesIndex = 0) {
-        const ctx = document.getElementById(id)?.getContext('2d');
-        if (!ctx) return;
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        Chart.getChart(canvas)?.destroy();
+        const ctx = canvas.getContext('2d');
 
         const chart = new Chart(ctx, {
             type: 'bar',
@@ -3323,8 +3574,10 @@ class ScreenerApp {
     }
 
     renderQuantLineChart(id, datasets, labels, footerId, unit = '') {
-        const ctx = document.getElementById(id)?.getContext('2d');
-        if (!ctx) return;
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        Chart.getChart(canvas)?.destroy();
+        const ctx = canvas.getContext('2d');
 
         const chart = new Chart(ctx, {
             type: 'line',

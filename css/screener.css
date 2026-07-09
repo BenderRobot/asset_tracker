@@ -2345,6 +2345,83 @@
     }
 }
 
+/* ─── Dividende tab ────────────────────────────────────────── */
+.kpi-big-value {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text-primary, #f1f5f9);
+}
+
+/* ─── Finances tab ─────────────────────────────────────────── */
+.fin-statement-tabs {
+    display: flex;
+    gap: 8px;
+    margin: 20px 0 16px;
+}
+
+.fin-statement-tab {
+    background: var(--card-bg, #1a1f2e);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    color: var(--text-muted, #94a3b8);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.fin-statement-tab:hover {
+    color: var(--text-primary, #f1f5f9);
+}
+
+.fin-statement-tab.active {
+    background: rgba(99, 102, 241, 0.15);
+    border-color: rgba(99, 102, 241, 0.4);
+    color: #818cf8;
+}
+
+.fin-table-wrap {
+    overflow-x: auto;
+    background: var(--card-bg, #1a1f2e);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 12px;
+}
+
+.fin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.fin-table th, .fin-table td {
+    padding: 10px 16px;
+    text-align: right;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.fin-table th:first-child, .fin-table td:first-child {
+    text-align: left;
+    color: var(--text-muted, #94a3b8);
+    position: sticky;
+    left: 0;
+    background: var(--card-bg, #1a1f2e);
+}
+
+.fin-table thead th {
+    color: var(--text-primary, #f1f5f9);
+    font-weight: 700;
+}
+
+.fin-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.fin-table td.fin-negative {
+    color: #ef4444;
+}
+
 /* GRILLE VALORISATION */
 .val-dashboard-grid {
     display: grid;
