@@ -3160,10 +3160,26 @@ class ScreenerApp {
         this.renderQuantBarChart('chart-revenue', 'Revenus', labels, revs, '#3b82f6', 'footer-revenue', currency);
         this.renderQuantBarChart('chart-earnings', 'Bénéfices', labels, earns, '#fbbf24', 'footer-earnings', currency);
 
-        // 3. FCF Chart (Current only due to YF limits)
+        // 3. FCF Chart — real historical series (Opérationnel & Free Cash Flow) from cashflowStatementHistory
         const fcf = fin.freeCashflow?.raw || 0;
         const opCashflow = fin.operatingCashflow?.raw || 0;
-        this.renderQuantBarChart('chart-fcf', 'Cash Flow', ['Opérationnel', 'Free Cash Flow'], [opCashflow, fcf], ['#f97316', '#fbbf24'], 'footer-fcf', currency);
+        const cfHistory = qs.cashflowStatementHistory?.cashflowStatements || [];
+        const cfData = cfHistory.map(item => {
+            const ocf = item.totalCashFromOperatingActivities?.raw || 0;
+            const capex = item.capitalExpenditures?.raw || 0; // Yahoo reports this as negative
+            return { date: item.endDate?.fmt?.split('-')[0] || 'N/A', ocf, capex, fcf: ocf + capex };
+        }).reverse();
+
+        if (cfData.length >= 2) {
+            const cfLabels = cfData.map(d => d.date);
+            this.renderQuantGroupedBarChart('chart-fcf', cfLabels, [
+                { label: 'Opérationnel', data: cfData.map(d => d.ocf), color: '#f97316' },
+                { label: 'Free Cash Flow', data: cfData.map(d => d.fcf), color: '#fbbf24' }
+            ], 'footer-fcf', currency, 1); // footer computed on the FCF series
+        } else {
+            // Fallback when historical cash flow data isn't available: current-period snapshot only
+            this.renderQuantBarChart('chart-fcf', 'Cash Flow', ['Opérationnel', 'Free Cash Flow'], [opCashflow, fcf], ['#f97316', '#fbbf24'], null, currency);
+        }
 
         // 4. Margins Chart (from incomeStatementHistory)
         const marginsData = isHistory.map(item => {
@@ -3181,27 +3197,36 @@ class ScreenerApp {
             { label: 'Nette', data: marginsData.map(d => d.net), color: '#ef4444' }
         ], marginsData.map(d => d.date), 'footer-margins', '%');
 
-        // 5. Returns Chart (Current only due to YF limits)
+        // 5. Returns Chart (Current only due to YF limits) — snapshot comparison, no Perf/CAGR:
+        // ROE and ROA are two different current-period ratios, not a time series, so a
+        // "growth rate" between them would be meaningless.
         const roe = (fin.returnOnEquity?.raw || 0) * 100;
         const roa = (fin.returnOnAssets?.raw || 0) * 100;
-        this.renderQuantBarChart('chart-returns', 'Retours sur Capitaux', ['ROE', 'ROA'], [roe, roa], ['#8b5cf6', '#10b981'], 'footer-returns', '%');
+        this.renderQuantBarChart('chart-returns', 'Retours sur Capitaux', ['ROE', 'ROA'], [roe, roa], ['#8b5cf6', '#10b981'], null, '%');
 
-        // 6. Cash & Dette (Current)
-        this.renderQuantBarChart('chart-cash-debt', 'Cash vs Dette', ['Trésorerie', 'Dette'], [fin.totalCash?.raw || 0, fin.totalDebt?.raw || 0], ['#10b981', '#ef4444'], 'footer-cash-debt', currency);
+        // 6. Cash & Dette (Current) — snapshot comparison, no Perf/CAGR (Trésorerie vs Dette
+        // aren't points on a timeline).
+        this.renderQuantBarChart('chart-cash-debt', 'Cash vs Dette', ['Trésorerie', 'Dette'], [fin.totalCash?.raw || 0, fin.totalDebt?.raw || 0], ['#10b981', '#ef4444'], null, currency);
 
-        // 7. Dividende
+        // 7. Dividende — snapshot comparison, no Perf/CAGR (Yield % and Rate are different
+        // units — a % and a currency amount — so comparing them is meaningless).
         const divRate = qs.summaryDetail?.dividendRate?.raw || 0;
         const divYield = (qs.summaryDetail?.dividendYield?.raw || 0) * 100;
-        this.renderQuantBarChart('chart-dividend', 'Dividende (Actuel)', ['Yield %', 'Rate'], [divYield, divRate], '#14b8a6', 'footer-dividend');
+        this.renderQuantBarChart('chart-dividend', 'Dividende (Actuel)', ['Yield %', 'Rate'], [divYield, divRate], '#14b8a6', null);
 
-        // 8. Actions en circulation
+        // 8. Actions en circulation — snapshot comparison, no Perf/CAGR.
         const shares = stats.sharesOutstanding?.raw || 0;
         const floatShares = stats.floatShares?.raw || 0;
-        this.renderQuantBarChart('chart-shares', 'Actions', ['Total', 'Flottant'], [shares, floatShares], ['#8b5cf6', '#a78bfa'], 'footer-shares');
+        this.renderQuantBarChart('chart-shares', 'Actions', ['Total', 'Flottant'], [shares, floatShares], ['#8b5cf6', '#a78bfa'], null);
 
-        // 9. Dépenses (Current Capex approximation: OCF - FCF)
-        const capexApprox = Math.abs(opCashflow - fcf);
-        this.renderQuantBarChart('chart-capex', 'CAPEX Est.', ['CAPEX (Actuel)'], [capexApprox], '#ec4899', 'footer-capex', currency);
+        // 9. Dépenses — real historical CAPEX per year from cashflowStatementHistory
+        if (cfData.length >= 2) {
+            this.renderQuantBarChart('chart-capex', 'CAPEX', cfData.map(d => d.date), cfData.map(d => Math.abs(d.capex)), '#ec4899', 'footer-capex', currency);
+        } else {
+            // Fallback approximation when historical cash flow data isn't available
+            const capexApprox = Math.abs(opCashflow - fcf);
+            this.renderQuantBarChart('chart-capex', 'CAPEX Est.', ['CAPEX (Actuel)'], [capexApprox], '#ec4899', null, currency);
+        }
     }
 
     renderQuantBarChart(id, label, labels, data, color, footerId, currency = '') {
@@ -3238,21 +3263,63 @@ class ScreenerApp {
             }
         });
         this.quantCharts.push(chart);
+        this.renderQuantFooter(footerId, data);
+    }
 
-        // Footer Performance
-        const footer = document.getElementById(footerId);
-        if (footer && data.length >= 2) {
-            const start = data[0];
-            const end = data[data.length - 1];
-            const perf = ((end - start) / Math.abs(start || 1)) * 100;
-            const cagr = (Math.pow(end / (start || 1), 1 / (data.length - 1)) - 1) * 100;
-            
-            const perfClass = perf >= 0 ? 'perf-positive' : 'perf-negative';
-            footer.innerHTML = `
-                <span class="perf-label ${perfClass}">Perf: ${perf.toFixed(1)}%</span>
-                ${!isNaN(cagr) && isFinite(cagr) ? `<span class="perf-label perf-neutral">CAGR: ${cagr.toFixed(1)}%</span>` : ''}
-            `;
-        }
+    // Grouped bar chart for several datasets sharing the same year labels (e.g. OCF vs FCF).
+    // footerSeriesIndex picks which dataset the Perf/CAGR footer is computed from.
+    renderQuantGroupedBarChart(id, labels, datasets, footerId, currency = '', footerSeriesIndex = 0) {
+        const ctx = document.getElementById(id)?.getContext('2d');
+        if (!ctx) return;
+
+        const chart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: datasets.map(ds => ({
+                    label: ds.label,
+                    data: ds.data,
+                    backgroundColor: ds.color + 'cc',
+                    borderRadius: 4,
+                    borderWidth: 0
+                }))
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true, position: 'bottom', labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } } },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.dataset.label}: ${this.nfmt(ctx.raw, currency)}`
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', font: { size: 10 }, callback: (v) => this.fmtSmall(v) } }
+                }
+            }
+        });
+        this.quantCharts.push(chart);
+        this.renderQuantFooter(footerId, datasets[footerSeriesIndex]?.data);
+    }
+
+    // Shared Perf/CAGR footer, only meaningful when `series` is an actual multi-year time series.
+    renderQuantFooter(footerId, series) {
+        const footer = footerId ? document.getElementById(footerId) : null;
+        if (!footer || !series || series.length < 2) return;
+
+        const start = series[0];
+        const end = series[series.length - 1];
+        const perf = ((end - start) / Math.abs(start || 1)) * 100;
+        const cagr = (Math.pow(end / (start || 1), 1 / (series.length - 1)) - 1) * 100;
+
+        const perfClass = perf >= 0 ? 'perf-positive' : 'perf-negative';
+        footer.innerHTML = `
+            <span class="perf-label ${perfClass}">Perf: ${perf.toFixed(1)}%</span>
+            ${!isNaN(cagr) && isFinite(cagr) ? `<span class="perf-label perf-neutral">CAGR: ${cagr.toFixed(1)}%</span>` : ''}
+        `;
     }
 
     renderQuantLineChart(id, datasets, labels, footerId, unit = '') {
@@ -3293,18 +3360,19 @@ class ScreenerApp {
         this.quantCharts.push(chart);
     }
 
+    // Same magnitude convention as fmtBig(): Md = milliard (1e9), B = billion (1e12)
     fmtSmall(val) {
-        if (Math.abs(val) >= 1e9) return (val / 1e9).toFixed(1) + 'B';
+        if (Math.abs(val) >= 1e12) return (val / 1e12).toFixed(1) + 'B';
+        if (Math.abs(val) >= 1e9) return (val / 1e9).toFixed(1) + 'Md';
         if (Math.abs(val) >= 1e6) return (val / 1e6).toFixed(1) + 'M';
         if (Math.abs(val) >= 1e3) return (val / 1e3).toFixed(1) + 'k';
         return val.toFixed(1);
     }
 
-
-
     nfmt(val, curr) {
         if (!val) return '—';
-        if (Math.abs(val) >= 1e9) return (val / 1e9).toFixed(2) + ' B ' + curr;
+        if (Math.abs(val) >= 1e12) return (val / 1e12).toFixed(2) + ' B ' + curr;
+        if (Math.abs(val) >= 1e9) return (val / 1e9).toFixed(2) + ' Md ' + curr;
         if (Math.abs(val) >= 1e6) return (val / 1e6).toFixed(2) + ' M ' + curr;
         return this.fmt(val, 0) + ' ' + curr;
     }
