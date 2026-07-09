@@ -233,10 +233,12 @@ export class HistoricalChart {
 
     async changePeriod(days) {
         if (this.isLoading) return;
-        if (days !== 1) {
-            this.cached1DVarToday = undefined;
-            this.cached1DVarTodayPct = undefined;
-        }
+        // NE PAS vider cached1DVarToday/cached1DTotalValue ici : ce sont les valeurs de
+        // référence "jour actuel" que les KPI du haut doivent garder, même en changeant de
+        // période (1W/1M/...). Les vider forçait un recalcul via un pipeline "live quotes"
+        // séparé, qui divergeait de la vue 1D — les KPI changeaient alors selon la période
+        // affichée, ce qui n'est pas voulu (une seule source de vérité : le jour actuel).
+        // Ce cache n'est mis à jour qu'au prochain rendu réel en 1D (voir update()).
         this.stopAutoRefresh();
         await this.update(true, true);
         this.startAutoRefresh();
