@@ -722,7 +722,7 @@ class ScreenerApp {
         const perfPct = ((last - first) / first) * 100;
         const years = (data[data.length - 1].t - data[0].t) / (365.25 * 24 * 3600 * 1000);
         const cagr = years > 0 ? (Math.pow(last / first, 1 / years) - 1) * 100 : 0;
-        const volatility = this.calcVolatility(values);
+        const volatility = this.calcVolatility(values, this.calcPeriodsPerYear(data));
 
         const el = (id) => document.getElementById(id);
         this.setColorValue(el('cs-perf'), `${perfPct >= 0 ? '+' : ''}${perfPct.toFixed(1)}%`, perfPct >= 0);
@@ -776,16 +776,21 @@ class ScreenerApp {
         const { slope, intercept, r2 } = this.linearRegression(indices, logVals);
 
         const regressionLine = indices.map(i => Math.exp(intercept + slope * i));
-        const upperBand = regressionLine.map(v => v * 1.15);
-        const lowerBand = regressionLine.map(v => v * 0.85);
+
+        // Deviation bands from the actual residual std-dev (±1σ), not a fixed ±15%
+        const residuals = logVals.map((lv, i) => lv - (intercept + slope * i));
+        const residMean = residuals.reduce((s, r) => s + r, 0) / residuals.length;
+        const sigma = Math.sqrt(residuals.reduce((s, r) => s + (r - residMean) ** 2, 0) / residuals.length);
+        const upperBand = regressionLine.map(v => v * Math.exp(sigma));
+        const lowerBand = regressionLine.map(v => v * Math.exp(-sigma));
 
         const labels = data.map(d => new Date(d.t).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' }));
         const currency = this.currentData.quoteSummary?.price?.currency || '';
         const currentPrice = values[n - 1];
         const regCurrentPrice = regressionLine[n - 1];
 
-        // Annualized slope (weekly data → *52)
-        const pointsPerYear = this.currentPeriod === '1y' ? 52 : 52;
+        // Annualized slope, derived from the actual data cadence (not assumed weekly)
+        const pointsPerYear = this.calcPeriodsPerYear(data);
         const annualSlope = (Math.exp(slope * pointsPerYear) - 1) * 100;
 
         document.getElementById('reg-current').textContent = `${this.fmt(currentPrice, 2)} ${currency}`;
@@ -839,14 +844,19 @@ class ScreenerApp {
         const stockBase = stockPriceHistory[0].c;
         const stockNorm = stockPriceHistory.map(d => (d.c / stockBase) * 100);
 
-        // Compute stats
+        // Compute stats — both CAGRs use the actual elapsed time of the currently
+        // selected period, not a fixed 5 years (sp500Filtered is time-aligned to stockPriceHistory).
         const spLast = sp500Norm[sp500Norm.length - 1];
         const stockLast = stockNorm[stockNorm.length - 1];
         const diff = stockLast - spLast;
-        const years5 = 5;
-        const spCAGR = (Math.pow(spLast / 100, 1 / years5) - 1) * 100;
         const stockYears = (stockPriceHistory[stockPriceHistory.length - 1].t - stockPriceHistory[0].t) / (365.25 * 24 * 3600 * 1000);
+        const spYears = (sp500Filtered[sp500Filtered.length - 1].t - sp500Filtered[0].t) / (365.25 * 24 * 3600 * 1000);
         const stockCAGR = stockYears > 0 ? (Math.pow(stockLast / 100, 1 / stockYears) - 1) * 100 : 0;
+        const spCAGR = spYears > 0 ? (Math.pow(spLast / 100, 1 / spYears) - 1) * 100 : 0;
+
+        const periodLabels = { '1mo': '1M', '3mo': '3M', '6mo': '6M', '1y': '1A', '5y': '5A' };
+        const diffLabel = document.getElementById('sp-diff-label');
+        if (diffLabel) diffLabel.textContent = `Diff. ${periodLabels[this.currentPeriod] || ''}`;
 
         this.setColorValue(document.getElementById('sp-diff'), `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%`, diff >= 0);
         this.setColorValue(document.getElementById('sp-cagr-stock'), `${stockCAGR >= 0 ? '+' : ''}${stockCAGR.toFixed(1)}%/an`, stockCAGR >= 0);
@@ -999,6 +1009,7 @@ class ScreenerApp {
 
         // PE-based fair value: EPS * avg historical PE of sector (simplified: use trailing PE * 0.85 as "fair")
         const trailingEPS = stats.trailingEps?.raw;
+        const forwardEPS = stats.forwardEps?.raw;
         const forwardPE = stats.forwardPE?.raw;
         const trailingPE = detail.trailingPE?.raw;
         const pbRatio = detail.priceToBook?.raw;
@@ -1014,9 +1025,9 @@ class ScreenerApp {
             items.push({ label: 'Prix juste (P/E 18x)', value: peFairValue, currency });
         }
 
-        // Forward PE based
-        if (trailingEPS && forwardPE) {
-            const forwardFairValue = trailingEPS * 15; // Conservative
+        // Forward PE based — uses the forward (estimated) EPS, not trailing EPS
+        if (forwardEPS && forwardPE) {
+            const forwardFairValue = forwardEPS * 15; // Conservative
             items.push({ label: 'P/E Forward 15x', value: forwardFairValue, currency });
         }
 
@@ -1039,18 +1050,20 @@ class ScreenerApp {
             : null;
         if (fcfPerShare && fcfPerShare > 0) {
             const growthRate = financial.revenueGrowth?.raw ?? 0.05;
+            const cappedGrowthRate = Math.min(growthRate, 0.20);
             const discountRate = 0.10;
             const terminalGrowth = 0.025;
             // Simplified DCF: sum 10 years + terminal
             let dcf = 0;
             let fcf = fcfPerShare;
             for (let y = 1; y <= 10; y++) {
-                fcf *= (1 + Math.min(growthRate, 0.20));
+                fcf *= (1 + cappedGrowthRate);
                 dcf += fcf / Math.pow(1 + discountRate, y);
             }
             const terminal = (fcf * (1 + terminalGrowth)) / (discountRate - terminalGrowth);
             dcf += terminal / Math.pow(1 + discountRate, 10);
-            items.push({ label: 'DCF (simplifié)', value: dcf, currency });
+            const tooltip = `Hypothèses : croissance FCF ${(cappedGrowthRate * 100).toFixed(1)}%/an sur 10 ans (basée sur la croissance du CA, plafonnée à 20%), taux d'actualisation ${(discountRate * 100).toFixed(0)}%, croissance terminale ${(terminalGrowth * 100).toFixed(1)}%`;
+            items.push({ label: 'DCF (simplifié)', value: dcf, currency, tooltip });
         }
 
         if (!items.length) {
@@ -1081,7 +1094,8 @@ class ScreenerApp {
             ...items.map(item => {
                 const barPct = (item.value / maxVal * 100).toFixed(1);
                 const cls = item.value >= currentPrice ? 'above' : 'below';
-                return `<div class="valuation-row">
+                const titleAttr = item.tooltip ? ` title="${item.tooltip}"` : '';
+                return `<div class="valuation-row"${titleAttr}>
                     <span class="valuation-label">${item.label}</span>
                     <div class="valuation-bar-wrap"><div class="valuation-bar-fill ${cls}" style="width:${barPct}%"></div></div>
                     <span class="valuation-price">${this.fmt(item.value, 2)} ${item.currency}</span>
@@ -1211,12 +1225,20 @@ class ScreenerApp {
         return result;
     }
 
-    calcVolatility(prices) {
+    calcVolatility(prices, periodsPerYear = 52) {
         if (prices.length < 2) return 0;
         const returns = prices.slice(1).map((p, i) => Math.log(p / prices[i]));
         const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
         const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length;
-        return Math.sqrt(variance * 52) * 100; // Annualized (weekly data)
+        return Math.sqrt(variance * periodsPerYear) * 100; // Annualized using actual data frequency
+    }
+
+    // Derives how many price points per year the given series actually has,
+    // instead of assuming a fixed weekly/daily cadence (which breaks for other periods).
+    calcPeriodsPerYear(data) {
+        if (!data || data.length < 2) return 52;
+        const spanYears = (data[data.length - 1].t - data[0].t) / (365.25 * 24 * 3600 * 1000);
+        return spanYears > 0 ? (data.length - 1) / spanYears : 52;
     }
 
     median(arr) {
@@ -1677,8 +1699,8 @@ class ScreenerApp {
                 break;
         }
 
-        // Bottom stats for price/sp500 only
-        if (['price', 'sp500'].includes(kpiType)) {
+        // Bottom stats for price only — sp500 renders its own comparison stats above
+        if (kpiType === 'price') {
             this.updateModalBottomStats();
         }
     }
@@ -2141,11 +2163,30 @@ class ScreenerApp {
             }
         });
 
+        // Real comparison stats (stock vs benchmark), rendered directly here since
+        // updateModalBottomStats() only knows how to summarize a single series.
         const stockPerf = stockNorm[stockNorm.length - 1] - 100;
-        const sp500Perf = sp500Norm[sp500Norm.length - 1] - 100;
-        const diff = stockPerf - sp500Perf;
+        const benchmarkPerf = benchmarkNorm[benchmarkNorm.length - 1] - 100;
+        const diff = stockPerf - benchmarkPerf;
 
-        // Stats handled by updateModalBottomStats()
+        const stockYears = (stockData[stockData.length - 1].t - stockData[0].t) / (365.25 * 24 * 3600 * 1000);
+        const benchmarkYears = (benchmarkData[benchmarkData.length - 1].t - benchmarkData[0].t) / (365.25 * 24 * 3600 * 1000);
+        const stockCAGR = stockYears > 0 ? (Math.pow(stockNorm[stockNorm.length - 1] / 100, 1 / stockYears) - 1) * 100 : 0;
+        const benchmarkCAGR = benchmarkYears > 0 ? (Math.pow(benchmarkNorm[benchmarkNorm.length - 1] / 100, 1 / benchmarkYears) - 1) * 100 : 0;
+
+        if (statsContainer) {
+            const diffColor = diff >= 0 ? '#10b981' : '#ef4444';
+            statsContainer.style.cssText = 'display:flex;justify-content:flex-end;padding:8px 4px 0;width:100%;box-sizing:border-box;';
+            statsContainer.innerHTML = `
+                <div style="display:inline-flex;align-items:center;gap:10px;padding:6px 14px;border-radius:8px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);font-size:13px;font-weight:600;white-space:nowrap;max-width:100%;overflow:hidden;">
+                    <span style="color:${diffColor}">Diff ${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%</span>
+                    <span style="color:#334155">|</span>
+                    <span style="color:#e2e8f0">CAGR ${this.currentSymbol} ${stockCAGR >= 0 ? '+' : ''}${stockCAGR.toFixed(2)}%</span>
+                    <span style="color:#334155">|</span>
+                    <span style="color:#94a3b8">CAGR ${benchmarkLabel} ${benchmarkCAGR >= 0 ? '+' : ''}${benchmarkCAGR.toFixed(2)}%</span>
+                </div>
+            `;
+        }
     }
 
     calculateRadarDimensions(stats, financial, detail) {
