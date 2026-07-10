@@ -15,6 +15,12 @@ const BANK_ASPSP_MAP = {
   // 'TR-CT': { name: 'Trade Republic', country: 'DE' }, // indisponible pour l'instant, voir commentaire ci-dessus
 };
 
+// Brokers pour lesquels la connexion bancaire Enable Banking est effectivement disponible
+// (à utiliser pour peupler un sélecteur côté UI, plutôt que la liste complète BROKERS de config.js).
+export function getConnectableBrokerValues() {
+  return Object.keys(BANK_ASPSP_MAP);
+}
+
 // Déclenche le flux de connexion bancaire : récupère l'URL d'autorisation Enable Banking
 // auprès du Worker puis redirige le navigateur (l'utilisateur revient ensuite sur le
 // dashboard via le Worker, après consentement + synchronisation des données).
