@@ -4,16 +4,15 @@
 
 import { ENABLE_BANKING_PROXY_URL } from './config.js';
 
-// À VÉRIFIER avant mise en prod : le champ "name" doit correspondre EXACTEMENT à la valeur
-// renvoyée par Enable Banking pour cet ASPSP. Interrogez le worker pour le confirmer :
-//   GET {ENABLE_BANKING_PROXY_URL}/aspsps?country=GB   (Revolut)
-//   GET {ENABLE_BANKING_PROXY_URL}/aspsps?country=FR   (Boursorama)
-//   GET {ENABLE_BANKING_PROXY_URL}/aspsps?country=DE   (Trade Republic)
-// et repérez l'entrée dont le "name" correspond à la banque visée.
+// Valeurs confirmées via GET {ENABLE_BANKING_PROXY_URL}/aspsps?country=XX :
+// - Revolut est enregistré sous l'entité lituanienne (LT), pas GB (post-Brexit, Revolut Bank UAB).
+// - Boursorama Banque confirmé sous FR.
+// - Trade Republic (DE) n'apparaît PAS dans la liste des ASPSP disponibles pour cette application
+//   Enable Banking à ce jour — à clarifier avec leur support avant d'activer ce mapping.
 const BANK_ASPSP_MAP = {
-  'RV-CT': { name: 'Revolut', country: 'GB' },
-  'TR-CT': { name: 'Trade Republic', country: 'DE' },
+  'RV-CT': { name: 'Revolut', country: 'LT' },
   'BB-PEA': { name: 'Boursorama Banque', country: 'FR' },
+  // 'TR-CT': { name: 'Trade Republic', country: 'DE' }, // indisponible pour l'instant, voir commentaire ci-dessus
 };
 
 // Déclenche le flux de connexion bancaire : récupère l'URL d'autorisation Enable Banking
