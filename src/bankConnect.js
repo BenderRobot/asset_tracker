@@ -4,29 +4,43 @@
 
 import { ENABLE_BANKING_PROXY_URL } from './config.js';
 
-// Valeurs confirmées via GET {ENABLE_BANKING_PROXY_URL}/aspsps?country=XX :
-// - Revolut est enregistré sous l'entité lituanienne (LT), pas GB (post-Brexit, Revolut Bank UAB).
-// - Boursorama Banque confirmé sous FR.
-// - Trade Republic (DE) n'apparaît PAS dans la liste des ASPSP disponibles pour cette application
-//   Enable Banking à ce jour — à clarifier avec leur support avant d'activer ce mapping.
-const BANK_ASPSP_MAP = {
-  'RV-CT': { name: 'Revolut', country: 'LT' },
-  'BB-PEA': { name: 'Boursorama Banque', country: 'FR' },
-  // 'TR-CT': { name: 'Trade Republic', country: 'DE' }, // indisponible pour l'instant, voir commentaire ci-dessus
-};
+// Liste complète des ASPSP (banques) disponibles pour cette application Enable Banking,
+// récupérée une seule fois puis mise en cache en mémoire pour peupler les sélecteurs Pays / Banque.
+let cachedAspsps = null;
 
-// Brokers pour lesquels la connexion bancaire Enable Banking est effectivement disponible
-// (à utiliser pour peupler un sélecteur côté UI, plutôt que la liste complète BROKERS de config.js).
-export function getConnectableBrokerValues() {
-  return Object.keys(BANK_ASPSP_MAP);
+async function fetchAllAspsps() {
+  if (cachedAspsps) return cachedAspsps;
+  const res = await fetch(`${ENABLE_BANKING_PROXY_URL}/aspsps`);
+  if (!res.ok) throw new Error(`Impossible de récupérer la liste des banques (HTTP ${res.status})`);
+  const data = await res.json();
+  cachedAspsps = data.aspsps || [];
+  return cachedAspsps;
+}
+
+// Retourne la liste des pays disponibles, triés par nom affiché (ex: "France").
+export async function getAvailableCountries() {
+  const aspsps = await fetchAllAspsps();
+  const codes = [...new Set(aspsps.map((a) => a.country))];
+  const displayNames = new Intl.DisplayNames(['fr'], { type: 'region' });
+  return codes
+    .map((code) => ({ code, label: displayNames.of(code) || code }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+// Retourne les noms de banques disponibles pour un pays donné, triés alphabétiquement.
+export async function getBanksForCountry(country) {
+  const aspsps = await fetchAllAspsps();
+  return aspsps
+    .filter((a) => a.country === country)
+    .map((a) => a.name)
+    .sort((a, b) => a.localeCompare(b));
 }
 
 // Déclenche le flux de connexion bancaire : récupère l'URL d'autorisation Enable Banking
 // auprès du Worker puis redirige le navigateur (l'utilisateur revient ensuite sur le
 // dashboard via le Worker, après consentement + synchronisation des données).
-export async function connectBank(brokerValue) {
-  const bank = BANK_ASPSP_MAP[brokerValue];
-  if (!bank) throw new Error(`Aucune banque Enable Banking mappée pour "${brokerValue}"`);
+export async function connectBank(aspspName, aspspCountry) {
+  if (!aspspName || !aspspCountry) throw new Error('Banque et pays requis');
 
   const user = firebase.auth().currentUser;
   if (!user) throw new Error('Utilisateur non connecté');
@@ -35,7 +49,7 @@ export async function connectBank(brokerValue) {
   const res = await fetch(`${ENABLE_BANKING_PROXY_URL}/connect`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-    body: JSON.stringify({ aspspName: bank.name, aspspCountry: bank.country }),
+    body: JSON.stringify({ aspspName, aspspCountry }),
   });
 
   if (!res.ok) {

@@ -94,7 +94,16 @@
             </div>
 
             <!-- Connexion bancaire — toujours visible, indépendamment de l'état du portefeuille -->
-            <div style="display:flex; justify-content:flex-end; align-items:center; gap: 10px; margin-bottom: 16px;">
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;">
+                <select id="connect-country-select" style="
+                    padding: 10px 14px;
+                    border-radius: 10px;
+                    border: 1px solid var(--accent-blue);
+                    background: transparent;
+                    color: var(--accent-blue);
+                    font-size: 14px;
+                    font-weight: 600;
+                "></select>
                 <select id="connect-bank-select" style="
                     padding: 10px 14px;
                     border-radius: 10px;
@@ -103,6 +112,7 @@
                     color: var(--accent-blue);
                     font-size: 14px;
                     font-weight: 600;
+                    min-width: 180px;
                 "></select>
                 <button id="connect-bank-btn" style="
                     display: inline-flex;
@@ -125,27 +135,58 @@
             </div>
 
             <script type="module">
-                import { connectBank, handleBankConnectionRedirect, getConnectableBrokerValues } from './src/bankConnect.js';
-                import { BROKERS } from './src/config.js';
+                import { connectBank, handleBankConnectionRedirect, getAvailableCountries, getBanksForCountry } from './src/bankConnect.js';
 
                 handleBankConnectionRedirect(
                     (accountCount) => alert(`Banque connectée avec succès (${accountCount} compte(s) synchronisé(s)).`),
                     (errorCode) => alert(`Échec de la connexion bancaire : ${errorCode}`)
                 );
 
-                const select = document.getElementById('connect-bank-select');
-                const connectableValues = getConnectableBrokerValues();
-                for (const value of connectableValues) {
-                    const broker = BROKERS.find((b) => b.value === value);
-                    const option = document.createElement('option');
-                    option.value = value;
-                    option.textContent = broker?.label || value;
-                    select.appendChild(option);
+                const countrySelect = document.getElementById('connect-country-select');
+                const bankSelect = document.getElementById('connect-bank-select');
+                const connectBtn = document.getElementById('connect-bank-btn');
+
+                async function populateBanks(country) {
+                    bankSelect.innerHTML = '<option>Chargement…</option>';
+                    try {
+                        const banks = await getBanksForCountry(country);
+                        bankSelect.innerHTML = '';
+                        banks.forEach((name) => {
+                            const option = document.createElement('option');
+                            option.value = name;
+                            option.textContent = name;
+                            bankSelect.appendChild(option);
+                        });
+                    } catch (err) {
+                        bankSelect.innerHTML = '<option>Erreur de chargement</option>';
+                        console.error('[BankConnect] Erreur chargement banques:', err);
+                    }
                 }
 
-                document.getElementById('connect-bank-btn')?.addEventListener('click', async () => {
+                (async () => {
                     try {
-                        await connectBank(select.value);
+                        const countries = await getAvailableCountries();
+                        countrySelect.innerHTML = '';
+                        countries.forEach(({ code, label }) => {
+                            const option = document.createElement('option');
+                            option.value = code;
+                            option.textContent = label;
+                            countrySelect.appendChild(option);
+                        });
+                        // France pré-sélectionné par défaut si disponible
+                        if (countries.some((c) => c.code === 'FR')) countrySelect.value = 'FR';
+                        await populateBanks(countrySelect.value);
+                    } catch (err) {
+                        countrySelect.innerHTML = '<option>Erreur de chargement</option>';
+                        console.error('[BankConnect] Erreur chargement pays:', err);
+                    }
+                })();
+
+                countrySelect.addEventListener('change', () => populateBanks(countrySelect.value));
+
+                connectBtn?.addEventListener('click', async () => {
+                    try {
+                        await connectBank(bankSelect.value, countrySelect.value);
                     } catch (err) {
                         alert(`Erreur : ${err.message}`);
                     }
