@@ -1,0 +1,28 @@
+name = "asset-tracker-enable-banking"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Variables non sensibles (visibles dans le dashboard Cloudflare, OK en clair)
+[vars]
+ENABLE_BANKING_APP_ID = "b6f58735-3281-4d92-a9fc-04978885c373"
+ENABLE_BANKING_REDIRECT_URL = "https://asset-tracker-enable-banking.blaurens31.workers.dev/callback"
+FRONTEND_URL = "https://asset-tracker.fr/dashboard.html"
+FIREBASE_PROJECT_ID = "asset-tracker-479809-b80f1"
+FIREBASE_SA_EMAIL = "enable-banking-writer-asset-tr@asset-tracker-479809-b80f1.iam.gserviceaccount.com"
+
+# Secrets à définir via la CLI (jamais dans ce fichier / jamais commités) :
+#   wrangler secret put ENABLE_BANKING_PRIVATE_KEY   --config cloudflare-workers/enable-banking-worker/wrangler.toml
+#   wrangler secret put FIREBASE_SA_PRIVATE_KEY       --config cloudflare-workers/enable-banking-worker/wrangler.toml
+#   wrangler secret put STATE_HMAC_SECRET             --config cloudflare-workers/enable-banking-worker/wrangler.toml
+#
+# - ENABLE_BANKING_PRIVATE_KEY : clé privée RSA (.pem, format PKCS8 "-----BEGIN PRIVATE KEY-----")
+#     générée/téléchargée depuis le Control Panel Enable Banking. Si vous n'avez qu'une clé
+#     PKCS1 ("-----BEGIN RSA PRIVATE KEY-----"), convertissez-la avant :
+#     openssl pkcs8 -topk8 -inform PEM -outform PEM -in key.pem -out key_pkcs8.pem -nocrypt
+#
+# - FIREBASE_SA_PRIVATE_KEY : clé privée (PKCS8) du compte de service Firebase/GCP utilisé pour
+#     écrire dans Firestore via l'API REST (IAM & Admin > Comptes de service > créer une clé JSON,
+#     puis copier le champ "private_key" du JSON ici).
+#
+# - STATE_HMAC_SECRET : chaîne aléatoire longue (ex: `openssl rand -hex 32`) utilisée pour signer
+#     le paramètre "state" OAuth et l'associer de façon sûre à l'UID Firebase de l'utilisateur.

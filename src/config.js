@@ -6,6 +6,7 @@
 // CLOUDFLARE WORKERS PROXY (Migration depuis Cloud Run GCP - 0€/mois au lieu de 11€/mois)
 export const PRICE_PROXY_URL = 'https://asset-tracker-prices.blaurens31.workers.dev';
 export const GEMINI_PROXY_URL = 'https://asset-tracker-gemini.blaurens31.workers.dev';
+export const ENABLE_BANKING_PROXY_URL = 'https://asset-tracker-enable-banking.blaurens31.workers.dev';
 
 export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 

@@ -74,6 +74,20 @@ service cloud.firestore {
       match /watchlistGroups/{document=**} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
+
+      // Écrites par le Worker Enable Banking via l'API REST Firestore (compte de service,
+      // bypass ces règles) ; lecture nécessaire côté client pour afficher les données.
+      match /bankConnections/{connectionId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /bankAccounts/{accountId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /transactions/{transactionId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
     }
   }
 }
