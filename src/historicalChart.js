@@ -641,33 +641,44 @@ export class HistoricalChart {
                     console.log(`[CHART] Using graphData.yesterdayClose as unifiedClose: ${unifiedClose}`);
                 }
 
-                // SOURCE UNIQUE DE VÉRITÉ : les KPIs du haut (Total Value, Total Return) sont
-                // dérivés du DERNIER POINT du graphique 1D (graphData.values, qui inclut déjà
-                // le cash puisque targetCashPurchases est fusionné dans calculateHistory ligne
-                // ~470 plus haut) — jamais d'un calcul "live quotes" séparé (calculateHoldings),
-                // qui pouvait légèrement diverger de la valeur affichée sur le graphique.
+                // SOURCE UNIQUE DE VÉRITÉ (vue portefeuille global, non filtrée sur un actif) :
+                // les KPIs du haut (Total Value, Total Return) sont dérivés du DERNIER POINT du
+                // graphique 1D (graphData.values, qui inclut déjà le cash puisque
+                // targetCashPurchases est fusionné dans calculateHistory ligne ~470 plus haut) —
+                // jamais d'un calcul "live quotes" séparé (calculateHoldings), qui pouvait
+                // légèrement diverger de la valeur affichée sur le graphique.
                 // Sur les périodes autres que 1D, on réutilise la dernière valeur 1D en cache
                 // pour ne pas faire "sauter" les cartes quand on change de période (même
                 // principe que cached1DVarToday pour Var Today).
+                // IMPORTANT: en mode actif unique/index (isSingleAsset/isIndexMode), on ne
+                // touche pas à cette logique — cached1DTotalValue est une valeur PORTEFEUILLE
+                // GLOBAL et ne doit jamais être réutilisée pour un actif filtré (sinon "Total
+                // Value" affiche le portefeuille entier au lieu de la position sélectionnée).
                 const cash = targetCashReserve.total || 0;
+                let liveTotalValue;
 
-                let graphLastValue = null;
-                if (!isSingleAsset && !isIndexMode && Array.isArray(graphData.values)) {
-                    for (let i = graphData.values.length - 1; i >= 0; i--) {
-                        const v = graphData.values[i];
-                        if (v !== null && v !== undefined && !isNaN(v)) { graphLastValue = v; break; }
+                if (!isSingleAsset && !isIndexMode) {
+                    let graphLastValue = null;
+                    if (Array.isArray(graphData.values)) {
+                        for (let i = graphData.values.length - 1; i >= 0; i--) {
+                            const v = graphData.values[i];
+                            if (v !== null && v !== undefined && !isNaN(v)) { graphLastValue = v; break; }
+                        }
                     }
-                }
 
-                if (this.currentPeriod === 1 && graphLastValue !== null) {
-                    this.cached1DTotalValue = graphLastValue;
-                }
+                    if (this.currentPeriod === 1 && graphLastValue !== null) {
+                        this.cached1DTotalValue = graphLastValue;
+                    }
 
-                const liveTotalValue = (this.currentPeriod === 1 && graphLastValue !== null)
-                    ? graphLastValue
-                    : (this.cached1DTotalValue !== undefined
-                        ? this.cached1DTotalValue
-                        : ((targetSummary.totalCurrentEUR || 0) + cash)); // dernier recours si le 1D n'a jamais chargé
+                    liveTotalValue = (this.currentPeriod === 1 && graphLastValue !== null)
+                        ? graphLastValue
+                        : (this.cached1DTotalValue !== undefined
+                            ? this.cached1DTotalValue
+                            : ((targetSummary.totalCurrentEUR || 0) + cash)); // dernier recours si le 1D n'a jamais chargé
+                } else {
+                    // Actif unique / index : toujours les holdings live filtrés sur cette position.
+                    liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
+                }
 
                 const liveTotalReturn = liveTotalValue - cash - (targetSummary.totalInvestedEUR || 0);
                 const liveTotalReturnPct = (targetSummary.totalInvestedEUR || 0) > 0
