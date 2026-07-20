@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script>document.addEventListener('touchmove',function(e){if(e.touches.length>1)e.preventDefault();},{passive:false});var _lte=0;document.addEventListener('touchend',function(e){var n=Date.now();if(n-_lte<=300)e.preventDefault();_lte=n;},false);</script>
+    <title>Asset Tracker - Banques connectées</title>
+
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/dashboard.css?v=99">
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <script>
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        // HIDE SIDEBAR IF IN IFRAME
+        if (window.self !== window.top) {
+            document.write('<style>.app-sidebar, .mobile-header { display: none !important; } .main-content { margin-left: 0 !important; width: 100% !important; }</style>');
+        }
+    </script>
+
+    <style>
+        select option {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        .bank-form-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .bank-select {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--accent-blue);
+            background: transparent;
+            color: var(--accent-blue);
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .bank-connect-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: transparent;
+            color: var(--accent-blue);
+            border: 1px solid var(--accent-blue);
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .bank-connect-btn:hover {
+            opacity: 0.75;
+        }
+
+        .bank-connection-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .bank-connection-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .bank-connection-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .bank-connection-date {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .bank-disconnect-btn {
+            background: none;
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .bank-disconnect-btn:hover {
+            opacity: 0.75;
+        }
+
+        .bank-account-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 0;
+            border-top: 1px dashed var(--border-color);
+            flex-wrap: wrap;
+        }
+
+        .bank-account-row:first-of-type {
+            border-top: none;
+        }
+
+        .bank-account-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .bank-account-iban {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+
+        .bank-account-balance {
+            font-weight: 700;
+            color: var(--accent-green);
+            font-size: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="mobile-header" id="mobile-header"></header>
+
+    <aside class="app-sidebar" id="app-sidebar"></aside>
+    <script src="./src/sidebar-render.js"></script>
+
+    <main class="main-content">
+        <div class="container" style="max-width: 900px; margin: 0 auto; padding-top: 20px;">
+
+            <div class="settings-section">
+                <h3><i class="fas fa-university" style="color: var(--accent-blue);"></i> Banques connectées</h3>
+                <div id="bank-connections-list">
+                    <div class="empty-state">Chargement…</div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3><i class="fas fa-plus" style="color: var(--accent-blue);"></i> Connecter une nouvelle banque
+                </h3>
+                <div class="bank-form-row">
+                    <select id="connect-country-select" class="bank-select"></select>
+                    <select id="connect-bank-select" class="bank-select" style="min-width: 180px;"></select>
+                    <button id="connect-bank-btn" class="bank-connect-btn">
+                        <i class="fas fa-university"></i> Connecter ma banque
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+    <script type="module">
+        import { auth, db } from './src/firebaseConfig.js';
+        import { connectBank, getAvailableCountries, getBanksForCountry } from './src/bankConnect.js';
+
+        const listEl = document.getElementById('bank-connections-list');
+        const countrySelect = document.getElementById('connect-country-select');
+        const bankSelect = document.getElementById('connect-bank-select');
+        const connectBtn = document.getElementById('connect-bank-btn');
+
+        let connections = [];
+        let accountsByUid = {};
+
+        function formatDate(iso) {
+            if (!iso) return '';
+            try {
+                return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+            } catch {
+                return iso;
+            }
+        }
+
+        function maskIban(iban) {
+            if (!iban) return '';
+            return iban.length > 8 ? `${iban.slice(0, 4)} •••• •••• ${iban.slice(-4)}` : iban;
+        }
+
+        function formatBalance(account) {
+            const balance = (account.balances || [])[0];
+            if (!balance || balance.amount == null) return '';
+            return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: balance.currency || 'EUR' }).format(balance.amount);
+        }
+
+        function render() {
+            if (!connections.length) {
+                listEl.innerHTML = '<div class="empty-state">Aucune banque connectée pour le moment.</div>';
+                return;
+            }
+
+            listEl.innerHTML = connections.map((conn) => {
+                const accounts = (conn.accountUids || []).map((uid) => accountsByUid[uid]).filter(Boolean);
+                const accountsHtml = accounts.length
+                    ? accounts.map((acc) => `
+                        <div class="bank-account-row">
+                            <div>
+                                <div class="bank-account-name">${acc.name || 'Compte'}</div>
+                                <div class="bank-account-iban">${maskIban(acc.iban)}</div>
+                            </div>
+                            <div class="bank-account-balance">${formatBalance(acc)}</div>
+                        </div>
+                    `).join('')
+                    : '<div class="bank-account-row" style="color: var(--text-muted); font-size: 13px;">Synchronisation en cours…</div>';
+
+                return `
+                    <div class="bank-connection-card">
+                        <div class="bank-connection-header">
+                            <div class="bank-connection-title">
+                                <i class="fas fa-building-columns"></i>
+                                ${conn.aspspName || 'Banque connectée'}
+                            </div>
+                            <div style="display:flex; align-items:center; gap: 12px;">
+                                <span class="bank-connection-date">Connectée le ${formatDate(conn.connectedAt)}</span>
+                                <button class="bank-disconnect-btn" data-session="${conn.id}">
+                                    <i class="fas fa-unlink"></i> Déconnecter
+                                </button>
+                            </div>
+                        </div>
+                        ${accountsHtml}
+                    </div>
+                `;
+            }).join('');
+
+            listEl.querySelectorAll('.bank-disconnect-btn').forEach((btn) => {
+                btn.addEventListener('click', () => disconnectBank(btn.dataset.session));
+            });
+        }
+
+        async function disconnectBank(sessionId) {
+            const conn = connections.find((c) => c.id === sessionId);
+            if (!conn) return;
+            if (!confirm(`Déconnecter "${conn.aspspName || 'cette banque'}" ? Les comptes synchronisés seront retirés de l'application.`)) return;
+
+            const uid = auth.currentUser.uid;
+            const batch = db.batch();
+            batch.delete(db.doc(`users/${uid}/bankConnections/${sessionId}`));
+            (conn.accountUids || []).forEach((accountUid) => {
+                batch.delete(db.doc(`users/${uid}/bankAccounts/${accountUid}`));
+            });
+            await batch.commit();
+        }
+
+        async function populateBanks(country) {
+            bankSelect.innerHTML = '<option>Chargement…</option>';
+            try {
+                const banks = await getBanksForCountry(country);
+                bankSelect.innerHTML = '';
+                banks.forEach((name) => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    bankSelect.appendChild(option);
+                });
+            } catch (err) {
+                bankSelect.innerHTML = '<option>Erreur de chargement</option>';
+                console.error('[BankConnect] Erreur chargement banques:', err);
+            }
+        }
+
+        async function initConnectForm() {
+            try {
+                const countries = await getAvailableCountries();
+                countrySelect.innerHTML = '';
+                countries.forEach(({ code, label }) => {
+                    const option = document.createElement('option');
+                    option.value = code;
+                    option.textContent = label;
+                    countrySelect.appendChild(option);
+                });
+                if (countries.some((c) => c.code === 'FR')) countrySelect.value = 'FR';
+                await populateBanks(countrySelect.value);
+            } catch (err) {
+                countrySelect.innerHTML = '<option>Erreur de chargement</option>';
+                console.error('[BankConnect] Erreur chargement pays:', err);
+            }
+        }
+
+        countrySelect.addEventListener('change', () => populateBanks(countrySelect.value));
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                await connectBank(bankSelect.value, countrySelect.value);
+            } catch (err) {
+                alert(`Erreur : ${err.message}`);
+            }
+        });
+
+        auth.onAuthStateChanged((user) => {
+            if (!user) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            initConnectForm();
+
+            db.collection(`users/${user.uid}/bankConnections`).onSnapshot((snap) => {
+                connections = snap.docs
+                    .map((d) => ({ id: d.id, ...d.data() }))
+                    .sort((a, b) => (b.connectedAt || '').localeCompare(a.connectedAt || ''));
+                render();
+            });
+
+            db.collection(`users/${user.uid}/bankAccounts`).onSnapshot((snap) => {
+                accountsByUid = {};
+                snap.docs.forEach((d) => { accountsByUid[d.id] = d.data(); });
+                render();
+            });
+        });
+    </script>
+</body>
+
+</html>

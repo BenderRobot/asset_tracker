@@ -143,27 +143,28 @@ async function hmacKey(secret) {
   return crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
-async function signState(uid, secret) {
+async function signState(claims, secret) {
   const nonce = b64urlEncode(crypto.getRandomValues(new Uint8Array(12)));
   const expiresAt = Math.floor(Date.now() / 1000) + 1800; // 30 min pour compléter le consentement
-  const payload = `${uid}.${nonce}.${expiresAt}`;
+  const encoded = b64urlEncode(JSON.stringify({ ...claims, nonce, expiresAt }));
   const key = await hmacKey(secret);
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
-  return `${payload}.${b64urlEncode(sig)}`;
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(encoded));
+  return `${encoded}.${b64urlEncode(sig)}`;
 }
 
 async function verifyState(state, secret) {
-  const parts = state.split('.');
-  if (parts.length !== 4) throw new Error('state malformé');
-  const [uid, , expiresAt, sigB64] = parts;
-  const payload = parts.slice(0, 3).join('.');
+  const [encoded, sigB64] = state.split('.');
+  if (!encoded || !sigB64) throw new Error('state malformé');
 
   const key = await hmacKey(secret);
-  const valid = await crypto.subtle.verify('HMAC', key, b64urlDecode(sigB64), new TextEncoder().encode(payload));
+  const valid = await crypto.subtle.verify('HMAC', key, b64urlDecode(sigB64), new TextEncoder().encode(encoded));
   if (!valid) throw new Error('signature state invalide');
-  if (Number(expiresAt) < Math.floor(Date.now() / 1000)) throw new Error('state expiré');
 
-  return uid;
+  const claims = JSON.parse(new TextDecoder().decode(b64urlDecode(encoded)));
+  if (Number(claims.expiresAt) < Math.floor(Date.now() / 1000)) throw new Error('state expiré');
+  if (!claims.uid) throw new Error('uid manquant dans state');
+
+  return claims; // { uid, aspspName, aspspCountry, nonce, expiresAt }
 }
 
 // ─── Enable Banking API ──────────────────────────────────────────────────────
@@ -309,13 +310,15 @@ function formatTransaction(accountId, tx) {
   };
 }
 
-async function syncBankDataToFirestore(env, uid, code) {
+async function syncBankDataToFirestore(env, uid, code, aspspName, aspspCountry) {
   const session = await enableBankingFetch(env, '/sessions', { method: 'POST', body: JSON.stringify({ code }) });
   const accounts = session.accounts || [];
   const accessToken = await getGoogleAccessToken(env);
 
   await firestoreUpsert(env, accessToken, `users/${uid}/bankConnections/${session.session_id}`, {
     sessionId: session.session_id,
+    aspspName: aspspName || null,
+    aspspCountry: aspspCountry || null,
     accountUids: accounts.map((a) => a.uid),
     connectedAt: new Date().toISOString(),
   });
@@ -377,7 +380,7 @@ async function handleConnect(request, env, origin) {
     return jsonResponse({ error: 'aspspName et aspspCountry sont requis (voir GET /aspsps)' }, 400, origin);
   }
 
-  const state = await signState(firebasePayload.sub, env.STATE_HMAC_SECRET);
+  const state = await signState({ uid: firebasePayload.sub, aspspName, aspspCountry }, env.STATE_HMAC_SECRET);
   const validUntil = new Date(Date.now() + CONSENT_VALID_DAYS * 24 * 3600 * 1000).toISOString();
 
   const data = await enableBankingFetch(env, '/auth', {
@@ -408,16 +411,18 @@ async function handleCallback(url, env) {
   if (bankError) return redirectToFrontend(env, { bank_error: bankError });
   if (!code || !state) return redirectToFrontend(env, { bank_error: 'missing_code_or_state' });
 
-  let uid;
+  let stateClaims;
   try {
-    uid = await verifyState(state, env.STATE_HMAC_SECRET);
+    stateClaims = await verifyState(state, env.STATE_HMAC_SECRET);
   } catch (err) {
     console.error('[EnableBankingProxy][CALLBACK] state invalide:', err.message);
     return redirectToFrontend(env, { bank_error: 'invalid_state' });
   }
 
+  const { uid, aspspName, aspspCountry } = stateClaims;
+
   try {
-    const accountCount = await syncBankDataToFirestore(env, uid, code);
+    const accountCount = await syncBankDataToFirestore(env, uid, code, aspspName, aspspCountry);
     return redirectToFrontend(env, { bank_connected: '1', accounts: String(accountCount) });
   } catch (err) {
     console.error('[EnableBankingProxy][CALLBACK] sync failed:', err.stack || err.message);
