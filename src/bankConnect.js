@@ -58,7 +58,10 @@ export async function connectBank(aspspName, aspspCountry) {
   }
 
   const { url } = await res.json();
-  window.location.href = url;
+  // Navigue la fenêtre de plus haut niveau : cette fonction peut être appelée depuis une page
+  // chargée dans un <iframe> (ex: onglet Banques de Paramètres), et la page d'autorisation
+  // Enable Banking refuse de s'afficher dans une frame (protection anti-clickjacking).
+  window.top.location.href = url;
 }
 
 // À appeler au chargement du dashboard pour afficher le résultat du callback
