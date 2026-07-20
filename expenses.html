@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script>document.addEventListener('touchmove',function(e){if(e.touches.length>1)e.preventDefault();},{passive:false});var _lte=0;document.addEventListener('touchend',function(e){var n=Date.now();if(n-_lte<=300)e.preventDefault();_lte=n;},false);</script>
+    <title>Asset Tracker - Dépenses</title>
+
+    <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" href="/icons/android-chrome-512x512.png" sizes="512x512">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css?v=51">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/dashboard.css?v=99">
+    <link rel="stylesheet" href="css/dashboard-mobile.css?v=5">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        if (localStorage.getItem('sidebarState') === 'true') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
+        if (localStorage.getItem('isAdmin') === 'true') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const adminLink = document.getElementById('admin-invitations-link');
+                if (adminLink) adminLink.style.display = 'flex';
+            });
+        }
+    </script>
+    <script>
+        (function(){if(localStorage.getItem('isAdmin')==='true')return;try{var m=JSON.parse(localStorage.getItem('userModules'));if(!m)return;var map={'dashboard.html':'dashboard','investments.html':'assets','index.html':'transactions','analytics.html':'analytics','watchlist.html':'watchlist','screener.html':'screener','news.html':'news','realestate.html':'realestate','assistant.html':'assistant'};var css='';for(var h in map){if(m[map[h]]===false)css+='.nav-item[href="'+h+'"]{display:none!important}';}if(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}}catch(e){}})();
+    </script>
+
+    <style>
+        select option {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        .expenses-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .expenses-select {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .expenses-two-col {
+            display: grid;
+            grid-template-columns: 1.3fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .expenses-two-col {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .expenses-filter-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        .expenses-search-input {
+            flex: 1;
+            min-width: 200px;
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .expense-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 0;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .expense-row:first-child {
+            border-top: none;
+        }
+
+        .expense-row-icon {
+            font-size: 20px;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            flex-shrink: 0;
+        }
+
+        .expense-row-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .expense-row-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .expense-row-meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .expense-row-amount {
+            font-weight: 700;
+            font-size: 15px;
+            white-space: nowrap;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 20px;
+            font-size: 14px;
+        }
+
+        .settings-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .settings-section h3 {
+            margin-top: 0;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+            font-size: 18px;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="mobile-header" id="mobile-header"></header>
+
+    <aside class="app-sidebar" id="app-sidebar"></aside>
+    <script src="./src/sidebar-render.js"></script>
+
+    <main class="main-content">
+        <div class="container">
+
+            <div class="expenses-header-row">
+                <h1 style="margin: 0;">
+                    <i class="fas fa-wallet" style="color: var(--accent-blue);"></i> Dépenses
+                </h1>
+                <select id="expenses-period-select" class="expenses-select">
+                    <option value="this_month" selected>Ce mois</option>
+                    <option value="last_month">Mois dernier</option>
+                    <option value="3m">3 derniers mois</option>
+                    <option value="6m">6 derniers mois</option>
+                    <option value="year">Cette année</option>
+                    <option value="all">Tout l'historique</option>
+                </select>
+            </div>
+
+            <div id="expenses-loading" class="empty-state">Chargement…</div>
+
+            <div id="expenses-empty-state" class="settings-section" style="display:none; text-align:center;">
+                <div style="font-size: 32px; margin-bottom: 10px;">🏦</div>
+                <h3>Aucune donnée bancaire</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 16px;">
+                    Connecte une banque pour voir tes revenus et dépenses ici.
+                </p>
+                <a href="settings.html#banks" class="btn btn-primary" style="text-decoration:none;">
+                    <i class="fas fa-university"></i> Connecter ma banque
+                </a>
+            </div>
+
+            <div id="expenses-content" style="display:none;">
+
+                <div class="dashboard-hero-row summary-grid" style="margin-bottom: 20px;">
+                    <div class="summary-card">
+                        <div class="summary-card-label">Revenus</div>
+                        <div id="expenses-kpi-income" class="summary-card-value">€0.00</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-label">Dépenses</div>
+                        <div id="expenses-kpi-expenses" class="summary-card-value">€0.00</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-label">Solde net</div>
+                        <div id="expenses-kpi-net" class="summary-card-value">€0.00</div>
+                    </div>
+                </div>
+
+                <div class="expenses-two-col">
+                    <div class="dashboard-chart-section" style="height: 320px;">
+                        <div class="chart-header-mini">
+                            <div class="title-mini">
+                                <h3 class="chart-title"><span class="title-icon">📊</span><span>Revenus vs Dépenses (6 derniers mois)</span></h3>
+                            </div>
+                        </div>
+                        <div style="height: 260px; padding: 10px;">
+                            <canvas id="expenses-trend-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card" style="height: 320px; overflow-y: auto;">
+                        <div class="kpi-header"><span class="kpi-label">Répartition des dépenses</span><i class="fas fa-chart-pie kpi-icon"></i></div>
+                        <div id="expenses-category-breakdown"></div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3><i class="fas fa-list" style="color: var(--accent-blue);"></i> Transactions</h3>
+                    <div class="expenses-filter-row">
+                        <input type="text" id="expenses-search" class="expenses-search-input" placeholder="🔍 Rechercher un commerçant...">
+                        <select id="expenses-category-select" class="expenses-select">
+                            <option value="all">Toutes les catégories</option>
+                        </select>
+                    </div>
+                    <div id="expenses-transaction-list"></div>
+                </div>
+
+            </div>
+
+        </div>
+    </main>
+
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+    <script type="module" src="/src/expensesApp.js"></script>
+    <script type="module" src="/src/sidebar.js"></script>
+</body>
+
+</html>

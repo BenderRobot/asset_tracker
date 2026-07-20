@@ -5,6 +5,7 @@
         { href: 'dashboard.html',   icon: '🚀', label: 'Dashboard' },
         { href: 'investments.html', icon: '📈', label: 'Assets' },
         { href: 'index.html',       icon: '📋', label: 'Transactions' },
+        { href: 'expenses.html',    icon: '💸', label: 'Dépenses' },
         { href: 'analytics.html',   icon: '📊', label: 'Analytics' },
         { href: 'watchlist.html',   icon: '👁️', label: 'Watchlist' },
         { href: 'screener.html',    icon: '🔍', label: 'Screener' },
