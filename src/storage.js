@@ -626,6 +626,24 @@ export class Storage {
         if (cleaned > 0) this.savePricesCache();
     }
 
+    // Purge les prix USD déjà convertis en EUR (originalCurrency === 'USD') pour forcer un refetch
+    // avec un taux de change à jour. Utile après correction d'un taux corrompu qui a été figé
+    // dans le cache au moment de la conversion (le prix caché ne se corrige pas tout seul sinon).
+    invalidateUsdPriceCache() {
+        let invalidated = 0;
+        Object.keys(this.currentData).forEach(ticker => {
+            if (this.currentData[ticker]?.originalCurrency === 'USD') {
+                delete this.currentData[ticker];
+                delete this.priceTimestamps[ticker];
+                invalidated++;
+            }
+        });
+        if (invalidated > 0) {
+            console.log(`[Storage] ${invalidated} prix USD invalidés suite à la correction du taux de change`);
+            this.savePricesCache();
+        }
+    }
+
     cleanOldPrices() {
         const sorted = Object.entries(this.priceTimestamps)
             .sort(([, a], [, b]) => b - a)
@@ -718,6 +736,13 @@ export class Storage {
         // Garde-fou : un taux USD/EUR hors [0.5, 1.5] est forcément corrompu (ex: mauvaise réponse API)
         if (rateData && rateData.rate > 0.5 && rateData.rate < 1.5) return rateData.rate;
         return null;
+    }
+
+    // Détecte un taux caché mais rejeté par getConversionRate (hors bornes) : signe qu'un taux
+    // corrompu a pu être utilisé pour convertir des prix déjà en cache (voir invalidateUsdPriceCache).
+    hasCorruptedConversionRate(pair) {
+        const rateData = this.conversionRates[pair.toUpperCase()];
+        return !!(rateData && !(rateData.rate > 0.5 && rateData.rate < 1.5));
     }
 
     setConversionRate(pair, rate) {

@@ -134,6 +134,12 @@ class App {
     const pair = 'USD_TO_EUR';
     const cachedRate = this.storage.getConversionRate(pair);
 
+    if (this.storage.hasCorruptedConversionRate(pair)) {
+      // Le taux en cache était hors bornes (ex: ancien bug CoinGecko) : les prix USD déjà
+      // convertis avec ce taux sont donc faux aussi, on les force à se rafraîchir.
+      this.storage.invalidateUsdPriceCache();
+    }
+
     if (cachedRate) return;
 
     try {
