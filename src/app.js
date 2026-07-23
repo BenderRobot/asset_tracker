@@ -137,14 +137,17 @@ class App {
     if (cachedRate) return;
 
     try {
-      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=usd&vs_currencies=eur');
+      // NOTE: CoinGecko (API de cryptos) a déjà été utilisé ici avec ids=usd — ça ne renvoie PAS
+      // le taux de change USD/EUR mais le prix d'un jeton crypto nommé "usd" (~0.001 €), ce qui
+      // corrompait tous les calculs des actifs achetés en USD. On utilise une vraie API de change.
+      const res = await fetch('https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR');
       if (!res.ok) throw new Error('Réponse API invalide');
 
       const data = await res.json();
-      const rate = data?.usd?.eur;
+      const rate = data?.rates?.EUR;
 
       if (rate) {
-        this.storage.setConversionRate(pair, rate);
+        this.storage.setConversionRate(pair, rate); // setConversionRate rejette silencieusement toute valeur hors [0.5, 1.5]
       }
     } catch (error) {
       console.error('Échec taux de change:', error.message);

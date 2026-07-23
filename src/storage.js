@@ -715,11 +715,13 @@ export class Storage {
 
     getConversionRate(pair) {
         const rateData = this.conversionRates[pair.toUpperCase()];
-        if (rateData) return rateData.rate;
+        // Garde-fou : un taux USD/EUR hors [0.5, 1.5] est forcément corrompu (ex: mauvaise réponse API)
+        if (rateData && rateData.rate > 0.5 && rateData.rate < 1.5) return rateData.rate;
         return null;
     }
 
     setConversionRate(pair, rate) {
+        if (!(rate > 0.5 && rate < 1.5)) return; // Rejette un taux implausible avant qu'il ne pollue le cache
         this.conversionRates[pair.toUpperCase()] = { rate: rate, timestamp: Date.now() };
         try {
             localStorage.setItem('conversionRates', JSON.stringify(this.conversionRates));
