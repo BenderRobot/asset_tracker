@@ -183,14 +183,19 @@
                 <h1 style="margin: 0;">
                     <i class="fas fa-wallet" style="color: var(--accent-blue);"></i> Dépenses
                 </h1>
-                <select id="expenses-period-select" class="expenses-select">
-                    <option value="this_month" selected>Ce mois</option>
-                    <option value="last_month">Mois dernier</option>
-                    <option value="3m">3 derniers mois</option>
-                    <option value="6m">6 derniers mois</option>
-                    <option value="year">Cette année</option>
-                    <option value="all">Tout l'historique</option>
-                </select>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <select id="expenses-bank-select" class="expenses-select">
+                        <option value="all">Toutes les banques</option>
+                    </select>
+                    <select id="expenses-period-select" class="expenses-select">
+                        <option value="this_month" selected>Ce mois</option>
+                        <option value="last_month">Mois dernier</option>
+                        <option value="3m">3 derniers mois</option>
+                        <option value="6m">6 derniers mois</option>
+                        <option value="year">Cette année</option>
+                        <option value="all">Tout l'historique</option>
+                    </select>
+                </div>
             </div>
 
             <div id="expenses-loading" class="empty-state">Chargement…</div>

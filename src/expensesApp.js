@@ -16,12 +16,16 @@ class ExpensesApp {
   constructor() {
     this.transactions = [];
     this.accountsById = {};
+    this.accountToBank = {};
+    this.bankConnections = [];
     this.period = 'this_month';
+    this.bankFilter = 'all';
     this.categoryFilter = 'all';
     this.searchTerm = '';
     this.trendChart = null;
 
     this.periodSelect = document.getElementById('expenses-period-select');
+    this.bankSelect = document.getElementById('expenses-bank-select');
     this.categorySelect = document.getElementById('expenses-category-select');
     this.searchInput = document.getElementById('expenses-search');
     this.listEl = document.getElementById('expenses-transaction-list');
@@ -32,6 +36,7 @@ class ExpensesApp {
 
   init() {
     this.periodSelect?.addEventListener('change', () => { this.period = this.periodSelect.value; this.renderAll(); });
+    this.bankSelect?.addEventListener('change', () => { this.bankFilter = this.bankSelect.value; this.renderAll(); });
     this.searchInput?.addEventListener('input', () => { this.searchTerm = this.searchInput.value.trim().toLowerCase(); this.renderList(); });
     this.categorySelect?.addEventListener('change', () => { this.categoryFilter = this.categorySelect.value; this.renderList(); });
 
@@ -44,12 +49,36 @@ class ExpensesApp {
         this.renderList();
       });
 
+      db.collection(`users/${user.uid}/bankConnections`).onSnapshot((snap) => {
+        this.bankConnections = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        this.accountToBank = {};
+        this.bankConnections.forEach((conn) => {
+          (conn.accountUids || []).forEach((accountId) => { this.accountToBank[accountId] = conn; });
+        });
+        this.populateBankFilter();
+        this.renderAll();
+      });
+
       db.collection(`users/${user.uid}/transactions`).onSnapshot((snap) => {
         this.transactions = snap.docs.map((d) => ({ id: d.id, ...d.data(), category: categorizeTransaction(d.data()) }));
         this.toggleEmptyState();
         this.renderAll();
       });
     });
+  }
+
+  populateBankFilter() {
+    if (!this.bankSelect) return;
+    const prevValue = this.bankSelect.value;
+    const options = ['<option value="all">Toutes les banques</option>']
+      .concat(this.bankConnections.map((c) => `<option value="${c.id}">🏦 ${c.aspspName || 'Banque connectée'}</option>`));
+    this.bankSelect.innerHTML = options.join('');
+    if ([...this.bankSelect.options].some((o) => o.value === prevValue)) this.bankSelect.value = prevValue;
+  }
+
+  getBankFiltered(list) {
+    if (this.bankFilter === 'all') return list;
+    return list.filter((tx) => this.accountToBank[tx.accountId]?.id === this.bankFilter);
   }
 
   toggleEmptyState() {
@@ -85,7 +114,7 @@ class ExpensesApp {
 
   getFilteredByPeriod() {
     const { start, end } = this.getPeriodRange();
-    return this.transactions.filter((tx) => {
+    return this.getBankFiltered(this.transactions).filter((tx) => {
       const d = tx.bookingDate ? new Date(tx.bookingDate) : null;
       if (!d) return false;
       if (start && d < start) return false;
@@ -183,7 +212,7 @@ class ExpensesApp {
 
     const income = months.map(() => 0);
     const expenses = months.map(() => 0);
-    this.transactions.forEach((tx) => {
+    this.getBankFiltered(this.transactions).forEach((tx) => {
       if (!tx.bookingDate) return;
       const key = tx.bookingDate.slice(0, 7);
       const idx = months.findIndex((m) => m.key === key);
