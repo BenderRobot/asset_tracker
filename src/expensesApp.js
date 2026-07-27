@@ -47,7 +47,7 @@ class ExpensesApp {
       db.collection(`users/${user.uid}/bankAccounts`).onSnapshot((snap) => {
         this.accountsById = {};
         snap.docs.forEach((d) => { this.accountsById[d.id] = d.data(); });
-        this.renderList();
+        this.renderAll();
       });
 
       db.collection(`users/${user.uid}/bankConnections`).onSnapshot((snap) => {
@@ -80,6 +80,13 @@ class ExpensesApp {
   getBankFiltered(list) {
     if (this.bankFilter === 'all') return list;
     return list.filter((tx) => this.accountToBank[tx.accountId]?.id === this.bankFilter);
+  }
+
+  // Les cartes à débit différé (ex: Visa Ultim Boursorama) sont synchronisées comme un compte
+  // à part par Enable Banking, mais leurs mouvements sont déjà présents sur le compte courant
+  // lié : les compter aussi ferait doubler chaque achat carte dans les stats.
+  getVisibleTransactions() {
+    return this.transactions.filter((tx) => this.accountsById[tx.accountId]?.cashAccountType !== 'CARD');
   }
 
   toggleEmptyState() {
@@ -115,7 +122,7 @@ class ExpensesApp {
 
   getFilteredByPeriod() {
     const { start, end } = this.getPeriodRange();
-    return this.getBankFiltered(this.transactions).filter((tx) => {
+    return this.getBankFiltered(this.getVisibleTransactions()).filter((tx) => {
       const d = tx.bookingDate ? new Date(tx.bookingDate) : null;
       if (!d) return false;
       if (start && d < start) return false;
@@ -137,7 +144,7 @@ class ExpensesApp {
     const container = document.getElementById('expenses-recurring-list');
     if (!container) return;
 
-    const items = detectRecurring(this.getBankFiltered(this.transactions));
+    const items = detectRecurring(this.getBankFiltered(this.getVisibleTransactions()));
     if (!items.length) {
       container.innerHTML = '<div class="empty-state">Pas encore assez d\'historique pour détecter des dépenses fixes (il faut au moins 2 mois de données sur un même prélèvement).</div>';
       return;
@@ -255,7 +262,7 @@ class ExpensesApp {
 
     const income = months.map(() => 0);
     const expenses = months.map(() => 0);
-    this.getBankFiltered(this.transactions).forEach((tx) => {
+    this.getBankFiltered(this.getVisibleTransactions()).forEach((tx) => {
       if (!tx.bookingDate) return;
       const key = tx.bookingDate.slice(0, 7);
       const idx = months.findIndex((m) => m.key === key);
