@@ -268,15 +268,32 @@
         async function disconnectBank(sessionId) {
             const conn = connections.find((c) => c.id === sessionId);
             if (!conn) return;
-            if (!confirm(`Déconnecter "${conn.aspspName || 'cette banque'}" ? Les comptes synchronisés seront retirés de l'application.`)) return;
+            if (!confirm(`Déconnecter "${conn.aspspName || 'cette banque'}" ? Les comptes et l'historique de transactions synchronisés seront retirés de l'application.`)) return;
 
             const uid = auth.currentUser.uid;
-            const batch = db.batch();
-            batch.delete(db.doc(`users/${uid}/bankConnections/${sessionId}`));
-            (conn.accountUids || []).forEach((accountUid) => {
-                batch.delete(db.doc(`users/${uid}/bankAccounts/${accountUid}`));
-            });
-            await batch.commit();
+            const accountUids = conn.accountUids || [];
+
+            // Récupère les transactions liées à ces comptes (Firestore limite "in" à 30 valeurs).
+            const txDocRefs = [];
+            for (let i = 0; i < accountUids.length; i += 30) {
+                const slice = accountUids.slice(i, i + 30);
+                if (!slice.length) continue;
+                const snap = await db.collection(`users/${uid}/transactions`).where('accountId', 'in', slice).get();
+                snap.docs.forEach((d) => txDocRefs.push(d.ref));
+            }
+
+            const allDeletes = [
+                db.doc(`users/${uid}/bankConnections/${sessionId}`),
+                ...accountUids.map((accountUid) => db.doc(`users/${uid}/bankAccounts/${accountUid}`)),
+                ...txDocRefs,
+            ];
+
+            // batch.commit() est limité à 500 opérations : on découpe par sécurité.
+            for (let i = 0; i < allDeletes.length; i += 450) {
+                const batch = db.batch();
+                allDeletes.slice(i, i + 450).forEach((ref) => batch.delete(ref));
+                await batch.commit();
+            }
         }
 
         async function populateBanks(country) {

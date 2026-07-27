@@ -319,8 +319,21 @@ async function fetchAllTransactions(env, accountId) {
 }
 
 function buildTransactionDocId(accountId, tx) {
-  const ref = tx.entry_reference || tx.transaction_id || `${tx.booking_date}_${tx.transaction_amount?.amount}`;
-  return `${accountId}_${ref}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 400);
+  // entry_reference / transaction_id ne sont pas garantis stables d'une session à l'autre
+  // pour tous les ASPSP (certaines banques régénèrent ces refs à chaque consentement) : les
+  // utiliser comme identifiant produit des doublons à chaque reconnexion. On dérive donc l'ID
+  // uniquement de champs intrinsèques à la transaction, stables quelle que soit la session.
+  const isDebit = tx.credit_debit_indicator === 'DBIT';
+  const description = Array.isArray(tx.remittance_information) ? tx.remittance_information.join(' ') : (tx.remittance_information || '');
+  const key = [
+    tx.booking_date || '',
+    tx.value_date || '',
+    tx.transaction_amount?.amount ?? '',
+    tx.transaction_amount?.currency || '',
+    isDebit ? 'DBIT' : 'CRDT',
+    description.slice(0, 100),
+  ].join('_');
+  return `${accountId}_${key}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 400);
 }
 
 function formatTransaction(accountId, tx) {
