@@ -182,6 +182,18 @@
                 </div>
             </div>
 
+            <div class="settings-section">
+                <h3><i class="fas fa-broom" style="color: var(--accent-red);"></i> Réinitialiser l'historique</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 14px;">
+                    Si tu vois des transactions en double (par exemple après plusieurs reconnexions), tu peux
+                    vider tout l'historique importé puis reconnecter tes banques pour resynchroniser proprement.
+                    Les connexions bancaires elles-mêmes ne sont pas touchées.
+                </p>
+                <button id="reset-transactions-btn" class="bank-disconnect-btn" style="padding: 10px 18px;">
+                    <i class="fas fa-trash"></i> Vider tout l'historique de transactions
+                </button>
+            </div>
+
         </div>
     </main>
 
@@ -197,6 +209,7 @@
         const countrySelect = document.getElementById('connect-country-select');
         const bankSelect = document.getElementById('connect-bank-select');
         const connectBtn = document.getElementById('connect-bank-btn');
+        const resetBtn = document.getElementById('reset-transactions-btn');
 
         let connections = [];
         let accountsByUid = {};
@@ -295,6 +308,32 @@
                 await batch.commit();
             }
         }
+
+        async function resetAllTransactions() {
+            if (!confirm("Supprimer TOUT l'historique de transactions importé ? Action irréversible, mais tes connexions bancaires restent actives : reconnecte chaque banque ensuite pour resynchroniser.")) return;
+
+            const uid = auth.currentUser.uid;
+            const originalLabel = resetBtn.innerHTML;
+            resetBtn.disabled = true;
+
+            let deletedCount = 0;
+            // Supprime par lots de 450 (limite batch Firestore = 500) jusqu'à vider la collection.
+            while (true) {
+                resetBtn.innerHTML = `<i class="fas fa-trash"></i> Suppression… (${deletedCount})`;
+                const snap = await db.collection(`users/${uid}/transactions`).limit(450).get();
+                if (snap.empty) break;
+                const batch = db.batch();
+                snap.docs.forEach((d) => batch.delete(d.ref));
+                await batch.commit();
+                deletedCount += snap.docs.length;
+            }
+
+            resetBtn.disabled = false;
+            resetBtn.innerHTML = originalLabel;
+            alert(`${deletedCount} transaction(s) supprimée(s). Reconnecte tes banques pour resynchroniser.`);
+        }
+
+        resetBtn?.addEventListener('click', resetAllTransactions);
 
         async function populateBanks(country) {
             bankSelect.innerHTML = '<option>Chargement…</option>';
