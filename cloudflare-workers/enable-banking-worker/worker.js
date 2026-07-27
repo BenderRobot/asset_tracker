@@ -266,6 +266,37 @@ async function firestoreUpsert(env, accessToken, path, data) {
   return res.json();
 }
 
+// Écrit un lot de documents (upsert) en un minimum d'appels HTTP : chaque fetch() compte comme
+// une "subrequest" dans le quota Cloudflare Workers (50 sur le plan gratuit) ; un PATCH par
+// document (ex: une par transaction bancaire) fait très vite dépasser ce quota pour un compte
+// avec beaucoup d'historique. batchWrite limite Firestore à 500 écritures par appel.
+const FIRESTORE_BATCH_WRITE_SIZE = 500;
+
+async function firestoreBatchUpsert(env, accessToken, docs) {
+  // docs: [{ path: 'users/uid/transactions/xxx', data: {...} }, ...]
+  const url = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:batchWrite`;
+
+  for (let i = 0; i < docs.length; i += FIRESTORE_BATCH_WRITE_SIZE) {
+    const chunk = docs.slice(i, i + FIRESTORE_BATCH_WRITE_SIZE);
+    const writes = chunk.map(({ path, data }) => ({
+      update: {
+        name: `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}`,
+        fields: objectToFirestoreFields(data),
+      },
+    }));
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ writes }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Firestore batchWrite -> HTTP ${res.status}: ${errText}`);
+    }
+  }
+}
+
 // ─── Synchronisation comptes + transactions ──────────────────────────────────
 
 const TRANSACTIONS_LOOKBACK_DAYS = 180;
@@ -345,9 +376,11 @@ async function syncBankDataToFirestore(env, uid, code, aspspName, aspspCountry) 
       updatedAt: new Date().toISOString(),
     });
 
-    for (const tx of transactions) {
-      const docId = buildTransactionDocId(accountId, tx);
-      await firestoreUpsert(env, accessToken, `users/${uid}/transactions/${docId}`, formatTransaction(accountId, tx));
+    if (transactions.length) {
+      await firestoreBatchUpsert(env, accessToken, transactions.map((tx) => ({
+        path: `users/${uid}/transactions/${buildTransactionDocId(accountId, tx)}`,
+        data: formatTransaction(accountId, tx),
+      })));
     }
   }
 
