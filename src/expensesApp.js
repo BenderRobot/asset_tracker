@@ -4,6 +4,7 @@
 
 import { auth, db } from './firebaseConfig.js';
 import { categorizeTransaction, isCredit } from './expenseCategorizer.js';
+import { detectRecurring } from './recurringDetector.js';
 
 const fmtEUR = (v) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(v || 0);
 const fmtDate = (iso) => {
@@ -128,7 +129,49 @@ class ExpensesApp {
     this.renderKpis(periodTx);
     this.renderCategoryBreakdown(periodTx);
     this.renderTrendChart();
+    this.renderRecurring();
     this.renderList();
+  }
+
+  renderRecurring() {
+    const container = document.getElementById('expenses-recurring-list');
+    if (!container) return;
+
+    const items = detectRecurring(this.getBankFiltered(this.transactions));
+    if (!items.length) {
+      container.innerHTML = '<div class="empty-state">Pas encore assez d\'historique pour détecter des dépenses fixes (il faut au moins 2 mois de données sur un même prélèvement).</div>';
+      return;
+    }
+
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const today = now.getDate();
+
+    container.innerHTML = items.map((item) => {
+      const paidThisMonth = item.monthsSet.has(currentMonthKey);
+      let statusHtml;
+      if (paidThisMonth) {
+        statusHtml = '<span class="recurring-status recurring-status-paid"><i class="fas fa-check-circle"></i> Payé</span>';
+      } else if (today <= item.typicalDay + 5) {
+        statusHtml = `<span class="recurring-status recurring-status-pending"><i class="fas fa-clock"></i> Prévu vers le ${item.typicalDay}</span>`;
+      } else {
+        statusHtml = '<span class="recurring-status recurring-status-late"><i class="fas fa-triangle-exclamation"></i> En retard</span>';
+      }
+
+      const amountColor = item.direction === 'CRDT' ? 'var(--accent-green)' : 'var(--text-primary)';
+      const sign = item.direction === 'CRDT' ? '+' : '-';
+
+      return `
+        <div class="recurring-row">
+            <div class="expense-row-icon">${item.category.icon}</div>
+            <div class="expense-row-main">
+                <div class="expense-row-title">${item.label}</div>
+                <div class="expense-row-meta">${item.category.label} · vers le ${item.typicalDay} du mois · vu sur ${item.monthsSeen} mois</div>
+            </div>
+            <div class="recurring-row-amount" style="color:${amountColor};">${sign}${fmtEUR(item.amount)}</div>
+            <div class="recurring-row-status">${statusHtml}</div>
+        </div>`;
+    }).join('');
   }
 
   renderKpis(periodTx) {

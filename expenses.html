@@ -146,6 +146,55 @@
             white-space: nowrap;
         }
 
+        .recurring-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 0;
+            border-top: 1px solid var(--border-color);
+            flex-wrap: wrap;
+        }
+
+        .recurring-row:first-child {
+            border-top: none;
+        }
+
+        .recurring-row-amount {
+            font-weight: 700;
+            font-size: 15px;
+            white-space: nowrap;
+        }
+
+        .recurring-row-status {
+            margin-left: auto;
+        }
+
+        .recurring-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .recurring-status-paid {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .recurring-status-pending {
+            background: rgba(148, 163, 184, 0.15);
+            color: var(--text-secondary);
+        }
+
+        .recurring-status-late {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+        }
+
         .empty-state {
             text-align: center;
             color: var(--text-muted);
@@ -244,6 +293,15 @@
                         <div class="kpi-header"><span class="kpi-label">Répartition des dépenses</span><i class="fas fa-chart-pie kpi-icon"></i></div>
                         <div id="expenses-category-breakdown"></div>
                     </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3><i class="fas fa-repeat" style="color: var(--accent-blue);"></i> Dépenses & revenus fixes</h3>
+                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 14px;">
+                        Détecté automatiquement à partir de ton historique (prélèvements/virements qui reviennent
+                        chaque mois avec un montant stable). Il faut au moins 2 mois de données par prélèvement.
+                    </p>
+                    <div id="expenses-recurring-list"></div>
                 </div>
 
                 <div class="settings-section">
