@@ -19,6 +19,7 @@ class ExpensesApp {
     this.accountsById = {};
     this.accountToBank = {};
     this.bankConnections = [];
+    this.dismissedRecurringKeys = new Set();
     this.period = 'this_month';
     this.bankFilter = 'all';
     this.categoryFilter = 'all';
@@ -43,6 +44,12 @@ class ExpensesApp {
 
     auth.onAuthStateChanged((user) => {
       if (!user) { window.location.href = 'login.html'; return; }
+      this.uid = user.uid;
+
+      db.doc(`users/${user.uid}/settings/recurringDismissed`).onSnapshot((doc) => {
+        this.dismissedRecurringKeys = new Set(doc.data()?.keys || []);
+        this.renderRecurring();
+      });
 
       db.collection(`users/${user.uid}/bankAccounts`).onSnapshot((snap) => {
         this.accountsById = {};
@@ -144,7 +151,8 @@ class ExpensesApp {
     const container = document.getElementById('expenses-recurring-list');
     if (!container) return;
 
-    const items = detectRecurring(this.getBankFiltered(this.getVisibleTransactions()));
+    const items = detectRecurring(this.getBankFiltered(this.getVisibleTransactions()))
+      .filter((item) => !this.dismissedRecurringKeys.has(item.key));
     if (!items.length) {
       container.innerHTML = '<div class="empty-state">Pas encore assez d\'historique pour détecter des dépenses fixes (il faut au moins 2 mois de données sur un même prélèvement).</div>';
       return;
@@ -177,8 +185,22 @@ class ExpensesApp {
             </div>
             <div class="recurring-row-amount" style="color:${amountColor};">${sign}${fmtEUR(item.amount)}</div>
             <div class="recurring-row-status">${statusHtml}</div>
+            <button class="recurring-dismiss-btn" data-key="${item.key}" title="Ne plus afficher dans les fixes">
+                <i class="fas fa-times"></i>
+            </button>
         </div>`;
     }).join('');
+
+    container.querySelectorAll('.recurring-dismiss-btn').forEach((btn) => {
+      btn.addEventListener('click', () => this.dismissRecurring(btn.dataset.key));
+    });
+  }
+
+  async dismissRecurring(key) {
+    if (!this.uid || !key) return;
+    this.dismissedRecurringKeys.add(key);
+    this.renderRecurring();
+    await db.doc(`users/${this.uid}/settings/recurringDismissed`).set({ keys: [...this.dismissedRecurringKeys] }, { merge: true });
   }
 
   renderKpis(periodTx) {

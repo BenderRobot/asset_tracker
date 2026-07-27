@@ -37,7 +37,7 @@ export function detectRecurring(transactions, { minMonths = 2, lookbackMonths = 
   });
 
   const results = [];
-  Object.values(groups).forEach((txs) => {
+  Object.entries(groups).forEach(([key, txs]) => {
     const months = new Set(txs.map((tx) => monthKey(tx.bookingDate)));
     if (months.size < minMonths) return;
 
@@ -55,6 +55,7 @@ export function detectRecurring(transactions, { minMonths = 2, lookbackMonths = 
     const sample = txs.slice().sort((a, b) => (b.bookingDate || '').localeCompare(a.bookingDate || ''))[0];
 
     results.push({
+      key,
       label: sample.counterparty || sample.description || 'Transaction',
       direction: sample.direction === 'CRDT' ? 'CRDT' : 'DBIT',
       category: sample.category,
