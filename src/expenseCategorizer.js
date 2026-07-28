@@ -29,11 +29,27 @@ const CREDIT_CATEGORIES = [
 const DEFAULT_DEBIT = { key: 'autre_depense', label: 'Autres dépenses', icon: '❓', color: '#9fa6bc' };
 const DEFAULT_CREDIT = { key: 'autre_revenu', label: 'Autres revenus', icon: '➕', color: '#9fa6bc' };
 
+const CATEGORY_BY_KEY = {};
+[...DEBIT_CATEGORIES, ...CREDIT_CATEGORIES, DEFAULT_DEBIT, DEFAULT_CREDIT].forEach((c) => {
+  CATEGORY_BY_KEY[c.key] = c;
+});
+
 export function isCredit(tx) {
   return tx.direction === 'CRDT';
 }
 
-export function categorizeTransaction(tx) {
+// Catégories utilisables pour une transaction donnée (selon son sens crédit/débit), pour
+// peupler un sélecteur de catégorie manuel.
+export function getCategoriesForDirection(creditDirection) {
+  return creditDirection
+    ? [...CREDIT_CATEGORIES, DEFAULT_CREDIT]
+    : [...DEBIT_CATEGORIES, DEFAULT_DEBIT];
+}
+
+// `overrideKey` : catégorie choisie manuellement par l'utilisateur, prioritaire sur l'heuristique.
+export function categorizeTransaction(tx, overrideKey) {
+  if (overrideKey && CATEGORY_BY_KEY[overrideKey]) return CATEGORY_BY_KEY[overrideKey];
+
   const haystack = `${tx.description || ''} ${tx.counterparty || ''}`.toLowerCase();
   const pool = isCredit(tx) ? CREDIT_CATEGORIES : DEBIT_CATEGORIES;
   const match = pool.find((c) => c.keywords.some((k) => haystack.includes(k)));

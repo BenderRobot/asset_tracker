@@ -3,7 +3,7 @@
 // ========================================
 
 import { auth, db } from './firebaseConfig.js';
-import { categorizeTransaction, isCredit } from './expenseCategorizer.js';
+import { categorizeTransaction, isCredit, getCategoriesForDirection } from './expenseCategorizer.js';
 import { detectRecurring, computeRecurringKey, FREQUENCY_LABELS } from './recurringDetector.js';
 
 const fmtEUR = (v) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(v || 0);
@@ -15,7 +15,9 @@ const fmtDate = (iso) => {
 
 class ExpensesApp {
   constructor() {
+    this.rawTransactions = [];
     this.transactions = [];
+    this.categoryOverrides = {};
     this.accountsById = {};
     this.accountToBank = {};
     this.bankConnections = [];
@@ -74,12 +76,36 @@ class ExpensesApp {
         this.renderAll();
       });
 
+      db.doc(`users/${user.uid}/settings/categoryOverrides`).onSnapshot((doc) => {
+        this.categoryOverrides = doc.data() || {};
+        this.applyCategorization();
+        this.renderAll();
+      });
+
       db.collection(`users/${user.uid}/transactions`).onSnapshot((snap) => {
-        this.transactions = snap.docs.map((d) => ({ id: d.id, ...d.data(), category: categorizeTransaction(d.data()) }));
+        this.rawTransactions = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        this.applyCategorization();
         this.toggleEmptyState();
         this.renderAll();
       });
     });
+  }
+
+  // Recalcule this.transactions (avec catégorie) à partir des données brutes + des overrides
+  // manuels — appelé quand les transactions OU les overrides changent.
+  applyCategorization() {
+    this.transactions = this.rawTransactions.map((tx) => ({
+      ...tx,
+      category: categorizeTransaction(tx, this.categoryOverrides[tx.id]),
+    }));
+  }
+
+  async setCategoryOverride(txId, categoryKey) {
+    if (!this.uid || !txId) return;
+    this.categoryOverrides[txId] = categoryKey;
+    this.applyCategorization();
+    this.renderAll();
+    await db.doc(`users/${this.uid}/settings/categoryOverrides`).set({ [txId]: categoryKey }, { merge: true });
   }
 
   populateBankFilter() {
@@ -504,13 +530,17 @@ class ExpensesApp {
       const account = this.accountsById[tx.accountId];
       const amountColor = isCredit(tx) ? 'var(--accent-green)' : 'var(--text-primary)';
       const sign = isCredit(tx) ? '+' : '-';
+      const categoryOptions = getCategoriesForDirection(isCredit(tx))
+        .map((c) => `<option value="${c.key}" ${c.key === tx.category.key ? 'selected' : ''}>${c.icon} ${c.label}</option>`)
+        .join('');
       return `
         <div class="expense-row">
             <div class="expense-row-icon">${tx.category.icon}</div>
             <div class="expense-row-main">
                 <div class="expense-row-title">${tx.counterparty || tx.description || 'Transaction'}</div>
-                <div class="expense-row-meta">${tx.category.label} · ${account?.name || 'Compte'} · ${fmtDate(tx.bookingDate)}</div>
+                <div class="expense-row-meta">${account?.name || 'Compte'} · ${fmtDate(tx.bookingDate)}</div>
             </div>
+            <select class="expense-row-category-select" data-tx-id="${tx.id}" title="Changer la catégorie">${categoryOptions}</select>
             <div class="expense-row-amount" style="color:${amountColor};">${sign}${fmtEUR(Math.abs(tx.amount || 0))}</div>
             <button class="expense-row-fixed-btn" data-tx-id="${tx.id}" title="Marquer comme dépense/revenu fixe">
                 <i class="fas fa-thumbtack"></i>
@@ -520,6 +550,9 @@ class ExpensesApp {
 
     this.listEl.querySelectorAll('.expense-row-fixed-btn').forEach((btn) => {
       btn.addEventListener('click', () => this.markTransactionAsFixed(btn.dataset.txId));
+    });
+    this.listEl.querySelectorAll('.expense-row-category-select').forEach((select) => {
+      select.addEventListener('change', () => this.setCategoryOverride(select.dataset.txId, select.value));
     });
   }
 }

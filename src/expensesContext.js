@@ -15,21 +15,23 @@ function monthlyEquivalent(item) {
 }
 
 export async function buildExpensesContext(uid) {
-  const [txSnap, accSnap, prefsSnap] = await Promise.all([
+  const [txSnap, accSnap, prefsSnap, categoryOverridesSnap] = await Promise.all([
     db.collection(`users/${uid}/transactions`).get(),
     db.collection(`users/${uid}/bankAccounts`).get(),
     db.doc(`users/${uid}/settings/recurringPrefs`).get(),
+    db.doc(`users/${uid}/settings/categoryOverrides`).get(),
   ]);
 
   if (txSnap.empty) return null;
 
   const accountsById = {};
   accSnap.docs.forEach((d) => { accountsById[d.id] = d.data(); });
+  const categoryOverrides = categoryOverridesSnap.data() || {};
 
   const transactions = txSnap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .filter((tx) => accountsById[tx.accountId]?.cashAccountType !== 'CARD')
-    .map((tx) => ({ ...tx, category: categorizeTransaction(tx) }));
+    .map((tx) => ({ ...tx, category: categorizeTransaction(tx, categoryOverrides[tx.id]) }));
 
   if (!transactions.length) return null;
 
