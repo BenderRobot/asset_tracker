@@ -72,7 +72,9 @@ export function detectRecurring(transactions, opts = {}) {
       label: customLabels[key] || sample.counterparty || sample.description || 'Transaction',
       direction: sample.direction === 'CRDT' ? 'CRDT' : 'DBIT',
       category: sample.category,
-      amount: median,
+      // Le montant le plus récent plutôt que la médiane historique : pour une facture qui varie
+      // (énergie...), c'est le dernier prélèvement réel qui doit s'afficher, pas une moyenne datée.
+      amount: Math.abs(sample.amount || median),
       typicalDay,
       monthsSeen: months.size,
       monthsSet: months,

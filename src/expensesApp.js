@@ -157,23 +157,58 @@ class ExpensesApp {
     const incomeContainer = document.getElementById('expenses-recurring-list-income');
     if (!chargesContainer || !incomeContainer) return;
 
-    const items = detectRecurring(this.getBankFiltered(this.getVisibleTransactions()), {
+    const visibleTx = this.getBankFiltered(this.getVisibleTransactions());
+
+    const recurringItems = detectRecurring(visibleTx, {
       forcedKeys: this.manualRecurringKeys,
       customLabels: this.customRecurringLabels,
     }).filter((item) => !this.dismissedRecurringKeys.has(item.key));
 
-    this.renderRecurringKpis(items);
+    const charges = recurringItems.filter((item) => item.direction === 'DBIT');
+    const recurringIncome = recurringItems.filter((item) => item.direction === 'CRDT');
+
+    // Côté revenus, en plus des entrées fixes (auto/manuelles), on ajoute toute rentrée d'argent
+    // du mois en cours qui n'est pas déjà comptée dans une entrée fixe (ex: virement ponctuel).
+    const oneOffIncome = this.getOneOffIncomeThisMonth(visibleTx, recurringIncome);
+    const income = [...recurringIncome, ...oneOffIncome].sort((a, b) => b.amount - a.amount);
+
+    this.renderRecurringKpis([...charges, ...income]);
 
     this.renderRecurringRows(
       chargesContainer,
-      items.filter((item) => item.direction === 'DBIT'),
+      charges,
       'Pas encore de charge fixe détectée (il faut au moins 2 mois de données sur un même prélèvement, ou ajoute-en une manuellement depuis la liste des transactions).'
     );
     this.renderRecurringRows(
       incomeContainer,
-      items.filter((item) => item.direction === 'CRDT'),
-      'Pas encore de revenu fixe détecté (il faut au moins 2 mois de données sur un même virement, ou ajoute-en un manuellement depuis la liste des transactions).'
+      income,
+      'Aucun revenu ce mois-ci.'
     );
+  }
+
+  getOneOffIncomeThisMonth(transactions, recurringIncomeItems) {
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const recurringKeys = new Set(recurringIncomeItems.map((item) => item.key));
+
+    return transactions
+      .filter((tx) => isCredit(tx) && (tx.bookingDate || '').slice(0, 7) === currentMonthKey)
+      .filter((tx) => {
+        const key = computeRecurringKey(tx);
+        return !key || !recurringKeys.has(key);
+      })
+      .map((tx) => ({
+        key: `oneoff_${tx.id}`,
+        label: tx.counterparty || tx.description || 'Transaction',
+        direction: 'CRDT',
+        category: tx.category,
+        amount: Math.abs(tx.amount || 0),
+        typicalDay: tx.bookingDate ? new Date(tx.bookingDate).getDate() : 1,
+        monthsSeen: 1,
+        monthsSet: new Set([currentMonthKey]),
+        manual: false,
+        oneOff: true,
+      }));
   }
 
   renderRecurringRows(container, items, emptyMessage) {
@@ -199,13 +234,17 @@ class ExpensesApp {
 
       const amountColor = item.direction === 'CRDT' ? 'var(--accent-green)' : 'var(--text-primary)';
       const sign = item.direction === 'CRDT' ? '+' : '-';
+      const tag = item.manual ? ' (manuel)' : (item.oneOff ? ' (ponctuel)' : '');
+      const meta = item.oneOff
+        ? `${item.category.label} · reçu le ${item.typicalDay} du mois`
+        : `${item.category.label} · vers le ${item.typicalDay} du mois · vu sur ${item.monthsSeen} mois`;
 
       return `
         <div class="recurring-row">
             <div class="expense-row-icon">${item.category.icon}</div>
             <div class="expense-row-main">
-                <div class="expense-row-title">${item.label}${item.manual ? ' <span style="color:var(--text-muted); font-size:11px;">(manuel)</span>' : ''}</div>
-                <div class="expense-row-meta">${item.category.label} · vers le ${item.typicalDay} du mois · vu sur ${item.monthsSeen} mois</div>
+                <div class="expense-row-title">${item.label}${tag ? ` <span style="color:var(--text-muted); font-size:11px;">${tag}</span>` : ''}</div>
+                <div class="expense-row-meta">${meta}</div>
             </div>
             <div class="recurring-row-amount" style="color:${amountColor};">${sign}${fmtEUR(item.amount)}</div>
             <div class="recurring-row-status">${statusHtml}</div>
