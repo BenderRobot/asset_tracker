@@ -4,7 +4,7 @@
 
 import { auth, db } from './firebaseConfig.js';
 import { categorizeTransaction, isCredit } from './expenseCategorizer.js';
-import { detectRecurring, computeRecurringKey } from './recurringDetector.js';
+import { detectRecurring, computeRecurringKey, FREQUENCY_LABELS } from './recurringDetector.js';
 
 const fmtEUR = (v) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(v || 0);
 const fmtDate = (iso) => {
@@ -22,6 +22,7 @@ class ExpensesApp {
     this.dismissedRecurringKeys = new Set();
     this.manualRecurringKeys = new Set();
     this.customRecurringLabels = {};
+    this.customRecurringFrequencies = {};
     this.period = 'this_month';
     this.bankFilter = 'all';
     this.categoryFilter = 'all';
@@ -53,6 +54,7 @@ class ExpensesApp {
         this.dismissedRecurringKeys = new Set(data.dismissedKeys || []);
         this.manualRecurringKeys = new Set(data.manualKeys || []);
         this.customRecurringLabels = data.customLabels || {};
+        this.customRecurringFrequencies = data.customFrequencies || {};
         this.renderRecurring();
       });
 
@@ -162,6 +164,7 @@ class ExpensesApp {
     const recurringItems = detectRecurring(visibleTx, {
       forcedKeys: this.manualRecurringKeys,
       customLabels: this.customRecurringLabels,
+      customFrequencies: this.customRecurringFrequencies,
     }).filter((item) => !this.dismissedRecurringKeys.has(item.key));
 
     const charges = recurringItems.filter((item) => item.direction === 'DBIT');
@@ -208,6 +211,9 @@ class ExpensesApp {
         monthsSet: new Set([currentMonthKey]),
         manual: false,
         oneOff: true,
+        frequencyMonths: 1,
+        monthsSinceLast: 0,
+        dueThisCycle: true,
       }));
   }
 
@@ -226,6 +232,8 @@ class ExpensesApp {
       let statusHtml;
       if (paidThisMonth) {
         statusHtml = '<span class="recurring-status recurring-status-paid"><i class="fas fa-check-circle"></i> Payé</span>';
+      } else if (!item.dueThisCycle) {
+        statusHtml = '<span class="recurring-status recurring-status-upcoming"><i class="fas fa-hourglass-half"></i> Pas dû ce mois</span>';
       } else if (today <= item.typicalDay + 5) {
         statusHtml = `<span class="recurring-status recurring-status-pending"><i class="fas fa-clock"></i> Prévu vers le ${item.typicalDay}</span>`;
       } else {
@@ -235,9 +243,10 @@ class ExpensesApp {
       const amountColor = item.direction === 'CRDT' ? 'var(--accent-green)' : 'var(--text-primary)';
       const sign = item.direction === 'CRDT' ? '+' : '-';
       const tag = item.manual ? ' (manuel)' : (item.oneOff ? ' (ponctuel)' : '');
+      const freqLabel = FREQUENCY_LABELS[item.frequencyMonths] || FREQUENCY_LABELS[1];
       const meta = item.oneOff
         ? `${item.category.label} · reçu le ${item.typicalDay} du mois`
-        : `${item.category.label} · vers le ${item.typicalDay} du mois · vu sur ${item.monthsSeen} mois`;
+        : `${item.category.label} · ${freqLabel} · vers le ${item.typicalDay} du mois · vu sur ${item.monthsSeen} mois`;
 
       return `
         <div class="recurring-row">
@@ -248,7 +257,7 @@ class ExpensesApp {
             </div>
             <div class="recurring-row-amount" style="color:${amountColor};">${sign}${fmtEUR(item.amount)}</div>
             <div class="recurring-row-status">${statusHtml}</div>
-            <button class="recurring-rename-btn" data-key="${item.key}" data-label="${item.label.replace(/"/g, '&quot;')}" title="Renommer">
+            <button class="recurring-rename-btn" data-key="${item.key}" data-label="${item.label.replace(/"/g, '&quot;')}" data-frequency="${item.frequencyMonths}" title="Renommer / changer la fréquence">
                 <i class="fas fa-pen"></i>
             </button>
             <button class="recurring-dismiss-btn" data-key="${item.key}" title="Ne plus afficher dans les fixes">
@@ -261,7 +270,7 @@ class ExpensesApp {
       btn.addEventListener('click', () => this.dismissRecurring(btn.dataset.key));
     });
     container.querySelectorAll('.recurring-rename-btn').forEach((btn) => {
-      btn.addEventListener('click', () => this.renameRecurring(btn.dataset.key, btn.dataset.label));
+      btn.addEventListener('click', () => this.renameRecurring(btn.dataset.key, btn.dataset.label, Number(btn.dataset.frequency) || 1));
     });
   }
 
@@ -276,6 +285,9 @@ class ExpensesApp {
 
     const sumPaidAndTotal = (list) => list.reduce(
       (acc, item) => {
+        // Une charge trimestrielle/annuelle ne compte dans le total du mois que le mois où elle
+        // est effectivement due (ou déjà réglée) — pas chaque mois entre deux échéances.
+        if (!item.dueThisCycle && !item.monthsSet.has(currentMonthKey)) return acc;
         acc.total += item.amount;
         if (item.monthsSet.has(currentMonthKey)) acc.paid += item.amount;
         return acc;
@@ -296,6 +308,7 @@ class ExpensesApp {
       dismissedKeys: [...this.dismissedRecurringKeys],
       manualKeys: [...this.manualRecurringKeys],
       customLabels: this.customRecurringLabels,
+      customFrequencies: this.customRecurringFrequencies,
     }, { merge: true });
   }
 
@@ -304,17 +317,33 @@ class ExpensesApp {
     this.dismissedRecurringKeys.add(key);
     this.manualRecurringKeys.delete(key);
     delete this.customRecurringLabels[key];
+    delete this.customRecurringFrequencies[key];
     this.renderRecurring();
     await this.saveRecurringPrefs();
   }
 
-  async renameRecurring(key, currentLabel) {
+  // Demande une fréquence (en mois) à l'utilisateur ; accepte 1/2/3/6/12 ou les mots courants.
+  promptFrequency(currentFrequency) {
+    const answer = prompt(
+      'Fréquence : tous les combien de mois revient cette charge/revenu ?\n(1 = mensuel, 3 = trimestriel, 6 = semestriel, 12 = annuel)',
+      String(currentFrequency || 1)
+    );
+    if (answer === null) return null;
+    const parsed = parseInt(answer.trim(), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : currentFrequency || 1;
+  }
+
+  async renameRecurring(key, currentLabel, currentFrequency) {
     if (!key) return;
     const name = prompt('Nom personnalisé :', currentLabel || '');
     if (name === null) return;
     const trimmed = name.trim();
     if (trimmed) this.customRecurringLabels[key] = trimmed;
     else delete this.customRecurringLabels[key];
+
+    const frequency = this.promptFrequency(currentFrequency);
+    if (frequency !== null) this.customRecurringFrequencies[key] = frequency;
+
     this.renderRecurring();
     await this.saveRecurringPrefs();
   }
@@ -328,8 +357,12 @@ class ExpensesApp {
     const name = prompt('Nom pour cette dépense/revenu fixe :', tx.counterparty || tx.description || '');
     if (name === null) return;
 
+    const frequency = this.promptFrequency(1);
+    if (frequency === null) return;
+
     this.manualRecurringKeys.add(key);
     this.dismissedRecurringKeys.delete(key);
+    this.customRecurringFrequencies[key] = frequency;
     const trimmed = name.trim();
     if (trimmed) this.customRecurringLabels[key] = trimmed;
 
