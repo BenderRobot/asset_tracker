@@ -793,6 +793,10 @@ Titre:`;
         const typingId = this.showTypingIndicator();
 
         try {
+            // Rafraîchit les dépenses à chaque message : l'utilisateur peut avoir recatégorisé
+            // ou reconnecté une banque sur un autre onglet depuis le chargement de la page.
+            await this.prepareExpensesContext();
+
             let systemPrompt;
             try {
                 systemPrompt = this.buildSystemPrompt();
@@ -892,7 +896,8 @@ ${continuityNote}
 3. Si l'actif n'est PAS dans le portefeuille : donne une analyse marché via le web et précise qu'il ne détient pas cette ligne.
 4. Cite tes sources web quand tu t'appuies sur des faits récents (titres d'articles ou sites). Ne mentionne jamais "contexte JSON" ou "prompt système".
 5. Ce n'est pas un conseil en investissement réglementé : rappelle-le brièvement si tu donnes une opinion.
-6. BUDGET / CASHFLOW : si l'utilisateur demande comment réduire ses dépenses, dégager du cashflow, ou combien il peut investir chaque mois → base-toi uniquement sur les données de la section "BUDGET" ci-dessous (charges fixes, revenus fixes, dépenses par catégorie). Cite les postes précis avec leurs montants. Ne recommande jamais quoi acheter en bourse dans ce contexte, uniquement la capacité d'épargne dégageable.
+6. BUDGET / CASHFLOW : si l'utilisateur demande comment réduire ses dépenses, dégager du cashflow, combien il peut investir chaque mois, ou de "recheck"/réanalyser son budget après un changement → base-toi uniquement sur la section "BUDGET" ci-dessous. Cite les postes précis avec leurs montants. Ne recommande jamais quoi acheter en bourse dans ce contexte, uniquement la capacité d'épargne dégageable.
+7. La section BUDGET ci-dessous est régénérée à chaque message et reflète TOUJOURS l'état actuel et à jour des données bancaires de l'utilisateur (transactions, catégories, charges fixes) au moment où tu réponds. Ne dis JAMAIS que tu n'as pas accès aux données, à l'historique, ou en temps réel, et ne demande JAMAIS à l'utilisateur de te fournir/copier-coller sa répartition de dépenses : elle est déjà intégralement ci-dessous, y compris ses éventuelles recatégorisations manuelles récentes.
 
 === PORTEFEUILLE DU CLIENT ===
 Valeur totale: ${s.totalValue}€
