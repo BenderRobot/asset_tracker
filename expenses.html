@@ -195,7 +195,9 @@
             color: var(--accent-red);
         }
 
-        .recurring-dismiss-btn {
+        .recurring-dismiss-btn,
+        .recurring-rename-btn,
+        .expense-row-fixed-btn {
             background: none;
             border: none;
             color: var(--text-muted);
@@ -204,10 +206,17 @@
             padding: 4px 6px;
             border-radius: 6px;
             transition: opacity 0.2s, color 0.2s;
+            flex-shrink: 0;
         }
 
         .recurring-dismiss-btn:hover {
             color: var(--accent-red);
+            opacity: 0.85;
+        }
+
+        .recurring-rename-btn:hover,
+        .expense-row-fixed-btn:hover {
+            color: var(--accent-blue);
             opacity: 0.85;
         }
 
@@ -290,6 +299,17 @@
                     <div class="summary-card">
                         <div class="summary-card-label">Solde net</div>
                         <div id="expenses-kpi-net" class="summary-card-value">€0.00</div>
+                    </div>
+                </div>
+
+                <div class="summary-grid" style="margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <div class="summary-card">
+                        <div class="summary-card-label">Charges fixes (payé / total ce mois)</div>
+                        <div id="expenses-kpi-fixed-charges" class="summary-card-value" style="color: var(--accent-red); font-size: 22px;">€0.00 / €0.00</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-label">Revenus fixes (payé / total ce mois)</div>
+                        <div id="expenses-kpi-fixed-income" class="summary-card-value" style="color: var(--accent-green); font-size: 22px;">€0.00 / €0.00</div>
                     </div>
                 </div>
 

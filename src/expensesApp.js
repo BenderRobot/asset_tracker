@@ -4,7 +4,7 @@
 
 import { auth, db } from './firebaseConfig.js';
 import { categorizeTransaction, isCredit } from './expenseCategorizer.js';
-import { detectRecurring } from './recurringDetector.js';
+import { detectRecurring, computeRecurringKey } from './recurringDetector.js';
 
 const fmtEUR = (v) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(v || 0);
 const fmtDate = (iso) => {
@@ -20,6 +20,8 @@ class ExpensesApp {
     this.accountToBank = {};
     this.bankConnections = [];
     this.dismissedRecurringKeys = new Set();
+    this.manualRecurringKeys = new Set();
+    this.customRecurringLabels = {};
     this.period = 'this_month';
     this.bankFilter = 'all';
     this.categoryFilter = 'all';
@@ -46,8 +48,11 @@ class ExpensesApp {
       if (!user) { window.location.href = 'login.html'; return; }
       this.uid = user.uid;
 
-      db.doc(`users/${user.uid}/settings/recurringDismissed`).onSnapshot((doc) => {
-        this.dismissedRecurringKeys = new Set(doc.data()?.keys || []);
+      db.doc(`users/${user.uid}/settings/recurringPrefs`).onSnapshot((doc) => {
+        const data = doc.data() || {};
+        this.dismissedRecurringKeys = new Set(data.dismissedKeys || []);
+        this.manualRecurringKeys = new Set(data.manualKeys || []);
+        this.customRecurringLabels = data.customLabels || {};
         this.renderRecurring();
       });
 
@@ -151,10 +156,15 @@ class ExpensesApp {
     const container = document.getElementById('expenses-recurring-list');
     if (!container) return;
 
-    const items = detectRecurring(this.getBankFiltered(this.getVisibleTransactions()))
-      .filter((item) => !this.dismissedRecurringKeys.has(item.key));
+    const items = detectRecurring(this.getBankFiltered(this.getVisibleTransactions()), {
+      forcedKeys: this.manualRecurringKeys,
+      customLabels: this.customRecurringLabels,
+    }).filter((item) => !this.dismissedRecurringKeys.has(item.key));
+
+    this.renderRecurringKpis(items);
+
     if (!items.length) {
-      container.innerHTML = '<div class="empty-state">Pas encore assez d\'historique pour détecter des dépenses fixes (il faut au moins 2 mois de données sur un même prélèvement).</div>';
+      container.innerHTML = '<div class="empty-state">Pas encore assez d\'historique pour détecter des dépenses fixes (il faut au moins 2 mois de données sur un même prélèvement, ou ajoute-en une manuellement depuis la liste des transactions).</div>';
       return;
     }
 
@@ -180,11 +190,14 @@ class ExpensesApp {
         <div class="recurring-row">
             <div class="expense-row-icon">${item.category.icon}</div>
             <div class="expense-row-main">
-                <div class="expense-row-title">${item.label}</div>
+                <div class="expense-row-title">${item.label}${item.manual ? ' <span style="color:var(--text-muted); font-size:11px;">(manuel)</span>' : ''}</div>
                 <div class="expense-row-meta">${item.category.label} · vers le ${item.typicalDay} du mois · vu sur ${item.monthsSeen} mois</div>
             </div>
             <div class="recurring-row-amount" style="color:${amountColor};">${sign}${fmtEUR(item.amount)}</div>
             <div class="recurring-row-status">${statusHtml}</div>
+            <button class="recurring-rename-btn" data-key="${item.key}" data-label="${item.label.replace(/"/g, '&quot;')}" title="Renommer">
+                <i class="fas fa-pen"></i>
+            </button>
             <button class="recurring-dismiss-btn" data-key="${item.key}" title="Ne plus afficher dans les fixes">
                 <i class="fas fa-times"></i>
             </button>
@@ -194,13 +207,81 @@ class ExpensesApp {
     container.querySelectorAll('.recurring-dismiss-btn').forEach((btn) => {
       btn.addEventListener('click', () => this.dismissRecurring(btn.dataset.key));
     });
+    container.querySelectorAll('.recurring-rename-btn').forEach((btn) => {
+      btn.addEventListener('click', () => this.renameRecurring(btn.dataset.key, btn.dataset.label));
+    });
+  }
+
+  renderRecurringKpis(items) {
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const set = (id, paid, total) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = `${fmtEUR(paid)} / ${fmtEUR(total)}`;
+    };
+
+    const sumPaidAndTotal = (list) => list.reduce(
+      (acc, item) => {
+        acc.total += item.amount;
+        if (item.monthsSet.has(currentMonthKey)) acc.paid += item.amount;
+        return acc;
+      },
+      { paid: 0, total: 0 }
+    );
+
+    const charges = sumPaidAndTotal(items.filter((i) => i.direction === 'DBIT'));
+    const income = sumPaidAndTotal(items.filter((i) => i.direction === 'CRDT'));
+
+    set('expenses-kpi-fixed-charges', charges.paid, charges.total);
+    set('expenses-kpi-fixed-income', income.paid, income.total);
+  }
+
+  async saveRecurringPrefs() {
+    if (!this.uid) return;
+    await db.doc(`users/${this.uid}/settings/recurringPrefs`).set({
+      dismissedKeys: [...this.dismissedRecurringKeys],
+      manualKeys: [...this.manualRecurringKeys],
+      customLabels: this.customRecurringLabels,
+    }, { merge: true });
   }
 
   async dismissRecurring(key) {
     if (!this.uid || !key) return;
     this.dismissedRecurringKeys.add(key);
+    this.manualRecurringKeys.delete(key);
+    delete this.customRecurringLabels[key];
     this.renderRecurring();
-    await db.doc(`users/${this.uid}/settings/recurringDismissed`).set({ keys: [...this.dismissedRecurringKeys] }, { merge: true });
+    await this.saveRecurringPrefs();
+  }
+
+  async renameRecurring(key, currentLabel) {
+    if (!key) return;
+    const name = prompt('Nom personnalisé :', currentLabel || '');
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (trimmed) this.customRecurringLabels[key] = trimmed;
+    else delete this.customRecurringLabels[key];
+    this.renderRecurring();
+    await this.saveRecurringPrefs();
+  }
+
+  async markTransactionAsFixed(txId) {
+    const tx = this.transactions.find((t) => t.id === txId);
+    if (!tx) return;
+    const key = computeRecurringKey(tx);
+    if (!key) { alert('Impossible de déterminer un libellé pour cette transaction.'); return; }
+
+    const name = prompt('Nom pour cette dépense/revenu fixe :', tx.counterparty || tx.description || '');
+    if (name === null) return;
+
+    this.manualRecurringKeys.add(key);
+    this.dismissedRecurringKeys.delete(key);
+    const trimmed = name.trim();
+    if (trimmed) this.customRecurringLabels[key] = trimmed;
+
+    this.renderAll();
+    await this.saveRecurringPrefs();
   }
 
   renderKpis(periodTx) {
@@ -345,8 +426,15 @@ class ExpensesApp {
                 <div class="expense-row-meta">${tx.category.label} · ${account?.name || 'Compte'} · ${fmtDate(tx.bookingDate)}</div>
             </div>
             <div class="expense-row-amount" style="color:${amountColor};">${sign}${fmtEUR(Math.abs(tx.amount || 0))}</div>
+            <button class="expense-row-fixed-btn" data-tx-id="${tx.id}" title="Marquer comme dépense/revenu fixe">
+                <i class="fas fa-thumbtack"></i>
+            </button>
         </div>`;
     }).join('');
+
+    this.listEl.querySelectorAll('.expense-row-fixed-btn').forEach((btn) => {
+      btn.addEventListener('click', () => this.markTransactionAsFixed(btn.dataset.txId));
+    });
   }
 }
 
