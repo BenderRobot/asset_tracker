@@ -313,8 +313,17 @@
                     </div>
                 </div>
 
+                <div class="settings-section">
+                    <h3><i class="fas fa-repeat" style="color: var(--accent-blue);"></i> Dépenses & revenus fixes</h3>
+                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 14px;">
+                        Détecté automatiquement à partir de ton historique (prélèvements/virements qui reviennent
+                        chaque mois avec un montant stable). Il faut au moins 2 mois de données par prélèvement.
+                    </p>
+                    <div id="expenses-recurring-list"></div>
+                </div>
+
                 <div class="expenses-two-col">
-                    <div class="dashboard-chart-section" style="height: 320px;">
+                    <div class="dashboard-chart-section" style="height: 320px; min-height: 320px;">
                         <div class="chart-header-mini">
                             <div class="title-mini">
                                 <h3 class="chart-title"><span class="title-icon">📊</span><span>Revenus vs Dépenses (6 derniers mois)</span></h3>
@@ -329,15 +338,6 @@
                         <div class="kpi-header"><span class="kpi-label">Répartition des dépenses</span><i class="fas fa-chart-pie kpi-icon"></i></div>
                         <div id="expenses-category-breakdown"></div>
                     </div>
-                </div>
-
-                <div class="settings-section">
-                    <h3><i class="fas fa-repeat" style="color: var(--accent-blue);"></i> Dépenses & revenus fixes</h3>
-                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 14px;">
-                        Détecté automatiquement à partir de ton historique (prélèvements/virements qui reviennent
-                        chaque mois avec un montant stable). Il faut au moins 2 mois de données par prélèvement.
-                    </p>
-                    <div id="expenses-recurring-list"></div>
                 </div>
 
                 <div class="settings-section">
