@@ -6,6 +6,7 @@ import { Storage } from './storage.js';
 import { DataManager } from './dataManager.js';
 import { PriceAPI } from './api.js';
 import { GEMINI_PROXY_URL } from './config.js';
+import { buildExpensesContext, formatExpensesContextAsText } from './expensesContext.js';
 
 const STORAGE_KEY = 'assistant_conversations_v2';
 const LEGACY_KEY = 'assistant_conversation';
@@ -95,6 +96,7 @@ export class AssistantApp {
         this.api = new PriceAPI(this.storage);
         this.dataManager = new DataManager(this.storage, this.api);
         this.portfolioContext = null;
+        this.expensesContext = null;
         this.isProcessing = false;
         this.store = this.loadStore();
         this.activeConversationId = this.store.activeId;
@@ -112,7 +114,7 @@ export class AssistantApp {
     async init() {
         console.log('Assistant IA initialized 🤖');
 
-        await this.preparePortfolioContext();
+        await Promise.all([this.preparePortfolioContext(), this.prepareExpensesContext()]);
         this.displayPortfolioSummary();
         this.setupEventListeners();
         this.renderConversationsList();
@@ -724,6 +726,16 @@ Titre:`;
         }
     }
 
+    async prepareExpensesContext() {
+        try {
+            const uid = await this.getUserId();
+            if (!uid) return;
+            this.expensesContext = await buildExpensesContext(uid);
+        } catch (error) {
+            console.error('[Assistant] Error preparing expenses context:', error);
+        }
+    }
+
     displayPortfolioSummary() {
         if (!this.portfolioContext) return;
 
@@ -864,6 +876,8 @@ Titre:`;
             ? `Résidence principale: ${ctx.primaryResidence.name}, achetée ${ctx.primaryResidence.purchaseDate}, valeur=${ctx.primaryResidence.currentValue}€, dette=${ctx.primaryResidence.totalDebt}€, équité=${ctx.primaryResidence.equity}€`
             : 'Aucune résidence principale enregistrée.';
 
+        const budgetText = formatExpensesContextAsText(this.expensesContext);
+
         const continuityNote = msgCount > 0
             ? `\n=== CONTINUITÉ DE CONVERSATION ===\nCette conversation a déjà ${msgCount} messages échangés. L'historique précédent t'est fourni : reprends le fil naturellement, ne redis pas "bonjour" ni ne répète une analyse déjà faite sauf si l'utilisateur le demande.\n`
             : '';
@@ -878,6 +892,7 @@ ${continuityNote}
 3. Si l'actif n'est PAS dans le portefeuille : donne une analyse marché via le web et précise qu'il ne détient pas cette ligne.
 4. Cite tes sources web quand tu t'appuies sur des faits récents (titres d'articles ou sites). Ne mentionne jamais "contexte JSON" ou "prompt système".
 5. Ce n'est pas un conseil en investissement réglementé : rappelle-le brièvement si tu donnes une opinion.
+6. BUDGET / CASHFLOW : si l'utilisateur demande comment réduire ses dépenses, dégager du cashflow, ou combien il peut investir chaque mois → base-toi uniquement sur les données de la section "BUDGET" ci-dessous (charges fixes, revenus fixes, dépenses par catégorie). Cite les postes précis avec leurs montants. Ne recommande jamais quoi acheter en bourse dans ce contexte, uniquement la capacité d'épargne dégageable.
 
 === PORTEFEUILLE DU CLIENT ===
 Valeur totale: ${s.totalValue}€
@@ -907,7 +922,10 @@ Actifs effectifs: ${ctx.diversification.effectiveAssets}
 Recommandation: ${ctx.diversification.recommendation}
 
 === IMMOBILIER ===
-${residence}`;
+${residence}
+
+=== BUDGET (revenus, charges fixes, dépenses par catégorie) ===
+${budgetText}`;
     }
 
     persistMessage(role, content) {

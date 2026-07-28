@@ -349,6 +349,18 @@
                     <div id="expenses-transaction-list"></div>
                 </div>
 
+                <div class="settings-section">
+                    <h3><i class="fas fa-robot" style="color: var(--accent-blue);"></i> Optimiser mon cashflow</h3>
+                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 14px;">
+                        Analyse par IA de tes revenus, charges fixes et dépenses par catégorie pour estimer
+                        combien tu pourrais dégager chaque mois à investir en bourse.
+                    </p>
+                    <button id="expenses-ai-analyze-btn" class="btn btn-primary" style="margin-bottom: 14px;">
+                        <i class="fas fa-wand-magic-sparkles"></i> Analyser mes dépenses
+                    </button>
+                    <div id="expenses-ai-report" style="display:none; line-height: 1.7; font-size: 14px;"></div>
+                </div>
+
             </div>
 
         </div>
@@ -359,6 +371,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 
     <script type="module" src="/src/expensesApp.js"></script>
+    <script type="module" src="/src/expensesAssistant.js"></script>
     <script type="module" src="/src/sidebar.js"></script>
 </body>
 
