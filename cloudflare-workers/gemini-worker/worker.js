@@ -97,7 +97,11 @@ export default {
         contents,
         generationConfig: {
           temperature: 0.7,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 4096,
+          // gemini-2.5-flash fait du "thinking" interne par défaut, et ces tokens sont décomptés
+          // de maxOutputTokens : sans les désactiver, la réponse visible peut se couper en plein
+          // milieu une fois le budget de réflexion épuisé, sur des réponses un peu longues.
+          thinkingConfig: { thinkingBudget: 0 },
         },
       };
       if (enableWebSearch) {
