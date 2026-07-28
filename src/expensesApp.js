@@ -153,8 +153,9 @@ class ExpensesApp {
   }
 
   renderRecurring() {
-    const container = document.getElementById('expenses-recurring-list');
-    if (!container) return;
+    const chargesContainer = document.getElementById('expenses-recurring-list-charges');
+    const incomeContainer = document.getElementById('expenses-recurring-list-income');
+    if (!chargesContainer || !incomeContainer) return;
 
     const items = detectRecurring(this.getBankFiltered(this.getVisibleTransactions()), {
       forcedKeys: this.manualRecurringKeys,
@@ -163,8 +164,21 @@ class ExpensesApp {
 
     this.renderRecurringKpis(items);
 
+    this.renderRecurringRows(
+      chargesContainer,
+      items.filter((item) => item.direction === 'DBIT'),
+      'Pas encore de charge fixe détectée (il faut au moins 2 mois de données sur un même prélèvement, ou ajoute-en une manuellement depuis la liste des transactions).'
+    );
+    this.renderRecurringRows(
+      incomeContainer,
+      items.filter((item) => item.direction === 'CRDT'),
+      'Pas encore de revenu fixe détecté (il faut au moins 2 mois de données sur un même virement, ou ajoute-en un manuellement depuis la liste des transactions).'
+    );
+  }
+
+  renderRecurringRows(container, items, emptyMessage) {
     if (!items.length) {
-      container.innerHTML = '<div class="empty-state">Pas encore assez d\'historique pour détecter des dépenses fixes (il faut au moins 2 mois de données sur un même prélèvement, ou ajoute-en une manuellement depuis la liste des transactions).</div>';
+      container.innerHTML = `<div class="empty-state">${emptyMessage}</div>`;
       return;
     }
 

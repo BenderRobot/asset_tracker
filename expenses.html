@@ -302,24 +302,17 @@
                     </div>
                 </div>
 
-                <div class="summary-grid" style="margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                    <div class="summary-card">
-                        <div class="summary-card-label">Charges fixes (payé / total ce mois)</div>
-                        <div id="expenses-kpi-fixed-charges" class="summary-card-value" style="color: var(--accent-red); font-size: 22px;">€0.00 / €0.00</div>
+                <div class="expenses-two-col" style="margin-bottom: 20px; align-items: start; grid-template-columns: 1fr 1fr;">
+                    <div class="settings-section" style="margin-bottom: 0;">
+                        <h3><i class="fas fa-arrow-trend-down" style="color: var(--accent-red);"></i> Charges fixes</h3>
+                        <div id="expenses-kpi-fixed-charges" class="summary-card-value" style="color: var(--accent-red); font-size: 22px; margin-bottom: 14px;">€0.00 / €0.00</div>
+                        <div id="expenses-recurring-list-charges"></div>
                     </div>
-                    <div class="summary-card">
-                        <div class="summary-card-label">Revenus fixes (payé / total ce mois)</div>
-                        <div id="expenses-kpi-fixed-income" class="summary-card-value" style="color: var(--accent-green); font-size: 22px;">€0.00 / €0.00</div>
+                    <div class="settings-section" style="margin-bottom: 0;">
+                        <h3><i class="fas fa-arrow-trend-up" style="color: var(--accent-green);"></i> Revenus fixes</h3>
+                        <div id="expenses-kpi-fixed-income" class="summary-card-value" style="color: var(--accent-green); font-size: 22px; margin-bottom: 14px;">€0.00 / €0.00</div>
+                        <div id="expenses-recurring-list-income"></div>
                     </div>
-                </div>
-
-                <div class="settings-section">
-                    <h3><i class="fas fa-repeat" style="color: var(--accent-blue);"></i> Dépenses & revenus fixes</h3>
-                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 14px;">
-                        Détecté automatiquement à partir de ton historique (prélèvements/virements qui reviennent
-                        chaque mois avec un montant stable). Il faut au moins 2 mois de données par prélèvement.
-                    </p>
-                    <div id="expenses-recurring-list"></div>
                 </div>
 
                 <div class="expenses-two-col">
