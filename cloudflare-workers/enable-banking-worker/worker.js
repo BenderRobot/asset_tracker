@@ -274,10 +274,17 @@ const FIRESTORE_BATCH_WRITE_SIZE = 500;
 
 async function firestoreBatchUpsert(env, accessToken, docs) {
   // docs: [{ path: 'users/uid/transactions/xxx', data: {...} }, ...]
+  // Firestore batchWrite rejette TOUTE la requête si un même document (même path) y apparaît deux
+  // fois (ex: doublon de pagination côté Enable Banking, ou deux transactions distinctes qui
+  // génèrent le même ID). On déduplique donc par path avant l'envoi.
+  const uniqueByPath = new Map();
+  docs.forEach((doc) => uniqueByPath.set(doc.path, doc));
+  const deduped = [...uniqueByPath.values()];
+
   const url = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:batchWrite`;
 
-  for (let i = 0; i < docs.length; i += FIRESTORE_BATCH_WRITE_SIZE) {
-    const chunk = docs.slice(i, i + FIRESTORE_BATCH_WRITE_SIZE);
+  for (let i = 0; i < deduped.length; i += FIRESTORE_BATCH_WRITE_SIZE) {
+    const chunk = deduped.slice(i, i + FIRESTORE_BATCH_WRITE_SIZE);
     const writes = chunk.map(({ path, data }) => ({
       update: {
         name: `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}`,

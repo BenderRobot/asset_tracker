@@ -228,10 +228,34 @@
             return iban.length > 8 ? `${iban.slice(0, 4)} •••• •••• ${iban.slice(-4)}` : iban;
         }
 
-        function formatBalance(account) {
-            const balance = (account.balances || [])[0];
-            if (!balance || balance.amount == null) return '';
-            return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: balance.currency || 'EUR' }).format(balance.amount);
+        const BALANCE_TYPE_LABELS = {
+            closingBooked: 'Solde comptable',
+            openingBooked: 'Solde comptable (ouverture)',
+            interimBooked: 'Solde comptable (intermédiaire)',
+            expected: 'Solde attendu',
+            interimAvailable: 'Solde disponible',
+            available: 'Solde disponible',
+            forwardAvailable: 'Solde disponible (à terme)',
+            authorised: 'Solde autorisé',
+            previouslyClosedBooked: 'Solde comptable (période précédente)',
+        };
+
+        function formatAmount(amount, currency) {
+            return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: currency || 'EUR' }).format(amount);
+        }
+
+        // Une banque renvoie souvent plusieurs types de solde (comptable vs disponible) : pour un
+        // compte avec carte à débit différé, le solde disponible est celui qui tient compte des
+        // paiements différés à venir — on affiche donc tous les soldes, pas seulement le premier.
+        function formatBalances(account) {
+            const balances = (account.balances || []).filter((b) => b.amount != null);
+            if (!balances.length) return '<span style="color: var(--text-muted); font-size: 13px;">Solde indisponible</span>';
+            return balances.map((b) => `
+                <div style="text-align:right;">
+                    <div class="bank-account-balance">${formatAmount(b.amount, b.currency)}</div>
+                    <div style="font-size:11px; color: var(--text-muted);">${BALANCE_TYPE_LABELS[b.name] || b.name || 'Solde'}</div>
+                </div>
+            `).join('');
         }
 
         function render() {
@@ -249,7 +273,7 @@
                                 <div class="bank-account-name">${acc.name || 'Compte'}</div>
                                 <div class="bank-account-iban">${maskIban(acc.iban)}</div>
                             </div>
-                            <div class="bank-account-balance">${formatBalance(acc)}</div>
+                            <div style="display:flex; gap: 16px;">${formatBalances(acc)}</div>
                         </div>
                     `).join('')
                     : '<div class="bank-account-row" style="color: var(--text-muted); font-size: 13px;">Synchronisation en cours…</div>';
