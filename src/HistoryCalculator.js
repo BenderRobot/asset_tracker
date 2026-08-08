@@ -660,7 +660,15 @@ export class HistoryCalculator {
             return { total: assetsFound > 0 ? total : 0, quantities, prices };
         };
 
-        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = resolveCloseValueBeforeDay(today, ' (yesterdayClose)');
+        // Pour la vue 1D, "hier" doit être calculé par rapport au jour EFFECTIVEMENT affiché
+        // (displayStartUTC), pas par rapport à la date calendaire réelle ("today").
+        // Sinon, quand le marché est fermé (week-end) et que le graphique bascule sur le
+        // dernier jour de bourse (ex: vendredi), getLastTradingDay(today) renvoie ce même
+        // vendredi : "yesterdayClose" devient alors la clôture du jour affiché lui-même
+        // au lieu de la clôture de la veille (jeudi), ce qui écrase la variation du jour
+        // (affiche 0.00€) ou la fausse complètement selon la fraîcheur des données par titre.
+        const yesterdayCloseRefDate = (days === 1) ? displayStartUTC : today;
+        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)');
 
         // Injecter un prix synthétique à minuit pour les actions (pas de cotation avant l'ouverture).
         // Le lundi, lastMarketCloseTs = dimanche 23:59 → l'ancienne condition (< 1h) ne s'appliquait pas.
