@@ -576,7 +576,7 @@ export class HistoryCalculator {
         // civil (refDate - 1 jour, 23:59:59), pas le dernier jour BOURSIER (qui saute
         // le week-end). Les actions, elles, n'ont aucune cotation le week-end donc
         // leur "dernier jour de trading" reste la bonne référence.
-        const resolveCloseValueBeforeDay = (refDate, label = '') => {
+        const resolveCloseValueBeforeDay = (refDate, label = '', preferLiveClose = false) => {
             const cutoffForTicker = (t) => {
                 if (t.startsWith('CASH-') || isCryptoTicker(t)) {
                     return getCalendarYesterdayClose(refDate).getTime();
@@ -616,20 +616,33 @@ export class HistoryCalculator {
                     const cutoffTs = cutoffForTicker(t);
                     let closePrice = null;
 
+                    // Pour la référence "clôture d'hier" du jour affiché (1D/2D), on privilégie
+                    // storage.previousClose (le previousClose Yahoo faisant autorité, déjà utilisé
+                    // sans condition par lastKnownPrices/le rendu du graphique pour ces mêmes vues).
+                    // Sans ça, un titre peu liquide sans bougie récente dans historicalDataMap peut
+                    // faire remonter un prix périmé de plusieurs jours (cf. ticker sans cotation le
+                    // jeudi), désynchronisant "CLÔTURE HIER" du premier point réellement affiché.
+                    if (preferLiveClose && !isCryptoTicker(t)) {
+                        const priceData = this.storage.getCurrentPrice(t);
+                        if (priceData && priceData.previousClose > 0) closePrice = priceData.previousClose;
+                    }
+
                     // Chercher dans historicalDataMap le dernier prix AVANT ou égal au cutoff
                     // (pas le plus proche - on veut le prix de clôture, pas le lendemain matin)
-                    const hist = historicalDataMap.get(t);
-                    if (hist) {
-                        const histKeys = Object.keys(hist).map(Number).sort((a, b) => a - b);
-                        let bestTs = null;
-                        for (const ts of histKeys) {
-                            if (ts <= cutoffTs) {
-                                bestTs = ts;
-                            } else {
-                                break;
+                    if (!closePrice || closePrice <= 0) {
+                        const hist = historicalDataMap.get(t);
+                        if (hist) {
+                            const histKeys = Object.keys(hist).map(Number).sort((a, b) => a - b);
+                            let bestTs = null;
+                            for (const ts of histKeys) {
+                                if (ts <= cutoffTs) {
+                                    bestTs = ts;
+                                } else {
+                                    break;
+                                }
                             }
+                            if (bestTs !== null) closePrice = hist[bestTs];
                         }
-                        if (bestTs !== null) closePrice = hist[bestTs];
                     }
 
                     // Fallback: storage.previousClose, puis prix actuel
@@ -668,7 +681,11 @@ export class HistoryCalculator {
         // au lieu de la clôture de la veille (jeudi), ce qui écrase la variation du jour
         // (affiche 0.00€) ou la fausse complètement selon la fraîcheur des données par titre.
         const yesterdayCloseRefDate = (days === 1) ? displayStartUTC : today;
-        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)');
+        // preferLiveClose (days<=2) aligne cette référence sur storage.previousClose, la même
+        // source que lastKnownPrices utilise sans condition pour ces vues (voir plus bas), afin
+        // que "CLÔTURE HIER" corresponde toujours au prix effectivement utilisé par le graphique
+        // pour un titre peu liquide sans bougie récente dans historicalDataMap.
+        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)', days <= 2);
 
         // Injecter un prix synthétique à minuit pour les actions (pas de cotation avant l'ouverture).
         // Le lundi, lastMarketCloseTs = dimanche 23:59 → l'ancienne condition (< 1h) ne s'appliquait pas.
