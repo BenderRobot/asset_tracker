@@ -927,6 +927,11 @@ export class HistoryCalculator {
             let currentTsUnitPrice = null;
             let yesterdayHoldingsValue = 0;
             let hasYesterdayHoldingsPrice = false;
+            // Une valorisation n'est "complète" que si CHAQUE ligne détenue a un prix résolu
+            // à ce ts précis : sinon la réutiliser comme base 0% du graphique produirait un
+            // faux saut dès qu'une ligne manquante (peu liquide) reçoit enfin un prix.
+            let expectedHoldingsCount = 0;
+            let pricedHoldingsCount = 0;
 
             for (const t of tickers) {
                 const hist = historicalDataMap.get(t);
@@ -961,6 +966,8 @@ export class HistoryCalculator {
                     const priceData = this.storage.getCurrentPrice(t);
                     const currency = priceData?.currency || 'EUR';
 
+                    if (Math.abs(qty) > 0.000001) expectedHoldingsCount++;
+
                     if (price !== null) {
                         let rate = 1;
                         if (!isSingleAsset) {
@@ -971,6 +978,7 @@ export class HistoryCalculator {
                             const value = price * qty * rate;
                             currentTsTotalValue += value;
                             hasAtLeastOnePrice = true;
+                            pricedHoldingsCount++;
 
                             if (isSingleAsset) currentTsUnitPrice = price;
                         }
@@ -1002,15 +1010,31 @@ export class HistoryCalculator {
                 console.log(`[TWR BASE] 2D baseline initialized to first displayed value: ${twrDenominator.toFixed(2)}€`);
             }
 
-            // dailyTwr : à chaque nouveau jour civil rencontré, la base est recalculée
-            // sur la clôture de la veille de CE jour (00h00 de la veille), et non sur
-            // le point d'entrée de toute la fenêtre affichée.
+            // dailyTwr : à chaque nouveau jour civil rencontré, la base est recalculée.
+            // SOURCE DE VÉRITÉ = le graphique lui-même : si ce point (souvent le minuit
+            // injecté) valorise déjà TOUTES les lignes détenues, on l'utilise tel quel comme
+            // base 0%, garantissant par construction que le tracé démarre à 0% sans aucun
+            // écart possible avec les points suivants (mêmes prix, même résolution).
+            // On ne retombe sur resolveCloseValueBeforeDay (autre logique de résolution de
+            // prix, potentiellement une source différente) que si la valorisation de ce point
+            // est incomplète (ligne peu liquide sans prix injecté) - et on retente alors au
+            // ts suivant tant qu'on n'a pas de base fiable (dailyTwrDayKey non figé).
             if (shouldUseTwrFromClose) {
                 const dayKey = new Date(ts).toDateString();
                 if (dayKey !== dailyTwrDayKey) {
-                    dailyTwrDayKey = dayKey;
-                    const { total: dailyBase } = resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`, days <= 2);
-                    dailyTwrDenominator = dailyBase > 0 ? dailyBase : null;
+                    const isCompleteValuation = expectedHoldingsCount > 0 && pricedHoldingsCount === expectedHoldingsCount;
+                    if (isCompleteValuation && currentTsTotalValue > 0) {
+                        dailyTwrDayKey = dayKey;
+                        dailyTwrDenominator = currentTsTotalValue;
+                        console.log(`[TWR BASE] dailyTwr base (${dayKey}) = valeur complète du graphique: ${dailyTwrDenominator.toFixed(2)}€`);
+                    } else {
+                        const { total: dailyBase } = resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey}, valorisation incomplète ${pricedHoldingsCount}/${expectedHoldingsCount})`, days <= 2);
+                        if (dailyBase > 0) {
+                            dailyTwrDayKey = dayKey;
+                            dailyTwrDenominator = dailyBase;
+                        }
+                        // sinon: on ne fige pas dailyTwrDayKey, on retentera au prochain ts de ce même jour
+                    }
                 }
             }
 
