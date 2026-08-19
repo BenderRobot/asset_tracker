@@ -876,9 +876,19 @@ export class HistoryCalculator {
         let previousTotalValue = 0;
         let currentTWR = 1.0;
 
-        // Base TWR : clôture d'hier pour 1D, ou premier point du graphique pour 2D
-        // La vue 2D doit commencer à 0% au premier point affiché, pas à la clôture d'hier.
-        let twrDenominator = (days === 1) ? yesterdayClose : null;
+        // Base TWR : SOURCE UNIQUE DE VÉRITÉ = la valeur réellement affichée au premier point
+        // du graphique (comme dailyTwrDenominator plus bas), et non plus un calcul externe
+        // (resolveCloseValueBeforeDay) qui pouvait diverger du premier point réellement tracé.
+        // Avant ce fix, twrDenominator valait "yesterdayClose" (calcul séparé) alors que le
+        // tracé du graphique démarrait sur une autre valeur : les KPI (Var Today, Total Return)
+        // et le graphique/tooltip pouvaient donc afficher deux chiffres différents pour "la
+        // même" variation du jour. Désormais twrDenominator, dailyTwrDenominator ET la valeur
+        // "CLÔTURE HIER" affichée proviennent tous du même point calculé plus bas.
+        let twrDenominator = null;
+        // Valeur exposée pour l'affichage "CLÔTURE HIER" : initialisée au calcul externe (utile
+        // pour les périodes hors 1D/2D où le TWR n'est pas ancré sur un point du graphique),
+        // puis écrasée par la valeur unique dès qu'elle est connue (voir plus bas).
+        let displayedYesterdayClose = yesterdayClose;
         const shouldUseTwrFromClose = (days === 1 || days === 2);
 
         // Série "dailyTwr" : comme twr, mais la base (0%) est réinitialisée à chaque
@@ -1002,38 +1012,46 @@ export class HistoryCalculator {
                 baseValueForPeriod = currentTsTotalValue;
             }
 
-            // CALCUL TIME-WEIGHTED RETURN (TWR)
-            // Vue 1D/2D : TWR = valeur / base de référence → 0% au début du graphique
-            // Cela garantit que la performance 2D commence à 0 et correspond à la période affichée.
-            if (shouldUseTwrFromClose && twrDenominator === null && currentTsTotalValue > 0) {
-                twrDenominator = currentTsTotalValue;
-                console.log(`[TWR BASE] 2D baseline initialized to first displayed value: ${twrDenominator.toFixed(2)}€`);
-            }
-
-            // dailyTwr : à chaque nouveau jour civil rencontré, la base est recalculée.
-            // SOURCE DE VÉRITÉ = le graphique lui-même : si ce point (souvent le minuit
-            // injecté) valorise déjà TOUTES les lignes détenues, on l'utilise tel quel comme
-            // base 0%, garantissant par construction que le tracé démarre à 0% sans aucun
-            // écart possible avec les points suivants (mêmes prix, même résolution).
-            // On ne retombe sur resolveCloseValueBeforeDay (autre logique de résolution de
-            // prix, potentiellement une source différente) que si la valorisation de ce point
-            // est incomplète (ligne peu liquide sans prix injecté) - et on retente alors au
-            // ts suivant tant qu'on n'a pas de base fiable (dailyTwrDayKey non figé).
+            // CALCUL TIME-WEIGHTED RETURN (TWR) — SOURCE UNIQUE DE VÉRITÉ.
+            // twrDenominator (ancrage sur toute la période, utilisé par "PERIOD RETURN"/KPI) et
+            // dailyTwrDenominator (réinitialisé à chaque jour civil, utilisé par le TRACÉ et son
+            // tooltip) doivent être établis EXACTEMENT au même instant, à partir de la MÊME
+            // valeur (currentTsTotalValue de ce point), pour ne jamais pouvoir diverger. On ne
+            // fige (dailyTwrDayKey) qu'une fois cette valeur connue et complète (toutes les
+            // lignes détenues valorisées) ; sinon on retente au ts suivant du même jour plutôt
+            // que d'ancrer sur une valorisation partielle qui provoquerait un faux saut.
             if (shouldUseTwrFromClose) {
                 const dayKey = new Date(ts).toDateString();
                 if (dayKey !== dailyTwrDayKey) {
                     const isCompleteValuation = expectedHoldingsCount > 0 && pricedHoldingsCount === expectedHoldingsCount;
+                    let resolvedDayBase = null;
+
                     if (isCompleteValuation && currentTsTotalValue > 0) {
-                        dailyTwrDayKey = dayKey;
-                        dailyTwrDenominator = currentTsTotalValue;
-                        console.log(`[TWR BASE] dailyTwr base (${dayKey}) = valeur complète du graphique: ${dailyTwrDenominator.toFixed(2)}€`);
+                        resolvedDayBase = currentTsTotalValue;
+                        console.log(`[TWR BASE] dailyTwr base (${dayKey}) = valeur complète du graphique: ${resolvedDayBase.toFixed(2)}€`);
                     } else {
+                        // Repli uniquement si ce point précis ne valorise pas encore toutes les
+                        // lignes (ex: ligne peu liquide sans prix injecté) : on retombe sur le
+                        // même resolveCloseValueBeforeDay que celui qui a servi à yesterdayClose,
+                        // pour rester cohérent avec les KPI même dans ce cas dégradé.
                         const { total: dailyBase } = resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey}, valorisation incomplète ${pricedHoldingsCount}/${expectedHoldingsCount})`, days <= 2);
-                        if (dailyBase > 0) {
-                            dailyTwrDayKey = dayKey;
-                            dailyTwrDenominator = dailyBase;
+                        if (dailyBase > 0) resolvedDayBase = dailyBase;
+                        // sinon: on ne fige rien, on retentera au prochain ts de ce même jour
+                    }
+
+                    if (resolvedDayBase !== null) {
+                        dailyTwrDayKey = dayKey;
+                        dailyTwrDenominator = resolvedDayBase;
+                        // twrDenominator ne s'ancre qu'une seule fois pour toute la période
+                        // affichée (1er jour) : sur le 2ème jour d'une vue 2J, dailyTwrDenominator
+                        // se réinitialise mais twrDenominator doit rester sur l'ancrage du 1er jour.
+                        if (twrDenominator === null) {
+                            twrDenominator = resolvedDayBase;
+                            // "CLÔTURE HIER" affiché doit être ce même chiffre, pas le calcul
+                            // externe (yesterdayClose) potentiellement différent.
+                            displayedYesterdayClose = resolvedDayBase;
+                            console.log(`[TWR BASE] twrDenominator (période) ancré sur ${resolvedDayBase.toFixed(2)}€`);
                         }
-                        // sinon: on ne fige pas dailyTwrDayKey, on retentera au prochain ts de ce même jour
                     }
                 }
             }
@@ -1142,7 +1160,14 @@ export class HistoryCalculator {
             }
         }
 
-        console.log(`[Return] yesterdayClose = ${yesterdayClose ? yesterdayClose.toFixed(2) : 'null'}`);
+        // dayStartValue était calculé séparément (avant la boucle, sa propre résolution de prix)
+        // et pouvait donc diverger du point réellement tracé. On l'aligne ici sur la même base
+        // unique que twrDenominator/CLÔTURE HIER pour la vue 1D (une seule journée affichée).
+        if (days === 1 && twrDenominator !== null && twrDenominator > 0) {
+            dayStartValue = twrDenominator;
+        }
+
+        console.log(`[Return] yesterdayClose (unifié) = ${displayedYesterdayClose ? displayedYesterdayClose.toFixed(2) : 'null'}`);
 
         // Le TWR de tous les points est déjà calculé sur la base de yesterdayClose (0% = clôture d'hier).
         // Pas de point 'Clôture' artificiel: le graphique commence au premier vrai point intraday.
@@ -1151,7 +1176,7 @@ export class HistoryCalculator {
             labels,
             invested,
             values,
-            yesterdayClose,
+            yesterdayClose: displayedYesterdayClose,
             dayStartValue,  // NEW: Valeur au début de la journée 1D (pour calcul PÉRIODE)
             todayValueOfYesterdayHoldings,  // NEW: Valeur aujourd'hui des actifs possédés hier (pour VAR JOUR pure)
             unitPrices,
