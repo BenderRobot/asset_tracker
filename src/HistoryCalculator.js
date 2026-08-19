@@ -1009,7 +1009,7 @@ export class HistoryCalculator {
                 const dayKey = new Date(ts).toDateString();
                 if (dayKey !== dailyTwrDayKey) {
                     dailyTwrDayKey = dayKey;
-                    const { total: dailyBase } = resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`);
+                    const { total: dailyBase } = resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`, days <= 2);
                     dailyTwrDenominator = dailyBase > 0 ? dailyBase : null;
                 }
             }
