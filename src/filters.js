@@ -31,10 +31,10 @@ export class FilterManager {
       if (!nameMap.has(t)) nameMap.set(t, p.name);
     });
 
-    // Only keep tickers that still have a meaningful position (> 0.000001)
+    // Only keep tickers that still have a meaningful position (> 0.0001)
     const map = new Map();
     netQty.forEach((qty, ticker) => {
-      if (qty > 0.000001) map.set(ticker, nameMap.get(ticker) || ticker);
+      if (qty > 0.0001) map.set(ticker, nameMap.get(ticker) || ticker);
     });
 
     const sorted = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));

@@ -351,7 +351,7 @@ class DashboardApp {
 
             // CRITICAL FIX: Filter out zero-quantity holdings before rendering KPIs
             // This prevents sold assets from appearing in Top Gainer/Loser/Asset cards
-            const activeHoldings = assets.filter(h => (h.quantity || 0) > 0.000001);
+            const activeHoldings = assets.filter(h => (h.quantity || 0) > 0.0001);
 
             // Render secondary KPIs (TOP GAINER, TOP LOSER, TOP ASSET, ASSET ALLOCATION)
             this.renderKPIs(fullSummary, cashReserve, activeHoldings);
@@ -771,7 +771,7 @@ class DashboardApp {
 
             // CRITICAL FIX: Filter out zero-quantity holdings (fully sold positions)
             // Use threshold to account for floating-point precision
-            holdings = holdings.filter(h => h.quantity > 0.000001);
+            holdings = holdings.filter(h => h.quantity > 0.0001);
 
             // === LOAD OR CALCULATE SUMMARY ===
             let summary;

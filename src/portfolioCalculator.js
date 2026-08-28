@@ -44,7 +44,7 @@ export class PortfolioCalculator {
                 } else {
                     asset.quantity -= sellQty;
                 }
-                if (asset.quantity <= 0.000001) {
+                if (asset.quantity <= 0.0001) {
                     asset.quantity = 0;
                     asset.invested = 0;
                 }

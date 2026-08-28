@@ -328,7 +328,7 @@ export class InvestmentsPage {
     let filteredHoldings = this.currentHoldings.filter(h => {
       // CRITICAL FIX: Hide assets with zero quantity, or "dust" positions (fully sold positions with fractional remainder)
       // We hide assets if their value is less than 0.50€ and quantity is tiny (< 0.01), to clean up the table
-      if (h.quantity <= 0.000001) return false;
+      if (h.quantity <= 0.0001) return false;
       if (h.currentValue !== null && Math.abs(h.currentValue) < 0.50 && Math.abs(h.quantity) < 0.01) return false;
 
       if (selectedTickers.size > 0) {

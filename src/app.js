@@ -343,11 +343,12 @@ class App {
           const holdings = this.dataManager.calculateHoldings(assetPurchases);
 
           holdings.forEach(h => {
-            if (h.quantity > 0) {
+            if (h.quantity > 0.0001) {
               const option = document.createElement('option');
               option.value = h.ticker;
               option.textContent = `${h.ticker} - ${h.name} (${parseFloat(h.quantity.toFixed(4))})`;
               option.dataset.name = h.name; // Stocker le nom pour auto-fill
+              option.dataset.quantity = h.quantity; // Quantité exacte (non arrondie) pour "Vendre tout"
               tickerSelect.appendChild(option);
             }
           });
@@ -367,12 +368,19 @@ class App {
 
       transactionTypeSelect.addEventListener('change', updateVisibility);
 
-      // Listener pour auto-fill le Name quand on choisit dans la liste
+      // Listener pour auto-fill le Name + la Quantité exacte quand on choisit dans la liste
       tickerSelect.addEventListener('change', (e) => {
         const selectedOption = tickerSelect.options[tickerSelect.selectedIndex];
         if (selectedOption && selectedOption.dataset.name) {
           const nameInput = document.getElementById('name');
           if (nameInput) nameInput.value = selectedOption.dataset.name;
+        }
+        // FIX: pré-remplir avec la quantité EXACTE (non arrondie) détenue, pour éviter
+        // qu'une vente "totale" basée sur la valeur arrondie affichée (4 décimales)
+        // ne laisse un résidu qui continue d'apparaître dans le Dashboard/Analytics.
+        if (selectedOption && selectedOption.dataset.quantity && transactionTypeSelect.value === 'sell') {
+          const quantityInput = document.getElementById('quantity');
+          if (quantityInput) quantityInput.value = selectedOption.dataset.quantity;
         }
       });
 

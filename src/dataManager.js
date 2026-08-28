@@ -130,7 +130,7 @@ export class DataManager {
                     aggregated[t].quantity -= sellQty;
                 }
 
-                if (aggregated[t].quantity <= 0.000001) {
+                if (aggregated[t].quantity <= 0.0001) {
                     aggregated[t].quantity = 0;
                     aggregated[t].invested = 0;
                 }
@@ -564,7 +564,7 @@ export class DataManager {
 
         // CRITICAL FIX: Filter out zero-quantity holdings (fully sold assets)
         // This prevents sold assets from appearing in analytics and causing errors
-        holdings = holdings.filter(h => (h.quantity || 0) > 0.000001);
+        holdings = holdings.filter(h => (h.quantity || 0) > 0.0001);
 
         const summary = this.calculateSummary(holdings);
         const cashReserve = this.calculateCashReserve(cashPurchases);
