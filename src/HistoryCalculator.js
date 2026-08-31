@@ -149,7 +149,17 @@ export class HistoryCalculator {
             if (days === 1) {
                 // 1D : Minuit ce matin
             } else if (days === 2) {
-                localDisplay.setDate(localDisplay.getDate() - 1); // Hier minuit
+                // Portefeuille MIXTE (actions + crypto) un lundi : "hier" au sens boursier
+                // est vendredi, pas dimanche (les actions n'y cotent pas). Démarrer la
+                // fenêtre dimanche ferait reposer toute la base 0% du lundi sur une
+                // valorisation dimanche où seule la partie crypto a bougé, désynchronisant
+                // ce graphique 2J de la vue 1D (qui, elle, ancre correctement sur la
+                // clôture de vendredi via resolveCloseValueBeforeDay/preferLiveClose).
+                if (isMixed && today.getDay() === 1) {
+                    localDisplay.setDate(localDisplay.getDate() - 3); // Vendredi
+                } else {
+                    localDisplay.setDate(localDisplay.getDate() - 1); // Hier minuit
+                }
             } else if (days !== 'all') {
                 localDisplay.setDate(localDisplay.getDate() - (days - 1));
             } else {
