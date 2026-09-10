@@ -9,6 +9,7 @@ import { ChartKPIManager } from './chartKPIManager.js';
 import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
+import { USD_TO_EUR_FALLBACK_RATE } from './config.js';
 
 export class HistoricalChart {
     constructor(storage, dataManager, ui, investmentsPage) {
@@ -565,10 +566,12 @@ export class HistoricalChart {
                                 const priceData = this.dataManager.storage.getCurrentPrice(ticker);
                                 const currency = priceData?.currency || 'EUR';
 
-                                // NOTE: Les prix sont déjà convertis en EUR dans storage.js et api.js
-                                const yesterdayValue = yesterdayPrice * qty;
+                                const rate = currency === 'USD'
+                                    ? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE)
+                                    : 1;
+                                const yesterdayValue = yesterdayPrice * qty * rate;
                                 // Stocker la valeur ET la devise pour calcul correct du pourcentage
-                                yesterdayCloseMap.set(ticker, { value: yesterdayValue, currency });
+                                yesterdayCloseMap.set(ticker, { yesterdayClose: yesterdayValue, currency });
                             } else {
                                 console.warn(`[YesterdayCloseMap] Could not find yesterdayPrice for ${ticker}`);
                             }
@@ -1111,7 +1114,7 @@ export class HistoricalChart {
 
         if (priceEnd !== null && !isNaN(priceEnd) && !isUnitView && referenceClose) {
             if (this.currentPeriod === 1 && !isSingleAsset && !isIndexMode) {
-                // VUE 1D PORTFOLIO: base = minuit = ce que le graphique montre
+                // The graph is the source of truth for the global daily KPI.
                 vsYesterdayAbs = perfAbs;
                 vsYesterdayPct = perfPct;
                 console.log(`[VAR TODAY 1D] perfAbs=${perfAbs.toFixed(2)}€ (${perfPct.toFixed(2)}%)`);

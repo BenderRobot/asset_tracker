@@ -77,3 +77,7 @@ node_modules/
 *.db
 n8n_db_temp.sqlite
 large-files/
+
+# Local Tizen SDK artifacts
+cloudflare-workers/enable-banking-worker/tv_channels_m2NP1yPEmt_plus.m3u
+cloudflare-workers/enable-banking-worker/web-cli_Tizen_SDK_10.0_windows-64.exe
