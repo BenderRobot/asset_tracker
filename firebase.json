@@ -6,7 +6,9 @@
       "ignore": [
         "firebase.json",
         "**/.*",
-        "**/node_modules/**"
+        "**/node_modules/**",
+        "cloudflare-workers/enable-banking-worker/tv_channels_m2NP1yPEmt_plus.m3u",
+        "cloudflare-workers/enable-banking-worker/web-cli_Tizen_SDK_10.0_windows-64.exe"
       ],
       "rewrites": [],
       "headers": [
@@ -27,7 +29,9 @@
       "ignore": [
         "firebase.json",
         "**/.*",
-        "**/node_modules/**"
+        "**/node_modules/**",
+        "cloudflare-workers/enable-banking-worker/tv_channels_m2NP1yPEmt_plus.m3u",
+        "cloudflare-workers/enable-banking-worker/web-cli_Tizen_SDK_10.0_windows-64.exe"
       ],
       "rewrites": [],
       "headers": [
