@@ -681,6 +681,33 @@ export class HistoryCalculator {
         // fenêtre de fetch propre à la vue courante.
         const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = await resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)', days <= 2, true);
 
+        // CORRECTION DE LA VRAIE CLÔTURE : la dernière bougie intraday (5m/15m) d'un jour
+        // TERMINÉ (ex: vendredi, vu depuis lundi) peut différer du vrai cours de clôture
+        // officiel (ex: enchère de clôture sur certaines actions EU, non captée par le
+        // dernier tick intraday à 17h25-17h30) — vérifié : écart réel de plusieurs
+        // centaines d'euros sur le portefeuille pour certains titres. Sans correction, la
+        // courbe elle-même (et donc tout ce qui en dérive : sélection à la souris,
+        // tooltips, PÉRIODE) racontait une histoire différente de VAR TODAY/CLÔTURE HIER
+        // (qui utilisent la clôture officielle résolue ci-dessus). On force donc le
+        // dernier point intraday de "hier" à égaler exactement cette clôture officielle.
+        for (const t of tickers) {
+            if (t.startsWith('CASH-') || isCryptoTicker(t)) continue;
+            const nativeClose = closePrices.get(t);
+            if (!nativeClose || nativeClose <= 0) continue;
+            const hist = historicalDataMap.get(t);
+            if (!hist) continue;
+            const cutoffTs = getCloseCutoffForTicker(t, yesterdayCloseRefDate);
+            const histKeys = Object.keys(hist).map(Number).sort((a, b) => a - b);
+            let lastTsBeforeCutoff = null;
+            for (const ts of histKeys) {
+                if (ts <= cutoffTs) lastTsBeforeCutoff = ts; else break;
+            }
+            if (lastTsBeforeCutoff !== null && hist[lastTsBeforeCutoff] !== nativeClose) {
+                console.log(`[HistoryCalc] Correction clôture réelle pour ${t} @ ${new Date(lastTsBeforeCutoff).toISOString()}: ${hist[lastTsBeforeCutoff]} → ${nativeClose}`);
+                hist[lastTsBeforeCutoff] = nativeClose;
+            }
+        }
+
         // Injecter un prix synthétique à minuit pour les actions (pas de cotation avant l'ouverture).
         // Le lundi, lastMarketCloseTs = dimanche 23:59 → l'ancienne condition (< 1h) ne s'appliquait pas.
         if (days === 1) {
