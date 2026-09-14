@@ -671,15 +671,20 @@ export class HistoryCalculator {
         // au lieu de la clôture de la veille (jeudi), ce qui écrase la variation du jour
         // (affiche 0.00€) ou la fausse complètement selon la fraîcheur des données par titre.
         const yesterdayCloseRefDate = (days === 1) ? displayStartUTC : today;
-        // preferLiveClose (days<=2) aligne cette référence sur storage.previousClose, la même
-        // source que lastKnownPrices utilise sans condition pour ces vues (voir plus bas), afin
-        // que "CLÔTURE HIER" corresponde toujours au prix effectivement utilisé par le graphique
-        // pour un titre peu liquide sans bougie récente dans historicalDataMap.
-        // useDedicatedFetch=true : ce yesterdayClose alimente aussi perTickerYesterdayClose
-        // (donc la colonne "Day P&L" du tableau) — il doit être identique quelle que soit la
+        // preferLiveClose = false, TOUJOURS : ce yesterdayClose alimente perTickerYesterdayClose
+        // (donc la colonne "Day P&L" du tableau) ET, via la boucle TWR plus bas, le graphique/
+        // VAR TODAY/CLÔTURE HIER. Ces deux usages DOIVENT résoudre le même prix pour être
+        // cohérents — préférer le prix live ici (comme avant) faisait diverger le tableau
+        // (basé sur storage.previousClose) du graphique (basé sur la clôture officielle
+        // résolue plus bas avec preferLiveClose=false), donnant 3 chiffres différents pour
+        // "la variation du jour" (tableau, VAR TODAY, sélection sur la courbe) alors que
+        // l'utilisateur ne veut qu'UNE seule source de vérité. Le prix live ne reste qu'un
+        // filet de secours (dans resolveTickerPreviousClose) si la clôture officielle est
+        // introuvable.
+        // useDedicatedFetch=true : ce yesterdayClose doit être identique quelle que soit la
         // période actuellement affichée dans le graphique (1J/2J/1S...), pas dépendant de la
         // fenêtre de fetch propre à la vue courante.
-        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = await resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)', days <= 2, true);
+        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = await resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)', false, true);
 
         // CORRECTION DE LA VRAIE CLÔTURE : la dernière bougie intraday (5m/15m) d'un jour
         // TERMINÉ (ex: vendredi, vu depuis lundi) peut différer du vrai cours de clôture
