@@ -28,38 +28,33 @@ export class DataManager {
     getIntervalForPeriod(days) { return getIntervalForPeriod(days); }
     getLastTradingDay(date) { return getLastTradingDay(date); }
 
-    // Nouvelle fonction pour calculer yesterdayClose de tous les actifs
-    async calculateAllAssetsYesterdayClose(assetPurchases) {
-        // Reconstruction des définitions manquantes suite à corruption
-        const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
-        const yesterdayCloseMap = new Map();
-
-        console.log(`[calculateAllAssetsYesterdayClose] Calculating for ${tickers.length} assets: `, tickers);
-
-        // Calculer l'historique 1D de chaque actif en parallèle (par batch de 3)
-        const batchSize = 3;
-        for (let i = 0; i < tickers.length; i += batchSize) {
-            const batch = tickers.slice(i, i + batchSize);
-            const promises = batch.map(async ticker => {
-                try {
-                    const graphData = await this.calculateAssetHistory(ticker, 1);
-                    if (graphData && graphData.yesterdayClose !== null && graphData.yesterdayClose !== undefined) {
-                        yesterdayCloseMap.set(ticker, {
-                            yesterdayClose: graphData.yesterdayClose,
-                            todayValueOfYesterdayHoldings: graphData.todayValueOfYesterdayHoldings ?? null
-                        });
-                        console.log(`[✓] ${ticker}: yesterdayClose = ${graphData.yesterdayClose.toFixed(2)}, todayYestQty = ${graphData.todayValueOfYesterdayHoldings?.toFixed(2) ?? 'n/a'}`);
-                    } else {
-                        console.warn(`[✗] ${ticker}: No yesterdayClose in graphData`, graphData);
-                    }
-                } catch (error) {
-                    console.warn(`Failed to calculate yesterdayClose for ${ticker}: `, error);
-                }
+    // SINGLE SOURCE OF TRUTH : convertit le détail par ticker calculé par le moteur du
+    // graphique (HistoryCalculator.calculateGenericHistory) en la map attendue par
+    // calculateHoldings ({ yesterdayClose, todayValueOfYesterdayHoldings, currency }).
+    // Fonction pure, pas d'I/O : ne fait que réexposer des valeurs déjà résolues.
+    buildYesterdayCloseMapFromGraphData(graphData) {
+        const map = new Map();
+        const perTicker = graphData && graphData.perTickerYesterdayClose;
+        if (!perTicker) return map;
+        perTicker.forEach((entry, ticker) => {
+            if (entry.yesterdayCloseTotal === null || entry.yesterdayCloseTotal === undefined) return;
+            map.set(ticker, {
+                yesterdayClose: entry.yesterdayCloseTotal,
+                todayValueOfYesterdayHoldings: entry.todayValueOfYesterdayHoldingsTotal ?? null,
+                currency: entry.currency
             });
-            await Promise.all(promises);
-        }
+        });
+        return map;
+    }
 
-        console.log(`[calculateAllAssetsYesterdayClose] Completed. Map size: ${yesterdayCloseMap.size}/${tickers.length}`);
+    // Calcule yesterdayClose de tous les actifs en passant par le même moteur que le
+    // graphique (calculateGenericHistory), pour garantir la cohérence avec le KPI "VAR TODAY".
+    async calculateAllAssetsYesterdayClose(assetPurchases) {
+        if (!assetPurchases || assetPurchases.length === 0) return new Map();
+        console.log(`[calculateAllAssetsYesterdayClose] Calculating via graph engine for ${assetPurchases.length} purchases`);
+        const graphData = await this.calculateGenericHistory(assetPurchases, 1, false);
+        const yesterdayCloseMap = this.buildYesterdayCloseMapFromGraphData(graphData);
+        console.log(`[calculateAllAssetsYesterdayClose] Completed. Map size: ${yesterdayCloseMap.size}`);
         return yesterdayCloseMap;
     }
 

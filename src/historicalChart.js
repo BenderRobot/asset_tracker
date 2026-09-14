@@ -9,7 +9,6 @@ import { ChartKPIManager } from './chartKPIManager.js';
 import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
-import { USD_TO_EUR_FALLBACK_RATE } from './config.js';
 
 export class HistoricalChart {
     constructor(storage, dataManager, ui, investmentsPage) {
@@ -32,9 +31,6 @@ export class HistoricalChart {
         this.lastYesterdayClose = null;
         this.customTitle = null;
         this.cached1DSummary = null; // Cache du summary 1D pour réutilisation
-        this.cachedYesterdayCloseMap = null; // Cache du yesterdayCloseMap pour réutilisation
-        this.cachedYesterdayCloseTimestamp = null; // Timestamp du cache
-        this.YESTERDAY_CLOSE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes en millisecondes
 
         this.filterManager = investmentsPage.filterManager;
         this.currentBenchmark = null;
@@ -420,19 +416,9 @@ export class HistoricalChart {
                     graphData = await this.dataManager.calculateGenericHistory(targetAssetPurchases, this.currentPeriod, true);
                 }
 
-                // Créer yesterdayCloseMap pour cohérence avec le graphique
-                const yesterdayCloseMap = new Map();
-
-                // PRIORITÉ: Réutiliser le cache si disponible (pour cohérence avec le tableau)
-                if (this.cachedYesterdayCloseMap && this.cachedYesterdayCloseMap.has(currentTicker.toUpperCase())) {
-                    yesterdayCloseMap.set(currentTicker.toUpperCase(), this.cachedYesterdayCloseMap.get(currentTicker.toUpperCase()));
-                    console.log(`[Reusing cached yesterdayClose for ${currentTicker}]`);
-                }
-                // Fallback: Utiliser graphData.yesterdayClose
-                else if (graphData && graphData.yesterdayClose) {
-                    yesterdayCloseMap.set(currentTicker.toUpperCase(), graphData.yesterdayClose);
-                    console.log(`[Using graphData yesterdayClose for ${currentTicker}]`);
-                }
+                // SINGLE SOURCE OF TRUTH : yesterdayCloseMap dérivée du même graphData
+                // que celui qui alimente le KPI "VAR TODAY" du graphique.
+                const yesterdayCloseMap = this.dataManager.buildYesterdayCloseMapFromGraphData(graphData);
 
                 targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap);
                 targetSummary = this.dataManager.calculateSummary(targetHoldings);
@@ -472,118 +458,10 @@ export class HistoricalChart {
 
                 graphData = await this.dataManager.calculateHistory([...targetAssetPurchases, ...targetCashPurchases], this.currentPeriod);
 
-                // Calculer yesterdayClose pour tous les actifs pour cohérence avec le graphique
-                // SOLUTION FINALE: Utiliser les MÊMES données historiques que le graphique
-                let yesterdayCloseMap;
-                const now = Date.now();
-                const cacheIsValid = this.cachedYesterdayCloseMap &&
-                    this.cachedYesterdayCloseTimestamp &&
-                    (now - this.cachedYesterdayCloseTimestamp) < this.YESTERDAY_CLOSE_CACHE_TTL;
-
-                if (cacheIsValid) {
-                    yesterdayCloseMap = this.cachedYesterdayCloseMap;
-                } else {
-
-                    // Utiliser les données historiques du graphique pour calculer yesterdayClose
-                    yesterdayCloseMap = new Map();
-                    const tickers = [...new Set(targetAssetPurchases.map(p => p.ticker.toUpperCase()))];
-                    const historicalDataMap = graphData.historicalDataMap || new Map();
-
-                    // Calculer la fin de la journée d'hier (23h59:59)
-                    const displayStart = new Date();
-                    displayStart.setHours(9, 0, 0, 0);
-                    const yesterdayEnd = new Date(displayStart);
-                    yesterdayEnd.setDate(yesterdayEnd.getDate() - 1);
-                    yesterdayEnd.setHours(23, 59, 59, 999);
-                    const yesterdayEndTs = yesterdayEnd.getTime();
-
-                    for (const ticker of tickers) {
-                        // Calculer la quantité détenue hier
-                        let qty = 0;
-                        for (const purchase of targetAssetPurchases) {
-                            if (purchase.ticker.toUpperCase() === ticker) {
-                                // Convertir la date string en objet Date pour comparaison correcte
-                                const purchaseDate = purchase.date instanceof Date ? purchase.date : new Date(purchase.date);
-
-                                if (purchaseDate < displayStart) {
-                                    qty += purchase.quantity;
-                                }
-                            }
-                        }
-
-                        if (qty > 0) {
-                            const hist = historicalDataMap.get(ticker);
-                            let yesterdayPrice = null;
-
-                            // DÉTECTION INTELLIGENTE DE LA PÉRIODE DE RÉFÉRENCE
-                            // Si le dernier prix date d'avant aujourd'hui (00:00), alors le marché est fermé ou n'a pas ouvert.
-                            // Dans ce cas, on veut afficher la variation de la DERNIÈRE SÉANCE (Hier vs Avant-Hier).
-                            // Sinon, on affiche la variation du jour (Aujourd'hui vs Hier).
-
-                            const lastUpdate = this.dataManager.storage.priceTimestamps[ticker] || 0;
-                            const startOfToday = new Date();
-                            startOfToday.setHours(0, 0, 0, 0);
-
-                            // Si la donnée date d'aujourd'hui, on utilise la clôture d'hier (standard)
-                            // Si la donnée est ancienne, on recule d'un jour pour comparer Clôture Hier vs Clôture Avant-Hier
-                            const isDataFromToday = lastUpdate >= startOfToday.getTime();
-
-                            if (hist) {
-                                const timestamps = Object.keys(hist).map(Number).sort((a, b) => b - a);
-                                const startOfTodayTs = startOfToday.getTime();
-
-                                // If we have data from today, find the last value at or before yesterdayEndTs
-                                // If we don't have data from today (weekend / before market open),
-                                // use the most recent historical point BEFORE start of today (i.e. last trading session).
-                                if (isDataFromToday) {
-                                    for (const ts of timestamps) {
-                                        if (ts <= yesterdayEndTs) {
-                                            yesterdayPrice = hist[ts];
-                                            break;
-                                        }
-                                    }
-                                } else {
-                                    for (const ts of timestamps) {
-                                        if (ts < startOfTodayTs) {
-                                            yesterdayPrice = hist[ts];
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            // CRITICAL FIX: Fallback to storage.previousClose if no historical data
-                            if (!yesterdayPrice || yesterdayPrice <= 0) {
-                                const storedData = this.storage.getCurrentPrice(ticker);
-                                if (storedData && storedData.previousClose > 0) {
-                                    yesterdayPrice = storedData.previousClose;
-                                    console.log(`[YesterdayCloseMap] Using storage fallback for ${ticker}: ${yesterdayPrice.toFixed(2)}`);
-                                }
-                            }
-
-                            if (yesterdayPrice && yesterdayPrice > 0) {
-                                // Récupérer la devise de l'actif
-                                const priceData = this.dataManager.storage.getCurrentPrice(ticker);
-                                const currency = priceData?.currency || 'EUR';
-
-                                const rate = currency === 'USD'
-                                    ? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE)
-                                    : 1;
-                                const yesterdayValue = yesterdayPrice * qty * rate;
-                                // Stocker la valeur ET la devise pour calcul correct du pourcentage
-                                yesterdayCloseMap.set(ticker, { yesterdayClose: yesterdayValue, currency });
-                            } else {
-                                console.warn(`[YesterdayCloseMap] Could not find yesterdayPrice for ${ticker}`);
-                            }
-                        }
-                    }
-
-                    console.log(`[YesterdayCloseMap] Populated ${yesterdayCloseMap.size}/${tickers.length} tickers`);
-
-                    // Stocker dans le cache avec timestamp
-                    this.cachedYesterdayCloseMap = yesterdayCloseMap;
-                    this.cachedYesterdayCloseTimestamp = now;
-                }
+                // SINGLE SOURCE OF TRUTH : yesterdayCloseMap dérivée du même graphData
+                // que celui qui alimente le KPI "VAR TODAY" du graphique (plus de builder
+                // ad-hoc séparé avec son propre cutoff horaire).
+                const yesterdayCloseMap = this.dataManager.buildYesterdayCloseMapFromGraphData(graphData);
 
                 targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap);
                 targetSummary = this.dataManager.calculateSummary(targetHoldings);
@@ -602,14 +480,8 @@ export class HistoricalChart {
                 if (isSingleAsset && storedData && storedData.previousClose) {
                     this.lastYesterdayClose = storedData.previousClose;
                     console.log(`[VAR TODAY ${currentTicker}] Using TRUSTED Storage previousClose: ${this.lastYesterdayClose}`);
-                }
-                // Sinon fallback sur le cache ou graphData
-                else if (isSingleAsset && currentTicker && this.cachedYesterdayCloseMap && this.cachedYesterdayCloseMap.has(currentTicker)) {
-                    const yesterdayData = this.cachedYesterdayCloseMap.get(currentTicker);
-                    this.lastYesterdayClose = yesterdayData.value || yesterdayData;
-                    console.log(`[VAR TODAY] Using yesterdayCloseMap for ${currentTicker}: ${this.lastYesterdayClose}`);
                 } else {
-                    // Pour le portfolio global, utiliser graphData.yesterdayClose
+                    // Pour le portfolio global (ou fallback actif unique), utiliser graphData.yesterdayClose
                     this.lastYesterdayClose = graphData.yesterdayClose;
                 }
             }

@@ -205,7 +205,8 @@ export class InvestmentsPage {
           const type = (p.assetType || 'Stock').toLowerCase();
           return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
         });
-        const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases);
+        const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(targetAssetPurchases);
+        const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap);
         const targetCashPurchases = targetAllPurchases.filter(p => {
           const type = (p.assetType || 'Stock').toLowerCase();
           return type === 'cash' || type === 'dividend' || p.type === 'dividend';

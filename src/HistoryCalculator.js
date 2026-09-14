@@ -100,7 +100,7 @@ export class HistoryCalculator {
             }
         }
 
-        if (!firstPurchase) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [], dailyTwr: [] };
+        if (!firstPurchase) return { labels: [], invested: [], values: [], yesterdayClose: null, perTickerYesterdayClose: new Map(), unitPrices: [], purchasePoints: [], twr: [], dailyTwr: [] };
 
         const today = new Date();
         const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
@@ -849,11 +849,18 @@ export class HistoryCalculator {
         // Pour calculer le TWR de façon pure, on a besoin de cette valeur dès le début
         let todayValueOfYesterdayHoldings = null;
 
+        // SINGLE SOURCE OF TRUTH : détail par ticker de la résolution ci-dessus
+        // (closePrices/closeQuantities), pour que la table (calculateHoldings) et le
+        // KPI du graphique (yesterdayClose/vsYesterdayAbs) partagent exactement les
+        // mêmes valeurs de référence par actif au lieu de deux résolutions séparées.
+        const perTickerYesterdayClose = new Map();
+
         if (days === 1) {
             let todayValue = 0;
             let todayAssetsFound = 0;
 
             for (const t of tickers) {
+                if (t.startsWith('CASH-')) continue;
                 const qtyYesterday = closeQuantities.get(t) || 0; // Quantité possédée hier
 
                 if (qtyYesterday > 0) {
@@ -865,15 +872,24 @@ export class HistoryCalculator {
                         currentPrice = priceData.price;
                     }
 
+                    let rate = 1;
+                    const currency = priceData?.currency || 'EUR';
+                    if (!isSingleAsset && currency === 'USD') rate = dynamicRate;
+
+                    const closePrice = closePrices.get(t) || null;
+                    const yesterdayCloseTotal = (closePrice && closePrice > 0) ? closePrice * qtyYesterday * rate : null;
+
                     if (currentPrice && currentPrice > 0) {
-                        let rate = 1;
-                        if (!isSingleAsset) {
-                            const currency = priceData?.currency || 'EUR';
-                            if (currency === 'USD') rate = dynamicRate;
-                        }
                         todayValue += currentPrice * qtyYesterday * rate;
                         todayAssetsFound++;
                     }
+
+                    perTickerYesterdayClose.set(t, {
+                        yesterdayCloseTotal,
+                        todayValueOfYesterdayHoldingsTotal: (currentPrice && currentPrice > 0) ? currentPrice * qtyYesterday * rate : null,
+                        quantityYesterday: qtyYesterday,
+                        currency
+                    });
                 }
             }
 
@@ -1189,6 +1205,7 @@ export class HistoryCalculator {
             yesterdayClose: displayedYesterdayClose,
             dayStartValue,  // NEW: Valeur au début de la journée 1D (pour calcul PÉRIODE)
             todayValueOfYesterdayHoldings,  // NEW: Valeur aujourd'hui des actifs possédés hier (pour VAR JOUR pure)
+            perTickerYesterdayClose,  // NEW: détail par ticker (single source of truth pour la table)
             unitPrices,
             purchasePoints,
             timestamps: displayTimestamps,
