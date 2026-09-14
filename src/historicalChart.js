@@ -231,10 +231,9 @@ export class HistoricalChart {
 
     async changePeriod(days) {
         if (this.isLoading) return;
-        // NE PAS vider cached1DVarToday ici : c'est la valeur de référence "jour actuel"
-        // que le KPI VAR TODAY doit garder, même en changeant de période (1W/1M/...).
-        // Ce cache n'est mis à jour qu'au prochain rendu réel en 1D (voir update()).
-        // (Total Value/Total Return ne dépendent plus d'un cache: toujours live, voir update().)
+        // Total Value/Total Return/VAR TODAY ne dépendent plus d'aucun cache : ils sont
+        // toujours recalculés depuis targetSummary (voir update()), donc garantis identiques
+        // quelle que soit la période affichée. Pas d'invalidation à faire ici.
         this.stopAutoRefresh();
         await this.update(true, true);
         this.startAutoRefresh();
@@ -249,28 +248,6 @@ export class HistoricalChart {
         if (!canvas) return;
 
         this.isLoading = true;
-
-        // BUG DE FUITE DE CACHE ENTRE FILTRES : cached1DTotalValue/cached1DVarToday sont
-        // des valeurs "dernier 1D vu", réutilisées sur les périodes >1J pour ne pas faire
-        // sauter les cartes. Mais elles ne connaissaient pas le FILTRE actif (courtier/type/
-        // tickers) : changer de courtier tout en restant sur un onglet 2J/1S affichait les
-        // KPI du haut d'un AUTRE filtre (ex: Total Value d'un portefeuille précédent sur un
-        // filtre qui ne contient qu'un seul actif). On invalide donc ces caches dès que le
-        // contexte filtré change.
-        const filterSignature = JSON.stringify({
-            mode: this.currentMode,
-            assets: this.selectedAssets,
-            broker: this.investmentsPage?.currentBrokerFilter,
-            assetType: this.investmentsPage?.currentAssetTypeFilter,
-            search: this.investmentsPage?.currentSearchQuery,
-            tickers: this.filterManager ? Array.from(this.filterManager.getSelectedTickers()).sort() : []
-        });
-        if (this._lastFilterSignature !== undefined && this._lastFilterSignature !== filterSignature) {
-            this.cached1DTotalValue = undefined;
-            this.cached1DVarToday = undefined;
-            this.cached1DVarTodayPct = undefined;
-        }
-        this._lastFilterSignature = filterSignature;
 
         const loading = document.getElementById('chart-loading');
         const info = document.getElementById('chart-info');
@@ -397,7 +374,9 @@ export class HistoricalChart {
 
                 // SINGLE SOURCE OF TRUTH : yesterdayCloseMap dérivée du même graphData
                 // que celui qui alimente le KPI "VAR TODAY" du graphique.
-                const yesterdayCloseMap = this.dataManager.buildYesterdayCloseMapFromGraphData(graphData);
+                // SINGLE SOURCE OF TRUTH : voir commentaire équivalent au CAS 3 plus bas —
+                // toujours une résolution 1 jour, indépendante de this.currentPeriod.
+                const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(targetAssetPurchases);
 
                 targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap);
                 targetSummary = this.dataManager.calculateSummary(targetHoldings);
@@ -437,10 +416,15 @@ export class HistoricalChart {
 
                 graphData = await this.dataManager.calculateHistory([...targetAssetPurchases, ...targetCashPurchases], this.currentPeriod);
 
-                // SINGLE SOURCE OF TRUTH : yesterdayCloseMap dérivée du même graphData
-                // que celui qui alimente le KPI "VAR TODAY" du graphique (plus de builder
-                // ad-hoc séparé avec son propre cutoff horaire).
-                const yesterdayCloseMap = this.dataManager.buildYesterdayCloseMapFromGraphData(graphData);
+                // SINGLE SOURCE OF TRUTH pour "variation du jour" : TOUJOURS calculée sur
+                // une base 1 jour (calculateAllAssetsYesterdayClose force days=1 en interne),
+                // JAMAIS sur graphData de la période actuellement affichée (this.currentPeriod).
+                // Avant ce fix, changer d'onglet 1J/2J/1S changeait QUELLE requête résolvait
+                // "hier" pour le tableau — le tableau, VAR TODAY et le graphique pouvaient
+                // donc afficher 3 chiffres différents pour la même métrique. "Variation du
+                // jour" est un concept fixe (aujourd'hui vs hier), indépendant du zoom du
+                // graphique : il ne doit être calculé qu'à UN seul endroit.
+                const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(targetAssetPurchases);
 
                 targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap);
                 targetSummary = this.dataManager.calculateSummary(targetHoldings);
@@ -495,44 +479,16 @@ export class HistoricalChart {
                     console.log(`[CHART] Using graphData.yesterdayClose as unifiedClose: ${unifiedClose}`);
                 }
 
-                // SOURCE UNIQUE DE VÉRITÉ : LE GRAPHIQUE (données historiques réelles) EST LA
-                // VÉRITÉ, y compris pour Total Value/Total Return — dérivés du DERNIER POINT
-                // RÉEL du graphique 1D (graphData.values, qui inclut déjà le cash puisque
-                // targetCashPurchases est fusionné dans calculateHistory plus haut), jamais
-                // d'un calcul "live quotes" séparé (calculateHoldings) qui peut diverger de la
-                // série historique réelle pour des titres difficiles à coter (vu en prod avec
-                // SpaceX/AST SpaceMobile) et provoquer une chute artificielle en fin de courbe.
-                // Sur les périodes autres que 1D, on réutilise la dernière valeur 1D en cache
-                // pour ne pas faire "sauter" les cartes quand on change de période.
-                // IMPORTANT: en mode actif unique/index (isSingleAsset/isIndexMode), on ne
-                // touche pas à cette logique — cached1DTotalValue est une valeur PORTEFEUILLE
-                // GLOBAL et ne doit jamais être réutilisée pour un actif filtré (sinon "Total
-                // Value" affiche le portefeuille entier au lieu de la position sélectionnée).
+                // SINGLE SOURCE OF TRUTH : Total Value/Total Return sont TOUJOURS dérivés de
+                // targetSummary (holdings live, la même donnée que le tableau), quelle que
+                // soit la période actuellement affichée dans le graphique. L'ancienne logique
+                // ("dernier point du graphique 1D, mis en cache pour les autres périodes")
+                // faisait dépendre ce chiffre de this.currentPeriod — changer d'onglet 1J/2J/1S
+                // pouvait donc faire "sauter" Total Value vers une valeur qui n'était même pas
+                // celle du filtre actif (fuite de cache entre filtres/périodes). Un seul calcul,
+                // partout, pour un seul chiffre affiché.
                 const cash = targetCashReserve.total || 0;
-                let liveTotalValue;
-
-                if (!isSingleAsset && !isIndexMode) {
-                    let graphLastValue = null;
-                    if (Array.isArray(graphData.values)) {
-                        for (let i = graphData.values.length - 1; i >= 0; i--) {
-                            const v = graphData.values[i];
-                            if (v !== null && v !== undefined && !isNaN(v)) { graphLastValue = v; break; }
-                        }
-                    }
-
-                    if (this.currentPeriod === 1 && graphLastValue !== null) {
-                        this.cached1DTotalValue = graphLastValue;
-                    }
-
-                    liveTotalValue = (this.currentPeriod === 1 && graphLastValue !== null)
-                        ? graphLastValue
-                        : (this.cached1DTotalValue !== undefined
-                            ? this.cached1DTotalValue
-                            : ((targetSummary.totalCurrentEUR || 0) + cash)); // dernier recours si le 1D n'a jamais chargé
-                } else {
-                    // Actif unique / index : toujours les holdings live filtrés sur cette position.
-                    liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
-                }
+                const liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
 
                 const liveTotalReturn = liveTotalValue - cash - (targetSummary.totalInvestedEUR || 0);
                 const liveTotalReturnPct = (targetSummary.totalInvestedEUR || 0) > 0
@@ -954,51 +910,30 @@ export class HistoricalChart {
         // ---------------------------------------------------------
 
         if (priceEnd !== null && !isNaN(priceEnd) && !isUnitView && referenceClose) {
-            if (this.currentPeriod === 1 && !isSingleAsset && !isIndexMode) {
-                // SINGLE SOURCE OF TRUTH pour VAR TODAY : LE GRAPHIQUE (perfAbs/perfPct,
-                // calculés plus haut à partir des données historiques RÉELLES de la
-                // courbe, jamais modifiées). On n'utilise plus summary.totalDayChangeEUR
-                // en priorité : il mélange une clôture-veille historique avec un prix
-                // "aujourd'hui" live (storage.getCurrentPrice), qui s'est avéré faux pour
-                // des titres difficiles à coter (ex: SpaceX, AST SpaceMobile — comparé au
-                // vrai relevé de courtier). Le graphique n'utilise que l'historique réel
-                // de bout en bout : c'est la seule source fiable ici.
-                if (!isNaN(perfAbs) && priceEnd !== null) {
-                    vsYesterdayAbs = perfAbs;
-                    vsYesterdayPct = perfPct;
-                    console.log(`[VAR TODAY 1D] Using graph perfAbs (données historiques réelles): ${vsYesterdayAbs.toFixed(2)}€`);
-                } else if (summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
-                    vsYesterdayAbs = summary.totalDayChangeEUR;
-                    vsYesterdayPct = summary.dayChangePct || 0;
-                    console.log(`[VAR TODAY 1D] Fallback summary.totalDayChangeEUR: ${vsYesterdayAbs.toFixed(2)}€`);
-                }
-
-                // CACHE 1D values to prevent Top KPI jumps when switching periods
-                this.cached1DVarToday = vsYesterdayAbs;
-                this.cached1DVarTodayPct = vsYesterdayPct;
-            } else if (!isIndexMode && !isSingleAsset) {
-                // VUES 1W/1M/3M/1Y : utiliser la valeur en cache 1D si disponible
-                if (this.cached1DVarToday !== undefined) {
-                    vsYesterdayAbs = this.cached1DVarToday;
-                    vsYesterdayPct = this.cached1DVarTodayPct;
-                    console.log(`[VAR TODAY 1W+] Utilizing cached 1D Var: ${vsYesterdayAbs.toFixed(2)}€`);
-                } else if (summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
-                    // Fallback to Live Quotes only if no cache
-                    vsYesterdayAbs = summary.totalDayChangeEUR;
-                    vsYesterdayPct = summary.dayChangePct || 0;
-                    console.log(`[VAR TODAY 1W+] Period=${this.currentPeriod} — Fallback to live quotes: ${vsYesterdayAbs.toFixed(2)}€`);
-                }
-
-                // Mettre à jour referenceClose pour cohérence de couleur de la courbe
-                const graphLastValue = displayValues[lastIndex];
-                if (graphLastValue !== null && !isNaN(graphLastValue)) {
-                    referenceClose = graphLastValue - vsYesterdayAbs;
-                }
-            } else if (isSingleAsset && summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
-                // ACTIF INDIVIDUEL : source unique = quotes live
+            if (!isIndexMode && summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
+                // SINGLE SOURCE OF TRUTH pour VAR TODAY, quelle que soit la période affichée
+                // (1J/2J/1S/1M/...) et quel que soit le mode (portefeuille filtré ou actif
+                // unique) : summary.totalDayChangeEUR, qui vient TOUJOURS de
+                // calculateAllAssetsYesterdayClose (résolution 1 jour fixe, voir update())
+                // + calculateHoldings — la MÊME donnée que la colonne "Day P&L" du tableau.
+                // "Variation du jour" est un concept fixe (aujourd'hui vs hier) : il ne doit
+                // plus dépendre de this.currentPeriod ni d'un cache — sinon changer d'onglet
+                // ou de filtre peut afficher un chiffre qui n'appartient ni au jour ni au
+                // filtre actifs (c'est exactement le bug rapporté : tableau, KPI et courbe
+                // affichaient 3 valeurs différentes pour la même métrique).
                 vsYesterdayAbs = summary.totalDayChangeEUR;
                 vsYesterdayPct = summary.dayChangePct || 0;
-                console.log(`[VAR TODAY SINGLE ASSET] ${vsYesterdayAbs.toFixed(2)}€ (${vsYesterdayPct.toFixed(2)}%)`);
+                console.log(`[VAR TODAY] summary.totalDayChangeEUR (source unique, indépendant de la période): ${vsYesterdayAbs.toFixed(2)}€`);
+
+                if (!isSingleAsset) {
+                    // Mettre à jour referenceClose pour cohérence de couleur de la courbe
+                    // sur les vues autres que 1J (où displayValues[lastIndex] est déjà la
+                    // bonne référence).
+                    const graphLastValue = displayValues[lastIndex];
+                    if (graphLastValue !== null && !isNaN(graphLastValue)) {
+                        referenceClose = graphLastValue - vsYesterdayAbs;
+                    }
+                }
             } else {
                 // Fallback générique (index ou données live indisponibles)
                 vsYesterdayAbs = priceEnd - referenceClose;
