@@ -1023,14 +1023,21 @@ export class HistoryCalculator {
                 const dayKey = new Date(ts).toDateString();
                 if (dayKey !== dailyTwrDayKey) {
                     // PRIORITÉ : la vraie clôture de la veille (résolution par-ticker,
-                    // cutoff-aware — même moteur que "yesterdayClose"/le tableau), JAMAIS
-                    // la valeur du premier point intraday du jour. Utiliser ce premier
-                    // point comme ancrage à 0% EFFACE tout écart réel d'ouverture (le
-                    // marché peut ouvrir en hausse ou en baisse vs la clôture précédente
-                    // — un vrai "gap" que l'utilisateur veut voir, pas un artefact à
-                    // masquer pour lisser la courbe).
+                    // cutoff-aware), JAMAIS la valeur du premier point intraday du jour.
+                    // Utiliser ce premier point comme ancrage à 0% EFFACE tout écart réel
+                    // d'ouverture (le marché peut ouvrir en hausse ou en baisse vs la
+                    // clôture précédente — un vrai "gap" que l'utilisateur veut voir).
+                    //
+                    // preferLiveClose = false (jamais, ici) : cet ancrage doit rester
+                    // fondé UNIQUEMENT sur la même série de bougies historiques que celle
+                    // réellement tracée par la courbe (multi-jours/2J/1S...), sinon la
+                    // vue 1J peut ancrer sur un prix "live" stocké différent de ce que
+                    // montre la courbe continue pour ce même instant — exactement le
+                    // genre d'incohérence 1J vs 2J qu'on corrige ici. La préférence pour
+                    // le prix live n'a de sens que pour le tableau (fraîcheur), pas pour
+                    // l'ancrage de la courbe elle-même.
                     let resolvedDayBase = null;
-                    const { total: dailyBase } = await resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`, days <= 2);
+                    const { total: dailyBase } = await resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`, false);
                     if (dailyBase > 0) resolvedDayBase = dailyBase;
 
                     if (resolvedDayBase !== null) {
