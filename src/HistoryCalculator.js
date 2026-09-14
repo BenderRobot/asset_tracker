@@ -1015,28 +1015,36 @@ export class HistoryCalculator {
             // CALCUL TIME-WEIGHTED RETURN (TWR) — SOURCE UNIQUE DE VÉRITÉ.
             // twrDenominator (ancrage sur toute la période, utilisé par "PERIOD RETURN"/KPI) et
             // dailyTwrDenominator (réinitialisé à chaque jour civil, utilisé par le TRACÉ et son
-            // tooltip) doivent être établis EXACTEMENT au même instant, à partir de la MÊME
-            // valeur (currentTsTotalValue de ce point), pour ne jamais pouvoir diverger. On ne
-            // fige (dailyTwrDayKey) qu'une fois cette valeur connue et complète (toutes les
-            // lignes détenues valorisées) ; sinon on retente au ts suivant du même jour plutôt
-            // que d'ancrer sur une valorisation partielle qui provoquerait un faux saut.
+            // tooltip) sont tous les deux ancrés sur la VRAIE clôture de la veille (même
+            // résolution par-ticker que le tableau), pas sur la valeur du premier point
+            // intraday du jour — sinon tout écart réel d'ouverture (gap haussier/baissier)
+            // serait invisible, la courbe repartant toujours artificiellement à 0%.
             if (shouldUseTwrFromClose) {
                 const dayKey = new Date(ts).toDateString();
                 if (dayKey !== dailyTwrDayKey) {
-                    const isCompleteValuation = expectedHoldingsCount > 0 && pricedHoldingsCount === expectedHoldingsCount;
+                    // PRIORITÉ : la vraie clôture de la veille (résolution par-ticker,
+                    // cutoff-aware — même moteur que "yesterdayClose"/le tableau), JAMAIS
+                    // la valeur du premier point intraday du jour. Utiliser ce premier
+                    // point comme ancrage à 0% EFFACE tout écart réel d'ouverture (le
+                    // marché peut ouvrir en hausse ou en baisse vs la clôture précédente
+                    // — un vrai "gap" que l'utilisateur veut voir, pas un artefact à
+                    // masquer pour lisser la courbe).
                     let resolvedDayBase = null;
+                    const { total: dailyBase } = await resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`, days <= 2);
+                    if (dailyBase > 0) resolvedDayBase = dailyBase;
 
-                    if (isCompleteValuation && currentTsTotalValue > 0) {
-                        resolvedDayBase = currentTsTotalValue;
-                        console.log(`[TWR BASE] dailyTwr base (${dayKey}) = valeur complète du graphique: ${resolvedDayBase.toFixed(2)}€`);
+                    if (resolvedDayBase !== null) {
+                        console.log(`[TWR BASE] dailyTwr base (${dayKey}) = vraie clôture de la veille: ${resolvedDayBase.toFixed(2)}€`);
                     } else {
-                        // Repli uniquement si ce point précis ne valorise pas encore toutes les
-                        // lignes (ex: ligne peu liquide sans prix injecté) : on retombe sur le
-                        // même resolveCloseValueBeforeDay que celui qui a servi à yesterdayClose,
-                        // pour rester cohérent avec les KPI même dans ce cas dégradé.
-                        const { total: dailyBase } = await resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey}, valorisation incomplète ${pricedHoldingsCount}/${expectedHoldingsCount})`, days <= 2);
-                        if (dailyBase > 0) resolvedDayBase = dailyBase;
-                        // sinon: on ne fige rien, on retentera au prochain ts de ce même jour
+                        // Filet de secours UNIQUEMENT si la vraie clôture est introuvable
+                        // (cas dégradé) : valeur du 1er point intraday, mais seulement s'il
+                        // valorise TOUTES les lignes détenues (sinon un faux saut est
+                        // possible dès qu'une ligne peu liquide reçoit enfin un prix).
+                        const isCompleteValuation = expectedHoldingsCount > 0 && pricedHoldingsCount === expectedHoldingsCount;
+                        if (isCompleteValuation && currentTsTotalValue > 0) {
+                            resolvedDayBase = currentTsTotalValue;
+                            console.log(`[TWR BASE] dailyTwr base (${dayKey}) = filet de secours (clôture veille introuvable), valeur du 1er point: ${resolvedDayBase.toFixed(2)}€`);
+                        }
                     }
 
                     if (resolvedDayBase !== null) {
