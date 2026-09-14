@@ -881,10 +881,18 @@ export class HistoryCalculator {
         // "CLÔTURE HIER" affichée proviennent tous du même point calculé plus bas.
         let twrDenominator = null;
         // Valeur exposée pour l'affichage "CLÔTURE HIER" : initialisée au calcul externe (utile
-        // pour les périodes hors 1D/2D où le TWR n'est pas ancré sur un point du graphique),
-        // puis écrasée par la valeur unique dès qu'elle est connue (voir plus bas).
+        // pour les périodes où le TWR n'est pas ancré sur un point du graphique, ex: si la
+        // résolution de clôture échoue totalement), puis écrasée par la valeur unique dès
+        // qu'elle est connue (voir plus bas).
         let displayedYesterdayClose = yesterdayClose;
-        const shouldUseTwrFromClose = (days === 1 || days === 2);
+        // Étendu à days<=30 (1J/2J/1S/1M) : restreint à 1D/2D seulement, un zoom 1S/1M
+        // retombait sur un calcul de ROI (valeur/investi) totalement différent du calcul
+        // "clôture à clôture" du 1D — deux métriques sans rapport, d'où des chiffres
+        // incohérents entre zooms pour les MÊMES jours (ex: sélectionner "lundi" sur la
+        // vue 1S donnait un delta différent du VAR TODAY de la vue 1J). Pas étendu au-delà
+        // de 30 jours pour limiter le coût (un resolveCloseValueBeforeDay par frontière de
+        // jour) sur les vues 1Y/2Y/All où la précision quotidienne importe moins.
+        const shouldUseTwrFromClose = (days === 1 || (typeof days === 'number' && days <= 30));
 
         // Série "dailyTwr" : comme twr, mais la base (0%) est réinitialisée à chaque
         // changement de jour civil, sur la clôture de la veille de CE jour-là (via
