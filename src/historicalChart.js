@@ -230,12 +230,10 @@ export class HistoricalChart {
 
     async changePeriod(days) {
         if (this.isLoading) return;
-        // NE PAS vider cached1DVarToday/cached1DTotalValue ici : ce sont les valeurs de
-        // référence "jour actuel" que les KPI du haut doivent garder, même en changeant de
-        // période (1W/1M/...). Les vider forçait un recalcul via un pipeline "live quotes"
-        // séparé, qui divergeait de la vue 1D — les KPI changeaient alors selon la période
-        // affichée, ce qui n'est pas voulu (une seule source de vérité : le jour actuel).
+        // NE PAS vider cached1DVarToday ici : c'est la valeur de référence "jour actuel"
+        // que le KPI VAR TODAY doit garder, même en changeant de période (1W/1M/...).
         // Ce cache n'est mis à jour qu'au prochain rendu réel en 1D (voir update()).
+        // (Total Value/Total Return ne dépendent plus d'un cache: toujours live, voir update().)
         this.stopAutoRefresh();
         await this.update(true, true);
         this.startAutoRefresh();
@@ -522,38 +520,14 @@ export class HistoricalChart {
                 // targetCashPurchases est fusionné dans calculateHistory ligne ~470 plus haut) —
                 // jamais d'un calcul "live quotes" séparé (calculateHoldings), qui pouvait
                 // légèrement diverger de la valeur affichée sur le graphique.
-                // Sur les périodes autres que 1D, on réutilise la dernière valeur 1D en cache
-                // pour ne pas faire "sauter" les cartes quand on change de période (même
-                // principe que cached1DVarToday pour Var Today).
-                // IMPORTANT: en mode actif unique/index (isSingleAsset/isIndexMode), on ne
-                // touche pas à cette logique — cached1DTotalValue est une valeur PORTEFEUILLE
-                // GLOBAL et ne doit jamais être réutilisée pour un actif filtré (sinon "Total
-                // Value" affiche le portefeuille entier au lieu de la position sélectionnée).
+                // SINGLE SOURCE OF TRUTH : "aujourd'hui" est TOUJOURS le prix live
+                // (storage.getCurrentPrice, via targetSummary.totalCurrentEUR), quel que
+                // soit le mode (portefeuille, filtré par courtier, actif unique). L'ancien
+                // "graphLastValue" (dernier point de la série historique intraday, sujet à
+                // un retard de 15-20 min documenté) créait un Total Value/VAR TODAY
+                // désynchronisé du tableau, qui lui utilise toujours le prix live.
                 const cash = targetCashReserve.total || 0;
-                let liveTotalValue;
-
-                if (!isSingleAsset && !isIndexMode) {
-                    let graphLastValue = null;
-                    if (Array.isArray(graphData.values)) {
-                        for (let i = graphData.values.length - 1; i >= 0; i--) {
-                            const v = graphData.values[i];
-                            if (v !== null && v !== undefined && !isNaN(v)) { graphLastValue = v; break; }
-                        }
-                    }
-
-                    if (this.currentPeriod === 1 && graphLastValue !== null) {
-                        this.cached1DTotalValue = graphLastValue;
-                    }
-
-                    liveTotalValue = (this.currentPeriod === 1 && graphLastValue !== null)
-                        ? graphLastValue
-                        : (this.cached1DTotalValue !== undefined
-                            ? this.cached1DTotalValue
-                            : ((targetSummary.totalCurrentEUR || 0) + cash)); // dernier recours si le 1D n'a jamais chargé
-                } else {
-                    // Actif unique / index : toujours les holdings live filtrés sur cette position.
-                    liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
-                }
+                const liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
 
                 const liveTotalReturn = liveTotalValue - cash - (targetSummary.totalInvestedEUR || 0);
                 const liveTotalReturnPct = (targetSummary.totalInvestedEUR || 0) > 0
@@ -986,14 +960,25 @@ export class HistoricalChart {
 
         if (priceEnd !== null && !isNaN(priceEnd) && !isUnitView && referenceClose) {
             if (this.currentPeriod === 1 && !isSingleAsset && !isIndexMode) {
-                // The graph is the source of truth for the global daily KPI.
-                vsYesterdayAbs = perfAbs;
-                vsYesterdayPct = perfPct;
-                console.log(`[VAR TODAY 1D] perfAbs=${perfAbs.toFixed(2)}€ (${perfPct.toFixed(2)}%)`);
-                
+                // SINGLE SOURCE OF TRUTH : summary (targetSummary) est calculé via
+                // calculateHoldings+calculateSummary avec le MÊME yesterdayCloseMap unifié
+                // (issu du graphique) que celui qui alimente les lignes du tableau — donc
+                // summary.totalDayChangeEUR est déjà la somme exacte de la colonne "Day P&L".
+                // perfAbs (TWR sur la série historique intraday, sujette au lag documenté de
+                // l'API historique) ne sert plus que de filet de secours si summary manque.
+                if (summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
+                    vsYesterdayAbs = summary.totalDayChangeEUR;
+                    vsYesterdayPct = summary.dayChangePct || 0;
+                    console.log(`[VAR TODAY 1D] Using summary.totalDayChangeEUR (table-consistent): ${vsYesterdayAbs.toFixed(2)}€`);
+                } else {
+                    vsYesterdayAbs = perfAbs;
+                    vsYesterdayPct = perfPct;
+                    console.log(`[VAR TODAY 1D] Fallback perfAbs=${perfAbs.toFixed(2)}€ (${perfPct.toFixed(2)}%)`);
+                }
+
                 // CACHE 1D values to prevent Top KPI jumps when switching periods
-                this.cached1DVarToday = perfAbs;
-                this.cached1DVarTodayPct = perfPct;
+                this.cached1DVarToday = vsYesterdayAbs;
+                this.cached1DVarTodayPct = vsYesterdayPct;
             } else if (!isIndexMode && !isSingleAsset) {
                 // VUES 1W/1M/3M/1Y : utiliser la valeur en cache 1D si disponible
                 if (this.cached1DVarToday !== undefined) {
@@ -1038,11 +1023,11 @@ export class HistoricalChart {
             const periodMap = { 1: '1d', 7: '1w', 30: '1m', 90: '3m', 365: '1y', 1825: '5y' };
             const periodLabel = periodMap[this.currentPeriod] || `${this.currentPeriod}d`;
 
-            // Total Value / Total Return (kpiData) sont maintenant dérivés du dernier point du
-            // graphique 1D (voir construction de kpiData plus haut) : le graphique EST la
-            // source de vérité. En dehors de la vue 1D, kpiData réutilise la dernière valeur
-            // 1D mise en cache pour ne pas faire "sauter" ces KPI en changeant de période —
-            // même principe que "Var Today" (cached1DVarToday).
+            // Total Value / Total Return (kpiData) et VAR TODAY (vsYesterdayAbs) sont
+            // maintenant TOUJOURS dérivés de targetSummary (holdings live, même source que
+            // le tableau) — voir construction de kpiData/liveTotalValue plus haut et le calcul
+            // de vsYesterdayAbs ci-dessus. Plus de dépendance à la série historique intraday
+            // du graphique (qui pouvait avoir 15-20 min de retard) pour ces 3 KPI.
             portfolioKPIs.updateFromGraph({
                 values: graphData.values,
                 invested: summary.totalInvestedEUR,
