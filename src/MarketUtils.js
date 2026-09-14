@@ -254,6 +254,44 @@ export function getQuantityAtDate(purchases, ticker, cutoffDate) {
 }
 
 /**
+ * Current UTC offset (hours, DST-aware) of an IANA timezone at a given date.
+ * Unlike a hardcoded constant, this automatically reflects CET/CEST, EST/EDT, etc.
+ * @param {string} timeZone - IANA timezone, e.g. 'Europe/Paris', 'America/New_York'
+ * @param {Date} [refDate]
+ * @returns {number}
+ */
+export function getUTCOffsetHours(timeZone, refDate = new Date()) {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone, hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+    const parts = dtf.formatToParts(refDate).reduce((acc, p) => {
+        if (p.type !== 'literal') acc[p.type] = p.value;
+        return acc;
+    }, {});
+    const hour = parts.hour === '24' ? 0 : Number(parts.hour);
+    const asUTC = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), hour, Number(parts.minute), Number(parts.second));
+    return (asUTC - refDate.getTime()) / 3600000;
+}
+
+/**
+ * UTC hour (may be fractional, e.g. 13.5) at which a market's local open time
+ * falls TODAY, DST-aware. Replaces hardcoded "08:00 UTC (09:00 Paris Winter)"-style
+ * assumptions, which silently become wrong by exactly one hour every year during
+ * CEST/EDT (late March-late October) — causing the 1D view's day-start reference
+ * to be computed an hour after the real market open, missing the true opening
+ * print (which then gets masked by the synthetic "yesterday's close" injection).
+ * @param {number} localOpenHour - market open hour in local time (e.g. 9 for Paris, 9.5 for NYSE)
+ * @param {string} timeZone - IANA timezone, e.g. 'Europe/Paris', 'America/New_York'
+ * @param {Date} [refDate]
+ * @returns {number}
+ */
+export function getMarketOpenUTCHour(localOpenHour, timeZone, refDate = new Date()) {
+    return localOpenHour - getUTCOffsetHours(timeZone, refDate);
+}
+
+/**
  * Formats ticker for display (removes suffix).
  * @param {string} ticker
  * @returns {string}

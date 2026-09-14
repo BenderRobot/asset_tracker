@@ -13,7 +13,8 @@ import {
     findClosestPrice,
     formatTicker,
     resolveTickerPreviousClose,
-    getCloseCutoffForTicker
+    getCloseCutoffForTicker,
+    getMarketOpenUTCHour
 } from './MarketUtils.js';
 
 export class HistoryCalculator {
@@ -214,11 +215,18 @@ export class HistoryCalculator {
                     const m = today.getMonth();
                     const d = today.getDate();
 
-                    if (hasEU) {
-                        displayStartUTC = new Date(Date.UTC(y, m, d, 8, 0, 0)); // 08:00 UTC (09:00 Paris Winter)
-                    } else {
-                        displayStartUTC = new Date(Date.UTC(y, m, d, 14, 30, 0)); // 14:30 UTC (15:30 Paris Winter)
-                    }
+                    // DST-aware : l'ancien code figeait l'heure d'ouverture en heure
+                    // d'hiver toute l'année (08:00 UTC Paris / 14:30 UTC NYSE), donc
+                    // décalé d'1h pendant l'heure d'été (fin mars-fin octobre) — le
+                    // point de départ du graphique 1D tombait alors 1h APRÈS la vraie
+                    // ouverture, ratant le vrai prix d'ouverture (remplacé par l'injection
+                    // synthétique de la clôture de la veille).
+                    const openUTCHour = hasEU
+                        ? getMarketOpenUTCHour(9, 'Europe/Paris', today)      // Euronext ouvre 9h locale
+                        : getMarketOpenUTCHour(9.5, 'America/New_York', today); // NYSE/Nasdaq ouvrent 9h30 locale
+                    const openHourInt = Math.floor(openUTCHour);
+                    const openMinute = Math.round((openUTCHour - openHourInt) * 60);
+                    displayStartUTC = new Date(Date.UTC(y, m, d, openHourInt, openMinute, 0));
                 } else if (days === 2) {
                     // Hier + Auj
                     // Si on est Lundi, Hier = Dimanche (Fermé).

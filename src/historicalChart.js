@@ -9,6 +9,7 @@ import { ChartKPIManager } from './chartKPIManager.js';
 import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
+import { getMarketOpenUTCHour } from './MarketUtils.js';
 
 export class HistoricalChart {
     constructor(storage, dataManager, ui, investmentsPage) {
@@ -595,19 +596,17 @@ export class HistoricalChart {
             const dayOfWeek = today.getDay(); // 0 = dimanche, 6 = samedi
             const currentHour = today.getUTCHours(); // On travaille en UTC pour éviter les soucis de fuseau local
 
-            // Déterminer l'heure d'ouverture selon le marché (En UTC)
-            // Paris (CET/Winter) : 09:00 Local = 08:00 UTC
-            // Paris (CEST/Summer) : 09:00 Local = 07:00 UTC
-            // On prend 08:00 UTC comme standard hivernal (le plus restrictif pour "Avant l'ouverture")
-            let marketOpenHour = 8;
+            // Déterminer l'heure d'ouverture selon le marché (En UTC), DST-aware —
+            // l'ancien code figeait l'heure d'hiver toute l'année, décalant d'1h
+            // pendant l'heure d'été (fin mars-fin octobre).
+            let marketOpenHour = getMarketOpenUTCHour(9, 'Europe/Paris', today);
 
             // Si on est en mode index, vérifier quel indice est affiché
             if (this.currentMode === 'index' && this.selectedAssets.length > 0) {
                 const ticker = this.selectedAssets[0];
                 const usIndices = ['^GSPC', '^IXIC']; // S&P 500, NASDAQ
                 if (usIndices.includes(ticker)) {
-                    // Indices US : 15h30 Paris = 14h30 UTC (Winter)
-                    marketOpenHour = 14.5;
+                    marketOpenHour = getMarketOpenUTCHour(9.5, 'America/New_York', today);
                 }
             }
 
