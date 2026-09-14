@@ -605,9 +605,44 @@ export class Storage {
 
         if (marketIsOpen) {
             return age < CACHE_EXPIRY_STOCKS_MARKET_OPEN;
-        } else {
-            return age < CACHE_EXPIRY_STOCKS_MARKET_CLOSED;
         }
+
+        // BUG "LUNDI" / clôture figée : le TTL de 7 jours suppose que "rien ne bouge
+        // marché fermé" — vrai UNIQUEMENT si aucune séance de bourse n'a eu lieu
+        // entre le dernier fetch et maintenant. isMarketOpen() n'évalue que l'instant
+        // présent, donc si l'appli n'est consultée que le soir (marché toujours
+        // "fermé" au moment du check), un fetch de vendredi restait valide jusqu'à
+        // vendredi suivant sans jamais capter la séance du lundi. On invalide donc le
+        // cache dès qu'au moins un jour ouvré s'est écoulé depuis le dernier fetch,
+        // même si on est encore dans les 7 jours et que le marché est fermé "là,
+        // maintenant".
+        if (this.hasTradingDayElapsedSince(ts)) {
+            return false;
+        }
+
+        return age < CACHE_EXPIRY_STOCKS_MARKET_CLOSED;
+    }
+
+    // Vrai si au moins un jour ouvré (lun-ven) s'est écoulé entre `ts` et maintenant,
+    // en excluant le jour de `ts` lui-même (rester le même soir ne compte pas) mais en
+    // incluant aujourd'hui (si on est mardi et que ts date de vendredi, lundi compte).
+    hasTradingDayElapsedSince(ts) {
+        const lastFetch = new Date(ts);
+        const now = new Date();
+        if (lastFetch.toDateString() === now.toDateString()) return false;
+
+        const cursor = new Date(lastFetch);
+        cursor.setHours(0, 0, 0, 0);
+        cursor.setDate(cursor.getDate() + 1);
+        const todayMidnight = new Date(now);
+        todayMidnight.setHours(0, 0, 0, 0);
+
+        while (cursor <= todayMidnight) {
+            const day = cursor.getDay();
+            if (day !== 0 && day !== 6) return true;
+            cursor.setDate(cursor.getDate() + 1);
+        }
+        return false;
     }
 
     cleanExpiredCache() {
