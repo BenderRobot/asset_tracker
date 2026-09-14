@@ -471,20 +471,44 @@ export class HistoricalChart {
                     console.log(`[CHART] Using graphData.yesterdayClose as unifiedClose: ${unifiedClose}`);
                 }
 
-                // SOURCE UNIQUE DE VÉRITÉ (vue portefeuille global, non filtrée sur un actif) :
-                // les KPIs du haut (Total Value, Total Return) sont dérivés du DERNIER POINT du
-                // graphique 1D (graphData.values, qui inclut déjà le cash puisque
-                // targetCashPurchases est fusionné dans calculateHistory ligne ~470 plus haut) —
-                // jamais d'un calcul "live quotes" séparé (calculateHoldings), qui pouvait
-                // légèrement diverger de la valeur affichée sur le graphique.
-                // SINGLE SOURCE OF TRUTH : "aujourd'hui" est TOUJOURS le prix live
-                // (storage.getCurrentPrice, via targetSummary.totalCurrentEUR), quel que
-                // soit le mode (portefeuille, filtré par courtier, actif unique). L'ancien
-                // "graphLastValue" (dernier point de la série historique intraday, sujet à
-                // un retard de 15-20 min documenté) créait un Total Value/VAR TODAY
-                // désynchronisé du tableau, qui lui utilise toujours le prix live.
+                // SOURCE UNIQUE DE VÉRITÉ : LE GRAPHIQUE (données historiques réelles) EST LA
+                // VÉRITÉ, y compris pour Total Value/Total Return — dérivés du DERNIER POINT
+                // RÉEL du graphique 1D (graphData.values, qui inclut déjà le cash puisque
+                // targetCashPurchases est fusionné dans calculateHistory plus haut), jamais
+                // d'un calcul "live quotes" séparé (calculateHoldings) qui peut diverger de la
+                // série historique réelle pour des titres difficiles à coter (vu en prod avec
+                // SpaceX/AST SpaceMobile) et provoquer une chute artificielle en fin de courbe.
+                // Sur les périodes autres que 1D, on réutilise la dernière valeur 1D en cache
+                // pour ne pas faire "sauter" les cartes quand on change de période.
+                // IMPORTANT: en mode actif unique/index (isSingleAsset/isIndexMode), on ne
+                // touche pas à cette logique — cached1DTotalValue est une valeur PORTEFEUILLE
+                // GLOBAL et ne doit jamais être réutilisée pour un actif filtré (sinon "Total
+                // Value" affiche le portefeuille entier au lieu de la position sélectionnée).
                 const cash = targetCashReserve.total || 0;
-                const liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
+                let liveTotalValue;
+
+                if (!isSingleAsset && !isIndexMode) {
+                    let graphLastValue = null;
+                    if (Array.isArray(graphData.values)) {
+                        for (let i = graphData.values.length - 1; i >= 0; i--) {
+                            const v = graphData.values[i];
+                            if (v !== null && v !== undefined && !isNaN(v)) { graphLastValue = v; break; }
+                        }
+                    }
+
+                    if (this.currentPeriod === 1 && graphLastValue !== null) {
+                        this.cached1DTotalValue = graphLastValue;
+                    }
+
+                    liveTotalValue = (this.currentPeriod === 1 && graphLastValue !== null)
+                        ? graphLastValue
+                        : (this.cached1DTotalValue !== undefined
+                            ? this.cached1DTotalValue
+                            : ((targetSummary.totalCurrentEUR || 0) + cash)); // dernier recours si le 1D n'a jamais chargé
+                } else {
+                    // Actif unique / index : toujours les holdings live filtrés sur cette position.
+                    liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
+                }
 
                 const liveTotalReturn = liveTotalValue - cash - (targetSummary.totalInvestedEUR || 0);
                 const liveTotalReturnPct = (targetSummary.totalInvestedEUR || 0) > 0
@@ -738,29 +762,13 @@ export class HistoricalChart {
         let lastIndex = displayValues.length - 1;
         while (lastIndex >= 0 && (displayValues[lastIndex] === null || isNaN(displayValues[lastIndex]))) lastIndex--;
 
-        // SINGLE SOURCE OF TRUTH : le dernier point de la série (donc la courbe elle-même,
-        // PÉRIODE et VAR JOUR) doit refléter le total LIVE (même donnée que le tableau/KPI),
-        // pas la dernière bougie intraday de l'API historique (retard documenté de 15-20 min).
-        // On corrige ce point AVANT le calcul de perfAbs/perfPct ci-dessous, pour que courbe,
-        // PÉRIODE et VAR JOUR soient garantis identiques — plus de "courbe verte, chiffre rouge".
-        if (!isSingleAsset && !isIndexMode && !isUnitView && this.currentPeriod === 1
-            && kpiData && kpiData.totalValue !== undefined && kpiData.totalValue !== null && lastIndex >= 0) {
-            const liveTotal = kpiData.totalValue;
-            const anchor = (unifiedClose !== null && unifiedClose !== undefined) ? unifiedClose : this.lastYesterdayClose;
-            displayValues[lastIndex] = liveTotal;
-            if (anchor) {
-                if (graphData.twr && graphData.twr.length > lastIndex) {
-                    graphData.twr[lastIndex] = liveTotal / anchor;
-                }
-                // La courbe affichée en mode "Performance (%)" pour la vue 1D lit dailyTwr
-                // (pas twr) — il faut le corriger aussi, sinon la courbe reste sur l'ancien
-                // point historique pendant que PÉRIODE/VAR JOUR affichent déjà le live.
-                if (Array.isArray(graphData.dailyTwr) && graphData.dailyTwr.length > lastIndex) {
-                    graphData.dailyTwr[lastIndex] = liveTotal / anchor;
-                }
-            }
-            console.log(`[CHART LIVE SYNC] Dernier point de la courbe corrigé au live: ${liveTotal.toFixed(2)}€`);
-        }
+        // SINGLE SOURCE OF TRUTH : LE GRAPHIQUE (données historiques réelles) EST LA
+        // VÉRITÉ. On ne substitue plus jamais son dernier point par une valeur "live"
+        // recalculée séparément (via les prix stockés) : cette substitution provoquait
+        // une fausse chute visible en fin de courbe dès que le prix live d'un titre
+        // (ex: actifs peu liquides/difficiles à coter) divergeait de la série
+        // historique réelle. displayValues/twr/dailyTwr restent tels que l'API
+        // d'historique les a fournis, sans correction.
 
         let perfAbs = 0, perfPct = 0, priceStart = 0, priceEnd = 0, priceHigh = -Infinity, priceLow = Infinity;
         const decimals = (isUnitView || isIndexMode) ? 4 : 2;
@@ -925,26 +933,22 @@ export class HistoricalChart {
 
         if (priceEnd !== null && !isNaN(priceEnd) && !isUnitView && referenceClose) {
             if (this.currentPeriod === 1 && !isSingleAsset && !isIndexMode) {
-                // SINGLE SOURCE OF TRUTH pour VAR TODAY : summary.totalDayChangeEUR,
-                // calculé via calculateHoldings+calculateSummary avec le yesterdayCloseMap
-                // unifié — EXACTEMENT la même donnée par-ticker que la colonne "Day P&L"
-                // du tableau, donc garanti égal à sa somme.
-                // NE PAS utiliser perfAbs ici : perfAbs dérive de "CLÔTURE HIER"
-                // (displayedYesterdayClose/twrDenominator), qui peut être recalée sur la
-                // valeur du tout premier point intraday du jour (logique de la courbe,
-                // voir "TWR BASE" plus bas) plutôt que sur la vraie clôture de la veille —
-                // ce n'est pas la même référence que celle utilisée par le tableau, et les
-                // deux peuvent donc diverger (PÉRIODE peut légitimement différer de VAR
-                // JOUR : ce sont deux métriques différentes — "depuis le 1er point tracé"
-                // vs "depuis la vraie clôture d'hier").
-                if (summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
-                    vsYesterdayAbs = summary.totalDayChangeEUR;
-                    vsYesterdayPct = summary.dayChangePct || 0;
-                    console.log(`[VAR TODAY 1D] Using summary.totalDayChangeEUR (table-consistent): ${vsYesterdayAbs.toFixed(2)}€`);
-                } else if (!isNaN(perfAbs) && priceEnd !== null) {
+                // SINGLE SOURCE OF TRUTH pour VAR TODAY : LE GRAPHIQUE (perfAbs/perfPct,
+                // calculés plus haut à partir des données historiques RÉELLES de la
+                // courbe, jamais modifiées). On n'utilise plus summary.totalDayChangeEUR
+                // en priorité : il mélange une clôture-veille historique avec un prix
+                // "aujourd'hui" live (storage.getCurrentPrice), qui s'est avéré faux pour
+                // des titres difficiles à coter (ex: SpaceX, AST SpaceMobile — comparé au
+                // vrai relevé de courtier). Le graphique n'utilise que l'historique réel
+                // de bout en bout : c'est la seule source fiable ici.
+                if (!isNaN(perfAbs) && priceEnd !== null) {
                     vsYesterdayAbs = perfAbs;
                     vsYesterdayPct = perfPct;
-                    console.log(`[VAR TODAY 1D] Fallback perfAbs: ${vsYesterdayAbs.toFixed(2)}€`);
+                    console.log(`[VAR TODAY 1D] Using graph perfAbs (données historiques réelles): ${vsYesterdayAbs.toFixed(2)}€`);
+                } else if (summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
+                    vsYesterdayAbs = summary.totalDayChangeEUR;
+                    vsYesterdayPct = summary.dayChangePct || 0;
+                    console.log(`[VAR TODAY 1D] Fallback summary.totalDayChangeEUR: ${vsYesterdayAbs.toFixed(2)}€`);
                 }
 
                 // CACHE 1D values to prevent Top KPI jumps when switching periods
