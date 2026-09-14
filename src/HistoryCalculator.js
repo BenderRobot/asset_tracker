@@ -681,9 +681,9 @@ export class HistoryCalculator {
                         if (priceData && priceData.previousClose > 0) midnightPrice = priceData.previousClose;
                     }
 
-                    // Fallback: chercher dans l'historique
+                    // Fallback: chercher dans l'historique (jamais vers le futur pour une action)
                     if (!midnightPrice) {
-                        midnightPrice = findClosestPrice(hist, displayStartTs - 3600000, '1h');
+                        midnightPrice = findClosestPrice(hist, displayStartTs - 3600000, '1h', false);
                     }
 
                     if (midnightPrice && midnightPrice > 0) {
@@ -779,9 +779,9 @@ export class HistoryCalculator {
                     let startPrice = null;
                     const hist = historicalDataMap.get(t);
 
-                    // Chercher le prix au premier timestamp
+                    // Chercher le prix au premier timestamp (jamais vers le futur pour une action)
                     if (hist) {
-                        startPrice = findClosestPrice(hist, firstTs, interval);
+                        startPrice = findClosestPrice(hist, firstTs, interval, isCryptoTicker(t));
                     }
 
                     // Fallback: utiliser lastKnownPrices
@@ -947,7 +947,12 @@ export class HistoryCalculator {
                         if (hist[ts]) {
                             price = hist[ts];
                         } else {
-                            const closePrice = findClosestPrice(hist, ts, interval);
+                            // allowForward réservé à la crypto (24/7, données éparses le
+                            // week-end) — pour les actions, ne JAMAIS accrocher un prix
+                            // futur (ex: bougie lundi matin, souvent un print illiquide)
+                            // sur les points de nuit du week-end : ça créait une fausse
+                            // chute/marche à la frontière du lundi sur les vues 1S+.
+                            const closePrice = findClosestPrice(hist, ts, interval, isCryptoTicker(t));
                             if (closePrice !== null) {
                                 price = closePrice;
                             } else if (lastKnownPrices.has(t)) {

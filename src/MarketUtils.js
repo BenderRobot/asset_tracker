@@ -270,9 +270,16 @@ export function formatTicker(ticker) {
  * @param {Object} hist - Map or Array of prices
  * @param {number} targetTs
  * @param {string} interval
+ * @param {boolean} [allowForward=true] - allow snapping to a future candle within
+ *   tolerance. Needed for crypto (sparse weekend data on a dense grid) — but for
+ *   stocks it lets a Monday-morning candle (often a thin/illiquid pre-market print)
+ *   leak backward onto Saturday/Sunday grid points, producing a fake cliff right at
+ *   the weekend boundary on any 1W+ view (the "bug lundi" already fixed for 1D/2D
+ *   elsewhere, but this generic distance search had no ticker-type awareness).
+ *   Callers should pass false for non-crypto tickers.
  * @returns {number|null}
  */
-export function findClosestPrice(hist, targetTs, interval) {
+export function findClosestPrice(hist, targetTs, interval, allowForward = true) {
     if (!hist) return null;
     const timestamps = Object.keys(hist).map(k => parseInt(k)).sort((a, b) => a - b);
     if (timestamps.length === 0) return null;
@@ -287,13 +294,15 @@ export function findClosestPrice(hist, targetTs, interval) {
     // CRITICAL: For 1W view (15m interval), we need MUCH larger tolerance because crypto weekend data
     // is sparse (1 point every 2-3 hours) but our uniform grid generates points every 15 minutes.
     // If tolerance is too strict, grid points can't find nearby data → fallback to Friday close → flatline!
-    let forwardTolerance = 3600000; // Default 1h
-    if (interval === '5m') forwardTolerance = 300000;        // 5 min (intraday, dense data)
-    else if (interval === '15m') forwardTolerance = 10800000; // 3 HOURS (for sparse weekend crypto on 1W grid)
-    else if (interval === '30m') forwardTolerance = 10800000; // 3 hours
-    else if (interval === '1h' || interval === '60m' || interval === '90m') forwardTolerance = 14400000; // 4 hours
-    else if (interval === '1d') forwardTolerance = 172800000; // 2 days
-    else if (interval === '1wk') forwardTolerance = 604800000; // 1 week
+    let forwardTolerance = allowForward ? 3600000 : 0; // Default 1h (0 = never snap forward)
+    if (allowForward) {
+        if (interval === '5m') forwardTolerance = 300000;        // 5 min (intraday, dense data)
+        else if (interval === '15m') forwardTolerance = 10800000; // 3 HOURS (for sparse weekend crypto on 1W grid)
+        else if (interval === '30m') forwardTolerance = 10800000; // 3 hours
+        else if (interval === '1h' || interval === '60m' || interval === '90m') forwardTolerance = 14400000; // 4 hours
+        else if (interval === '1d') forwardTolerance = 172800000; // 2 days
+        else if (interval === '1wk') forwardTolerance = 604800000; // 1 week
+    }
 
     let bestTs = null;
     let minDiff = Infinity;
