@@ -249,6 +249,29 @@ export class HistoricalChart {
         if (!canvas) return;
 
         this.isLoading = true;
+
+        // BUG DE FUITE DE CACHE ENTRE FILTRES : cached1DTotalValue/cached1DVarToday sont
+        // des valeurs "dernier 1D vu", réutilisées sur les périodes >1J pour ne pas faire
+        // sauter les cartes. Mais elles ne connaissaient pas le FILTRE actif (courtier/type/
+        // tickers) : changer de courtier tout en restant sur un onglet 2J/1S affichait les
+        // KPI du haut d'un AUTRE filtre (ex: Total Value d'un portefeuille précédent sur un
+        // filtre qui ne contient qu'un seul actif). On invalide donc ces caches dès que le
+        // contexte filtré change.
+        const filterSignature = JSON.stringify({
+            mode: this.currentMode,
+            assets: this.selectedAssets,
+            broker: this.investmentsPage?.currentBrokerFilter,
+            assetType: this.investmentsPage?.currentAssetTypeFilter,
+            search: this.investmentsPage?.currentSearchQuery,
+            tickers: this.filterManager ? Array.from(this.filterManager.getSelectedTickers()).sort() : []
+        });
+        if (this._lastFilterSignature !== undefined && this._lastFilterSignature !== filterSignature) {
+            this.cached1DTotalValue = undefined;
+            this.cached1DVarToday = undefined;
+            this.cached1DVarTodayPct = undefined;
+        }
+        this._lastFilterSignature = filterSignature;
+
         const loading = document.getElementById('chart-loading');
         const info = document.getElementById('chart-info');
         const benchmarkWrapper = document.getElementById('benchmark-wrapper');
