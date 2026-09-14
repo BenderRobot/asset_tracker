@@ -925,21 +925,26 @@ export class HistoricalChart {
 
         if (priceEnd !== null && !isNaN(priceEnd) && !isUnitView && referenceClose) {
             if (this.currentPeriod === 1 && !isSingleAsset && !isIndexMode) {
-                // SINGLE SOURCE OF TRUTH : le graphique EST la vérité. perfAbs/perfPct sont
-                // calculés (plus haut) à partir du dernier point de la courbe — désormais
-                // corrigé au live (voir injection avant le calcul de perfAbs/perfPct) — donc
-                // PÉRIODE et VAR JOUR utilisent maintenant EXACTEMENT le même chiffre, et ce
-                // chiffre coïncide avec la somme de la colonne "Day P&L" du tableau puisque
-                // les deux partagent désormais la même clôture de référence ET le même total
-                // live. summary.totalDayChangeEUR ne sert plus que de filet de secours.
-                if (!isNaN(perfAbs) && priceEnd !== null) {
-                    vsYesterdayAbs = perfAbs;
-                    vsYesterdayPct = perfPct;
-                    console.log(`[VAR TODAY 1D] Using graph perfAbs (live-synced): ${vsYesterdayAbs.toFixed(2)}€`);
-                } else if (summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
+                // SINGLE SOURCE OF TRUTH pour VAR TODAY : summary.totalDayChangeEUR,
+                // calculé via calculateHoldings+calculateSummary avec le yesterdayCloseMap
+                // unifié — EXACTEMENT la même donnée par-ticker que la colonne "Day P&L"
+                // du tableau, donc garanti égal à sa somme.
+                // NE PAS utiliser perfAbs ici : perfAbs dérive de "CLÔTURE HIER"
+                // (displayedYesterdayClose/twrDenominator), qui peut être recalée sur la
+                // valeur du tout premier point intraday du jour (logique de la courbe,
+                // voir "TWR BASE" plus bas) plutôt que sur la vraie clôture de la veille —
+                // ce n'est pas la même référence que celle utilisée par le tableau, et les
+                // deux peuvent donc diverger (PÉRIODE peut légitimement différer de VAR
+                // JOUR : ce sont deux métriques différentes — "depuis le 1er point tracé"
+                // vs "depuis la vraie clôture d'hier").
+                if (summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
                     vsYesterdayAbs = summary.totalDayChangeEUR;
                     vsYesterdayPct = summary.dayChangePct || 0;
-                    console.log(`[VAR TODAY 1D] Fallback summary.totalDayChangeEUR: ${vsYesterdayAbs.toFixed(2)}€`);
+                    console.log(`[VAR TODAY 1D] Using summary.totalDayChangeEUR (table-consistent): ${vsYesterdayAbs.toFixed(2)}€`);
+                } else if (!isNaN(perfAbs) && priceEnd !== null) {
+                    vsYesterdayAbs = perfAbs;
+                    vsYesterdayPct = perfPct;
+                    console.log(`[VAR TODAY 1D] Fallback perfAbs: ${vsYesterdayAbs.toFixed(2)}€`);
                 }
 
                 // CACHE 1D values to prevent Top KPI jumps when switching periods

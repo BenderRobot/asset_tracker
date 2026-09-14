@@ -60,6 +60,11 @@ class DashboardApp {
             currentAssetTypeFilter: '',
             currentBrokerFilter: '',
             getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'Chart' }),
+            // Dashboard n'a pas de filtres ticker/type/courtier (toujours portefeuille
+            // global) — historicalChart.js délègue maintenant à getFilteredPurchasesFromPage
+            // de la "page" pour éviter un doublon avec investmentsPage.js ; ce mock doit donc
+            // fournir la même méthode (sans filtre = tous les achats).
+            getFilteredPurchasesFromPage: (ignoreTickerFilter) => this.storage.getPurchases(),
             renderData: (holdings, summary, cash) => {
                 // CRITICAL: DO NOT update main KPIs here anymore!
                 // Main KPIs (Total Value, Return, Var Today) are now managed by portfolioKPIs
@@ -640,6 +645,7 @@ class DashboardApp {
                 currentAssetTypeFilter: this.mockPageInterface.currentAssetTypeFilter,
                 currentBrokerFilter: this.mockPageInterface.currentBrokerFilter,
                 getChartTitleConfig: this.mockPageInterface.getChartTitleConfig,
+                getFilteredPurchasesFromPage: this.mockPageInterface.getFilteredPurchasesFromPage,
                 renderData: this.mockPageInterface.renderData
             };
 
