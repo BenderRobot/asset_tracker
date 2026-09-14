@@ -60,42 +60,19 @@ export class InvestmentsPage {
 
       console.log('[Investments] ✅ Displaying KPIs from graph:', kpis);
 
-      // Helper function to format currency
-      const fmt = (value) => {
-        const formatted = Math.abs(value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-        return value >= 0 ? `${formatted} €` : `-${formatted} €`;
+      // SINGLE SOURCE OF TRUTH pour le formatage : délègue à ui.updateTopKPIs
+      // (au lieu d'une 2e copie de fmt/fmtPct/updateEl). kpis.totalValue inclut
+      // déjà le cash (voir portfolioKPIs.js) → cashReserveTotal=0 ici pour ne
+      // pas le compter deux fois.
+      const adaptedSummary = {
+        totalCurrentEUR: kpis.totalValue,
+        totalInvestedEUR: kpis.invested,
+        gainTotal: kpis.totalReturn,
+        gainPct: kpis.totalReturnPct,
+        totalDayChangeEUR: kpis.varToday,
+        dayChangePct: kpis.varTodayPct
       };
-
-      const fmtPct = (value) => {
-        return `${value >= 0 ? '+' : ''}${value.toFixed(2)} %`;
-      };
-
-      const updateEl = (id, text) => {
-        const el = document.getElementById(id);
-        if (el) {
-          el.innerHTML = text; // Use innerHTML to support spans if needed
-        }
-      };
-
-      // 1. Total Value
-      updateEl('total-current', kpis.totalValue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €');
-
-      const investedEl = document.getElementById('invested');
-      if (investedEl) {
-        investedEl.textContent = `Invested: ${kpis.invested.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
-      }
-
-      // 2. Total Return
-      const gainColor = kpis.totalReturn >= 0 ? '#10b981' : '#ef4444';
-      updateEl('total-gain-loss', `<span style="color: ${gainColor}">${kpis.totalReturn.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}</span>`);
-      updateEl('total-gain-pct', `<span style="color: ${gainColor}">${fmtPct(kpis.totalReturnPct)}</span>`);
-
-      // 3. Var Today
-      const dayColor = kpis.varToday >= 0 ? '#10b981' : '#ef4444';
-      updateEl('total-invested', `<span style="color: ${dayColor}">${kpis.varToday.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}</span>`);
-
-      // Var Today Pct (ID is avg-cost-per-share... terrible naming but correct)
-      updateEl('avg-cost-per-share', `<span style="color: ${dayColor}">${fmtPct(kpis.varTodayPct)}</span>`);
+      this.ui.updateTopKPIs(adaptedSummary, 0, this.marketStatus);
 
       console.log('[Investments] ✅ KPIs displayed successfully via IDs');
     };
@@ -319,29 +296,28 @@ export class InvestmentsPage {
   }
 
 
+  // Seul filtre encore nécessaire ici : les "positions poussière" (quantité/valeur
+  // quasi nulles), un concept propre aux holdings déjà agrégés, sans équivalent au
+  // niveau des achats. Le filtrage ticker/type/courtier est déjà fait EN AMONT, sur
+  // les achats, par getFilteredPurchasesFromPage (SINGLE SOURCE OF TRUTH partagée
+  // avec historicalChart.js) — le re-vérifier ici sur les holdings déjà agrégés
+  // était redondant et pouvait diverger de ce que le graphique affichait pour un
+  // même filtre actif (ex: un ticker détenu chez 2 courtiers, filtré sur un seul).
+  filterVisibleHoldings(holdings) {
+    return holdings.filter(h => {
+      if (h.quantity <= 0.0001) return false;
+      if (h.currentValue !== null && Math.abs(h.currentValue) < 0.50 && Math.abs(h.quantity) < 0.01) return false;
+      return true;
+    });
+  }
+
   renderData(holdings, summary, cashReserveTotal, chartStats = null) { // <-- MODIFIÉ
     this.currentHoldings = holdings;
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
 
     const selectedTickers = this.filterManager.getSelectedTickers();
-
-    let filteredHoldings = this.currentHoldings.filter(h => {
-      // CRITICAL FIX: Hide assets with zero quantity, or "dust" positions (fully sold positions with fractional remainder)
-      // We hide assets if their value is less than 0.50€ and quantity is tiny (< 0.01), to clean up the table
-      if (h.quantity <= 0.0001) return false;
-      if (h.currentValue !== null && Math.abs(h.currentValue) < 0.50 && Math.abs(h.quantity) < 0.01) return false;
-
-      if (selectedTickers.size > 0) {
-        if (!selectedTickers.has(h.ticker.toUpperCase())) return false;
-      }
-      const assetType = h.purchases[0]?.assetType || 'Stock';
-      const brokers = [...new Set(h.purchases.map(p => p.broker || 'RV-CT'))];
-
-      if (this.currentAssetTypeFilter && assetType !== this.currentAssetTypeFilter) return false;
-      if (this.currentBrokerFilter && !brokers.includes(this.currentBrokerFilter)) return false;
-      return true;
-    });
+    let filteredHoldings = this.filterVisibleHoldings(this.currentHoldings);
 
     filteredHoldings.sort((a, b) => {
       const valA = a[this.sortColumn] ?? -Infinity;
@@ -481,17 +457,10 @@ export class InvestmentsPage {
 
     // CRITICAL FIX: GRAPH IS THE SINGLE SOURCE OF TRUTH FOR ALL KPIs
     // Override ALL summary values with chart values to ensure consistency with Dashboard
-    // Dashboard's syncSummaryWithChartData does this, so we must do the same
     const isSingleAssetView = filteredHoldings.length === 1;
 
     if (!isSingleAssetView && effectiveChartStats) {
       // Full portfolio view: Use chart's values (SINGLE SOURCE OF TRUTH)
-
-      // 1. Total Value: Use last value from graph (if available)
-      if (effectiveChartStats.lastValue !== undefined && effectiveChartStats.lastValue !== null) {
-        finalSummary.totalCurrentEUR = effectiveChartStats.lastValue;
-        console.log(`[Investments] ✅ Total Value from graph: ${effectiveChartStats.lastValue.toFixed(2)}€`);
-      }
 
       // 2. Total Return: Recalculate based on graph's Total Value
       if (finalSummary.totalInvestedEUR) {
@@ -515,7 +484,9 @@ export class InvestmentsPage {
     // --- FIN LOGIQUE D'ÉCRASEMENT ---
 
     // === MODIF : Passage de marketStatus (utilise finalSummary) ===
-    this.ui.updatePortfolioSummary(finalSummary, filteredSummary.movementsCount, cashReserveTotal, this.marketStatus);
+    // Les 5 KPI du haut sont écrits UNIQUEMENT par le listener portfolioKPIs
+    // (subscribeToKPIs ci-dessus) — plus de double écriture ici.
+    this.ui.updateSecondaryKPIs(finalSummary, filteredSummary.movementsCount, cashReserveTotal);
 
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;

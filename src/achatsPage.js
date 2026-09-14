@@ -181,7 +181,11 @@ export class AchatsPage {
     }).join('') || '<tr><td colspan="16">Aucune transaction.</td></tr>';
 
     // 6. Calculer le résumé et le cash
-    const holdings = this.dataManager.calculateHoldings(assetPurchases);
+    // SINGLE SOURCE OF TRUTH pour la clôture de la veille (même moteur que
+    // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
+    const yesterdayCloseAssetPurchases = assetPurchases.filter(p => p.type !== 'dividend');
+    const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(yesterdayCloseAssetPurchases);
+    const holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap);
     const summary = this.dataManager.calculateSummary(holdings);
     const globalCashReserve = this.dataManager.calculateCashReserve(this.storage.getPurchases());
 

@@ -174,49 +174,19 @@ class DashboardApp {
 
             console.log('[Dashboard] ✅ Displaying KPIs from graph:', kpis);
 
-            // Helper function to format currency
-            const fmt = (value) => {
-                const formatted = Math.abs(value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-                return value >= 0 ? `${formatted} €` : `-${formatted} €`;
+            // SINGLE SOURCE OF TRUTH pour le formatage : délègue à ui.updateTopKPIs
+            // (au lieu d'une 2e copie de fmt/fmtPct/updateEl). kpis.totalValue inclut
+            // déjà le cash (voir portfolioKPIs.js) → cashReserveTotal=0 ici pour ne
+            // pas le compter deux fois.
+            const adaptedSummary = {
+                totalCurrentEUR: kpis.totalValue,
+                totalInvestedEUR: kpis.invested,
+                gainTotal: kpis.totalReturn,
+                gainPct: kpis.totalReturnPct,
+                totalDayChangeEUR: kpis.varToday,
+                dayChangePct: kpis.varTodayPct
             };
-
-            const fmtPct = (value) => {
-                return `${value >= 0 ? '+' : ''}${value.toFixed(2)} %`;
-            };
-
-            const updateEl = (id, text, colorClass = null) => {
-                const el = document.getElementById(id);
-                if (el) {
-                    el.innerHTML = text; // Use innerHTML to support spans if needed
-                    if (colorClass) {
-                        // Remove old color classes
-                        el.classList.remove('positive', 'negative', 'neutral');
-                        // Add new color class if it's a simple element,
-                        // BUT for some elements like total-gain-loss, coloring is inline or specific.
-                        // Let's rely on the HTML structure from ui.js reference.
-                    }
-                }
-            };
-
-            // 1. Total Value
-            updateEl('total-current', kpis.totalValue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €');
-
-            const investedEl = document.getElementById('invested');
-            if (investedEl) {
-                investedEl.textContent = `Invested: ${kpis.invested.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
-            }
-
-            // 2. Total Return
-            const gainColor = kpis.totalReturn >= 0 ? '#10b981' : '#ef4444';
-            updateEl('total-gain-loss', `<span style="color: ${gainColor}">${kpis.totalReturn.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}</span>`);
-            updateEl('total-gain-pct', `<span style="color: ${gainColor}">${fmtPct(kpis.totalReturnPct)}</span>`);
-
-            // 3. Var Today
-            const dayColor = kpis.varToday >= 0 ? '#10b981' : '#ef4444';
-            updateEl('total-invested', `<span style="color: ${dayColor}">${kpis.varToday.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}</span>`);
-
-            // Var Today Pct (ID is avg-cost-per-share... terrible naming but correct)
-            updateEl('avg-cost-per-share', `<span style="color: ${dayColor}">${fmtPct(kpis.varTodayPct)}</span>`);
+            this.ui.updateTopKPIs(adaptedSummary, 0, this.marketStatus);
 
             console.log('[Dashboard] ✅ KPIs displayed successfully via IDs');
         };
@@ -917,10 +887,14 @@ class DashboardApp {
         // NOTE: Les 3 cartes principales (Total Value, Return, Var Today) sont mises à jour ailleurs.
 
         // --- 1. Nettoyage des anciennes KPIs (Top Gainer, Top Loser, Top Holdings) ---
-        const topGainers = [...holdings].sort((a, b) => b.gainPct - a.gainPct).slice(0, 3);
+        // SINGLE SOURCE OF TRUTH : topPerformers/worstPerformers viennent de
+        // dataManager.calculateSummary (même tri que bestAsset/worstAsset) — on ne
+        // re-trie plus holdings ici indépendamment. Fallback pour les appelants qui
+        // ne fournissent pas encore ces champs (ex: zeroSummary, état vide).
+        const topGainers = data.topPerformers || [...holdings].sort((a, b) => b.gainPct - a.gainPct).slice(0, 3);
         this.injectListIntoCard('dashboard-top-gainer-name', topGainers, 'gainer');
 
-        const topLosers = [...holdings].sort((a, b) => a.gainPct - b.gainPct).slice(0, 3);
+        const topLosers = data.worstPerformers || [...holdings].sort((a, b) => a.gainPct - b.gainPct).slice(0, 3);
         this.injectListIntoCard('dashboard-top-loser-name', topLosers, 'loser');
 
         // Rendu des Top Holdings (Top Sector devient Top Holdings)

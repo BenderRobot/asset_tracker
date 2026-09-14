@@ -1,10 +1,13 @@
 import { Storage } from './storage.js';
 import { UIComponents } from './ui.js';
 import { MortgageCalculator } from './mortgageCalculator.js';
+import { DataManager } from './dataManager.js';
 
 export class RealEstateApp {
     constructor() {
         this.storage = new Storage();
+        // Pas besoin d'api ici : seule calculateRealEstateAccrual (pure, sans I/O) est utilisée.
+        this.dataManager = new DataManager(this.storage, null);
         this.chart = null;
     }
 
@@ -44,15 +47,11 @@ export class RealEstateApp {
 
         const processedProjects = projects.map(p => {
             const startDate = new Date(p.date);
-            const invested = p.price * p.quantity;
             const yieldPct = p.yield || 0;
             const maturityDate = p.maturityDate ? new Date(p.maturityDate) : null;
 
-            // Calcul Intérêts Courus (Simple Interest)
-            // Formule: Investi * (Taux/100) * (Jours / 365)
-            const daysHeld = Math.max(0, (today - startDate) / (1000 * 60 * 60 * 24));
-            const accrued = invested * (yieldPct / 100) * (daysHeld / 365);
-            const currentVal = invested + accrued;
+            // Calcul Intérêts Courus (Simple Interest) — SINGLE SOURCE OF TRUTH
+            const { invested, accrued, currentValue: currentVal, daysHeld } = this.dataManager.calculateRealEstateAccrual(p, today);
 
             // Calcul Avancement (Durée écoulée / Durée totale)
             let progress = 0;

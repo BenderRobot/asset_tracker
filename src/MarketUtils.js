@@ -136,6 +136,124 @@ export function isStockRegularSession(ticker, timestamp, currency = 'EUR') {
 }
 
 /**
+ * Timestamp (ms) of the "previous close" cutoff for a given ticker/refDate.
+ * Crypto/cash trade 24/7 so their reference is the calendar day boundary
+ * (refDate - 1 day, 23:59:59.999); stocks have no weekend quotes so their
+ * reference stays the last trading day. SINGLE SOURCE OF TRUTH for this rule —
+ * used by every previousClose resolver in the app (portfolio holdings, index
+ * cards, dashboard market cards).
+ * @param {string} ticker
+ * @param {Date} [refDate]
+ * @returns {number}
+ */
+export function getCloseCutoffForTicker(ticker, refDate = new Date()) {
+    if (ticker.startsWith('CASH-') || isCryptoTicker(ticker)) {
+        return getCalendarYesterdayClose(refDate).getTime();
+    }
+    const d = getLastTradingDay(refDate);
+    d.setHours(23, 59, 59, 999);
+    return d.getTime();
+}
+
+/**
+ * Resolves a single ticker's "previous close" price (native currency, unit
+ * price — no quantity/FX applied). SINGLE SOURCE OF TRUTH: previously
+ * duplicated across HistoryCalculator's portfolio resolver, the index-card
+ * fetcher and the dashboard market-card fetcher — now the one implementation
+ * all three call.
+ *
+ * Priority: live storage.previousClose (if preferLiveClose, non-crypto) →
+ * last candle in `historicalDataMap` at/before the cutoff → an optional short
+ * fetch of daily candles (only if `allowFetch` and no map was supplied) →
+ * storage.previousClose → storage.price (last-resort, never returns 0/null
+ * for a ticker that has ANY price data).
+ *
+ * @param {string} ticker
+ * @param {Object} opts
+ * @param {Object} opts.storage - app Storage instance (getCurrentPrice)
+ * @param {Object} [opts.api] - app Api instance (getHistoricalPricesWithRetry), required if allowFetch
+ * @param {Date} [opts.refDate]
+ * @param {boolean} [opts.preferLiveClose]
+ * @param {Object|null} [opts.historicalDataMap] - {timestampMs: price} for this ticker, already fetched by the caller
+ * @param {boolean} [opts.allowFetch] - if true and no historicalDataMap, fetch ~7d of daily candles
+ * @returns {Promise<{closePrice: number|null, cutoffTs: number}>}
+ */
+export async function resolveTickerPreviousClose(ticker, {
+    storage,
+    api = null,
+    refDate = new Date(),
+    preferLiveClose = false,
+    historicalDataMap = null,
+    allowFetch = false
+} = {}) {
+    const cutoffTs = getCloseCutoffForTicker(ticker, refDate);
+    let closePrice = null;
+
+    const findLastAtOrBefore = (hist, cutoff) => {
+        if (!hist) return null;
+        const keys = Object.keys(hist).map(Number).sort((a, b) => a - b);
+        let bestTs = null;
+        for (const ts of keys) {
+            if (ts <= cutoff) bestTs = ts; else break;
+        }
+        return bestTs !== null ? hist[bestTs] : null;
+    };
+
+    if (preferLiveClose && !isCryptoTicker(ticker)) {
+        const priceData = storage.getCurrentPrice(ticker);
+        if (priceData && priceData.previousClose > 0) closePrice = priceData.previousClose;
+    }
+
+    if ((!closePrice || closePrice <= 0) && historicalDataMap) {
+        const found = findLastAtOrBefore(historicalDataMap, cutoffTs);
+        if (found !== null) closePrice = found;
+    }
+
+    if ((!closePrice || closePrice <= 0) && allowFetch && !historicalDataMap && api) {
+        const hist = await api.getHistoricalPricesWithRetry(
+            formatTicker(ticker),
+            Math.floor(cutoffTs / 1000) - 7 * 86400,
+            Math.floor(cutoffTs / 1000),
+            '1d'
+        );
+        const found = findLastAtOrBefore(hist, cutoffTs);
+        if (found !== null) closePrice = found;
+    }
+
+    if (!closePrice || closePrice <= 0) {
+        const priceData = storage.getCurrentPrice(ticker);
+        if (priceData && priceData.previousClose > 0) closePrice = priceData.previousClose;
+    }
+    if (!closePrice || closePrice <= 0) {
+        const priceData = storage.getCurrentPrice(ticker);
+        if (priceData && priceData.price > 0) closePrice = priceData.price;
+    }
+
+    return { closePrice: closePrice || null, cutoffTs };
+}
+
+/**
+ * Sums signed quantities for one ticker up to (and including) a cutoff date.
+ * Buys are positive, sells negative — pure "as of a past date" query.
+ * NOT the same question as "current quantity" (calculateHoldings' ledger walk,
+ * which also handles cost-basis) or HistoryCalculator's per-timestamp running
+ * totals (a different, incrementally-updated computation for performance
+ * reasons on the chart's hot path) — this is for one-off, sparse lookups
+ * (e.g. dividend quantity-held-at-ex-date).
+ * @param {Array} purchases
+ * @param {string} ticker
+ * @param {Date|string} cutoffDate
+ * @returns {number}
+ */
+export function getQuantityAtDate(purchases, ticker, cutoffDate) {
+    const cutoffTs = (cutoffDate instanceof Date ? cutoffDate : new Date(cutoffDate)).getTime();
+    return purchases
+        .filter(p => p.ticker === ticker && p.type !== 'dividend')
+        .filter(p => new Date(p.date).getTime() <= cutoffTs)
+        .reduce((qty, p) => qty + parseFloat(p.quantity), 0);
+}
+
+/**
  * Formats ticker for display (removes suffix).
  * @param {string} ticker
  * @returns {string}

@@ -1,6 +1,7 @@
 // ========================================
 // chartKPIManager.js - Gestionnaire des KPIs du graphique
 // ========================================
+import { resolveTickerPreviousClose } from './MarketUtils.js';
 
 /**
  * Classe responsable de la gestion et de l'affichage des KPIs (statistiques)
@@ -73,29 +74,16 @@ export class ChartKPIManager {
                 '1d'
             );
 
-            const dailyTimestamps = Object.keys(dailyHist).map(Number).sort((a, b) => a - b);
-
-            // Robust Date Matching Strategy (Time-zone safe)
-            // Determine if the last daily candle is "Today" (Current Session)
-            const todayStartTs = new Date();
-            todayStartTs.setHours(0, 0, 0, 0);
-            const thresholdTs = todayStartTs.getTime() - (6 * 60 * 60 * 1000); // Allow start as early as 18:00 previous day (Forex)
-
-            if (dailyTimestamps.length > 0) {
-                const lastTs = dailyTimestamps[dailyTimestamps.length - 1];
-
-                // If last candle is recent (>= Today 00:00 - 6h), it's the current session -> Take previous
-                if (lastTs >= thresholdTs) {
-                    if (dailyTimestamps.length >= 2) {
-                        truePreviousClose = dailyHist[dailyTimestamps[dailyTimestamps.length - 2]];
-                        console.log(`[ChartKPIManager ${ticker}] Last candle identified as TODAY (ts=${new Date(lastTs).toLocaleString()}). Using D-1.`);
-                    }
-                } else {
-                    // Last candle is older (Yesterday or before) -> It IS the previous close
-                    truePreviousClose = dailyHist[lastTs];
-                    console.log(`[ChartKPIManager ${ticker}] Last candle identified as OLD/PREVIOUS (ts=${new Date(lastTs).toLocaleString()}). Using it.`);
-                }
-            }
+            // SINGLE SOURCE OF TRUTH — même résolveur que le portefeuille
+            // (MarketUtils.resolveTickerPreviousClose), au lieu d'une classification
+            // par seuil de 6h. On réutilise dailyHist déjà récupéré (aucun fetch
+            // supplémentaire).
+            const { closePrice } = await resolveTickerPreviousClose(ticker, {
+                storage: this.storage,
+                refDate: new Date(),
+                historicalDataMap: dailyHist
+            });
+            truePreviousClose = closePrice;
 
             if (truePreviousClose) {
                 console.log(`[ChartKPIManager ${ticker}] True Previous Close (Date Match):`, truePreviousClose);
@@ -146,19 +134,13 @@ export class ChartKPIManager {
 
             // Recalculer le truePreviousClose pour ce jour de repli (J-1 par rapport au fallback)
             if (dailyHist) {
-                const fallbackDateStart = lastStartTs;
-                // Trouver la bougie journalière juste avant ce jour de fallback
-                const sortedDailyTs = Object.keys(dailyHist).map(Number).sort((a, b) => a - b);
-                let bestPrevTs = null;
-                for (let ts of sortedDailyTs) {
-                    if (ts < fallbackDateStart) {
-                        bestPrevTs = ts;
-                    } else {
-                        break;
-                    }
-                }
-                if (bestPrevTs) {
-                    truePreviousClose = dailyHist[bestPrevTs];
+                const { closePrice: fallbackClose } = await resolveTickerPreviousClose(ticker, {
+                    storage: this.storage,
+                    refDate: lastTradingDay,
+                    historicalDataMap: dailyHist
+                });
+                if (fallbackClose) {
+                    truePreviousClose = fallbackClose;
                     console.log(`[ChartKPIManager ${ticker}] Fallback True Previous Close (D-2):`, truePreviousClose);
                 }
             }

@@ -8,11 +8,12 @@ import {
     getIntervalForPeriod,
     getLabelFormat,
     getLastTradingDay,
-    getCalendarYesterdayClose,
     isCryptoTicker,
     isMixedPortfolio,
     findClosestPrice,
-    formatTicker
+    formatTicker,
+    resolveTickerPreviousClose,
+    getCloseCutoffForTicker
 } from './MarketUtils.js';
 
 export class HistoryCalculator {
@@ -586,21 +587,16 @@ export class HistoryCalculator {
         // civil (refDate - 1 jour, 23:59:59), pas le dernier jour BOURSIER (qui saute
         // le week-end). Les actions, elles, n'ont aucune cotation le week-end donc
         // leur "dernier jour de trading" reste la bonne référence.
-        const resolveCloseValueBeforeDay = (refDate, label = '', preferLiveClose = false) => {
-            const cutoffForTicker = (t) => {
-                if (t.startsWith('CASH-') || isCryptoTicker(t)) {
-                    return getCalendarYesterdayClose(refDate).getTime();
-                }
-                const lastTradingDayForTicker = getLastTradingDay(refDate);
-                lastTradingDayForTicker.setHours(23, 59, 59, 999);
-                return lastTradingDayForTicker.getTime();
-            };
-
+        // SINGLE SOURCE OF TRUTH : la résolution par ticker (cutoff + chaîne de fallback)
+        // vit désormais dans MarketUtils.resolveTickerPreviousClose, partagée avec les
+        // cartes indices/dashboard. Cette fonction ne fait plus qu'agréger le résultat par
+        // ticker en un total portefeuille (quantités détenues à la clôture + conversion FX).
+        const resolveCloseValueBeforeDay = async (refDate, label = '', preferLiveClose = false) => {
             const quantities = new Map();
             for (const t of tickers) quantities.set(t, 0);
 
             for (const [t, buyList] of assetMap.entries()) {
-                const cutoffTs = cutoffForTicker(t);
+                const cutoffTs = getCloseCutoffForTicker(t, refDate);
                 for (const buy of buyList) {
                     if (buy.date.getTime() <= cutoffTs) {
                         quantities.set(t, quantities.get(t) + buy.quantity);
@@ -623,47 +619,12 @@ export class HistoryCalculator {
                         continue;
                     }
 
-                    const cutoffTs = cutoffForTicker(t);
-                    let closePrice = null;
-
-                    // Pour la référence "clôture d'hier" du jour affiché (1D/2D), on privilégie
-                    // storage.previousClose (le previousClose Yahoo faisant autorité, déjà utilisé
-                    // sans condition par lastKnownPrices/le rendu du graphique pour ces mêmes vues).
-                    // Sans ça, un titre peu liquide sans bougie récente dans historicalDataMap peut
-                    // faire remonter un prix périmé de plusieurs jours (cf. ticker sans cotation le
-                    // jeudi), désynchronisant "CLÔTURE HIER" du premier point réellement affiché.
-                    if (preferLiveClose && !isCryptoTicker(t)) {
-                        const priceData = this.storage.getCurrentPrice(t);
-                        if (priceData && priceData.previousClose > 0) closePrice = priceData.previousClose;
-                    }
-
-                    // Chercher dans historicalDataMap le dernier prix AVANT ou égal au cutoff
-                    // (pas le plus proche - on veut le prix de clôture, pas le lendemain matin)
-                    if (!closePrice || closePrice <= 0) {
-                        const hist = historicalDataMap.get(t);
-                        if (hist) {
-                            const histKeys = Object.keys(hist).map(Number).sort((a, b) => a - b);
-                            let bestTs = null;
-                            for (const ts of histKeys) {
-                                if (ts <= cutoffTs) {
-                                    bestTs = ts;
-                                } else {
-                                    break;
-                                }
-                            }
-                            if (bestTs !== null) closePrice = hist[bestTs];
-                        }
-                    }
-
-                    // Fallback: storage.previousClose, puis prix actuel
-                    if (!closePrice || closePrice <= 0) {
-                        const priceData = this.storage.getCurrentPrice(t);
-                        if (priceData && priceData.previousClose > 0) closePrice = priceData.previousClose;
-                    }
-                    if (!closePrice || closePrice <= 0) {
-                        const priceData = this.storage.getCurrentPrice(t);
-                        if (priceData && priceData.price > 0) closePrice = priceData.price;
-                    }
+                    const { closePrice } = await resolveTickerPreviousClose(t, {
+                        storage: this.storage,
+                        refDate,
+                        preferLiveClose,
+                        historicalDataMap: historicalDataMap.get(t) || null
+                    });
 
                     if (closePrice && closePrice > 0) {
                         prices.set(t, closePrice);
@@ -695,7 +656,7 @@ export class HistoryCalculator {
         // source que lastKnownPrices utilise sans condition pour ces vues (voir plus bas), afin
         // que "CLÔTURE HIER" corresponde toujours au prix effectivement utilisé par le graphique
         // pour un titre peu liquide sans bougie récente dans historicalDataMap.
-        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)', days <= 2);
+        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = await resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)', days <= 2);
 
         // Injecter un prix synthétique à minuit pour les actions (pas de cotation avant l'ouverture).
         // Le lundi, lastMarketCloseTs = dimanche 23:59 → l'ancienne condition (< 1h) ne s'appliquait pas.
@@ -1060,7 +1021,7 @@ export class HistoryCalculator {
                         // lignes (ex: ligne peu liquide sans prix injecté) : on retombe sur le
                         // même resolveCloseValueBeforeDay que celui qui a servi à yesterdayClose,
                         // pour rester cohérent avec les KPI même dans ce cas dégradé.
-                        const { total: dailyBase } = resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey}, valorisation incomplète ${pricedHoldingsCount}/${expectedHoldingsCount})`, days <= 2);
+                        const { total: dailyBase } = await resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey}, valorisation incomplète ${pricedHoldingsCount}/${expectedHoldingsCount})`, days <= 2);
                         if (dailyBase > 0) resolvedDayBase = dailyBase;
                         // sinon: on ne fige rien, on retentera au prochain ts de ce même jour
                     }

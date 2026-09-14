@@ -3,6 +3,7 @@
 // ========================================
 import { YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE, PRICE_PROXY_URL } from './config.js?v=2';
 import { sleep } from './utils.js';
+import { resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js';
 
 // Les anciennes clés et proxys ont été retirés pour la sécurité
 
@@ -208,6 +209,11 @@ export class PriceAPI {
 
           if (isBitcoin) {
             // Pour Bitcoin : utiliser Minuit UTC comme référence (standard crypto)
+            // NOTE: laissé tel quel (pas migré sur resolveTickerPreviousClose) —
+            // l'ancrage UTC 24/7 est une sémantique différente du cutoff
+            // "dernier jour de bourse" que le résolveur partagé implémente pour
+            // les actifs cotés en semaine ; les unifier changerait le comportement
+            // sans pouvoir être vérifié en conditions réelles ici.
             const now = new Date();
             const midnightMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0);
 
@@ -224,22 +230,23 @@ export class PriceAPI {
               lastTradingDayClose = snapBeforeYesterday.price;
             }
           } else {
-            // Pour les indices : TOUJOURS utiliser J-1 comme référence
-            // On ne compare JAMAIS avec le prix du même jour
-            // Décalage de 4h pour éviter le bug des bougies 1d Yahoo à 22:00 UTC
-            const latestDate = new Date(snapshots[0].tsMs + 14400 * 1000);
-            const todayDate = new Date();
-            const isToday = latestDate.toDateString() === todayDate.toDateString();
+            // Pour les indices classiques : SINGLE SOURCE OF TRUTH — même résolveur
+            // que le portefeuille (MarketUtils.resolveTickerPreviousClose), au lieu
+            // d'une classification de bougies ad-hoc par position (snapshots[1]/[2]).
+            // On réutilise `hist` déjà récupéré ci-dessus (aucun fetch supplémentaire).
+            const previousCloseResult = await resolveTickerPreviousClose(ticker, {
+              storage: this.storage,
+              refDate: new Date(),
+              historicalDataMap: hist
+            });
+            truePreviousClose = previousCloseResult.closePrice;
 
-            if (isToday && snapshots.length > 1) {
-              // Aujourd'hui existe → previousClose = hier (snapshots[1])
-              truePreviousClose = snapshots[1].price;
-              lastTradingDayClose = snapshots.length > 2 ? snapshots[2].price : snapshots[1].price;
-            } else {
-              // Pas de données aujourd'hui → previousClose = dernier jour (snapshots[0])
-              truePreviousClose = snapshots[0].price;
-              lastTradingDayClose = snapshots.length > 1 ? snapshots[1].price : snapshots[0].price;
-            }
+            const lastTradingDayResult = await resolveTickerPreviousClose(ticker, {
+              storage: this.storage,
+              refDate: getLastTradingDay(new Date()),
+              historicalDataMap: hist
+            });
+            lastTradingDayClose = lastTradingDayResult.closePrice || truePreviousClose;
           }
 
           console.log(`[IndexDashboard ${ticker}] previousClose (J): ${truePreviousClose?.toFixed(4)}, lastTradingDayClose (J-1): ${lastTradingDayClose?.toFixed(4)}`);

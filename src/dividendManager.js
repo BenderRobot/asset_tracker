@@ -8,6 +8,7 @@
 // par le Cloudflare Worker de l'appli (PRICE_PROXY_URL), déjà utilisé pour les
 // prix, qui gère crumb/cookie Yahoo et le retry côté serveur — bien plus fiable.
 import { PRICE_PROXY_URL } from './config.js';
+import { getQuantityAtDate } from './MarketUtils.js';
 
 // Nombre de tickers scannés en parallèle. Le scan était strictement séquentiel
 // (un ticker après l'autre), ce qui rendait le scan très long dès que le
@@ -176,35 +177,14 @@ export class DividendManager {
     }
 
     /**
-     * Scan portfolio for missing dividends
-     * @returns {Promise<Array>} List of detected dividends tailored to user holdings
+     * Fetch EURUSD=X history (1 EUR = x USD), to convert USD dividends to EUR.
+     * SINGLE SOURCE OF TRUTH: thin wrapper over dataManager.fetchHistoricalFxRateMap
+     * (point-in-time FX, deliberately NOT the same as storage.getConversionRate's
+     * current-only rate — see that method's doc comment).
+     * @returns {Promise<Map<string, number>>} date (YYYY-MM-DD) -> rate
      */
     async fetchExchangeRates() {
-        // Fetch EURUSD=X history (1 EUR = x USD)
-        // We need this to convert USD dividends to EUR (USD / Rate = EUR)
-        const rates = new Map();
-        try {
-            const url = `${PRICE_PROXY_URL}?symbol=${encodeURIComponent('EURUSD=X')}&type=STOCK&range=5y&interval=1d`;
-            const res = await _fetchWithTimeout(url, 15000);
-            if (!res.ok) return rates;
-
-            const data = await res.json();
-            const result = data.chart?.result?.[0];
-            const timestamps = result?.timestamp;
-            const quotes = result?.indicators?.quote?.[0]?.close;
-
-            if (timestamps && quotes) {
-                timestamps.forEach((ts, i) => {
-                    if (quotes[i]) {
-                        const date = new Date(ts * 1000).toISOString().split('T')[0];
-                        rates.set(date, quotes[i]);
-                    }
-                });
-            }
-        } catch (e) {
-            console.warn('Rate fetch failed:', e.name === 'AbortError' ? 'timeout' : e.message);
-        }
-        return rates;
+        return this.dataManager.fetchHistoricalFxRateMap('EURUSD=X', 5);
     }
 
     async scanForMissingDividends() {
@@ -320,32 +300,10 @@ export class DividendManager {
     }
 
     /**
-     * Calculate quantity of an asset held at a specific date
+     * Calculate quantity of an asset held at a specific date.
+     * SINGLE SOURCE OF TRUTH: thin wrapper over MarketUtils.getQuantityAtDate.
      */
     getQuantityAtDate(ticker, dateStr) {
-        const targetDate = new Date(dateStr).getTime();
-        const history = this.storage.getPurchases()
-            .filter(p => p.ticker === ticker && p.type !== 'dividend');
-
-        let quantity = 0;
-
-        for (const tx of history) {
-            const txDate = new Date(tx.date).getTime();
-
-            // Check if transaction happened BEFORE or ON the ex-date
-            if (txDate <= targetDate) {
-                // In this app, quantities are signed:
-                // Buy = Positive
-                // Sell = Negative
-                // So we just sum them up.
-                const qty = parseFloat(tx.quantity);
-                quantity += qty;
-
-                // if (debugMode) console.log(`      -> Tx ${tx.date} (${tx.type}): ${qty} => New Qty: ${quantity}`);
-            }
-        }
-
-        // if (debugMode) console.log(`    > Quantity of ${ticker} on ${dateStr}: ${quantity}`);
-        return quantity;
+        return getQuantityAtDate(this.storage.getPurchases(), ticker, dateStr);
     }
 }

@@ -11,29 +11,27 @@ export class UIComponents {
         this.storage = storage;
     }
 
-    // MODIF : Ajout du paramètre 'marketStatusObj' à la fin
-    updatePortfolioSummary(summary, movementsCount, cashReserveTotal = 0, marketStatusObj = null) {
-        
-		const formatSimple = (value) => {
-			if (value === null || value === undefined || isNaN(value)) return '-';
-			return value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
-		};
-		const formatPctSimple = (value) => {
-			if (value === null || isNaN(value)) return '-';
-			const sign = value >= 0 ? '+' : '';
-			return sign + value.toFixed(2) + ' %';
-		};
+    // SINGLE SOURCE OF TRUTH : les 5 ids du haut (Total Value/Return/Var Today) ne
+    // sont écrits QUE par le listener portfolioKPIs sur les pages qui ont un
+    // graphique (Dashboard, Investments) — voir dashboardApp.js/investmentsPage.js
+    // subscribeToKPIs(). Cette méthode reste utilisée directement par les pages
+    // SANS graphique (Achats), via le wrapper updatePortfolioSummary ci-dessous.
+    updateTopKPIs(summary, cashReserveTotal = 0, marketStatusObj = null) {
+        const formatSimple = (value) => {
+            if (value === null || value === undefined || isNaN(value)) return '-';
+            return value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+        };
+        const formatPctSimple = (value) => {
+            if (value === null || isNaN(value)) return '-';
+            const sign = value >= 0 ? '+' : '';
+            return sign + value.toFixed(2) + ' %';
+        };
+        const updateHTML = (id, html) => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = html;
+        };
 
-		const updateHTML = (id, html) => {
-			const el = document.getElementById(id);
-			if (el) el.innerHTML = html;
-		};
-		const updateEl = (id, value) => {
-			const el = document.getElementById(id);
-			if (el) el.textContent = value;
-		};
-
-		// 1. TOTAL VALUE
+        // 1. TOTAL VALUE
         const totalValueWithCash = (summary.totalCurrentEUR || 0) + cashReserveTotal;
         updateHTML('total-current', `${formatSimple(totalValueWithCash)}`);
 
@@ -42,7 +40,7 @@ export class UIComponents {
         if (investedSubtitleEl) {
             investedSubtitleEl.textContent = `Invested: ${formatSimple(summary.totalInvestedEUR)}`;
             // Style inline pour correspondre au design du dashboard (optionnel, mais assure la cohérence)
-            investedSubtitleEl.style.fontSize = '14px'; 
+            investedSubtitleEl.style.fontSize = '14px';
             investedSubtitleEl.style.opacity = '0.9';
             investedSubtitleEl.style.color = 'var(--text-secondary)';
         }
@@ -55,7 +53,7 @@ export class UIComponents {
         // 3. VAR TODAY + MARKET STATUS
         const dayChangeColor = summary.totalDayChangeEUR >= 0 ? '#10b981' : '#ef4444';
         updateHTML('total-invested', `<span style="color: ${dayChangeColor}">${formatSimple(summary.totalDayChangeEUR)}</span>`);
-        
+
         const avgCostEl = document.getElementById('avg-cost-per-share');
         if (avgCostEl) {
             avgCostEl.innerHTML = `<span style="color: ${dayChangeColor}">${formatPctSimple(summary.dayChangePct)}</span>`;
@@ -79,7 +77,7 @@ export class UIComponents {
 							badge.style.cssText = "float: right; font-size: 9px; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;";
 							header.appendChild(badge);
 						}
-						
+
 						// Mise à jour du contenu
 						const status = marketStatusObj.getGlobalStatus();
 						badge.textContent = status.shortLabel;
@@ -90,8 +88,30 @@ export class UIComponents {
 				}
 			}
 		}
+    }
 
-		// ... (Reste de la fonction inchangé : Best/Worst Assets, etc.) ...
+    // Tout ce qui n'est PAS les 5 KPI du haut : best/worst asset (total + jour),
+    // cash reserve, compteurs. Appelé sur Dashboard/Investments (à la place de
+    // updatePortfolioSummary) ET sur Achats (via le wrapper).
+    updateSecondaryKPIs(summary, movementsCount, cashReserveTotal = 0) {
+        const formatSimple = (value) => {
+            if (value === null || value === undefined || isNaN(value)) return '-';
+            return value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+        };
+        const formatPctSimple = (value) => {
+            if (value === null || isNaN(value)) return '-';
+            const sign = value >= 0 ? '+' : '';
+            return sign + value.toFixed(2) + ' %';
+        };
+        const updateHTML = (id, html) => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = html;
+        };
+        const updateEl = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+
 		if (summary.bestAsset) {
 			const bestColor = summary.bestAsset.gainPct >= 0 ? '#10b981' : '#ef4444';
 			updateHTML('best-asset', `
@@ -144,6 +164,15 @@ export class UIComponents {
 		updateEl('total-movements', movementsCount);
 		updateEl('cash-reserve', formatSimple(cashReserveTotal));
 	}
+
+    // Wrapper conservé pour les pages SANS graphique (Achats) : seule écriture des
+    // 5 KPI du haut là où aucun listener portfolioKPIs n'existe. Dashboard/Investments
+    // n'appellent plus cette méthode directement (voir updateSecondaryKPIs ci-dessus).
+    updatePortfolioSummary(summary, movementsCount, cashReserveTotal = 0, marketStatusObj = null) {
+        this.updateTopKPIs(summary, cashReserveTotal, marketStatusObj);
+        this.updateSecondaryKPIs(summary, movementsCount, cashReserveTotal);
+    }
+
 	// PAGINATION
     renderPagination(currentPage, totalPages, callback) {
         const paginationEl = document.getElementById('pagination');

@@ -569,7 +569,10 @@ Titre:`;
                 return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
             });
 
-            const holdings = this.dataManager.calculateHoldings(assetPurchases);
+            // SINGLE SOURCE OF TRUTH pour la clôture de la veille (même moteur que
+            // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
+            const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(assetPurchases);
+            const holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap);
             const summary = this.dataManager.calculateSummary(holdings);
             const performance = this.dataManager.analyzePerformance(holdings);
             const diversification = this.dataManager.calculateDiversification(holdings);
@@ -595,7 +598,10 @@ Titre:`;
 
             const primaryResidence = this.storage.getPrimaryResidence();
 
-            // Try to get accurate varToday from Firestore liveMetrics (computed by chart with yesterdayCloseMap)
+            // summary.totalDayChangeEUR ci-dessus est désormais déjà calculé avec le
+            // yesterdayCloseMap unifié (comme Dashboard/Investments) — le filet de
+            // secours Firestore liveMetrics ci-dessous ne sert plus qu'en dernier
+            // recours (ex: le graphique n'a jamais tourné dans cette session).
             let accurateDayChange = summary.totalDayChangeEUR;
             let accurateDayChangePct = summary.dayChangePct;
             try {

@@ -239,49 +239,6 @@ export class HistoricalChart {
         this.startAutoRefresh();
     }
 
-    syncSummaryWithChartData(summary, graphData, vsYesterdayAbs = null, vsYesterdayPct = null) {
-        // GRAPH IS THE SINGLE SOURCE OF TRUTH
-        // The graph uses historical data which is the most accurate for variation calculations
-        // We MUST sync summary with graph to ensure consistency across all pages
-
-        const values = graphData.values;
-        let lastValue = null;
-
-        if (values && values.length > 0) {
-            for (let i = values.length - 1; i >= 0; i--) {
-                if (values[i] !== null && !isNaN(values[i])) {
-                    lastValue = values[i];
-                    break;
-                }
-            }
-        }
-
-        if (lastValue !== null) {
-            summary.totalCurrentEUR = lastValue;
-            summary.gainTotal = summary.totalCurrentEUR - summary.totalInvestedEUR;
-
-            summary.gainPct = summary.totalInvestedEUR > 0
-                ? (summary.gainTotal / summary.totalInvestedEUR) * 100
-                : 0;
-
-            // CRITICAL: Use vsYesterdayAbs/Pct from renderChart (graph values)
-            if (vsYesterdayAbs !== null && vsYesterdayPct !== null) {
-                summary.totalDayChangeEUR = vsYesterdayAbs;
-                summary.dayChangePct = vsYesterdayPct;
-                console.log(`[syncSummary] ✅ Using graph vsYesterdayAbs: ${vsYesterdayAbs.toFixed(2)}, vsYesterdayPct: ${vsYesterdayPct.toFixed(2)}%`);
-            } else {
-                // Fallback if graph data not provided
-                const referenceClose = this.lastYesterdayClose || graphData.yesterdayClose;
-                if (referenceClose && referenceClose > 0) {
-                    summary.totalDayChangeEUR = summary.totalCurrentEUR - referenceClose;
-                    summary.dayChangePct = (summary.totalDayChangeEUR / referenceClose) * 100;
-                }
-            }
-        }
-
-        return summary;
-    }
-
     async update(showLoading = true, forceApi = true) {
         if (this.isLoading) {
             this._pendingUpdate = { showLoading, forceApi };
@@ -559,9 +516,9 @@ export class HistoricalChart {
                 // --- LOGIQUE DE RENDU DES KPI APRÈS LE GRAPHIQUE ---
                 if (!isIndexMode && this.investmentsPage && this.investmentsPage.renderData) {
 
-                    // Les KPIs du haut utilisent toujours targetSummary (holdings live).
-                    // Pas de syncSummaryWithChartData : les valeurs live ne doivent pas changer
-                    // quand l'utilisateur switche entre les périodes du graphique.
+                    // Les KPIs du haut utilisent toujours targetSummary (holdings live) : les
+                    // valeurs live ne doivent pas changer quand l'utilisateur switche entre les
+                    // périodes du graphique.
 
                     let statsToPass = (this.currentPeriod === 1 && chartStats.historicalDayChange !== null) ? chartStats : null;
 
@@ -597,27 +554,11 @@ export class HistoricalChart {
         }
     }
 
+    // SINGLE SOURCE OF TRUTH : délègue à investmentsPage.getFilteredPurchasesFromPage
+    // (au lieu d'une copie quasi identique) pour garantir que le graphique et le
+    // tableau filtrent toujours exactement les mêmes achats.
     getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
-        const searchQuery = this.investmentsPage.currentSearchQuery;
-        let purchases = this.storage.getPurchases();
-
-        if (searchQuery) {
-            const q = searchQuery.toLowerCase();
-            purchases = purchases.filter(p => p.ticker.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
-        }
-        if (!ignoreTickerFilter) {
-            const selectedTickers = this.investmentsPage.filterManager.getSelectedTickers();
-            if (selectedTickers.size > 0) {
-                purchases = purchases.filter(p => selectedTickers.has(p.ticker.toUpperCase()));
-            }
-        }
-        if (this.investmentsPage.currentAssetTypeFilter) {
-            purchases = purchases.filter(p => (p.assetType || 'Stock') === this.investmentsPage.currentAssetTypeFilter);
-        }
-        if (this.investmentsPage.currentBrokerFilter) {
-            purchases = purchases.filter(p => (p.broker || 'RV-CT') === this.investmentsPage.currentBrokerFilter);
-        }
-        return purchases;
+        return this.investmentsPage.getFilteredPurchasesFromPage(ignoreTickerFilter);
     }
 
     getStartEndTs(days) {
@@ -1035,16 +976,13 @@ export class HistoricalChart {
             }
         }
 
-        // Store for use in syncSummaryWithChartData
-            this.lastVsYesterdayAbs = vsYesterdayAbs;
-            this.lastVsYesterdayPct = vsYesterdayPct;
-            if (vsYesterdayAbs !== null && vsYesterdayPct !== null) {
-                console.log(`[renderChart] FINAL vsYesterdayAbs: ${vsYesterdayAbs.toFixed(2)}€, vsYesterdayPct: ${vsYesterdayPct.toFixed(2)}%`);
-            } else {
-                console.log(`[renderChart] FINAL vsYesterdayAbs: null (no data available yet)`);
-            }
+        if (vsYesterdayAbs !== null && vsYesterdayPct !== null) {
+            console.log(`[renderChart] FINAL vsYesterdayAbs: ${vsYesterdayAbs.toFixed(2)}€, vsYesterdayPct: ${vsYesterdayPct.toFixed(2)}%`);
+        } else {
+            console.log(`[renderChart] FINAL vsYesterdayAbs: null (no data available yet)`);
+        }
 
-            // ========================================
+        // ========================================
             const periodMap = { 1: '1d', 7: '1w', 30: '1m', 90: '3m', 365: '1y', 1825: '5y' };
             const periodLabel = periodMap[this.currentPeriod] || `${this.currentPeriod}d`;
 

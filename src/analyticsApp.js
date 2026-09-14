@@ -77,7 +77,14 @@ class AnalyticsApp {
     async render() {
         // Get purchases and generate report using dataManager
         const purchases = this.storage.getPurchases();
-        const report = this.dataManager.generateFullReport(purchases);
+        // SINGLE SOURCE OF TRUTH pour la clôture de la veille (même moteur que
+        // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
+        const assetPurchases = purchases.filter(p => {
+            const type = (p.assetType || 'Stock').toLowerCase();
+            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
+        });
+        const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(assetPurchases);
+        const report = this.dataManager.generateFullReport(purchases, yesterdayCloseMap);
 
         // Store report for modals to access
         this.lastReport = report;
@@ -110,14 +117,14 @@ class AnalyticsApp {
             if (el) el.textContent = value;
         };
 
-        // Total Value: assets (incl. RE) + cash deposits only (matches investments page + RE)
-        const dividends = summary.dividendsReceived || 0;
-        const displayValue = summary.totalValue + (summary.cashReserve || 0) - dividends;
+        // Total Value / Total Return : SINGLE SOURCE OF TRUTH, même formule que
+        // Dashboard/Investments/Achats (pas de soustraction des dividendes reçus —
+        // ancien comportement identifié comme un bug lors de l'audit, corrigé ici).
+        const displayValue = summary.totalValue + (summary.cashReserve || 0);
         setValue('total-value', this.formatEUR(displayValue));
         setValue('total-invested', `Invested: ${this.formatEUR(summary.totalInvested)}`);
 
-        // Total Return: matches investments page formula (financial gain - dividends + RE gain)
-        const displayReturn = summary.totalGain - dividends;
+        const displayReturn = summary.totalGain;
         const returnEl = document.getElementById('total-return');
         if (returnEl) {
             returnEl.textContent = this.formatEUR(displayReturn);
@@ -600,18 +607,18 @@ class AnalyticsApp {
 
         const hasFilter = !!(typeFilter || brokerFilter);
         const reportSummary = this.lastReport?.summary;
-        // Même formule que les cartes KPI du haut (updateSummary, ligne ~113-120):
-        // valeur/retour "officiels" = actifs + dépôts cash − dividendes déjà perçus.
+        // Même formule que les cartes KPI du haut (updateSummary) et que
+        // Dashboard/Investments/Achats : valeur/retour "officiels" = actifs +
+        // dépôts cash (pas de soustraction des dividendes reçus).
         // Sans filtre, la sélection = tout le portefeuille : on doit afficher
         // exactement ces mêmes totaux pour ne pas contredire les cartes du haut.
         // Avec un filtre (type/courtier) OU une désélection dans la légende, le
-        // cash/les dividendes ne se rattachent à aucun actif précis : on reste
-        // sur la somme des actifs actuellement sélectionnés/visibles.
-        const dividends = reportSummary?.dividendsReceived || 0;
+        // cash ne se rattache à aucun actif précis : on reste sur la somme des
+        // actifs actuellement sélectionnés/visibles.
         const officialTotalValue = reportSummary
-            ? (reportSummary.totalValue || 0) + (reportSummary.cashReserve || 0) - dividends
+            ? (reportSummary.totalValue || 0) + (reportSummary.cashReserve || 0)
             : assets.reduce((s, a) => s + (a.currentValue || 0), 0);
-        const officialTotalReturn = reportSummary ? (reportSummary.totalGain || 0) - dividends : null;
+        const officialTotalReturn = reportSummary ? (reportSummary.totalGain || 0) : null;
         const portfolioTotalValue = officialTotalValue;
         const portfolioTotalInvested = reportSummary
             ? (reportSummary.totalInvested || 0)

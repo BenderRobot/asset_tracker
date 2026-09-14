@@ -2,7 +2,7 @@
 // dataManager.js - (v8 - Ajout support Indices)
 // ========================================
 
-import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP } from './config.js';
+import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
 import { HistoryCalculator } from './HistoryCalculator.js?v=3';
 import { db, auth } from './firebaseConfig.js';
@@ -86,6 +86,51 @@ export class DataManager {
         return { total, byBroker };
     }
 
+    // SINGLE SOURCE OF TRUTH pour un taux de change HISTORIQUE (date -> taux),
+    // par opposition à getConversionRate() qui ne donne que le taux courant.
+    // Ne pas fusionner les deux : un dividende versé il y a 6 mois doit être
+    // converti au taux de CE jour-là, pas au taux d'aujourd'hui.
+    // Utilisé par DividendManager pour convertir les dividendes USD -> EUR.
+    async fetchHistoricalFxRateMap(pair = 'EURUSD=X', rangeYears = 5) {
+        const rates = new Map();
+        try {
+            const ctrl = new AbortController();
+            const timeoutId = setTimeout(() => ctrl.abort(), 15000);
+            const url = `${PRICE_PROXY_URL}?symbol=${encodeURIComponent(pair)}&type=STOCK&range=${rangeYears}y&interval=1d`;
+            const res = await fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timeoutId));
+            if (!res.ok) return rates;
+
+            const data = await res.json();
+            const result = data.chart?.result?.[0];
+            const timestamps = result?.timestamp;
+            const quotes = result?.indicators?.quote?.[0]?.close;
+
+            if (timestamps && quotes) {
+                timestamps.forEach((ts, i) => {
+                    if (quotes[i]) {
+                        const date = new Date(ts * 1000).toISOString().split('T')[0];
+                        rates.set(date, quotes[i]);
+                    }
+                });
+            }
+        } catch (e) {
+            console.warn('[fetchHistoricalFxRateMap] Rate fetch failed:', e.name === 'AbortError' ? 'timeout' : e.message);
+        }
+        return rates;
+    }
+
+    // SINGLE SOURCE OF TRUTH pour l'accroissement immobilier (intérêts simples),
+    // utilisé par calculateHoldings, calculateEnrichedPurchases et realEstateApp.js.
+    // Formule : Investi * (Taux/100) * (Jours détenus / 365).
+    calculateRealEstateAccrual(purchase, asOfDate = new Date()) {
+        const yieldPct = purchase.yield || 0;
+        const startDate = new Date(purchase.date);
+        const daysHeld = Math.max(0, (asOfDate - startDate) / (1000 * 60 * 60 * 24));
+        const invested = purchase.price * purchase.quantity;
+        const accrued = invested * (yieldPct / 100) * (daysHeld / 365);
+        return { invested, accrued, currentValue: invested + accrued, daysHeld };
+    }
+
     calculateHoldings(assetPurchases, yesterdayCloseMap = null) {
         const aggregated = {};
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
@@ -155,15 +200,9 @@ export class DataManager {
                 let totalREInvested = 0;
 
                 data.purchases.forEach(p => {
-                    const yieldPct = p.yield || 0;
-                    const startDate = new Date(p.date);
-                    const today = new Date();
-                    const daysHeld = Math.max(0, (today - startDate) / (1000 * 60 * 60 * 24));
-                    const pInvested = p.price * p.quantity;
-                    const accrued = pInvested * (yieldPct / 100) * (daysHeld / 365);
-
+                    const { invested: pInvested, currentValue: pCurrentValue } = this.calculateRealEstateAccrual(p);
                     totalREInvested += pInvested;
-                    totalREValue += (pInvested + accrued);
+                    totalREValue += pCurrentValue;
                 });
 
                 investedEUR = totalREInvested;
@@ -355,6 +394,10 @@ export class DataManager {
             worstAsset,
             bestDayAsset,
             worstDayAsset,
+            // SINGLE SOURCE OF TRUTH pour les cartes "Top Gainer/Top Loser" (top/bottom
+            // 3), pour que dashboardApp.js n'ait plus besoin de re-trier holdings lui-même.
+            topPerformers: sortedTotal.slice(0, 3),
+            worstPerformers: sortedTotal.slice(-3).reverse(),
             topSector: bestSector,
             assetsCount: holdings.length,
             movementsCount: holdings.reduce((sum, h) => sum + h.purchases.length, 0)
@@ -381,13 +424,7 @@ export class DataManager {
 
             // === SPECIAL LOGIC: REAL ESTATE ===
             if (p.assetType === 'Real Estate') {
-                const yieldPct = p.yield || 0;
-                const startDate = new Date(p.date);
-                const today = new Date();
-                const daysHeld = Math.max(0, (today - startDate) / (1000 * 60 * 60 * 24));
-                const invested = p.price * p.quantity;
-                const accrued = invested * (yieldPct / 100) * (daysHeld / 365);
-                const currentVal = invested + accrued;
+                const { invested, accrued, currentValue: currentVal } = this.calculateRealEstateAccrual(p);
 
                 return {
                     ...p,
