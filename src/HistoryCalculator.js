@@ -599,7 +599,16 @@ export class HistoryCalculator {
         // vit désormais dans MarketUtils.resolveTickerPreviousClose, partagée avec les
         // cartes indices/dashboard. Cette fonction ne fait plus qu'agréger le résultat par
         // ticker en un total portefeuille (quantités détenues à la clôture + conversion FX).
-        const resolveCloseValueBeforeDay = async (refDate, label = '', preferLiveClose = false) => {
+        // useDedicatedFetch : quand true, ignore historicalDataMap DE CETTE VUE et force
+        // resolveTickerPreviousClose à faire (ou réutiliser depuis le cache partagé
+        // api.historicalPriceCache) sa PROPRE requête standardisée (bougies '1d', même
+        // fenêtre quel que soit l'appelant). Nécessaire car 1J/2J/1S déclenchent chacun
+        // leur propre fetch de données intraday avec des fenêtres différentes — Yahoo
+        // peut renvoyer une bougie de clôture légèrement différente pour "le même"
+        // vendredi selon la fenêtre exacte demandée. Sans ça, l'ancrage "clôture d'hier"
+        // de la courbe (PÉRIODE/VAR JOUR/CLÔTURE HIER) pouvait différer entre vues pour
+        // le même jour, même après avoir supprimé la préférence pour le prix live.
+        const resolveCloseValueBeforeDay = async (refDate, label = '', preferLiveClose = false, useDedicatedFetch = false) => {
             const quantities = new Map();
             for (const t of tickers) quantities.set(t, 0);
 
@@ -629,9 +638,11 @@ export class HistoryCalculator {
 
                     const { closePrice } = await resolveTickerPreviousClose(t, {
                         storage: this.storage,
+                        api: useDedicatedFetch ? this.api : undefined,
                         refDate,
                         preferLiveClose,
-                        historicalDataMap: historicalDataMap.get(t) || null
+                        historicalDataMap: useDedicatedFetch ? null : (historicalDataMap.get(t) || null),
+                        allowFetch: useDedicatedFetch
                     });
 
                     if (closePrice && closePrice > 0) {
@@ -664,7 +675,11 @@ export class HistoryCalculator {
         // source que lastKnownPrices utilise sans condition pour ces vues (voir plus bas), afin
         // que "CLÔTURE HIER" corresponde toujours au prix effectivement utilisé par le graphique
         // pour un titre peu liquide sans bougie récente dans historicalDataMap.
-        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = await resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)', days <= 2);
+        // useDedicatedFetch=true : ce yesterdayClose alimente aussi perTickerYesterdayClose
+        // (donc la colonne "Day P&L" du tableau) — il doit être identique quelle que soit la
+        // période actuellement affichée dans le graphique (1J/2J/1S...), pas dépendant de la
+        // fenêtre de fetch propre à la vue courante.
+        const { total: yesterdayClose, quantities: closeQuantities, prices: closePrices } = await resolveCloseValueBeforeDay(yesterdayCloseRefDate, ' (yesterdayClose)', days <= 2, true);
 
         // Injecter un prix synthétique à minuit pour les actions (pas de cotation avant l'ouverture).
         // Le lundi, lastMarketCloseTs = dimanche 23:59 → l'ancienne condition (< 1h) ne s'appliquait pas.
@@ -885,14 +900,15 @@ export class HistoryCalculator {
         // résolution de clôture échoue totalement), puis écrasée par la valeur unique dès
         // qu'elle est connue (voir plus bas).
         let displayedYesterdayClose = yesterdayClose;
-        // Étendu à days<=30 (1J/2J/1S/1M) : restreint à 1D/2D seulement, un zoom 1S/1M
-        // retombait sur un calcul de ROI (valeur/investi) totalement différent du calcul
-        // "clôture à clôture" du 1D — deux métriques sans rapport, d'où des chiffres
-        // incohérents entre zooms pour les MÊMES jours (ex: sélectionner "lundi" sur la
-        // vue 1S donnait un delta différent du VAR TODAY de la vue 1J). Pas étendu au-delà
-        // de 30 jours pour limiter le coût (un resolveCloseValueBeforeDay par frontière de
-        // jour) sur les vues 1Y/2Y/All où la précision quotidienne importe moins.
-        const shouldUseTwrFromClose = (days === 1 || (typeof days === 'number' && days <= 30));
+        // Étendu à days<=7 (1J/2J/1S) : restreint à 1D/2D seulement, un zoom 1S retombait
+        // sur un calcul de ROI (valeur/investi) totalement différent du calcul "clôture à
+        // clôture" du 1D — deux métriques sans rapport, d'où des chiffres incohérents entre
+        // zooms pour les MÊMES jours (ex: sélectionner "lundi" sur la vue 1S donnait un
+        // delta différent du VAR TODAY de la vue 1J). Chaque frontière de jour déclenche
+        // maintenant une résolution dédiée (useDedicatedFetch, voir plus bas) — pas étendu
+        // au-delà de 7 jours pour l'instant pour limiter le nombre de requêtes déclenchées
+        // (une par frontière de jour) sur les vues plus longues (1M/1Y/...).
+        const shouldUseTwrFromClose = (days === 1 || (typeof days === 'number' && days <= 7));
 
         // Série "dailyTwr" : comme twr, mais la base (0%) est réinitialisée à chaque
         // changement de jour civil, sur la clôture de la veille de CE jour-là (via
@@ -1044,8 +1060,14 @@ export class HistoryCalculator {
                     // genre d'incohérence 1J vs 2J qu'on corrige ici. La préférence pour
                     // le prix live n'a de sens que pour le tableau (fraîcheur), pas pour
                     // l'ancrage de la courbe elle-même.
+                    //
+                    // useDedicatedFetch=true : ignore le historicalDataMap propre à CETTE
+                    // vue (1J/2J/1S ont chacune leur propre fenêtre de fetch, potentiellement
+                    // légèrement différente pour "la même" bougie de clôture chez Yahoo) —
+                    // force une requête (ou un cache) standardisée et partagée, identique
+                    // quelle que soit la vue qui la déclenche.
                     let resolvedDayBase = null;
-                    const { total: dailyBase } = await resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`, false);
+                    const { total: dailyBase } = await resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`, false, true);
                     if (dailyBase > 0) resolvedDayBase = dailyBase;
 
                     if (resolvedDayBase !== null) {
