@@ -797,6 +797,30 @@ export class HistoricalChart {
         let lastIndex = displayValues.length - 1;
         while (lastIndex >= 0 && (displayValues[lastIndex] === null || isNaN(displayValues[lastIndex]))) lastIndex--;
 
+        // SINGLE SOURCE OF TRUTH : le dernier point de la série (donc la courbe elle-même,
+        // PÉRIODE et VAR JOUR) doit refléter le total LIVE (même donnée que le tableau/KPI),
+        // pas la dernière bougie intraday de l'API historique (retard documenté de 15-20 min).
+        // On corrige ce point AVANT le calcul de perfAbs/perfPct ci-dessous, pour que courbe,
+        // PÉRIODE et VAR JOUR soient garantis identiques — plus de "courbe verte, chiffre rouge".
+        if (!isSingleAsset && !isIndexMode && !isUnitView && this.currentPeriod === 1
+            && kpiData && kpiData.totalValue !== undefined && kpiData.totalValue !== null && lastIndex >= 0) {
+            const liveTotal = kpiData.totalValue;
+            const anchor = (unifiedClose !== null && unifiedClose !== undefined) ? unifiedClose : this.lastYesterdayClose;
+            displayValues[lastIndex] = liveTotal;
+            if (anchor) {
+                if (graphData.twr && graphData.twr.length > lastIndex) {
+                    graphData.twr[lastIndex] = liveTotal / anchor;
+                }
+                // La courbe affichée en mode "Performance (%)" pour la vue 1D lit dailyTwr
+                // (pas twr) — il faut le corriger aussi, sinon la courbe reste sur l'ancien
+                // point historique pendant que PÉRIODE/VAR JOUR affichent déjà le live.
+                if (Array.isArray(graphData.dailyTwr) && graphData.dailyTwr.length > lastIndex) {
+                    graphData.dailyTwr[lastIndex] = liveTotal / anchor;
+                }
+            }
+            console.log(`[CHART LIVE SYNC] Dernier point de la courbe corrigé au live: ${liveTotal.toFixed(2)}€`);
+        }
+
         let perfAbs = 0, perfPct = 0, priceStart = 0, priceEnd = 0, priceHigh = -Infinity, priceLow = Infinity;
         const decimals = (isUnitView || isIndexMode) ? 4 : 2;
 
@@ -960,20 +984,21 @@ export class HistoricalChart {
 
         if (priceEnd !== null && !isNaN(priceEnd) && !isUnitView && referenceClose) {
             if (this.currentPeriod === 1 && !isSingleAsset && !isIndexMode) {
-                // SINGLE SOURCE OF TRUTH : summary (targetSummary) est calculé via
-                // calculateHoldings+calculateSummary avec le MÊME yesterdayCloseMap unifié
-                // (issu du graphique) que celui qui alimente les lignes du tableau — donc
-                // summary.totalDayChangeEUR est déjà la somme exacte de la colonne "Day P&L".
-                // perfAbs (TWR sur la série historique intraday, sujette au lag documenté de
-                // l'API historique) ne sert plus que de filet de secours si summary manque.
-                if (summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
-                    vsYesterdayAbs = summary.totalDayChangeEUR;
-                    vsYesterdayPct = summary.dayChangePct || 0;
-                    console.log(`[VAR TODAY 1D] Using summary.totalDayChangeEUR (table-consistent): ${vsYesterdayAbs.toFixed(2)}€`);
-                } else {
+                // SINGLE SOURCE OF TRUTH : le graphique EST la vérité. perfAbs/perfPct sont
+                // calculés (plus haut) à partir du dernier point de la courbe — désormais
+                // corrigé au live (voir injection avant le calcul de perfAbs/perfPct) — donc
+                // PÉRIODE et VAR JOUR utilisent maintenant EXACTEMENT le même chiffre, et ce
+                // chiffre coïncide avec la somme de la colonne "Day P&L" du tableau puisque
+                // les deux partagent désormais la même clôture de référence ET le même total
+                // live. summary.totalDayChangeEUR ne sert plus que de filet de secours.
+                if (!isNaN(perfAbs) && priceEnd !== null) {
                     vsYesterdayAbs = perfAbs;
                     vsYesterdayPct = perfPct;
-                    console.log(`[VAR TODAY 1D] Fallback perfAbs=${perfAbs.toFixed(2)}€ (${perfPct.toFixed(2)}%)`);
+                    console.log(`[VAR TODAY 1D] Using graph perfAbs (live-synced): ${vsYesterdayAbs.toFixed(2)}€`);
+                } else if (summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
+                    vsYesterdayAbs = summary.totalDayChangeEUR;
+                    vsYesterdayPct = summary.dayChangePct || 0;
+                    console.log(`[VAR TODAY 1D] Fallback summary.totalDayChangeEUR: ${vsYesterdayAbs.toFixed(2)}€`);
                 }
 
                 // CACHE 1D values to prevent Top KPI jumps when switching periods
