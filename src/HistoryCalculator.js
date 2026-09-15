@@ -402,38 +402,53 @@ export class HistoryCalculator {
         const prices = new Map();
         let total = 0, assetsFound = 0;
 
-        for (const t of tickers) {
-            const cutoffTs = getCloseCutoffForTicker(t, refDate);
-            let qty = 0;
-            for (const entry of ledger.byTicker.get(t) || []) {
-                if (entry.date.getTime() <= cutoffTs) qty += entry.quantity;
-            }
-            quantities.set(t, qty);
-            if (qty <= 0) continue;
-
-            if (t.startsWith('CASH-')) {
-                total += qty; assetsFound++; prices.set(t, 1.0); continue;
-            }
-
-            const { closePrice } = await resolveTickerPreviousClose(t, {
-                storage: this.storage,
-                api: useDedicatedFetch ? this.api : undefined,
-                refDate,
-                preferLiveClose: false,
-                historicalDataMap: useDedicatedFetch ? null : (historicalDataMap.get(t) || null),
-                allowFetch: useDedicatedFetch
-            });
-
-            if (closePrice > 0) {
-                prices.set(t, closePrice);
-                let rate = 1;
-                if (!isSingleAsset) {
-                    const currency = this.storage.getCurrentPrice(t)?.currency || 'EUR';
-                    if (currency === 'USD') rate = dynamicRate;
+        // Resolve tickers in small parallel batches rather than one at a time.
+        // BUG FOUND: sequential awaits meant a portfolio with many tickers (e.g.
+        // "Portfolio Global" unfiltered, 27 tickers) took far longer — and, over
+        // that many sequential network round-trips, was measurably more likely to
+        // have a late ticker fail to resolve — than the same tickers resolved
+        // individually per broker filter (5-12 tickers each). That's what produced
+        // a CLÔTURE HIER for the global view lower than the sum of each broker's
+        // own CLÔTURE HIER: a few tickers silently dropped out of the global total
+        // that were present in every per-broker total. Batching bounds concurrency
+        // (kind to the price proxy) while removing the "more tickers = more likely
+        // to fail" asymmetry between the global and filtered views.
+        const batchSize = 5;
+        for (let i = 0; i < tickers.length; i += batchSize) {
+            const batch = tickers.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (t) => {
+                const cutoffTs = getCloseCutoffForTicker(t, refDate);
+                let qty = 0;
+                for (const entry of ledger.byTicker.get(t) || []) {
+                    if (entry.date.getTime() <= cutoffTs) qty += entry.quantity;
                 }
-                total += closePrice * rate * qty;
-                assetsFound++;
-            }
+                quantities.set(t, qty);
+                if (qty <= 0) return;
+
+                if (t.startsWith('CASH-')) {
+                    total += qty; assetsFound++; prices.set(t, 1.0); return;
+                }
+
+                const { closePrice } = await resolveTickerPreviousClose(t, {
+                    storage: this.storage,
+                    api: useDedicatedFetch ? this.api : undefined,
+                    refDate,
+                    preferLiveClose: false,
+                    historicalDataMap: useDedicatedFetch ? null : (historicalDataMap.get(t) || null),
+                    allowFetch: useDedicatedFetch
+                });
+
+                if (closePrice > 0) {
+                    prices.set(t, closePrice);
+                    let rate = 1;
+                    if (!isSingleAsset) {
+                        const currency = this.storage.getCurrentPrice(t)?.currency || 'EUR';
+                        if (currency === 'USD') rate = dynamicRate;
+                    }
+                    total += closePrice * rate * qty;
+                    assetsFound++;
+                }
+            }));
         }
 
         console.log(`[HistoryCalc] closeBefore${label ? ` (${label})` : ''} @ ${refDate.toISOString()}: ${total.toFixed(2)}€, ${assetsFound}/${tickers.length} priced`);
