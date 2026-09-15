@@ -1151,25 +1151,32 @@ export class HistoryCalculator {
                 }
             }
 
-            // Ajustement TWR pour achats intraday : le dénominateur doit être mis à l'échelle
-            // pour que l'achat lui-même n'apparaisse pas comme un gain. On utilise le cash flow réel
-            // de l'achat (prix d'achat × quantité) comme prix de référence.
+            // Ajustement TWR pour achats ET VENTES intraday : le dénominateur doit être mis
+            // à l'échelle pour que le mouvement de quantité lui-même n'apparaisse ni comme un
+            // gain (achat) ni comme une perte (vente). On utilise le cash flow réel du
+            // mouvement (prix × quantité, négatif pour une vente puisque quantité < 0) comme
+            // référence. AVANT CE FIX : la condition ne testait que `cashFlow > 0`, donc une
+            // vente intraday (cashFlow < 0) n'était JAMAIS neutralisée — la réduction de
+            // quantité s'affichait comme une fausse chute de plusieurs centaines d'euros
+            // (CLÔTURE HIER restait ancrée sur la valeur de L'ANCIENNE quantité, plus grande,
+            // alors que la courbe du jour reflète déjà la quantité réduite) alors qu'aucun
+            // prix n'avait réellement bougé.
             const useTwrFromClose = shouldUseTwrFromClose && twrDenominator !== null && twrDenominator > 0;
-            if (tsChangedInvested && useTwrFromClose && cashFlow > 0) {
-                const valueBeforePurchase = currentTsTotalValue - cashFlow;
-                if (valueBeforePurchase > 0) {
-                    twrDenominator *= (currentTsTotalValue / valueBeforePurchase);
-                    console.log(`[TWR FIX] Achat intraday: cashFlow=${cashFlow.toFixed(2)}, avant=${valueBeforePurchase.toFixed(2)}, après=${currentTsTotalValue.toFixed(2)}, nouveau denom=${twrDenominator.toFixed(2)}`);
+            if (tsChangedInvested && useTwrFromClose && cashFlow !== 0) {
+                const valueBeforeFlow = currentTsTotalValue - cashFlow;
+                if (valueBeforeFlow > 0) {
+                    twrDenominator *= (currentTsTotalValue / valueBeforeFlow);
+                    console.log(`[TWR FIX] ${cashFlow > 0 ? 'Achat' : 'Vente'} intraday: cashFlow=${cashFlow.toFixed(2)}, avant=${valueBeforeFlow.toFixed(2)}, après=${currentTsTotalValue.toFixed(2)}, nouveau denom=${twrDenominator.toFixed(2)}`);
                 } else {
-                    console.warn(`[TWR FIX] Ignored intraday adjustment because valueBeforePurchase <= 0 (cashFlow=${cashFlow.toFixed(2)}, total=${currentTsTotalValue.toFixed(2)})`);
+                    console.warn(`[TWR FIX] Ignored intraday adjustment because valueBeforeFlow <= 0 (cashFlow=${cashFlow.toFixed(2)}, total=${currentTsTotalValue.toFixed(2)})`);
                 }
             }
 
             const useDailyTwr = shouldUseTwrFromClose && dailyTwrDenominator !== null && dailyTwrDenominator > 0;
-            if (tsChangedInvested && useDailyTwr && cashFlow > 0) {
-                const valueBeforePurchase = currentTsTotalValue - cashFlow;
-                if (valueBeforePurchase > 0) {
-                    dailyTwrDenominator *= (currentTsTotalValue / valueBeforePurchase);
+            if (tsChangedInvested && useDailyTwr && cashFlow !== 0) {
+                const valueBeforeFlow = currentTsTotalValue - cashFlow;
+                if (valueBeforeFlow > 0) {
+                    dailyTwrDenominator *= (currentTsTotalValue / valueBeforeFlow);
                 }
             }
 

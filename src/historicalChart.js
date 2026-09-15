@@ -416,15 +416,19 @@ export class HistoricalChart {
 
                 graphData = await this.dataManager.calculateHistory([...targetAssetPurchases, ...targetCashPurchases], this.currentPeriod);
 
-                // SINGLE SOURCE OF TRUTH pour "variation du jour" : TOUJOURS calculée sur
-                // une base 1 jour (calculateAllAssetsYesterdayClose force days=1 en interne),
-                // JAMAIS sur graphData de la période actuellement affichée (this.currentPeriod).
-                // Avant ce fix, changer d'onglet 1J/2J/1S changeait QUELLE requête résolvait
-                // "hier" pour le tableau — le tableau, VAR TODAY et le graphique pouvaient
-                // donc afficher 3 chiffres différents pour la même métrique. "Variation du
-                // jour" est un concept fixe (aujourd'hui vs hier), indépendant du zoom du
-                // graphique : il ne doit être calculé qu'à UN seul endroit.
-                const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(targetAssetPurchases);
+                // SINGLE SOURCE OF TRUTH pour "variation du jour" : VRAI SSOT — sur la vue
+                // 1J, "aujourd'hui" EST le graphData qu'on vient de calculer pour tracer la
+                // courbe : on réutilise directement son propre yesterdayCloseMap au lieu de
+                // refaire un DEUXIÈME appel indépendant (calculateAllAssetsYesterdayClose)
+                // qui pouvait résoudre "hier" différemment (timing réseau/cache distinct) et
+                // faisait diverger VAR TODAY de la courbe elle-même (le bug signalé : PÉRIODE
+                // à -92,95€ mais VAR TODAY à -984,19€ pour le même jour). Sur les autres
+                // onglets (2J/1S/...), "aujourd'hui" n'est pas le graphData affiché : on
+                // garde un appel dédié period=1, mais UN SEUL, jamais recalculé ailleurs.
+                this.todayGraphData = (this.currentPeriod === 1)
+                    ? graphData
+                    : await this.dataManager.calculateHistory([...targetAssetPurchases, ...targetCashPurchases], 1);
+                const yesterdayCloseMap = this.dataManager.buildYesterdayCloseMapFromGraphData(this.todayGraphData);
 
                 targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap);
                 targetSummary = this.dataManager.calculateSummary(targetHoldings);
@@ -479,27 +483,58 @@ export class HistoricalChart {
                     console.log(`[CHART] Using graphData.yesterdayClose as unifiedClose: ${unifiedClose}`);
                 }
 
-                // SINGLE SOURCE OF TRUTH : Total Value/Total Return sont TOUJOURS dérivés de
-                // targetSummary (holdings live, la même donnée que le tableau), quelle que
-                // soit la période actuellement affichée dans le graphique. L'ancienne logique
-                // ("dernier point du graphique 1D, mis en cache pour les autres périodes")
-                // faisait dépendre ce chiffre de this.currentPeriod — changer d'onglet 1J/2J/1S
-                // pouvait donc faire "sauter" Total Value vers une valeur qui n'était même pas
-                // celle du filtre actif (fuite de cache entre filtres/périodes). Un seul calcul,
-                // partout, pour un seul chiffre affiché.
+                // VRAI SINGLE SOURCE OF TRUTH : pour le portfolio (pas un actif unique, pas
+                // un indice), Total Value / Total Return / Var Today sont dérivés DIRECTEMENT
+                // du dernier point de this.todayGraphData — le MÊME graphData que celui qui
+                // trace la courbe en vue 1J (voir plus haut). Fini targetSummary.totalCurrentEUR
+                // (somme basée sur les prix LIVE du snapshot, qui pouvait diverger de la
+                // dernière bougie historique tracée par la courbe — c'est ce qui causait
+                // PÉRIODE ≠ VAR TODAY pour un même jour). Le graphique est la seule vérité :
+                // FIN, TOTAL VALUE et VAR TODAY affichent désormais littéralement le même
+                // nombre, par construction, pas par coïncidence de calculs séparés.
                 const cash = targetCashReserve.total || 0;
-                const liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
+                let liveTotalValue, liveTotalReturn, liveTotalReturnPct;
+                let graphVarTodayAbs = null, graphVarTodayPct = null;
 
-                const liveTotalReturn = liveTotalValue - cash - (targetSummary.totalInvestedEUR || 0);
-                const liveTotalReturnPct = (targetSummary.totalInvestedEUR || 0) > 0
-                    ? (liveTotalReturn / targetSummary.totalInvestedEUR) * 100
-                    : 0;
+                if (!isSingleAsset && !isIndexMode && this.todayGraphData && this.todayGraphData.values) {
+                    const tv = this.todayGraphData.values;
+                    let li = tv.length - 1;
+                    while (li >= 0 && (tv[li] === null || isNaN(tv[li]))) li--;
+                    const todayLastValue = li >= 0 ? tv[li] : null;
+                    const todayYesterdayClose = this.todayGraphData.yesterdayClose;
+                    const todayInvestedTotal = (li >= 0 && this.todayGraphData.invested) ? (this.todayGraphData.invested[li] || 0) : 0;
+
+                    if (todayLastValue !== null) {
+                        liveTotalValue = todayLastValue;
+                        const investedAssetOnly = Math.max(0, todayInvestedTotal - cash);
+                        liveTotalReturn = liveTotalValue - cash - investedAssetOnly;
+                        liveTotalReturnPct = investedAssetOnly > 0 ? (liveTotalReturn / investedAssetOnly) * 100 : 0;
+
+                        if (todayYesterdayClose && todayYesterdayClose > 0) {
+                            graphVarTodayAbs = todayLastValue - todayYesterdayClose;
+                            graphVarTodayPct = (graphVarTodayAbs / todayYesterdayClose) * 100;
+                            console.log(`[VAR TODAY GRAPH SSOT] ${graphVarTodayAbs.toFixed(2)}€ (${graphVarTodayPct.toFixed(2)}%) — dernier point graphique ${todayLastValue.toFixed(2)}€ − clôture veille ${todayYesterdayClose.toFixed(2)}€`);
+                        }
+                    }
+                }
+
+                // Filet de secours (actif unique, indice, ou résolution graphique
+                // indisponible) : ancien calcul basé sur targetSummary (live snapshot).
+                if (liveTotalValue === undefined) {
+                    liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
+                    liveTotalReturn = liveTotalValue - cash - (targetSummary.totalInvestedEUR || 0);
+                    liveTotalReturnPct = (targetSummary.totalInvestedEUR || 0) > 0
+                        ? (liveTotalReturn / targetSummary.totalInvestedEUR) * 100
+                        : 0;
+                }
 
                 const kpiData = {
                     totalValue: liveTotalValue,
                     cash: cash,
                     totalReturn: liveTotalReturn,
-                    totalReturnPct: liveTotalReturnPct
+                    totalReturnPct: liveTotalReturnPct,
+                    varTodayAbs: graphVarTodayAbs,
+                    varTodayPct: graphVarTodayPct
                 };
 
                 const chartStats = this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, unifiedClose, kpiData);
@@ -910,25 +945,36 @@ export class HistoricalChart {
         // ---------------------------------------------------------
 
         if (priceEnd !== null && !isNaN(priceEnd) && !isUnitView && referenceClose) {
-            if (!isIndexMode && summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
-                // SINGLE SOURCE OF TRUTH pour VAR TODAY, quelle que soit la période affichée
-                // (1J/2J/1S/1M/...) et quel que soit le mode (portefeuille filtré ou actif
-                // unique) : summary.totalDayChangeEUR, qui vient TOUJOURS de
-                // calculateAllAssetsYesterdayClose (résolution 1 jour fixe, voir update())
-                // + calculateHoldings — la MÊME donnée que la colonne "Day P&L" du tableau.
-                // "Variation du jour" est un concept fixe (aujourd'hui vs hier) : il ne doit
-                // plus dépendre de this.currentPeriod ni d'un cache — sinon changer d'onglet
-                // ou de filtre peut afficher un chiffre qui n'appartient ni au jour ni au
-                // filtre actifs (c'est exactement le bug rapporté : tableau, KPI et courbe
-                // affichaient 3 valeurs différentes pour la même métrique).
-                vsYesterdayAbs = summary.totalDayChangeEUR;
-                vsYesterdayPct = summary.dayChangePct || 0;
-                console.log(`[VAR TODAY] summary.totalDayChangeEUR (source unique, indépendant de la période): ${vsYesterdayAbs.toFixed(2)}€`);
+            if (!isIndexMode && kpiData && kpiData.varTodayAbs !== null && kpiData.varTodayAbs !== undefined && !isNaN(kpiData.varTodayAbs)) {
+                // VRAI SINGLE SOURCE OF TRUTH : VAR TODAY vient directement du GRAPHIQUE
+                // (this.todayGraphData, calculé dans update() — le même graphData que celui
+                // qui trace la courbe en vue 1J). Fini summary.totalDayChangeEUR (basé sur
+                // les prix LIVE du snapshot via un second appel indépendant à
+                // calculateAllAssetsYesterdayClose) : c'était exactement la cause du bug
+                // rapporté (PÉRIODE à -92,95€ mais VAR TODAY à -984,19€ pour le même jour,
+                // deux moteurs séparés pouvant résoudre "hier" ou "aujourd'hui" différemment).
+                // Le graphique est la seule vérité, partout.
+                vsYesterdayAbs = kpiData.varTodayAbs;
+                vsYesterdayPct = kpiData.varTodayPct || 0;
+                console.log(`[VAR TODAY] kpiData.varTodayAbs (source unique = graphique): ${vsYesterdayAbs.toFixed(2)}€`);
 
                 if (!isSingleAsset) {
                     // Mettre à jour referenceClose pour cohérence de couleur de la courbe
                     // sur les vues autres que 1J (où displayValues[lastIndex] est déjà la
                     // bonne référence).
+                    const graphLastValue = displayValues[lastIndex];
+                    if (graphLastValue !== null && !isNaN(graphLastValue)) {
+                        referenceClose = graphLastValue - vsYesterdayAbs;
+                    }
+                }
+            } else if (!isIndexMode && summary && summary.totalDayChangeEUR !== undefined && summary.totalDayChangeEUR !== null) {
+                // Filet de secours (actif unique / indice / résolution graphique
+                // indisponible) : ancien calcul basé sur summary.totalDayChangeEUR.
+                vsYesterdayAbs = summary.totalDayChangeEUR;
+                vsYesterdayPct = summary.dayChangePct || 0;
+                console.log(`[VAR TODAY FALLBACK] summary.totalDayChangeEUR: ${vsYesterdayAbs.toFixed(2)}€`);
+
+                if (!isSingleAsset) {
                     const graphLastValue = displayValues[lastIndex];
                     if (graphLastValue !== null && !isNaN(graphLastValue)) {
                         referenceClose = graphLastValue - vsYesterdayAbs;
@@ -953,10 +999,11 @@ export class HistoricalChart {
             const periodLabel = periodMap[this.currentPeriod] || `${this.currentPeriod}d`;
 
             // Total Value / Total Return (kpiData) et VAR TODAY (vsYesterdayAbs) sont
-            // maintenant TOUJOURS dérivés de targetSummary (holdings live, même source que
-            // le tableau) — voir construction de kpiData/liveTotalValue plus haut et le calcul
-            // de vsYesterdayAbs ci-dessus. Plus de dépendance à la série historique intraday
-            // du graphique (qui pouvait avoir 15-20 min de retard) pour ces 3 KPI.
+            // maintenant dérivés DIRECTEMENT de this.todayGraphData (le graphique) quand le
+            // portefeuille global/filtré est affiché — voir construction de kpiData plus
+            // haut et le calcul de vsYesterdayAbs ci-dessus. Le graphique est la source
+            // unique ; targetSummary (live snapshot) ne sert plus que de filet de secours
+            // (actif unique / indice / résolution graphique indisponible).
             portfolioKPIs.updateFromGraph({
                 values: graphData.values,
                 invested: summary.totalInvestedEUR,
