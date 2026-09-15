@@ -59,17 +59,10 @@ export class HistoricalChart {
         this.lastRefreshTime = null;
 
         this._onShowAsset = (e) => {
-            this.currentMode = 'asset';
-            this.selectedAssets = [e.detail.ticker];
-            this.update(true, false);
+            this.showAssetChart(e.detail.ticker);
         };
         this._onClearAsset = () => {
-            this.currentMode = 'portfolio';
-            this.selectedAssets = [];
-            this.currentBenchmark = null;
-            const benchmarkSelect = document.getElementById('benchmark-select');
-            if (benchmarkSelect) benchmarkSelect.value = '';
-            this.update(true, false);
+            this.showPortfolioChart();
         };
         eventBus.addEventListener('showAssetChart', this._onShowAsset);
         eventBus.addEventListener('clearAssetChart', this._onClearAsset);
@@ -80,6 +73,25 @@ export class HistoricalChart {
         eventBus.removeEventListener('showAssetChart', this._onShowAsset);
         eventBus.removeEventListener('clearAssetChart', this._onClearAsset);
         if (this.chart) { this.chart.destroy(); this.chart = null; }
+    }
+
+    // Public API expected by investmentsPage.js (row click -> drill into one
+    // asset's chart) and by the eventBus 'showAssetChart'/'clearAssetChart'
+    // events (filters.js and others) — both paths go through these same two
+    // methods, so there is exactly one way to switch the chart's mode.
+    async showAssetChart(ticker) {
+        this.currentMode = 'asset';
+        this.selectedAssets = [ticker];
+        await this.update(true, false);
+    }
+
+    async showPortfolioChart() {
+        this.currentMode = 'portfolio';
+        this.selectedAssets = [];
+        this.currentBenchmark = null;
+        const benchmarkSelect = document.getElementById('benchmark-select');
+        if (benchmarkSelect) benchmarkSelect.value = '';
+        await this.update(true, false);
     }
 
     getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
@@ -120,6 +132,40 @@ export class HistoricalChart {
         this.stopAutoRefresh();
         await this.update(true, true);
         this.startAutoRefresh();
+    }
+
+    // Binds the period-tab buttons (1J/2J/1W/.../All) directly to changePeriod().
+    // Called once by app.js on the Investments page (the Dashboard binds its own
+    // buttons inline instead, since it also needs to sync desktop+mobile button
+    // sets — see dashboardApp.js).
+    setupPeriodButtons() {
+        document.querySelectorAll('.period-btn').forEach(btn => {
+            const newBtn = btn.cloneNode(true); // drop any previously-attached listener
+            btn.parentNode.replaceChild(newBtn, btn);
+            newBtn.addEventListener('click', (e) => {
+                if (newBtn.classList.contains('period-disabled')) return;
+                document.querySelectorAll('.period-btn').forEach(b => b.classList.toggle('active', b === newBtn));
+                const raw = newBtn.dataset.period;
+                this.changePeriod((raw === 'all' || raw === 'ytd') ? raw : parseInt(raw));
+            });
+        });
+        this.updatePeriodButtonsAvailability();
+    }
+
+    // Called on the Investments page's initial blocking load, once prices have
+    // already been fetched/synced moments earlier — a plain update() with
+    // forceApi=false avoids re-fetching live prices a second time right away.
+    async loadPageWithCacheFirst() {
+        await this.update(false, false);
+    }
+
+    // Dashboard market-index cards (CAC40, S&P500...) switch the chart into
+    // index mode for that ticker.
+    async showIndex(ticker, displayName) {
+        this.currentMode = 'index';
+        this.selectedAssets = [ticker];
+        this.customTitle = displayName ? { label: displayName } : null;
+        await this.update(true, true);
     }
 
     // Disable a period button if its window would start before the account's
