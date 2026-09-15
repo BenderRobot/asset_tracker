@@ -27,13 +27,6 @@ import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js';
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
-function lastValid(arr) {
-    if (!arr) return null;
-    for (let i = arr.length - 1; i >= 0; i--) {
-        if (arr[i] !== null && arr[i] !== undefined && !isNaN(arr[i])) return arr[i];
-    }
-    return null;
-}
 export class HistoricalChart {
     constructor(storage, dataManager, ui, investmentsPage) {
         this.storage = storage;
@@ -366,7 +359,7 @@ export class HistoricalChart {
             if (!graphData || !graphData.labels || graphData.labels.length === 0) {
                 this.showMessage('Pas de données disponibles pour cette période');
             } else {
-                const kpiData = this._computeAggregateKPIs({ isSingleAsset, isIndexMode, todayGraphData, targetSummary, targetCashReserve });
+                const kpiData = this._computeAggregateKPIs({ targetSummary, targetCashReserve });
                 this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData);
 
                 if (!isSingleAsset && !isIndexMode) {
@@ -391,46 +384,24 @@ export class HistoricalChart {
 
     // Aggregate "today" numbers (Total Value / Total Return / Var Today).
     //
-    // For the portfolio (not a single asset, not an index): the graph is the
-    // ONLY source, full stop. No fallback to targetSummary (live snapshot via
-    // calculateHoldings) — if the graph didn't produce a usable value, this
-    // returns nulls rather than quietly substituting a different calculation
-    // that happens to look plausible. A wrong-looking screen is more honest,
-    // and more useful to debug, than a right-looking screen built from the
-    // wrong source.
-    //
-    // Single-asset / index modes don't build a dedicated todayGraphData (see
-    // update()), so targetSummary remains their only available source — not a
-    // silent fallback, just the sole source for those two modes.
-    _computeAggregateKPIs({ isSingleAsset, isIndexMode, todayGraphData, targetSummary, targetCashReserve }) {
+    // SOURCE: targetSummary — i.e. calculateHoldings/calculateSummary, the exact
+    // same engine and the exact same live snapshot prices that build the table
+    // rows. This used to derive these numbers from the graph's own historical
+    // candle data instead, on the theory that "the graph is the single source
+    // of truth" — but that meant Total Value/Var Today used whatever price the
+    // graph's last fetched candle happened to hold for each ticker, while every
+    // table row used the fresher live snapshot price. Verified concretely: on a
+    // 7-ticker filtered view, summing the table's live-priced VALUE column gave
+    // 20 989,72€ while the graph's own last point gave 20 752,08€ — a 237,64€
+    // gap with no real price movement behind it, just two different "current
+    // price" sources for the same tickers. There is only one legitimate source
+    // for "current value" in this app: the live snapshot the table already
+    // shows. The graph's plotted curve still comes from historical candles (see
+    // renderChart) — but the NUMBERS shown (FIN, TOTAL VALUE, VAR TODAY) are all
+    // overridden to this same live-snapshot total, so what you read always
+    // matches what the table says, to the cent.
+    _computeAggregateKPIs({ targetSummary, targetCashReserve }) {
         const cash = targetCashReserve.total || 0;
-
-        if (!isSingleAsset && !isIndexMode) {
-            const totalValue = lastValid(todayGraphData?.values);
-            if (totalValue === null) {
-                console.warn('[HistoricalChart] Graph produced no usable value — KPIs left unresolved rather than falling back to a non-graph source.');
-                return { totalValue: null, cash, totalReturn: null, totalReturnPct: null, varTodayAbs: null, varTodayPct: null, investedAssetOnly: null };
-            }
-            const yesterdayClose = todayGraphData.yesterdayClose;
-            // Invested (cost basis) is NOT a price-dependent figure — unlike Total
-            // Value/Var Today, there is no "graph vs live snapshot" ambiguity to
-            // resolve here, so using targetSummary.totalInvestedEUR isn't a step
-            // back from the graph-is-truth rule. It matters which ENGINE computes
-            // it though: calculateHoldings correctly reduces cost basis
-            // proportionally on a partial sell (invested -= invested * soldRatio);
-            // HistoryCalculator's own per-ticker ledger sum does not (it nets
-            // raw price×quantity across buys AND sells), so any ticker with sell
-            // history came out with an inflated "invested" — verified: a
-            // single-holding account showing Total Return -25€ while its one
-            // position was +2,50€ in the table.
-            const investedAssetOnly = targetSummary.totalInvestedEUR || 0;
-            const totalReturn = (totalValue - cash) - investedAssetOnly;
-            const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
-            const varTodayAbs = (yesterdayClose > 0) ? totalValue - yesterdayClose : null;
-            const varTodayPct = (yesterdayClose > 0 && varTodayAbs !== null) ? (varTodayAbs / yesterdayClose) * 100 : null;
-            return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly };
-        }
-
         const totalValue = (targetSummary.totalCurrentEUR || 0) + cash;
         const investedAssetOnly = targetSummary.totalInvestedEUR || 0;
         const totalReturn = totalValue - cash - investedAssetOnly;
