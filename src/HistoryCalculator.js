@@ -41,7 +41,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function emptyResult() {
     return {
-        labels: [], invested: [], values: [], yesterdayClose: null,
+        labels: [], invested: [], investedAssetOnly: [], values: [], yesterdayClose: null,
         dayStartValue: null, todayValueOfYesterdayHoldings: null,
         perTickerYesterdayClose: new Map(), unitPrices: [], purchasePoints: [],
         timestamps: [], twr: [], dailyTwr: [], historicalDataMap: new Map(), isMixed: false
@@ -124,6 +124,7 @@ export class HistoryCalculator {
         return {
             labels: series.labels,
             invested: series.invested,
+            investedAssetOnly: series.investedAssetOnly,
             values: series.values,
             yesterdayClose: series.displayedYesterdayClose,
             dayStartValue: series.dayStartValue,
@@ -607,7 +608,7 @@ export class HistoryCalculator {
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
     async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win }) {
-        const labels = [], invested = [], values = [], unitPrices = [];
+        const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
         const twr = [], dailyTwr = [];
 
         const quantities = new Map(tickers.map(t => [t, 0]));
@@ -672,16 +673,21 @@ export class HistoryCalculator {
                 }
             }
 
-            let totalValue = 0, totalInvested = 0, unitPrice = null;
+            let totalValue = 0, totalInvested = 0, totalInvestedAssetOnly = 0, unitPrice = null;
             let hasAnyPrice = false, expected = 0, priced = 0;
 
             for (const t of tickers) {
                 const qty = quantities.get(t);
-                if (Math.abs(qty) <= 0.000001) { totalInvested += investedByTicker.get(t); continue; }
+                const isCash = t.startsWith('CASH-');
+                if (Math.abs(qty) <= 0.000001) {
+                    totalInvested += investedByTicker.get(t);
+                    if (!isCash) totalInvestedAssetOnly += investedByTicker.get(t);
+                    continue;
+                }
                 expected++;
 
                 let price = null;
-                if (t.startsWith('CASH-')) {
+                if (isCash) {
                     price = 1.0;
                 } else {
                     const hist = historicalDataMap.get(t);
@@ -702,6 +708,7 @@ export class HistoryCalculator {
                     lastKnownPrices.set(t, price);
                 }
                 totalInvested += investedByTicker.get(t);
+                if (!isCash) totalInvestedAssetOnly += investedByTicker.get(t);
             }
 
             // --- daily anchor: resolve once per calendar day, reusing the SAME
@@ -771,10 +778,12 @@ export class HistoryCalculator {
             labels.push(labelFormatFunc(ts));
             if (hasAnyPrice || quantityChanged) {
                 invested.push(totalInvested);
+                investedAssetOnly.push(totalInvestedAssetOnly);
                 values.push(totalValue);
                 if (isSingleAsset) unitPrices.push(unitPrice);
             } else {
                 invested.push(null);
+                investedAssetOnly.push(null);
                 values.push(null);
                 if (isSingleAsset) unitPrices.push(null);
             }
@@ -784,7 +793,7 @@ export class HistoryCalculator {
         // could therefore drift from it — align it on the same single anchor.
         if (days === 1 && periodDenominator > 0) dayStartValue = periodDenominator;
 
-        return { labels, invested, values, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue };
+        return { labels, invested, investedAssetOnly, values, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue };
     }
 
     // ========================================================

@@ -412,9 +412,14 @@ export class HistoricalChart {
                 return { totalValue: null, cash, totalReturn: null, totalReturnPct: null, varTodayAbs: null, varTodayPct: null, investedAssetOnly: null };
             }
             const yesterdayClose = todayGraphData.yesterdayClose;
-            const investedTotal = lastValid(todayGraphData.invested) || 0;
-            const investedAssetOnly = Math.max(0, investedTotal - cash);
-            const totalReturn = totalValue - cash - investedAssetOnly;
+            // Asset-only invested comes NATIVELY from the graph engine (tracked
+            // separately from cash inside HistoryCalculator), never by subtracting
+            // a cash figure computed by a DIFFERENT engine (calculateCashReserve) —
+            // any mismatch between the two cash computations used to land entirely
+            // on Total Return (verified: a single-holding Revolut account showing a
+            // -25€ "loss" while its only position was +2,50€ in the green).
+            const investedAssetOnly = lastValid(todayGraphData.investedAssetOnly) || 0;
+            const totalReturn = (totalValue - cash) - investedAssetOnly;
             const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
             const varTodayAbs = (yesterdayClose > 0) ? totalValue - yesterdayClose : null;
             const varTodayPct = (yesterdayClose > 0 && varTodayAbs !== null) ? (varTodayAbs / yesterdayClose) * 100 : null;
