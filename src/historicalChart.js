@@ -590,6 +590,24 @@ export class HistoricalChart {
             return g;
         };
 
+        // Colors each line segment green above `refValue`, red below it, with a
+        // sharp transition placed exactly where the segment crosses that value
+        // (rather than blending green-to-red across the whole segment).
+        const GREEN = 'rgba(46,204,113,0.95)', RED = 'rgba(231,76,60,0.95)';
+        const segmentColor = (ctx, refValue) => {
+            const y0 = ctx.p0.parsed.y, y1 = ctx.p1.parsed.y;
+            if (y0 == null || y1 == null) return mainColor;
+            const a0 = y0 >= refValue, a1 = y1 >= refValue;
+            if (a0 && a1) return GREEN;
+            if (!a0 && !a1) return RED;
+            const t = Math.abs(y0 - refValue) / (Math.abs(y0 - refValue) + Math.abs(y1 - refValue));
+            const [c0, c1] = a0 ? [GREEN, RED] : [RED, GREEN];
+            const g = ctx.chart.ctx.createLinearGradient(ctx.p0.x, 0, ctx.p1.x, 0);
+            g.addColorStop(0, c0); g.addColorStop(Math.max(0, t - 0.001), c0);
+            g.addColorStop(Math.min(1, t + 0.001), c1); g.addColorStop(1, c1);
+            return g;
+        };
+
         if (isPerformanceMode) {
             const hasDailyTwr = this.currentPeriod === 1 && Array.isArray(graphData.dailyTwr) &&
                 graphData.dailyTwr.length === graphData.twr.length && graphData.dailyTwr.some(v => v !== null);
@@ -618,7 +636,8 @@ export class HistoricalChart {
             datasets.push({
                 label: 'Performance Portfolio (%)', data: perfData, borderColor: mainColor,
                 backgroundColor: (c) => makeGradient(c.chart, 0), borderWidth: 2, fill: true,
-                pointRadius: 0, tension: 0.3, spanGaps: true
+                pointRadius: 0, tension: 0.3, spanGaps: true,
+                segment: { borderColor: (c) => segmentColor(c, 0) }
             });
 
             if (benchmarkData && graphData.timestamps) {
@@ -663,7 +682,8 @@ export class HistoricalChart {
             datasets.push({
                 label, data: valueData, borderColor: mainColor,
                 backgroundColor: (c) => makeGradient(c.chart, bicolorRef || 0),
-                borderWidth: 3, fill: true, tension: 0.3, pointRadius: 0, spanGaps: true
+                borderWidth: 3, fill: true, tension: 0.3, pointRadius: 0, spanGaps: true,
+                ...(bicolorRef ? { segment: { borderColor: (c) => segmentColor(c, bicolorRef) } } : {})
             });
             if (this.currentPeriod === 1 && referenceClose > 0) {
                 datasets.push({ label: 'Clôture hier', data: Array(graphData.labels.length).fill(referenceClose), borderColor: '#95a5a6', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
@@ -692,7 +712,10 @@ export class HistoricalChart {
                     }
                 },
                 scales: {
-                    x: { grid: { display: false } },
+                    x: {
+                        grid: { display: false },
+                        ticks: { autoSkip: true, maxTicksLimit: 10, maxRotation: 0 }
+                    },
                     y: { ticks: { callback: (v) => isPerformanceMode ? `${v.toFixed(2)}%` : v } }
                 }
             }
