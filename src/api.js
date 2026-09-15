@@ -538,7 +538,9 @@ export class PriceAPI {
     }
 
     // Le cacheKey utilise une v6 pour forcer le rafraîchissement après migration Cloudflare
-    let cacheKey = `v7_${formatted}_${startTs}_${endTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
+    // v8: invalide le cache local pour forcer un re-fetch après la correction du bug
+    // de ratio Gold (v7 pouvait contenir des historiques Amundi Gold doublés par erreur).
+    let cacheKey = `v8_${formatted}_${startTs}_${endTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
     if (['5m', '15m', '90m'].includes(interval)) {
       const rounded = Math.floor(Date.now() / 300000) * 300000;
       cacheKey += `_${rounded}`;
@@ -599,13 +601,42 @@ export class PriceAPI {
           // Ce cas est rare car l'app fetch d'abord le snapshot
           const targetPrice = targetPriceObj ? targetPriceObj.price : 146.8;
 
-          // Le prix source (74$) est dans "quotes". On prend le dernier.
-          const lastSourcePrice = quotes[quotes.length - 1];
+          // BUG TROUVÉ (vérifié en interrogeant directement l'API Yahoo) : le dernier
+          // élément de "quotes" peut être `null` (bougie du jour pas encore clôturée) —
+          // quotes[quotes.length-1] n'est PAS forcément la dernière clôture RÉELLE. Pour
+          // GOLD.PA, les 2 dernières entrées sont `null`, donc lastSourcePrice valait
+          // toujours null et le code retombait sur le ratio figé 1.97 — calibré à une
+          // époque où GOLD.PA cotait ~74 (voir meta.regularMarketPrice, gelé depuis
+          // 2023). Aujourd'hui Yahoo sert déjà les bougies "close" de GOLD.PA dans la
+          // même échelle que GOLD-EUR.PA (~147-150) : appliquer ce ratio 1.97 doublait
+          // artificiellement tout l'historique — c'est ce qui causait "Amundi Gold" à
+          // -49,98% (chute fictive de ~50%) alors que le prix réel n'avait presque pas
+          // bougé. On cherche maintenant la dernière clôture RÉELLEMENT valide.
+          let lastSourcePrice = null;
+          for (let qi = quotes.length - 1; qi >= 0; qi--) {
+            if (quotes[qi] !== null && quotes[qi] !== undefined && quotes[qi] > 0) {
+              lastSourcePrice = quotes[qi];
+              break;
+            }
+          }
+
           if (lastSourcePrice && lastSourcePrice > 0) {
             goldRatio = targetPrice / lastSourcePrice;
-            console.log(`[GOLD FIX] Applying ratio ${goldRatio.toFixed(4)} (Target: ${targetPrice} / Source: ${lastSourcePrice})`);
+            // Garde-fou : un ratio qui s'écarte de plus de 2x dans un sens ou l'autre
+            // trahit plus probablement une donnée source désynchronisée qu'un vrai
+            // écart d'échelle — mieux vaut ne pas rescaler (ratio neutre) que risquer
+            // de fausser tout l'historique comme ci-dessus.
+            if (goldRatio > 2 || goldRatio < 0.5) {
+              console.warn(`[GOLD FIX] Ratio ${goldRatio.toFixed(4)} hors plage plausible (Target: ${targetPrice} / Source: ${lastSourcePrice}) — ignoré, ratio=1 appliqué`);
+              goldRatio = 1;
+            } else {
+              console.log(`[GOLD FIX] Applying ratio ${goldRatio.toFixed(4)} (Target: ${targetPrice} / Source: ${lastSourcePrice})`);
+            }
           } else {
-            goldRatio = 1.97;
+            // Aucune clôture source valide trouvée : un ratio neutre (pas de rescaling)
+            // est beaucoup plus sûr qu'un facteur figé potentiellement obsolète.
+            goldRatio = 1;
+            console.warn(`[GOLD FIX] Aucune clôture source valide pour GOLD.PA, ratio neutre (1) appliqué`);
           }
         }
 
