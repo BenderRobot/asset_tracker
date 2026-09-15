@@ -1099,8 +1099,26 @@ export class HistoryCalculator {
                     // force une requête (ou un cache) standardisée et partagée, identique
                     // quelle que soit la vue qui la déclenche.
                     let resolvedDayBase = null;
-                    const { total: dailyBase } = await resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`, false, true);
-                    if (dailyBase > 0) resolvedDayBase = dailyBase;
+
+                    // RÉUTILISATION SSOT : pour la vue 1J, "yesterdayClose" (résolu UNE
+                    // SEULE FOIS plus haut, avec correction de clôture officielle et
+                    // useDedicatedFetch) EST déjà exactement la clôture de la veille pour
+                    // ce jour affiché. Refaire ici un second appel réseau/cache dupliquait
+                    // la même résolution et pouvait échouer indépendamment (ex: une ligne
+                    // dont la clôture officielle met plus de temps à répondre) sans que le
+                    // premier appel échoue — l'ancrage de la courbe retombait alors
+                    // silencieusement sur le filet de secours (valeur du 1er point),
+                    // effaçant le vrai gap d'ouverture alors que "CLÔTURE HIER"/VAR TODAY
+                    // (basés sur ce même yesterdayClose déjà résolu) restaient corrects.
+                    // Exactement la classe de bug signalée : PÉRIODE (courbe) et VAR TODAY
+                    // divergent alors que les deux sont censés partager la même base.
+                    if (days === 1 && twrDenominator === null && yesterdayClose > 0) {
+                        resolvedDayBase = yesterdayClose;
+                        console.log(`[TWR BASE] dailyTwr base (${dayKey}) = yesterdayClose déjà résolu (réutilisation SSOT, pas de second appel): ${resolvedDayBase.toFixed(2)}€`);
+                    } else {
+                        const { total: dailyBase } = await resolveCloseValueBeforeDay(new Date(ts), ` (daily ${dayKey})`, false, true);
+                        if (dailyBase > 0) resolvedDayBase = dailyBase;
+                    }
 
                     if (resolvedDayBase !== null) {
                         console.log(`[TWR BASE] dailyTwr base (${dayKey}) = vraie clôture de la veille: ${resolvedDayBase.toFixed(2)}€`);
