@@ -486,6 +486,18 @@ export class HistoricalChart {
             vsYesterdayPct = referenceClose !== 0 ? (vsYesterdayAbs / referenceClose) * 100 : 0;
         }
 
+        // PÉRIODE == VAR. JOUR on the 1D tab: they are the exact same concept
+        // ("change over the displayed period" vs "change today") and must show
+        // the exact same number. Overriding perfAbs/perfPct here (computed above
+        // from the graph's own TWR series) with vsYesterdayAbs/vsYesterdayPct
+        // (table-derived, live snapshot) is what actually makes that true —
+        // computing them via two different paths is what produced PÉRIODE
+        // -247,57€ next to VAR. JOUR -9,76€ for the same day.
+        if (this.currentPeriod === 1 && vsYesterdayAbs !== null && !isNaN(vsYesterdayAbs)) {
+            perfAbs = vsYesterdayAbs;
+            perfPct = vsYesterdayPct;
+        }
+
         // FIN affiché = TOTAL VALUE (même nombre que la carte KPI), pour le
         // portefeuille (pas un actif unique, pas un indice).
         let displayPriceEnd = priceEnd;
