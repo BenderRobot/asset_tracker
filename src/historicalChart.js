@@ -398,8 +398,13 @@ export class HistoricalChart {
         while (lastIndex >= 0 && (displayValues[lastIndex] === null || isNaN(displayValues[lastIndex]))) lastIndex--;
         if (firstIndex < 0) firstIndex = 0;
 
-        let priceStart = firstIndex >= 0 ? displayValues[firstIndex] : 0;
-        let priceEnd = lastIndex >= 0 ? displayValues[lastIndex] : 0;
+        // (firstIndex/lastIndex are forced to a valid array position above even when
+        // NO point in the series has a real value — e.g. a brand new day where not a
+        // single ticker has priced yet — so the value AT that position can still be
+        // null. Never let a null through to chartKPIManager, which calls .toFixed()
+        // unconditionally and would throw.)
+        let priceStart = (firstIndex >= 0 && displayValues[firstIndex] != null) ? displayValues[firstIndex] : 0;
+        let priceEnd = (lastIndex >= 0 && displayValues[lastIndex] != null) ? displayValues[lastIndex] : 0;
         let priceHigh = -Infinity, priceLow = Infinity;
         displayValues.forEach(v => { if (v !== null && !isNaN(v)) { priceHigh = Math.max(priceHigh, v); priceLow = Math.min(priceLow, v); } });
         if (priceHigh === -Infinity) priceHigh = priceEnd;

@@ -296,7 +296,9 @@ export class HistoryCalculator {
         const midnightMs = new Date().setHours(0, 0, 0, 0);
         const nowMs = Date.now();
         for (const t of tickers) {
-            if (!isCryptoTicker(t)) continue;
+            // isCryptoTicker() false-positives on any ticker containing "-EUR"/"-USD",
+            // which "CASH-EUR"/"CASH-USD" do — exclude cash explicitly.
+            if (t.startsWith('CASH-') || !isCryptoTicker(t)) continue;
             const hist = historicalDataMap.get(t);
             if (hist && Object.keys(hist).length > 0) continue;
             try {
