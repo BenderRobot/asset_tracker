@@ -493,7 +493,7 @@ export class HistoricalChart {
                 // FIN, TOTAL VALUE et VAR TODAY affichent désormais littéralement le même
                 // nombre, par construction, pas par coïncidence de calculs séparés.
                 const cash = targetCashReserve.total || 0;
-                let liveTotalValue, liveTotalReturn, liveTotalReturnPct;
+                let liveTotalValue, liveTotalReturn, liveTotalReturnPct, investedAssetOnly;
                 let graphVarTodayAbs = null, graphVarTodayPct = null;
 
                 if (!isSingleAsset && !isIndexMode && this.todayGraphData && this.todayGraphData.values) {
@@ -506,7 +506,7 @@ export class HistoricalChart {
 
                     if (todayLastValue !== null) {
                         liveTotalValue = todayLastValue;
-                        const investedAssetOnly = Math.max(0, todayInvestedTotal - cash);
+                        investedAssetOnly = Math.max(0, todayInvestedTotal - cash);
                         liveTotalReturn = liveTotalValue - cash - investedAssetOnly;
                         liveTotalReturnPct = investedAssetOnly > 0 ? (liveTotalReturn / investedAssetOnly) * 100 : 0;
 
@@ -521,10 +521,11 @@ export class HistoricalChart {
                 // Filet de secours (actif unique, indice, ou résolution graphique
                 // indisponible) : ancien calcul basé sur targetSummary (live snapshot).
                 if (liveTotalValue === undefined) {
+                    investedAssetOnly = targetSummary.totalInvestedEUR || 0;
                     liveTotalValue = (targetSummary.totalCurrentEUR || 0) + cash;
-                    liveTotalReturn = liveTotalValue - cash - (targetSummary.totalInvestedEUR || 0);
-                    liveTotalReturnPct = (targetSummary.totalInvestedEUR || 0) > 0
-                        ? (liveTotalReturn / targetSummary.totalInvestedEUR) * 100
+                    liveTotalReturn = liveTotalValue - cash - investedAssetOnly;
+                    liveTotalReturnPct = investedAssetOnly > 0
+                        ? (liveTotalReturn / investedAssetOnly) * 100
                         : 0;
                 }
 
@@ -534,7 +535,8 @@ export class HistoricalChart {
                     totalReturn: liveTotalReturn,
                     totalReturnPct: liveTotalReturnPct,
                     varTodayAbs: graphVarTodayAbs,
-                    varTodayPct: graphVarTodayPct
+                    varTodayPct: graphVarTodayPct,
+                    investedAssetOnly: investedAssetOnly
                 };
 
                 const chartStats = this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, unifiedClose, kpiData);
@@ -1006,7 +1008,15 @@ export class HistoricalChart {
             // (actif unique / indice / résolution graphique indisponible).
             portfolioKPIs.updateFromGraph({
                 values: graphData.values,
-                invested: summary.totalInvestedEUR,
+                // BUG TROUVÉ : "invested" utilisait encore summary.totalInvestedEUR (l'ANCIEN
+                // moteur, live snapshot) alors que totalValue/totalReturn utilisent déjà
+                // kpiData.investedAssetOnly (le graphique). Résultat vérifiable à la main :
+                // Invested + Total Return + Cash ≠ Total Value affiché, parce que "Invested"
+                // seul venait d'une source différente des deux autres. On aligne les 3 sur
+                // la même source (le graphique) pour que l'addition tombe juste.
+                invested: (kpiData && kpiData.investedAssetOnly !== undefined && kpiData.investedAssetOnly !== null)
+                    ? kpiData.investedAssetOnly
+                    : summary.totalInvestedEUR,
                 vsYesterdayAbs: vsYesterdayAbs,
                 vsYesterdayPct: vsYesterdayPct,
                 period: periodLabel,
