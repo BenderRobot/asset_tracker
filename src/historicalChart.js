@@ -412,13 +412,18 @@ export class HistoricalChart {
                 return { totalValue: null, cash, totalReturn: null, totalReturnPct: null, varTodayAbs: null, varTodayPct: null, investedAssetOnly: null };
             }
             const yesterdayClose = todayGraphData.yesterdayClose;
-            // Asset-only invested comes NATIVELY from the graph engine (tracked
-            // separately from cash inside HistoryCalculator), never by subtracting
-            // a cash figure computed by a DIFFERENT engine (calculateCashReserve) —
-            // any mismatch between the two cash computations used to land entirely
-            // on Total Return (verified: a single-holding Revolut account showing a
-            // -25€ "loss" while its only position was +2,50€ in the green).
-            const investedAssetOnly = lastValid(todayGraphData.investedAssetOnly) || 0;
+            // Invested (cost basis) is NOT a price-dependent figure — unlike Total
+            // Value/Var Today, there is no "graph vs live snapshot" ambiguity to
+            // resolve here, so using targetSummary.totalInvestedEUR isn't a step
+            // back from the graph-is-truth rule. It matters which ENGINE computes
+            // it though: calculateHoldings correctly reduces cost basis
+            // proportionally on a partial sell (invested -= invested * soldRatio);
+            // HistoryCalculator's own per-ticker ledger sum does not (it nets
+            // raw price×quantity across buys AND sells), so any ticker with sell
+            // history came out with an inflated "invested" — verified: a
+            // single-holding account showing Total Return -25€ while its one
+            // position was +2,50€ in the table.
+            const investedAssetOnly = targetSummary.totalInvestedEUR || 0;
             const totalReturn = (totalValue - cash) - investedAssetOnly;
             const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
             const varTodayAbs = (yesterdayClose > 0) ? totalValue - yesterdayClose : null;
