@@ -1204,6 +1204,18 @@ export class HistoricalChart {
         }
         */
 
+        // SINGLE SOURCE OF TRUTH : "FIN" affiché doit être la MÊME valeur que "TOTAL VALUE"
+        // (kpiData.totalValue, live, période-indépendant) — pas le dernier point de la série
+        // historique intraday, qui peut être en retard ou carrément absent (ex: avant
+        // l'ouverture des marchés actions, alors qu'un actif 24/7 du même portefeuille a
+        // déjà bougé). Ne corrige que l'AFFICHAGE ici ; priceEnd reste utilisé tel quel plus
+        // haut pour perfAbs/PÉRIODE (une mesure "depuis le 1er point tracé", légitimement
+        // différente et non concernée par ce fix).
+        let displayPriceEnd = priceEnd;
+        if (!isSingleAsset && !isIndexMode && kpiData && kpiData.totalValue !== undefined && kpiData.totalValue !== null) {
+            displayPriceEnd = kpiData.totalValue;
+        }
+
         this.kpiManager.updateKPIs({
             isIndexMode,
             isSingleAsset,
@@ -1218,7 +1230,7 @@ export class HistoricalChart {
             referenceClose: displayReferenceClose,
             finalYesterdayClose,
             priceStart,
-            priceEnd,
+            priceEnd: displayPriceEnd,
             priceHigh,
             priceLow,
             avgPrice,
