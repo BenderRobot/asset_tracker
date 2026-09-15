@@ -598,6 +598,28 @@ export class HistoryCalculator {
         const quantities = new Map(tickers.map(t => [t, 0]));
         const investedByTicker = new Map(tickers.map(t => [t, 0]));
 
+        // CRITICAL: seed quantities/invested with every purchase dated BEFORE the
+        // displayed window starts — i.e. the entire pre-existing portfolio (bought
+        // weeks/months/years ago). Without this, `quantities` starts at 0 and the
+        // loop below only ever adds purchases that fall INSIDE the window (today),
+        // so every pre-existing holding reads as "0 shares" at every timestamp and
+        // gets skipped before its price is even looked up — the whole series comes
+        // out null. This is not a purchase happening "during" the window; it's the
+        // starting position the window's price movements apply on top of.
+        for (const t of tickers) {
+            for (const entry of ledger.byTicker.get(t) || []) {
+                if (entry.date.getTime() <= win.displayStartTs - 1) {
+                    quantities.set(t, quantities.get(t) + entry.quantity);
+                    let rate = 1;
+                    if (!isSingleAsset) {
+                        const currency = this.storage.getCurrentPrice(t)?.currency || entry.currency || 'EUR';
+                        if (currency === 'USD') rate = dynamicRate;
+                    }
+                    investedByTicker.set(t, investedByTicker.get(t) + entry.price * entry.quantity * rate);
+                }
+            }
+        }
+
         // TWR anchoring: `periodDenominator` is set once, on the very first day
         // encountered, and stays fixed for the whole displayed period ("PÉRIODE").
         // `dayDenominator` resets at every calendar-day boundary crossed and drives
