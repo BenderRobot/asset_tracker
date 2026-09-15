@@ -389,26 +389,36 @@ export class HistoricalChart {
         }
     }
 
-    // Aggregate "today" numbers (Total Value / Total Return / Var Today), ALWAYS
-    // from todayGraphData when available — the graph is the single source of
-    // truth. targetSummary (live snapshot, via calculateHoldings) is only a
-    // fallback for single-asset/index modes where todayGraphData isn't built.
+    // Aggregate "today" numbers (Total Value / Total Return / Var Today).
+    //
+    // For the portfolio (not a single asset, not an index): the graph is the
+    // ONLY source, full stop. No fallback to targetSummary (live snapshot via
+    // calculateHoldings) — if the graph didn't produce a usable value, this
+    // returns nulls rather than quietly substituting a different calculation
+    // that happens to look plausible. A wrong-looking screen is more honest,
+    // and more useful to debug, than a right-looking screen built from the
+    // wrong source.
+    //
+    // Single-asset / index modes don't build a dedicated todayGraphData (see
+    // update()), so targetSummary remains their only available source — not a
+    // silent fallback, just the sole source for those two modes.
     _computeAggregateKPIs({ isSingleAsset, isIndexMode, todayGraphData, targetSummary, targetCashReserve }) {
         const cash = targetCashReserve.total || 0;
 
-        if (!isSingleAsset && !isIndexMode && todayGraphData?.values) {
-            const totalValue = lastValid(todayGraphData.values);
+        if (!isSingleAsset && !isIndexMode) {
+            const totalValue = lastValid(todayGraphData?.values);
+            if (totalValue === null) {
+                console.warn('[HistoricalChart] Graph produced no usable value — KPIs left unresolved rather than falling back to a non-graph source.');
+                return { totalValue: null, cash, totalReturn: null, totalReturnPct: null, varTodayAbs: null, varTodayPct: null, investedAssetOnly: null };
+            }
             const yesterdayClose = todayGraphData.yesterdayClose;
             const investedTotal = lastValid(todayGraphData.invested) || 0;
-
-            if (totalValue !== null) {
-                const investedAssetOnly = Math.max(0, investedTotal - cash);
-                const totalReturn = totalValue - cash - investedAssetOnly;
-                const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
-                const varTodayAbs = (yesterdayClose > 0) ? totalValue - yesterdayClose : null;
-                const varTodayPct = (yesterdayClose > 0 && varTodayAbs !== null) ? (varTodayAbs / yesterdayClose) * 100 : null;
-                return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly };
-            }
+            const investedAssetOnly = Math.max(0, investedTotal - cash);
+            const totalReturn = totalValue - cash - investedAssetOnly;
+            const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
+            const varTodayAbs = (yesterdayClose > 0) ? totalValue - yesterdayClose : null;
+            const varTodayPct = (yesterdayClose > 0 && varTodayAbs !== null) ? (varTodayAbs / yesterdayClose) * 100 : null;
+            return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly };
         }
 
         const totalValue = (targetSummary.totalCurrentEUR || 0) + cash;
