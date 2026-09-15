@@ -161,23 +161,59 @@ export class HistoricalChart {
         await this.update(true, true);
     }
 
-    // Disable a period button if its window would start before the account's
-    // very first purchase — there is nothing meaningful to plot before that.
+    // Year buttons (1Y/2Y/3Y/...) should only exist once the account is
+    // genuinely that old — a 3Y button is meaningless noise on a portfolio that
+    // started 8 months ago. The fixed 1Y/2Y/3Y buttons already in the page are
+    // hidden until their anniversary; once the account passes 3 years, a new
+    // "NY" button is created for each additional full year, right before "All",
+    // so the list grows one button per birthday instead of staying capped.
     updatePeriodButtonsAvailability() {
         const firstPurchase = this.storage.getPurchases()
             .map(p => new Date(p.date))
             .filter(d => !isNaN(d.getTime()))
             .sort((a, b) => a - b)[0];
         if (!firstPurchase) return;
-        const ageDays = (Date.now() - firstPurchase.getTime()) / (24 * 60 * 60 * 1000);
 
-        document.querySelectorAll('.period-btn').forEach(btn => {
-            const raw = btn.dataset.period;
-            if (raw === 'all' || raw === 'ytd' || raw === '1' || raw === '2' || raw === '7') return;
-            const days = parseInt(raw);
-            if (!Number.isFinite(days)) return;
-            const tooOld = days > 30 && ageDays < days * 0.5;
-            btn.classList.toggle('period-disabled', tooOld);
+        const ageDays = Math.floor((Date.now() - firstPurchase.getTime()) / (24 * 60 * 60 * 1000));
+        const ageYears = Math.floor(ageDays / 365);
+        const fixedYearDays = { '365': 1, '730': 2, '1095': 3 };
+
+        document.querySelectorAll('.period-btn[data-period]').forEach(btn => {
+            const requiredYears = fixedYearDays[btn.dataset.period];
+            if (requiredYears !== undefined) {
+                const eligible = ageYears >= requiredYears;
+                btn.style.display = eligible ? '' : 'none';
+                // The 3Y button ships with "period-disabled" hardcoded in the HTML
+                // (blocks clicks regardless of visibility) — clear it once the
+                // account is actually old enough, or the button stays inert even
+                // though it's now shown.
+                btn.classList.toggle('period-disabled', !eligible);
+            }
+        });
+
+        const containers = new Set();
+        document.querySelectorAll('.period-btn').forEach(btn => containers.add(btn.parentNode));
+
+        containers.forEach(container => {
+            // Drop dynamic buttons from a previous call before re-adding, so
+            // re-running this (e.g. on a later page load) never duplicates them.
+            container.querySelectorAll('.period-btn[data-dynamic-year]').forEach(b => b.remove());
+            const allBtn = container.querySelector('.period-btn[data-period="all"]');
+            if (!allBtn) return;
+
+            for (let y = 4; y <= ageYears; y++) {
+                const btn = document.createElement('button');
+                btn.className = 'period-btn';
+                btn.dataset.period = String(y * 365);
+                btn.dataset.dynamicYear = 'true';
+                btn.textContent = `${y}Y`;
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll(`.period-btn[data-period="${y * 365}"]`).forEach(b => b.classList.add('active'));
+                    this.changePeriod(y * 365);
+                });
+                allBtn.parentNode.insertBefore(btn, allBtn);
+            }
         });
     }
 
