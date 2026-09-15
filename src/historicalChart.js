@@ -453,6 +453,11 @@ export class HistoricalChart {
         let lastIndex = displayValues.length - 1;
         while (lastIndex >= 0 && (displayValues[lastIndex] === null || isNaN(displayValues[lastIndex]))) lastIndex--;
         if (firstIndex < 0) firstIndex = 0;
+        // BUG FIX: lastIndex can also fall through to -1 (every point null) — left
+        // unclamped, `array[-1]` doesn't throw in JS, it silently returns undefined,
+        // which then poisoned graphData.twr[lastIndex] into NaN (seen live: PÉRIODE
+        // showing "NaN€", VAR. JOUR showing -100% because priceEnd defaulted to 0).
+        if (lastIndex < 0) lastIndex = displayValues.length - 1;
 
         // (firstIndex/lastIndex are forced to a valid array position above even when
         // NO point in the series has a real value — e.g. a brand new day where not a
