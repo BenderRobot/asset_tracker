@@ -100,8 +100,6 @@ export class HistoryCalculator {
         const yesterdayRefDate = (days === 1) ? win.displayStart : new Date();
         const yesterday = await resolveCloseBefore(yesterdayRefDate, 'yesterdayClose', true);
 
-        this._patchOfficialClose(tickers, historicalDataMap, yesterday, yesterdayRefDate);
-
         if (days === 1) {
             this._injectMidnightPrices(tickers, historicalDataMap, win, yesterday);
         }
@@ -430,58 +428,65 @@ export class HistoryCalculator {
                     total += qty; assetsFound++; prices.set(t, 1.0); return;
                 }
 
-                const { closePrice } = await resolveTickerPreviousClose(t, {
-                    storage: this.storage,
-                    api: useDedicatedFetch ? this.api : undefined,
-                    refDate,
-                    preferLiveClose: false,
-                    historicalDataMap: useDedicatedFetch ? null : (historicalDataMap.get(t) || null),
-                    allowFetch: useDedicatedFetch
-                });
+                let closePrice = null;
 
-                // DIAGNOSTIC (temporary): one line per ticker with everything needed
-                // to compare against the real broker app — Yahoo symbol used, the
-                // dedicated daily-fetch close, what the same-cutoff intraday candles
-                // (the data the curve is drawn from) say instead, the live snapshot
-                // price, and the day-change % each of those two closes implies. If
-                // dedicatedClose and intradayClose disagree, the dedicated daily
-                // fetch is unreliable for this ticker. If they agree with EACH OTHER
-                // but still disagree with the real app, the whole Yahoo listing is
-                // the mismatch, not this app's logic.
-                if (useDedicatedFetch && !t.startsWith('CASH-')) {
-                    const intraday = historicalDataMap?.get(t);
-                    let intradayClose = null;
+                if (useDedicatedFetch) {
+                    // BUG FOUND (proven with real data): Yahoo's DAILY-interval
+                    // history for thin/European-exchange listings can be missing
+                    // the most recent trading day entirely — verified for every
+                    // EU-listed stock/ETF held (e.g. Tesla via TL0.DE had bars for
+                    // 09-08..09-11 then 09-14, silently skipping 09-15, "yesterday"
+                    // relative to 09-16 "today"). The cutoff DATE was always right;
+                    // the DAILY BAR available for it just didn't exist yet, so the
+                    // old code silently fell back to a close from 2 days ago.
+                    // Fix: resolve from the dedicated daily fetch AND from the
+                    // intraday candles already fetched for the curve, and keep
+                    // whichever bar's OWN calendar date is more recent — not
+                    // "always the daily one". This also makes the now-removed
+                    // _patchOfficialClose obsolete (it used to force-overwrite the
+                    // intraday data with this same unreliable daily value).
+                    const dailyBars = await this.api.getHistoricalPricesWithRetry(
+                        formatTicker(t),
+                        Math.floor(cutoffTs / 1000) - 7 * 86400,
+                        Math.floor(cutoffTs / 1000),
+                        '1d'
+                    );
+                    let dailyTs = null, dailyPrice = null;
+                    if (dailyBars) {
+                        const keys = Object.keys(dailyBars).map(Number).sort((a, b) => a - b);
+                        for (const k of keys) { if (k <= cutoffTs) { dailyTs = k; dailyPrice = dailyBars[k]; } else break; }
+                    }
+
+                    const intraday = historicalDataMap.get(t);
+                    let intradayTs = null, intradayPrice = null;
                     if (intraday) {
                         const keys = Object.keys(intraday).map(Number).sort((a, b) => a - b);
-                        for (const k of keys) { if (k <= cutoffTs) intradayClose = intraday[k]; else break; }
-                    }
-                    const livePrice = this.storage.getCurrentPrice(t)?.price ?? null;
-                    const pct = (base) => (base && livePrice) ? (((livePrice - base) / base) * 100).toFixed(2) + '%' : 'n/a';
-
-                    // RAW DAILY BARS: replicate resolveTickerPreviousClose's own dedicated
-                    // fetch (same symbol, same window) and print EVERY bar it received —
-                    // not just the one it picked — to see whether there's a gap right
-                    // before the cutoff (thin listing skipping a day) that makes it fall
-                    // back to a stale bar despite the cutoff DATE itself being correct.
-                    try {
-                        const rawDaily = await this.api.getHistoricalPricesWithRetry(
-                            formatTicker(t),
-                            Math.floor(cutoffTs / 1000) - 7 * 86400,
-                            Math.floor(cutoffTs / 1000),
-                            '1d'
-                        );
-                        const rawKeys = Object.keys(rawDaily || {}).map(Number).sort((a, b) => a - b);
-                        const rawStr = rawKeys.map(k => `${new Date(k).toISOString().slice(0, 10)}=${rawDaily[k]}`).join(', ');
-                        console.log(`[DAILY BARS] ${t} (${formatTicker(t)}) raw 1d bars in window: ${rawStr || '(none)'}`);
-                    } catch (err) {
-                        console.warn(`[DAILY BARS] ${t} raw fetch failed:`, err.message);
+                        for (const k of keys) { if (k <= cutoffTs) { intradayTs = Number(k); intradayPrice = intraday[k]; } else break; }
                     }
 
-                    console.log(
-                        `[PRICE DIAG] ${t} (${formatTicker(t)}) cutoff=${new Date(cutoffTs).toISOString().slice(0, 16)} | ` +
-                        `dedicatedClose=${closePrice} intradayClose=${intradayClose} livePrice=${livePrice} | ` +
-                        `dayChange vs dedicated=${pct(closePrice)} vs intraday=${pct(intradayClose)}`
-                    );
+                    if (dailyPrice > 0 && intradayPrice > 0) {
+                        const dailyDay = new Date(dailyTs).toISOString().slice(0, 10);
+                        const intradayDay = new Date(intradayTs).toISOString().slice(0, 10);
+                        if (intradayDay > dailyDay) {
+                            console.log(`[HistoryCalc] ${t}: daily bar stale (${dailyDay}=${dailyPrice}) — using fresher intraday candle (${intradayDay}=${intradayPrice})`);
+                            closePrice = intradayPrice;
+                        } else {
+                            closePrice = dailyPrice;
+                        }
+                    } else {
+                        closePrice = dailyPrice > 0 ? dailyPrice : (intradayPrice > 0 ? intradayPrice : null);
+                    }
+                }
+
+                if (!closePrice) {
+                    const resolved = await resolveTickerPreviousClose(t, {
+                        storage: this.storage,
+                        refDate,
+                        preferLiveClose: false,
+                        historicalDataMap: useDedicatedFetch ? null : (historicalDataMap.get(t) || null),
+                        allowFetch: false
+                    });
+                    closePrice = resolved.closePrice;
                 }
 
                 if (closePrice > 0) {
@@ -501,30 +506,6 @@ export class HistoryCalculator {
         return { total: assetsFound > 0 ? total : 0, quantities, prices };
     }
 
-    // The last intraday candle (5m/15m) of a finished trading day can differ from
-    // its true official close (e.g. a closing auction on some EU stocks the last
-    // intraday tick doesn't capture) — verified as a several-hundred-euro gap for
-    // some tickers. Left uncorrected, the curve itself would tell a different story
-    // than "CLÔTURE HIER"/VAR TODAY (both built from the official close resolved
-    // above), so the last pre-cutoff candle is forced to match it exactly.
-    _patchOfficialClose(tickers, historicalDataMap, resolution, refDate) {
-        for (const t of tickers) {
-            if (t.startsWith('CASH-') || isCryptoTicker(t)) continue;
-            const officialClose = resolution.prices.get(t);
-            if (!officialClose || officialClose <= 0) continue;
-            const hist = historicalDataMap.get(t);
-            if (!hist) continue;
-            const cutoffTs = getCloseCutoffForTicker(t, refDate);
-            const keys = Object.keys(hist).map(Number).sort((a, b) => a - b);
-            let lastBeforeCutoff = null;
-            for (const ts of keys) { if (ts <= cutoffTs) lastBeforeCutoff = ts; else break; }
-            if (lastBeforeCutoff !== null && hist[lastBeforeCutoff] !== officialClose) {
-                hist[lastBeforeCutoff] = officialClose;
-            }
-        }
-    }
-
-    // The first plotted point of a 1D view (00:00) must be pinned to the SAME
     // Stocks have no quote before the market opens: without SOME price at
     // 00:00, they would simply be absent from the day's first point. This only
     // fills a MISSING timestamp — it never overwrites a real fetched price
