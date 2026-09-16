@@ -623,6 +623,24 @@ export class HistoricalChart {
         }
     }
 
+    // Tooltip title, scaled to how granular the displayed period is: exact
+    // time for 1D/2D views (where the hour is the point), weekday+date for
+    // anything within about a month, plain date beyond that (where the exact
+    // weekday stops being useful) — always including the year once the view
+    // can span more than one.
+    _formatTooltipDate(ts) {
+        const d = new Date(ts);
+        const days = this.currentPeriod;
+        if (days <= 2) {
+            return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) +
+                ' · ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        }
+        if (days <= 31) {
+            return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' });
+        }
+        return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
     // ========================================================
     // Chart.js construction
     // ========================================================
@@ -640,8 +658,14 @@ export class HistoricalChart {
             if (h <= 0) return 'transparent';
             const r = (z - ca.top) / h;
             const g = chart.ctx.createLinearGradient(0, ca.top, 0, ca.bottom);
-            if (r <= 0) { g.addColorStop(0, 'rgba(46,204,113,0.35)'); g.addColorStop(1, 'rgba(46,204,113,0.05)'); }
-            else if (r >= 1) { g.addColorStop(0, 'rgba(231,76,60,0.35)'); g.addColorStop(1, 'rgba(231,76,60,0.05)'); }
+            // r is a fraction of PIXEL height (top-to-bottom), inverted versus
+            // y-axis VALUE space (higher values at the top). r<=0 means refValue
+            // sits at/above the chart's top, so every plotted value is BELOW it
+            // (all negative) — red. r>=1 means refValue sits at/below the
+            // bottom, so every value is ABOVE it (all positive) — green. (Bug
+            // found: these two were swapped — an all-positive curve filled red.)
+            if (r <= 0) { g.addColorStop(0, 'rgba(231,76,60,0.35)'); g.addColorStop(1, 'rgba(231,76,60,0.05)'); }
+            else if (r >= 1) { g.addColorStop(0, 'rgba(46,204,113,0.35)'); g.addColorStop(1, 'rgba(46,204,113,0.05)'); }
             else {
                 g.addColorStop(0, 'rgba(46,204,113,0.35)'); g.addColorStop(r, 'rgba(46,204,113,0.05)');
                 g.addColorStop(r, 'rgba(231,76,60,0.05)'); g.addColorStop(1, 'rgba(231,76,60,0.35)');
@@ -667,19 +691,26 @@ export class HistoricalChart {
             return g;
         };
 
-        if (isPerformanceMode) {
-            const hasDailyTwr = this.currentPeriod === 1 && Array.isArray(graphData.dailyTwr) &&
-                graphData.dailyTwr.length === graphData.twr.length && graphData.dailyTwr.some(v => v !== null);
+        // Computed unconditionally (not just in performance mode) so the
+        // tooltip can always show €+% together on the main line, whichever
+        // mode is currently displayed.
+        const hasDailyTwr = this.currentPeriod === 1 && Array.isArray(graphData.dailyTwr) &&
+            graphData.dailyTwr.length === graphData.twr.length && graphData.dailyTwr.some(v => v !== null);
+        const twrSeries = hasDailyTwr ? graphData.dailyTwr : graphData.twr;
+        const twrStart = hasDailyTwr ? 1.0 : (twrSeries?.[firstIndex] || 1.0);
+        const pctSeries = Array.isArray(twrSeries)
+            ? twrSeries.map(v => (v === null || v === undefined) ? null : ((v - twrStart) / twrStart) * 100)
+            : null;
 
-            const series = hasDailyTwr ? graphData.dailyTwr : graphData.twr;
-            const start = hasDailyTwr ? 1.0 : (series[firstIndex] || 1.0);
-            const perfData = series.map(v => (v === null || v === undefined) ? null : ((v - start) / start) * 100);
+        if (isPerformanceMode) {
+            const perfData = pctSeries;
 
             datasets.push({
                 label: 'Performance Portfolio (%)', data: perfData, borderColor: mainColor,
                 backgroundColor: (c) => makeGradient(c.chart, 0), borderWidth: 2, fill: true,
                 pointRadius: 0, tension: 0.3, spanGaps: true,
-                segment: { borderColor: (c) => segmentColor(c, 0) }
+                segment: { borderColor: (c) => segmentColor(c, 0) },
+                isMain: true
             });
 
             if (benchmarkData && graphData.timestamps) {
@@ -712,7 +743,8 @@ export class HistoricalChart {
                 label, data: displayValues, borderColor: mainColor,
                 backgroundColor: (c) => makeGradient(c.chart, bicolorRef || 0),
                 borderWidth: 3, fill: true, tension: 0.3, pointRadius: 0, spanGaps: true,
-                ...(bicolorRef ? { segment: { borderColor: (c) => segmentColor(c, bicolorRef) } } : {})
+                ...(bicolorRef ? { segment: { borderColor: (c) => segmentColor(c, bicolorRef) } } : {}),
+                isMain: true
             });
             if (this.currentPeriod === 1 && referenceClose > 0) {
                 datasets.push({ label: 'Clôture hier', data: Array(graphData.labels.length).fill(referenceClose), borderColor: '#95a5a6', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
@@ -731,11 +763,48 @@ export class HistoricalChart {
                 plugins: {
                     legend: { display: false },
                     tooltip: {
+                        filter: (item) => item.dataset.label !== 'Base 0%',
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        titleColor: '#e2e8f0',
+                        titleFont: { size: 13, weight: '600' },
+                        titleMarginBottom: 8,
+                        bodyColor: '#cbd5e1',
+                        bodyFont: { size: 12 },
+                        bodySpacing: 6,
+                        borderColor: 'rgba(255,255,255,0.08)',
+                        borderWidth: 1,
+                        cornerRadius: 10,
+                        padding: 12,
+                        displayColors: true,
+                        boxWidth: 8, boxHeight: 8, boxPadding: 6,
+                        usePointStyle: true,
                         callbacks: {
+                            title: (items) => {
+                                if (!items.length) return '';
+                                const ts = graphData.timestamps?.[items[0].dataIndex];
+                                return ts ? this._formatTooltipDate(ts) : (items[0].label || '');
+                            },
                             label: (item) => {
+                                const idx = item.dataIndex;
                                 const v = item.raw;
                                 if (v === null || v === undefined) return '';
-                                return isPerformanceMode ? `${item.dataset.label}: ${v.toFixed(2)}%` : `${item.dataset.label}: ${v.toFixed(2)}€`;
+                                const eurFmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+                                const pctFmt = (n) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+                                if (item.dataset.isMain) {
+                                    const name = item.dataset.label.replace(/\s*\((%|€)\)\s*$/, '');
+                                    // Index views have no portfolio €/invested-return
+                                    // equivalent — the companion figure wouldn't mean
+                                    // anything, so just show the one metric there.
+                                    if (isPerformanceMode) {
+                                        const eur = !isIndexMode ? graphData.values?.[idx] : null;
+                                        const eurPart = (eur != null && !isNaN(eur)) ? `  ·  ${eurFmt(eur)}` : '';
+                                        return `${name}: ${pctFmt(v)}${eurPart}`;
+                                    }
+                                    const pct = !isIndexMode ? pctSeries?.[idx] : null;
+                                    const pctPart = (pct != null && !isNaN(pct)) ? `  ·  ${pctFmt(pct)}` : '';
+                                    return `${name}: ${eurFmt(v)}${pctPart}`;
+                                }
+                                return `${item.dataset.label}: ${isPerformanceMode ? pctFmt(v) : eurFmt(v)}`;
                             }
                         }
                     }
