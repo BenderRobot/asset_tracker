@@ -434,7 +434,8 @@
     display: flex;
 }
 
-.view-toggle .toggle-btn {
+.view-toggle .toggle-btn,
+#ref-lines-toggle .toggle-btn {
     padding: 8px 16px;
     font-size: 13px;
     font-weight: 600;
@@ -448,19 +449,29 @@
     min-width: 80px;
 }
 
-.view-toggle .toggle-btn:hover {
+.view-toggle .toggle-btn:hover,
+#ref-lines-toggle .toggle-btn:hover {
     background: var(--bg-hover);
     border-color: var(--accent-blue);
     color: var(--accent-blue);
     transform: translateY(-1px);
 }
 
-.view-toggle .toggle-btn.active {
+.view-toggle .toggle-btn.active,
+#ref-lines-toggle .toggle-btn.active {
     background: var(--accent-blue);
     color: white;
     border-color: var(--accent-blue);
     box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
     transform: translateY(-2px);
+}
+
+/* Clôture/PRU are short labels, not equal-weight tabs like Valeur/Prix
+   unitaire — a smaller min-width keeps the pair compact instead of
+   stretching to match the wider toggle next to it. */
+#ref-lines-toggle .toggle-btn {
+    min-width: 0;
+    padding: 8px 12px;
 }
 
 /* === BARRE DE STATS GRAPHIQUE (3 GROUPES) === */

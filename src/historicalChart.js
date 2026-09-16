@@ -47,6 +47,13 @@ export class HistoricalChart {
         this.currentBenchmark = null;
         this.customTitle = null;
 
+        // Reference-line visibility (Clôture Hier / PRU) — a per-viewer display
+        // preference, so it's persisted in localStorage rather than app state.
+        this.refLineVisibility = {
+            close: this._loadRefLinePref('close'),
+            pru: this._loadRefLinePref('pru')
+        };
+
         this.isLoading = false;
         this._pendingUpdate = null;
         this._pendingPeriod = undefined;
@@ -79,6 +86,9 @@ export class HistoricalChart {
         this.currentMode = 'asset';
         this.selectedAssets = [ticker];
         await this.update(true, false);
+        // Re-evaluate which period buttons make sense for THIS asset's own
+        // age, not the whole portfolio's — see updatePeriodButtonsAvailability().
+        this.updatePeriodButtonsAvailability();
     }
 
     async showPortfolioChart() {
@@ -91,6 +101,7 @@ export class HistoricalChart {
         // (dashboardApp.js) — a no-op on pages (investments.html) that have none.
         document.querySelectorAll('.market-card.active-index').forEach(c => c.classList.remove('active-index'));
         await this.update(true, false);
+        this.updatePeriodButtonsAvailability();
     }
 
     getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
@@ -187,23 +198,63 @@ export class HistoricalChart {
     // hidden until their anniversary; once the account passes 3 years, a new
     // "NY" button is created for each additional full year, right before "All",
     // so the list grows one button per birthday instead of staying capped.
+    // Scope for "how old is what's being displayed": the drilled-into asset's
+    // own first purchase in asset mode (row click, or a single-ticker filter
+    // on the portfolio view) — the whole portfolio's otherwise. Shared by
+    // updatePeriodButtonsAvailability() below.
+    _periodAvailabilityScopeTicker() {
+        if (this.currentMode === 'asset' && this.selectedAssets.length === 1) return this.selectedAssets[0];
+        if (this.currentMode === 'portfolio' && this.filterManager) {
+            const selected = this.filterManager.getSelectedTickers();
+            if (selected.size === 1) return Array.from(selected)[0];
+        }
+        return null;
+    }
+
     updatePeriodButtonsAvailability() {
         this._injectSelectionToggle();
 
-        const firstPurchase = this.storage.getPurchases()
+        const ticker = this._periodAvailabilityScopeTicker();
+        const purchases = this.storage.getPurchases();
+        const relevant = ticker
+            ? purchases.filter(p => p.ticker.toUpperCase() === ticker.toUpperCase())
+            : purchases;
+
+        const firstPurchase = relevant
             .map(p => new Date(p.date))
             .filter(d => !isNaN(d.getTime()))
             .sort((a, b) => a - b)[0];
-        if (!firstPurchase) return;
+
+        const containers = new Set();
+        document.querySelectorAll('.period-btn').forEach(btn => containers.add(btn.parentNode));
+
+        if (!firstPurchase) {
+            // Nothing to constrain by for this scope — show every fixed button
+            // and drop any leftover dynamic NY buttons from a previous (older)
+            // scope, rather than leaving them at whatever state the last asset
+            // viewed left them in.
+            document.querySelectorAll('.period-btn[data-period]').forEach(btn => {
+                btn.style.display = '';
+                btn.classList.remove('period-disabled');
+            });
+            containers.forEach(c => c.querySelectorAll('.period-btn[data-dynamic-year]').forEach(b => b.remove()));
+            return;
+        }
 
         const ageDays = Math.floor((Date.now() - firstPurchase.getTime()) / (24 * 60 * 60 * 1000));
         const ageYears = Math.floor(ageDays / 365);
-        const fixedYearDays = { '365': 1, '730': 2, '1095': 3 };
+
+        // Evolutive period buttons: a fixed-window button only becomes available
+        // once what's displayed has actually existed that long — otherwise
+        // clicking it shows a mostly-empty chart before the first purchase (e.g.
+        // "6M" on an asset held 3 months). 1D/2D, YTD and All are intentionally
+        // excluded — always meaningful regardless of age.
+        const fixedPeriodDays = { '7': 7, '30': 30, '90': 90, '180': 180, '365': 365, '730': 730, '1095': 1095 };
 
         document.querySelectorAll('.period-btn[data-period]').forEach(btn => {
-            const requiredYears = fixedYearDays[btn.dataset.period];
-            if (requiredYears !== undefined) {
-                const eligible = ageYears >= requiredYears;
+            const requiredDays = fixedPeriodDays[btn.dataset.period];
+            if (requiredDays !== undefined) {
+                const eligible = ageDays >= requiredDays;
                 btn.style.display = eligible ? '' : 'none';
                 // The 3Y button ships with "period-disabled" hardcoded in the HTML
                 // (blocks clicks regardless of visibility) — clear it once the
@@ -213,12 +264,10 @@ export class HistoricalChart {
             }
         });
 
-        const containers = new Set();
-        document.querySelectorAll('.period-btn').forEach(btn => containers.add(btn.parentNode));
-
         containers.forEach(container => {
             // Drop dynamic buttons from a previous call before re-adding, so
-            // re-running this (e.g. on a later page load) never duplicates them.
+            // re-running this (e.g. on a later page load, or a narrower scope)
+            // never duplicates or leaves stale ones behind.
             container.querySelectorAll('.period-btn[data-dynamic-year]').forEach(b => b.remove());
             const allBtn = container.querySelector('.period-btn[data-period="all"]');
             if (!allBtn) return;
@@ -237,6 +286,15 @@ export class HistoricalChart {
                 allBtn.parentNode.insertBefore(btn, allBtn);
             }
         });
+
+        // The currently active period just became unavailable for this (now
+        // narrower) scope — e.g. switching from the full portfolio's "6M" tab
+        // into a 3-month-old asset. Fall back to "All" instead of leaving the
+        // chart stuck on a hidden button showing a mostly-empty window.
+        const activeBtn = document.querySelector('.period-btn.active[data-period]');
+        if (activeBtn && activeBtn.style.display === 'none' && !this.isLoading) {
+            this.changePeriod('all');
+        }
     }
 
     // A small toggle dropped next to the period buttons (1J/2J/1M/...), one
@@ -587,6 +645,52 @@ export class HistoricalChart {
         });
     }
 
+    _loadRefLinePref(key) {
+        try {
+            const v = localStorage.getItem(`chart_refline_${key}`);
+            return v === null ? true : v === '1';
+        } catch (e) { return true; }
+    }
+
+    // Small independent checkboxes (not a mutually-exclusive toggle) next to
+    // #view-toggle: "Clôture" only makes sense on the 1D view (the only period
+    // that ever draws that reference line — see _renderChartJs), "PRU" only in
+    // single-asset unit-price mode. Built once and just shown/hidden per mode
+    // afterwards, so a user's choice survives across renders.
+    _syncReferenceLineToggles(isSingleAssetMode) {
+        const anchor = document.getElementById('view-toggle');
+        if (!anchor) return;
+        let container = document.getElementById('ref-lines-toggle');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'ref-lines-toggle';
+            container.className = 'toggle-group';
+            anchor.parentNode.insertBefore(container, anchor.nextSibling);
+            [['close', 'Clôture'], ['pru', 'PRU']].forEach(([key, label]) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'toggle-btn';
+                btn.dataset.refline = key;
+                btn.textContent = label;
+                btn.classList.toggle('active', this.refLineVisibility[key]);
+                btn.addEventListener('click', () => {
+                    this.refLineVisibility[key] = !this.refLineVisibility[key];
+                    btn.classList.toggle('active', this.refLineVisibility[key]);
+                    try { localStorage.setItem(`chart_refline_${key}`, this.refLineVisibility[key] ? '1' : '0'); } catch (e) { /* ignore */ }
+                    this.update(false, false);
+                });
+                container.appendChild(btn);
+            });
+        }
+        const closeBtn = container.querySelector('[data-refline="close"]');
+        const pruBtn = container.querySelector('[data-refline="pru"]');
+        const showClose = this.currentPeriod === 1;
+        const showPru = isSingleAssetMode;
+        if (closeBtn) closeBtn.style.display = showClose ? '' : 'none';
+        if (pruBtn) pruBtn.style.display = showPru ? '' : 'none';
+        container.style.display = (showClose || showPru) ? '' : 'none';
+    }
+
     // ========================================================
     // renderChart — Chart.js dataset construction + stats panel + KPI cards
     // ========================================================
@@ -595,6 +699,7 @@ export class HistoricalChart {
         const isIndexMode = (titleConfig && titleConfig.mode === 'index');
 
         this._syncViewToggle(isSingleAssetMode, isIndexMode);
+        this._syncReferenceLineToggles(isSingleAssetMode);
         const viewToggle = document.getElementById('view-toggle');
         const activeView = viewToggle?.querySelector('.toggle-btn.active')?.dataset.view || 'global';
         const isUnitView = isSingleAssetMode && activeView === 'unit';
@@ -690,11 +795,11 @@ export class HistoricalChart {
         const isPositive = (vsYesterdayAbs !== null ? vsYesterdayAbs : perfAbs) >= 0;
         const mainColor = isPositive ? '#2ecc71' : '#e74c3c';
 
-        this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData);
+        const avgPrice = this._computeAvgPrice(currentTicker, isIndexMode);
+
+        this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData, avgPrice);
 
         this._renderTitle(titleConfig, currentTicker, isSingleAssetMode);
-
-        const avgPrice = this._computeAvgPrice(currentTicker, isIndexMode);
 
         this.kpiManager.updateKPIs({
             isIndexMode, isSingleAsset: isSingleAssetMode, isUnitView, currentPeriod: this.currentPeriod,
@@ -986,7 +1091,7 @@ export class HistoricalChart {
     // ========================================================
     // Chart.js construction
     // ========================================================
-    _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData) {
+    _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData, avgPrice) {
         if (this.chart) { this.chart.destroy(); this.chart = null; }
         canvas.parentNode?.querySelector(':scope > .hc-tooltip')?.classList.remove('visible');
         this._isZoomed = false; // a freshly-built chart never starts zoomed
@@ -1099,8 +1204,15 @@ export class HistoricalChart {
                 ...(bicolorRef ? { segment: { borderColor: (c) => segmentColor(c, bicolorRef) } } : {}),
                 isMain: true
             });
-            if (this.currentPeriod === 1 && referenceClose > 0) {
+            if (this.currentPeriod === 1 && referenceClose > 0 && this.refLineVisibility.close) {
                 datasets.push({ label: 'Clôture hier', data: Array(graphData.labels.length).fill(referenceClose), borderColor: '#95a5a6', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
+            }
+            // PRU line: only meaningful on the same per-share scale as the unit
+            // price curve — plotting it against the total-value curve (Valeur €)
+            // would compare a per-share average against a price×quantity total.
+            // Shown on every period (not just 1D), unlike Clôture Hier above.
+            if (isUnitView && avgPrice > 0 && this.refLineVisibility.pru) {
+                datasets.push({ label: 'PRU', data: Array(graphData.labels.length).fill(avgPrice), borderColor: '#FF9F43', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
             }
             if (isUnitView && graphData.purchasePoints?.length) {
                 datasets.push({ type: 'scatter', label: "Points d'achat", data: graphData.purchasePoints, backgroundColor: '#FFFFFF', borderColor: '#3b82f6', borderWidth: 2, pointRadius: 5, pointHoverRadius: 8, parsing: { yAxisKey: 'y' } });

@@ -195,7 +195,8 @@
         height: 28px !important;
     }
 
-    .view-toggle .toggle-btn {
+    .view-toggle .toggle-btn,
+    #ref-lines-toggle .toggle-btn {
         padding: 0 10px !important;
         font-size: 11px !important;
         height: 100% !important;
