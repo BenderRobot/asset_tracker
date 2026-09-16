@@ -422,11 +422,20 @@ export class HistoryCalculator {
                     if (entry.date.getTime() <= cutoffTs) qty += entry.quantity;
                 }
                 quantities.set(t, qty);
-                if (qty <= 0) return;
 
+                // BUG FOUND: cash can legitimately sit at a NEGATIVE balance (e.g. a
+                // PEA momentarily overdrawn by settlement timing) — the `qty <= 0`
+                // skip below is correct for a stock position (nothing to price) but
+                // was wrongly applied to cash too, silently dropping it from every
+                // close resolution. That made CLOTURE HIER / every day-anchor
+                // overstate the portfolio by exactly the negative cash amount,
+                // while the curve's own point-by-point loop (which has no such
+                // guard) already included it correctly — the two disagreed on the
+                // same day's close by that exact amount.
                 if (t.startsWith('CASH-')) {
                     total += qty; assetsFound++; prices.set(t, 1.0); return;
                 }
+                if (qty <= 0) return;
 
                 let closePrice = null;
 
@@ -503,11 +512,6 @@ export class HistoryCalculator {
         }
 
         console.log(`[HistoryCalc] closeBefore${label ? ` (${label})` : ''} @ ${refDate.toISOString()}: ${total.toFixed(2)}€, ${assetsFound}/${tickers.length} priced`);
-        if (label.startsWith('day ')) {
-            const dump = {};
-            for (const t of tickers) dump[t] = { price: prices.get(t) ?? null, qty: quantities.get(t) ?? null };
-            console.log(`[HistoryCalc] per-ticker breakdown of closeBefore(${label}):`, JSON.stringify(dump));
-        }
         return { total: assetsFound > 0 ? total : 0, quantities, prices };
     }
 
@@ -676,7 +680,6 @@ export class HistoryCalculator {
         let dayKeyAnchored = null;
         let displayedYesterdayClose = initialYesterdayClose;
         let dayStartValue = null;
-        let lastPointDebug = null;
 
         for (let i = 0; i < displayTimestamps.length; i++) {
             const ts = displayTimestamps[i];
@@ -704,7 +707,6 @@ export class HistoryCalculator {
 
             let totalValue = 0, totalInvested = 0, totalInvestedAssetOnly = 0, unitPrice = null;
             let hasAnyPrice = false, expected = 0, priced = 0;
-            const tickerBreakdown = {};
 
             for (const t of tickers) {
                 const qty = quantities.get(t);
@@ -753,9 +755,6 @@ export class HistoryCalculator {
                     hasAnyPrice = true; priced++;
                     if (isSingleAsset) unitPrice = price;
                     lastKnownPrices.set(t, price);
-                    tickerBreakdown[t] = { price, qty, contribution: price * qty * rate };
-                } else {
-                    tickerBreakdown[t] = { price: null, qty, contribution: null };
                 }
                 totalInvested += investedByTicker.get(t);
                 if (!isCash) totalInvestedAssetOnly += investedByTicker.get(t);
@@ -766,10 +765,6 @@ export class HistoryCalculator {
             if (shouldAnchorOnClose) {
                 const dayKey = new Date(ts).toDateString();
                 if (dayKey !== dayKeyAnchored) {
-                    if (lastPointDebug) {
-                        console.log(`[HistoryCalc] day boundary @ ${dayKey}: last point of prior day was ${lastPointDebug.dayKey} @ ${new Date(lastPointDebug.ts).toISOString()} totalValue=${lastPointDebug.totalValue.toFixed(2)}, twr=${lastPointDebug.twr?.toFixed(5)} — this point totalValue=${totalValue.toFixed(2)} (priced=${priced}/${expected})`);
-                        console.log(`[HistoryCalc] per-ticker breakdown of that last prior-day point:`, JSON.stringify(lastPointDebug.tickerBreakdown));
-                    }
                     const isFirstAnchor = periodDenominator === null;
                     let resolved = null;
 
@@ -789,7 +784,6 @@ export class HistoryCalculator {
                         // price later would look like a fake jump).
                         const isComplete = expected > 0 && priced === expected;
                         if (isComplete && totalValue > 0) resolved = totalValue;
-                        console.log(`[HistoryCalc] day anchor FALLBACK for ${dayKey}: resolveCloseBefore returned null/0, using ${isComplete ? `current totalValue=${totalValue.toFixed(2)}` : 'nothing (incomplete pricing)'}`);
                     }
 
                     if (resolved !== null) {
@@ -799,7 +793,6 @@ export class HistoryCalculator {
                             periodDenominator = resolved;
                             displayedYesterdayClose = resolved;
                         }
-                        console.log(`[HistoryCalc] day anchor SET for ${dayKey}: periodDenominator=${periodDenominator?.toFixed(2)}, dayDenominator=${dayDenominator?.toFixed(2)}, isFirstAnchor=${isFirstAnchor}`);
                     }
                 }
             }
@@ -810,7 +803,6 @@ export class HistoryCalculator {
                 const valueBeforeFlow = totalValue - cashFlow;
                 if (valueBeforeFlow > 0) {
                     const scale = totalValue / valueBeforeFlow;
-                    console.log(`[HistoryCalc] TWR rescale @ ${new Date(ts).toISOString()}: cashFlow=${cashFlow.toFixed(2)}, totalValue=${totalValue.toFixed(2)}, valueBeforeFlow=${valueBeforeFlow.toFixed(2)}, scale=${scale.toFixed(5)}, periodDenom ${periodDenominator?.toFixed(2)} -> ${(periodDenominator * scale).toFixed(2)}`);
                     if (periodDenominator) periodDenominator *= scale;
                     if (dayDenominator) dayDenominator *= scale;
                 }
@@ -828,7 +820,6 @@ export class HistoryCalculator {
                 pointTwr = 1.0;
             }
             twr.push(pointTwr);
-            lastPointDebug = { dayKey: new Date(ts).toDateString(), ts, totalValue, twr: pointTwr, tickerBreakdown };
 
             const useDailyTwr = shouldAnchorOnClose && dayDenominator > 0;
             dailyTwr.push((!hasAnyPrice && !quantityChanged) ? null : (useDailyTwr ? totalValue / dayDenominator : null));
