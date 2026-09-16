@@ -247,6 +247,10 @@ class DashboardApp {
                     <button class="toggle-btn active" data-view="performance">Performance (%)</button>
                 </div>
             `;
+            // See historicalChart.js's _syncViewToggle() — it owns rebuilding
+            // this element for single-asset mode; tagging it here avoids an
+            // immediate, needless rebuild on the very first render.
+            toggleContainer.dataset.mode = 'portfolio';
 
             const updateToggle = (view) => {
                 toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {

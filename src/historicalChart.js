@@ -550,6 +550,43 @@ export class HistoricalChart {
         return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly };
     }
 
+    // BUG FOUND: #view-toggle means two different things depending on what's
+    // shown, but investmentsPage.js/dashboardApp.js only ever build it ONCE at
+    // page load, as "Valeur (€)" / "Performance (%)" — meant for the portfolio
+    // view. In single-asset drill-down, isPerformanceView/isUnitView below are
+    // both gated to require the OTHER mode's data-view value ('unit'), which
+    // this toggle can now never produce — so a drilled-down asset was
+    // permanently stuck on the total-value curve (graphData.values) while
+    // referenceClose stayed the per-share previousClose (native ticker price),
+    // a basis mismatch that showed up as a nonsensical "Clôture Hier" and
+    // silently disabled PRU + the purchase-point markers (both isUnitView-only).
+    // Rebuild the two buttons to match the active mode — only when the mode
+    // actually changed, so a user's choice within a mode isn't reset on every
+    // render (auto-refresh included).
+    _syncViewToggle(isSingleAssetMode, isIndexMode) {
+        const container = document.getElementById('view-toggle');
+        if (!container) return;
+        const wantAsset = isSingleAssetMode && !isIndexMode;
+        const mode = wantAsset ? 'asset' : 'portfolio';
+        if (container.dataset.mode === mode) return;
+        container.dataset.mode = mode;
+        container.innerHTML = wantAsset
+            ? `<div class="toggle-group">
+                   <button class="toggle-btn" data-view="global">Valeur (€)</button>
+                   <button class="toggle-btn active" data-view="unit">Prix unitaire</button>
+               </div>`
+            : `<div class="toggle-group">
+                   <button class="toggle-btn" data-view="global">Valeur (€)</button>
+                   <button class="toggle-btn active" data-view="performance">Performance (%)</button>
+               </div>`;
+        container.querySelectorAll('.toggle-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                container.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b === e.target));
+                this.update(false, false);
+            });
+        });
+    }
+
     // ========================================================
     // renderChart — Chart.js dataset construction + stats panel + KPI cards
     // ========================================================
@@ -557,6 +594,7 @@ export class HistoricalChart {
         const isSingleAssetMode = (titleConfig && titleConfig.mode === 'asset');
         const isIndexMode = (titleConfig && titleConfig.mode === 'index');
 
+        this._syncViewToggle(isSingleAssetMode, isIndexMode);
         const viewToggle = document.getElementById('view-toggle');
         const activeView = viewToggle?.querySelector('.toggle-btn.active')?.dataset.view || 'global';
         const isUnitView = isSingleAssetMode && activeView === 'unit';

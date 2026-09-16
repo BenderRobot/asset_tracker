@@ -89,6 +89,11 @@ export class InvestmentsPage {
                   <button class="toggle-btn active" data-view="performance">Performance (%)</button>
               </div>
           `;
+      // Matches historicalChart.js's _syncViewToggle(), which owns rebuilding
+      // this element with different buttons once a single asset is drilled
+      // into — tagging the mode here avoids it needlessly redoing this exact
+      // same build (and losing the listeners below) on the very first render.
+      toggleContainer.dataset.mode = 'portfolio';
 
       const updateToggle = (view) => {
         toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
