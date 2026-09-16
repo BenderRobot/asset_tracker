@@ -669,11 +669,134 @@ export class HistoricalChart {
         return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
     }
 
+    // A DOM-rendered tooltip (rather than Chart.js's canvas-drawn one) is
+    // what actually makes multi-row, column-aligned content ("visuel pro")
+    // possible — canvas text has no notion of a grid, so lining up labels of
+    // different lengths against right-aligned €/% columns was never going to
+    // look right with plain fillText() calls.
+    _ensureTooltipStyles() {
+        if (document.getElementById('hc-tooltip-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'hc-tooltip-styles';
+        style.textContent = `
+.hc-tooltip {
+    position: absolute; z-index: 50; pointer-events: none;
+    background: rgba(8, 13, 26, 0.97);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 12px 14px;
+    min-width: 230px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    font-family: 'Inter', sans-serif;
+    color: #f1f5f9;
+    opacity: 0; transition: opacity 0.08s ease;
+}
+.hc-tooltip.visible { opacity: 1; }
+.hc-tooltip .hc-tt-title { font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 8px; letter-spacing: 0.02em; }
+.hc-tooltip .hc-tt-main { display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 700; margin-bottom: 4px; white-space: nowrap; }
+.hc-tooltip .hc-tt-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.hc-tooltip .hc-tt-secondary { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 500; color: #cbd5e1; margin-bottom: 2px; white-space: nowrap; }
+.hc-tooltip .hc-tt-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 8px 0; }
+.hc-tooltip .hc-tt-row { display: grid; grid-template-columns: 18px 100px 1fr auto; align-items: center; column-gap: 8px; font-size: 12px; font-weight: 500; color: #cbd5e1; padding: 2px 0; white-space: nowrap; }
+.hc-tooltip .hc-tt-row .hc-tt-icon { font-size: 12px; }
+.hc-tooltip .hc-tt-row .hc-tt-eur { text-align: right; font-variant-numeric: tabular-nums; color: #e2e8f0; }
+.hc-tooltip .hc-tt-row .hc-tt-pct { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.hc-tooltip .positive { color: #2ecc71; }
+.hc-tooltip .negative { color: #e74c3c; }
+`;
+        document.head.appendChild(style);
+    }
+
+    // Chart.js's `external` tooltip mode: instead of letting Chart.js draw
+    // its own canvas tooltip, it calls this on every hover with the tooltip
+    // model (position, opacity, matched dataPoints) and leaves rendering
+    // entirely up to us — here, a positioned HTML element.
+    _renderExternalTooltip(context, opts) {
+        const { canvas, graphData, isPerformanceMode, isIndexMode, pctSeries, eurFmt, pctFmt, portfolioSummaryRows, mainColor } = opts;
+        this._ensureTooltipStyles();
+
+        const parent = canvas.parentNode;
+        if (!parent.style.position) parent.style.position = 'relative';
+        let el = parent.querySelector(':scope > .hc-tooltip');
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'hc-tooltip';
+            parent.appendChild(el);
+        }
+
+        const tt = context.tooltip;
+        if (!tt || tt.opacity === 0 || !tt.dataPoints?.length) {
+            el.classList.remove('visible');
+            return;
+        }
+
+        const dataPoints = tt.dataPoints.filter(dp => dp.dataset.label !== 'Base 0%');
+        if (!dataPoints.length) { el.classList.remove('visible'); return; }
+        const idx = dataPoints[0].dataIndex;
+        const ts = graphData.timestamps?.[idx];
+        const titleText = ts ? this._formatTooltipDate(ts) : (dataPoints[0].label || '');
+
+        let html = `<div class="hc-tt-title">${titleText}</div>`;
+
+        dataPoints.forEach(dp => {
+            const v = dp.raw;
+            if (v === null || v === undefined) return;
+            const color = dp.dataset.borderColor || mainColor;
+            if (dp.dataset.isMain) {
+                const name = dp.dataset.label.replace(/\s*\((%|€)\)\s*$/, '');
+                let valueHtml;
+                if (isPerformanceMode) {
+                    const eur = !isIndexMode ? graphData.values?.[idx] : null;
+                    const eurPart = (eur != null && !isNaN(eur)) ? ` <span style="color:#94a3b8;font-weight:500;">·&nbsp;&nbsp;${eurFmt(eur)}</span>` : '';
+                    valueHtml = `<span style="color:${v >= 0 ? '#2ecc71' : '#e74c3c'}">${pctFmt(v)}</span>${eurPart}`;
+                } else {
+                    const pct = !isIndexMode ? pctSeries?.[idx] : null;
+                    const pctPart = (pct != null && !isNaN(pct)) ? ` <span style="color:${pct >= 0 ? '#2ecc71' : '#e74c3c'};font-weight:600;">(${pctFmt(pct)})</span>` : '';
+                    valueHtml = `${eurFmt(v)}${pctPart}`;
+                }
+                html += `<div class="hc-tt-main"><span class="hc-tt-dot" style="background:${color}"></span><span>${name}</span><span>${valueHtml}</span></div>`;
+            } else {
+                const valueText = isPerformanceMode ? pctFmt(v) : eurFmt(v);
+                html += `<div class="hc-tt-secondary"><span class="hc-tt-dot" style="background:${color}"></span><span>${dp.dataset.label}</span><span>${valueText}</span></div>`;
+            }
+        });
+
+        const rows = portfolioSummaryRows(idx);
+        if (rows.length) {
+            html += `<div class="hc-tt-divider"></div>`;
+            rows.forEach(r => {
+                html += `<div class="hc-tt-row"><span class="hc-tt-icon">${r.icon}</span><span>${r.label}</span><span class="hc-tt-eur">${r.eur}</span><span class="hc-tt-pct ${r.positive ? 'positive' : 'negative'}">(${r.pct})</span></div>`;
+            });
+        }
+
+        el.innerHTML = html;
+        el.classList.add('visible');
+
+        // Positioned relative to the canvas's own offset within its
+        // (relatively-positioned) parent, flipped to the left of the cursor
+        // and clamped vertically/horizontally so it never spills outside the
+        // chart area regardless of where in the curve the cursor is.
+        const area = context.chart.chartArea;
+        const elW = el.offsetWidth || 230, elH = el.offsetHeight || 130;
+        let left = canvas.offsetLeft + tt.caretX + 14;
+        const maxLeft = canvas.offsetLeft + area.right - elW;
+        if (left > maxLeft) left = canvas.offsetLeft + tt.caretX - elW - 14;
+        left = Math.max(canvas.offsetLeft + area.left, left);
+
+        let top = canvas.offsetTop + area.top + 4;
+        const maxTop = canvas.offsetTop + area.bottom - elH;
+        top = Math.min(top, Math.max(canvas.offsetTop + area.top, maxTop));
+
+        el.style.left = `${left}px`;
+        el.style.top = `${top}px`;
+    }
+
     // ========================================================
     // Chart.js construction
     // ========================================================
     _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData) {
         if (this.chart) { this.chart.destroy(); this.chart = null; }
+        canvas.parentNode?.querySelector(':scope > .hc-tooltip')?.classList.remove('visible');
         const ctx = canvas.getContext('2d');
         const datasets = [];
 
@@ -791,19 +914,22 @@ export class HistoricalChart {
         // whichever mode (€/%) is currently plotted.
         // Total Value is deliberately NOT repeated here — it's already the €
         // half of the main line above (or the line itself, in value mode), so
-        // showing it again just duplicated the same number.
-        const portfolioSummaryLines = (idx) => {
+        // showing it again just duplicated the same number. Structured rows
+        // (rather than pre-formatted strings) so the external HTML tooltip
+        // can lay them out in a real grid — canvas text can't be column-
+        // aligned reliably across rows of different label lengths.
+        const portfolioSummaryRows = (idx) => {
             if (isIndexMode || isUnitView) return [];
             const val = graphData.values?.[idx];
             if (val == null || isNaN(val)) return [];
-            const lines = [];
+            const rows = [];
 
             const investedAO = graphData.investedAssetOnly?.[idx];
             const cash = kpiData?.cash || 0;
             if (investedAO != null && !isNaN(investedAO)) {
                 const totalReturn = (val - cash) - investedAO;
                 const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-                lines.push(`💰 Total Return   ${eurFmt(totalReturn)}  (${pctFmt(totalReturnPct)})`);
+                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
             }
 
             // dailyTwr resets at every calendar-day boundary (see
@@ -813,9 +939,9 @@ export class HistoricalChart {
             if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
                 const varTodayAbs = val - val / dTwr;
                 const varTodayPct = (dTwr - 1) * 100;
-                lines.push(`📅 Var Today      ${eurFmt(varTodayAbs)}  (${pctFmt(varTodayPct)})`);
+                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
             }
-            return lines;
+            return rows;
         };
 
         // Drag-selection ("Google Finance" style): compares two points on the
@@ -924,56 +1050,11 @@ export class HistoricalChart {
                 plugins: {
                     legend: { display: false },
                     tooltip: {
-                        filter: (item) => item.dataset.label !== 'Base 0%',
-                        backgroundColor: 'rgba(8, 13, 26, 0.97)',
-                        titleColor: '#f8fafc',
-                        titleFont: { size: 13, weight: '600', family: "'Inter', sans-serif" },
-                        titleMarginBottom: 10,
-                        bodyColor: '#f1f5f9',
-                        bodyFont: { size: 14, weight: '600', family: "'Inter', sans-serif" },
-                        bodySpacing: 8,
-                        footerColor: '#cbd5e1',
-                        footerFont: { size: 12, weight: '500', family: "'Inter', monospace" },
-                        footerSpacing: 6,
-                        footerMarginTop: 10,
-                        borderColor: 'rgba(255,255,255,0.12)',
-                        borderWidth: 1,
-                        cornerRadius: 12,
-                        padding: 14,
-                        displayColors: true,
-                        boxWidth: 9, boxHeight: 9, boxPadding: 8,
-                        usePointStyle: true,
-                        callbacks: {
-                            title: (items) => {
-                                if (!items.length) return '';
-                                const ts = graphData.timestamps?.[items[0].dataIndex];
-                                return ts ? this._formatTooltipDate(ts) : (items[0].label || '');
-                            },
-                            label: (item) => {
-                                const idx = item.dataIndex;
-                                const v = item.raw;
-                                if (v === null || v === undefined) return '';
-                                if (item.dataset.isMain) {
-                                    const name = item.dataset.label.replace(/\s*\((%|€)\)\s*$/, '');
-                                    // Index views have no portfolio €/invested-return
-                                    // equivalent — the companion figure wouldn't mean
-                                    // anything, so just show the one metric there.
-                                    if (isPerformanceMode) {
-                                        const eur = !isIndexMode ? graphData.values?.[idx] : null;
-                                        const eurPart = (eur != null && !isNaN(eur)) ? `  ·  ${eurFmt(eur)}` : '';
-                                        return `${name}: ${pctFmt(v)}${eurPart}`;
-                                    }
-                                    const pct = !isIndexMode ? pctSeries?.[idx] : null;
-                                    const pctPart = (pct != null && !isNaN(pct)) ? `  ·  ${pctFmt(pct)}` : '';
-                                    return `${name}: ${eurFmt(v)}${pctPart}`;
-                                }
-                                return `${item.dataset.label}: ${isPerformanceMode ? pctFmt(v) : eurFmt(v)}`;
-                            },
-                            footer: (items) => {
-                                if (!items.length) return [];
-                                return portfolioSummaryLines(items[0].dataIndex);
-                            }
-                        }
+                        enabled: false,
+                        external: (context) => this._renderExternalTooltip(context, {
+                            canvas, graphData, isPerformanceMode, isIndexMode, pctSeries,
+                            eurFmt, pctFmt, portfolioSummaryRows, mainColor
+                        })
                     }
                 },
                 scales: {
