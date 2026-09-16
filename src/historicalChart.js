@@ -734,10 +734,11 @@ export class HistoricalChart {
         return `<div class="hc-tt-title">${titleText}</div>${rowsHtml}`;
     }
 
-    // The 3 unified rows (Total Value / Total Return / Var Today) at a
-    // single point in time — used for the normal hover tooltip. Restricted
-    // to genuine portfolio views: an index or a single asset's unit price
-    // has no "invested" or "cash" to build Return/Var Today from.
+    // The unified rows (Total Value / Total Return, plus Benchmark + the
+    // delta against it when one is active) at a single point in time — used
+    // for the normal hover tooltip. Restricted to genuine portfolio views:
+    // an index or a single asset's unit price has no "invested" or "cash" to
+    // build Total Return from.
     _buildKpiRows(idx, opts) {
         const { graphData, pctSeries, eurFmt, pctFmt, kpiData, isIndexMode, isUnitView, isPerformanceMode, displayValues } = opts;
         if (isIndexMode || isUnitView) {
@@ -762,16 +763,21 @@ export class HistoricalChart {
             rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
         }
 
-        // dailyTwr resets at every calendar-day boundary (see
-        // HistoryCalculator._buildSeries) — only populated for periods of up
-        // to ~7 days, where "the day" is still a meaningful unit.
-        const dTwr = graphData.dailyTwr?.[idx];
-        if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
-            const varTodayAbs = val - val / dTwr;
-            const varTodayPct = (dTwr - 1) * 100;
-            rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
-        }
+        this._pushBenchmarkRows(rows, idx, pct, opts);
         return rows;
+    }
+
+    // Shared by both the hover tooltip and the drag-selection box: when a
+    // benchmark is active, show its own performance plus the delta against
+    // the portfolio — the whole point of comparing against one.
+    _pushBenchmarkRows(rows, idx, portfolioPct, opts) {
+        const { benchPctSeries, benchmarkLabel, pctFmt } = opts;
+        if (!benchPctSeries || portfolioPct == null || isNaN(portfolioPct)) return;
+        const benchPct = benchPctSeries[idx];
+        if (benchPct == null || isNaN(benchPct)) return;
+        rows.push({ icon: '🟣', label: benchmarkLabel || 'Benchmark', eur: null, pct: pctFmt(benchPct), positive: benchPct >= 0 });
+        const delta = portfolioPct - benchPct;
+        rows.push({ icon: '⚖️', label: 'vs Benchmark', eur: null, pct: pctFmt(delta), positive: delta >= 0 });
     }
 
     // The same 3-row shape, but for a dragged RANGE instead of one point:
@@ -799,6 +805,8 @@ export class HistoricalChart {
             const deltaPct = (deltaAbs / v0) * 100;
             rows.push({ icon: '📅', label: 'Variation', eur: eurFmt(deltaAbs), pct: pctFmt(deltaPct), positive: deltaAbs >= 0 });
         }
+
+        this._pushBenchmarkRows(rows, i1, pct1, opts);
         return rows;
     }
 
@@ -926,6 +934,12 @@ export class HistoricalChart {
             ? twrSeries.map(v => (v === null || v === undefined) ? null : ((v - twrStart) / twrStart) * 100)
             : null;
 
+        // Hoisted out of the `if (benchmarkData...)` block below so the
+        // tooltip (hover AND drag-selection) can show the benchmark's own
+        // value plus the delta against the portfolio, not just the chart.
+        let benchPctSeries = null;
+        let benchmarkLabel = null;
+
         if (isPerformanceMode) {
             const perfData = pctSeries;
 
@@ -952,6 +966,8 @@ export class HistoricalChart {
                             return ((lastKnown - startBenchPrice) / startBenchPrice) * 100;
                         });
                         datasets.push({ label: 'Benchmark (%)', data: benchData, borderColor: '#A855F7', borderWidth: 2, fill: false, pointRadius: 0, spanGaps: true });
+                        benchPctSeries = benchData;
+                        benchmarkLabel = document.getElementById('benchmark-select')?.selectedOptions?.[0]?.textContent?.trim() || 'Benchmark';
                     }
                 }
             }
@@ -989,7 +1005,7 @@ export class HistoricalChart {
         // hover content, making it look like it "disappeared" on its own
         // instead of staying until an explicit click.
         const dragState = { active: false };
-        const tooltipOpts = { canvas, graphData, isPerformanceMode, isIndexMode, isUnitView, displayValues, pctSeries, eurFmt, pctFmt, kpiData, dragState };
+        const tooltipOpts = { canvas, graphData, isPerformanceMode, isIndexMode, isUnitView, displayValues, pctSeries, eurFmt, pctFmt, kpiData, dragState, benchPctSeries, benchmarkLabel };
 
         // Drag-selection ("Google Finance" style) IS the default interaction:
         // dragging across the chart shows Total Value / Total Return /
