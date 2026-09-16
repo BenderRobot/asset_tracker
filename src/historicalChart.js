@@ -492,15 +492,31 @@ export class HistoricalChart {
         const investedAssetOnly = targetSummary.totalInvestedEUR || 0;
 
         const values = todayGraphData?.values;
-        let totalValue = null;
+        let totalValue = null, lastValidIdx = -1;
         if (values) {
             for (let i = values.length - 1; i >= 0; i--) {
-                if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) { totalValue = values[i]; break; }
+                if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) { totalValue = values[i]; lastValidIdx = i; break; }
             }
         }
 
         let varTodayAbs = null, varTodayPct = null;
-        if (totalValue !== null && todayGraphData?.yesterdayClose > 0) {
+        // BUG FOUND: a plain cash withdrawal/deposit (no asset bought or
+        // sold) was showing up as a fake gain/loss on VAR TODAY, because
+        // `totalValue - yesterdayClose` is a raw subtraction between two
+        // totals that both already include cash at whatever level it
+        // happened to be that day — a withdrawal lowers today's totalValue
+        // by exactly the amount taken out, and that shows up here as if the
+        // portfolio had lost that much. `dailyTwr` doesn't have this problem:
+        // _buildSeries already rescales it around every quantity/cash change
+        // precisely so a buy/sell/deposit/withdrawal can't register as a
+        // fake move — it's the same array the curve itself is drawn from and
+        // the same one the hover tooltip's own "Var Today" row already uses,
+        // so using it here too keeps all three in agreement.
+        const dTwr = (lastValidIdx >= 0) ? todayGraphData?.dailyTwr?.[lastValidIdx] : null;
+        if (totalValue !== null && dTwr != null && !isNaN(dTwr) && dTwr > 0) {
+            varTodayPct = (dTwr - 1) * 100;
+            varTodayAbs = totalValue - totalValue / dTwr;
+        } else if (totalValue !== null && todayGraphData?.yesterdayClose > 0) {
             varTodayAbs = totalValue - todayGraphData.yesterdayClose;
             varTodayPct = (varTodayAbs / todayGraphData.yesterdayClose) * 100;
         } else {
