@@ -503,6 +503,11 @@ export class HistoryCalculator {
         }
 
         console.log(`[HistoryCalc] closeBefore${label ? ` (${label})` : ''} @ ${refDate.toISOString()}: ${total.toFixed(2)}€, ${assetsFound}/${tickers.length} priced`);
+        if (label.startsWith('day ')) {
+            const dump = {};
+            for (const t of tickers) dump[t] = { price: prices.get(t) ?? null, qty: quantities.get(t) ?? null };
+            console.log(`[HistoryCalc] per-ticker breakdown of closeBefore(${label}):`, JSON.stringify(dump));
+        }
         return { total: assetsFound > 0 ? total : 0, quantities, prices };
     }
 
@@ -699,6 +704,7 @@ export class HistoryCalculator {
 
             let totalValue = 0, totalInvested = 0, totalInvestedAssetOnly = 0, unitPrice = null;
             let hasAnyPrice = false, expected = 0, priced = 0;
+            const tickerBreakdown = {};
 
             for (const t of tickers) {
                 const qty = quantities.get(t);
@@ -747,6 +753,9 @@ export class HistoryCalculator {
                     hasAnyPrice = true; priced++;
                     if (isSingleAsset) unitPrice = price;
                     lastKnownPrices.set(t, price);
+                    tickerBreakdown[t] = { price, qty, contribution: price * qty * rate };
+                } else {
+                    tickerBreakdown[t] = { price: null, qty, contribution: null };
                 }
                 totalInvested += investedByTicker.get(t);
                 if (!isCash) totalInvestedAssetOnly += investedByTicker.get(t);
@@ -759,6 +768,7 @@ export class HistoryCalculator {
                 if (dayKey !== dayKeyAnchored) {
                     if (lastPointDebug) {
                         console.log(`[HistoryCalc] day boundary @ ${dayKey}: last point of prior day was ${lastPointDebug.dayKey} @ ${new Date(lastPointDebug.ts).toISOString()} totalValue=${lastPointDebug.totalValue.toFixed(2)}, twr=${lastPointDebug.twr?.toFixed(5)} — this point totalValue=${totalValue.toFixed(2)} (priced=${priced}/${expected})`);
+                        console.log(`[HistoryCalc] per-ticker breakdown of that last prior-day point:`, JSON.stringify(lastPointDebug.tickerBreakdown));
                     }
                     const isFirstAnchor = periodDenominator === null;
                     let resolved = null;
@@ -818,7 +828,7 @@ export class HistoryCalculator {
                 pointTwr = 1.0;
             }
             twr.push(pointTwr);
-            lastPointDebug = { dayKey: new Date(ts).toDateString(), ts, totalValue, twr: pointTwr };
+            lastPointDebug = { dayKey: new Date(ts).toDateString(), ts, totalValue, twr: pointTwr, tickerBreakdown };
 
             const useDailyTwr = shouldAnchorOnClose && dayDenominator > 0;
             dailyTwr.push((!hasAnyPrice && !quantityChanged) ? null : (useDailyTwr ? totalValue / dayDenominator : null));
