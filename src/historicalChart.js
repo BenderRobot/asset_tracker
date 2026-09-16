@@ -763,6 +763,19 @@ export class HistoricalChart {
             rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
         }
 
+        // Only on the 1D tab: "Var Today" is specifically about today, and
+        // stops meaning anything once the view spans more than one day (the
+        // 1W tooltip showed it relative to a mid-week close, which just read
+        // as a confusing 4th number rather than "today").
+        if (this.currentPeriod === 1) {
+            const dTwr = graphData.dailyTwr?.[idx];
+            if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
+                const varTodayAbs = val - val / dTwr;
+                const varTodayPct = (dTwr - 1) * 100;
+                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
+            }
+        }
+
         this._pushBenchmarkRows(rows, idx, pct, opts);
         return rows;
     }

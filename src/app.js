@@ -107,6 +107,20 @@ class App {
     if (this.historicalChart) {
       this.historicalChart.setupPeriodButtons();
       this.historicalChart.startAutoRefresh();
+
+      // BUG FOUND: investments.html has the same #benchmark-select dropdown
+      // as the Dashboard, but unlike dashboardApp.js nothing here ever
+      // listened for it — picking a benchmark set nothing, so the chart
+      // never switched into benchmark-compare mode on this page.
+      const benchmarkSelect = document.getElementById('benchmark-select');
+      if (benchmarkSelect) {
+        const newSelect = benchmarkSelect.cloneNode(true);
+        benchmarkSelect.parentNode.replaceChild(newSelect, benchmarkSelect);
+        newSelect.addEventListener('change', (e) => {
+          this.historicalChart.currentBenchmark = e.target.value || null;
+          this.historicalChart.update(true, false);
+        });
+      }
     }
 
     console.log('Lancement du rafraîchissement des prix en arrière-plan...');
