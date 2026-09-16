@@ -513,9 +513,17 @@ export class HistoricalChart {
         if (!isIndexMode && kpiData?.varTodayAbs !== null && kpiData?.varTodayAbs !== undefined && !isNaN(kpiData.varTodayAbs)) {
             vsYesterdayAbs = kpiData.varTodayAbs;
             vsYesterdayPct = kpiData.varTodayPct || 0;
-            if (!isSingleAssetMode) {
-                const graphLast = displayValues[lastIndex];
-                if (graphLast !== null && !isNaN(graphLast)) referenceClose = graphLast - vsYesterdayAbs;
+            // BUG FOUND: this used to derive CLÔTURE HIER from the graph's own RAW
+            // last point (displayValues[lastIndex], historical-candle based) minus
+            // the LIVE-based vsYesterdayAbs — mixing two different "current value"
+            // bases. Since FIN is displayed as kpiData.totalValue (live-based, see
+            // displayPriceEnd below), CLÔTURE HIER must be derived from that SAME
+            // base, or FIN − CLÔTURE HIER stops equaling VAR JOUR and the curve
+            // (anchored on the graph's own true close) visibly disagrees with the
+            // text (verified: text showed +177€/+0.85% while the curve sat almost
+            // entirely below 0%, because CLÔTURE HIER was off by ~300€).
+            if (!isSingleAssetMode && kpiData?.totalValue !== undefined && kpiData?.totalValue !== null) {
+                referenceClose = kpiData.totalValue - vsYesterdayAbs;
             }
         } else if (priceEnd !== null && referenceClose) {
             vsYesterdayAbs = priceEnd - referenceClose;
