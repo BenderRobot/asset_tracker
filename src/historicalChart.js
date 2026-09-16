@@ -27,6 +27,14 @@ import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js';
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
+// chartjs-plugin-zoom (loaded as a plain <script> after chart.js on
+// investments.html/dashboard.html) exposes itself as window.ChartZoom but,
+// unlike some Chart.js plugins, does not auto-register — it has to be done
+// once, here, before any chart using drag-to-zoom is created.
+if (typeof window !== 'undefined' && window.Chart && window.ChartZoom && !window.Chart.registry.plugins.get('zoom')) {
+    try { window.Chart.register(window.ChartZoom); } catch (e) { /* already registered elsewhere */ }
+}
+
 export class HistoricalChart {
     constructor(storage, dataManager, ui, investmentsPage) {
         this.storage = storage;
@@ -567,7 +575,7 @@ export class HistoricalChart {
         const isPositive = (vsYesterdayAbs !== null ? vsYesterdayAbs : perfAbs) >= 0;
         const mainColor = isPositive ? '#2ecc71' : '#e74c3c';
 
-        this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig);
+        this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData);
 
         this._renderTitle(titleConfig, currentTicker, isSingleAssetMode);
 
@@ -644,7 +652,7 @@ export class HistoricalChart {
     // ========================================================
     // Chart.js construction
     // ========================================================
-    _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig) {
+    _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData) {
         if (this.chart) { this.chart.destroy(); this.chart = null; }
         const ctx = canvas.getContext('2d');
         const datasets = [];
@@ -754,6 +762,39 @@ export class HistoricalChart {
             }
         }
 
+        const eurFmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+        const pctFmt = (n) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+
+        // Portfolio-wide figures (not meaningful for a single index/unit-price
+        // view, so restricted to the actual portfolio chart) shown as extra
+        // tooltip lines that move with the hovered point, independent of
+        // whichever mode (€/%) is currently plotted.
+        const portfolioSummaryLines = (idx) => {
+            if (isIndexMode || isUnitView) return [];
+            const val = graphData.values?.[idx];
+            if (val == null || isNaN(val)) return [];
+            const lines = [`Total Value: ${eurFmt(val)}`];
+
+            const investedAO = graphData.investedAssetOnly?.[idx];
+            const cash = kpiData?.cash || 0;
+            if (investedAO != null && !isNaN(investedAO)) {
+                const totalReturn = (val - cash) - investedAO;
+                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
+                lines.push(`Total Return: ${eurFmt(totalReturn)} (${pctFmt(totalReturnPct)})`);
+            }
+
+            // dailyTwr resets at every calendar-day boundary (see
+            // HistoryCalculator._buildSeries) — only populated for periods of
+            // up to ~7 days, where "the day" is still a meaningful unit.
+            const dTwr = graphData.dailyTwr?.[idx];
+            if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
+                const varDayAbs = val - val / dTwr;
+                const varDayPct = (dTwr - 1) * 100;
+                lines.push(`Var Day: ${eurFmt(varDayAbs)} (${pctFmt(varDayPct)})`);
+            }
+            return lines;
+        };
+
         this.chart = new Chart(ctx, {
             type: 'line',
             data: { labels: graphData.labels, datasets },
@@ -762,6 +803,16 @@ export class HistoricalChart {
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: { display: false },
+                    // Drag horizontally across the chart to zoom into that time
+                    // range; double-click resets back to the full period (wired
+                    // up below, after the chart is created).
+                    zoom: {
+                        pan: { enabled: false },
+                        zoom: {
+                            drag: { enabled: true, backgroundColor: 'rgba(59,130,246,0.15)', borderColor: 'rgba(59,130,246,0.4)', borderWidth: 1 },
+                            mode: 'x'
+                        }
+                    },
                     tooltip: {
                         filter: (item) => item.dataset.label !== 'Base 0%',
                         backgroundColor: 'rgba(15, 23, 42, 0.95)',
@@ -771,6 +822,9 @@ export class HistoricalChart {
                         bodyColor: '#cbd5e1',
                         bodyFont: { size: 12 },
                         bodySpacing: 6,
+                        footerColor: '#94a3b8',
+                        footerFont: { size: 11, weight: '500' },
+                        footerMarginTop: 8,
                         borderColor: 'rgba(255,255,255,0.08)',
                         borderWidth: 1,
                         cornerRadius: 10,
@@ -788,8 +842,6 @@ export class HistoricalChart {
                                 const idx = item.dataIndex;
                                 const v = item.raw;
                                 if (v === null || v === undefined) return '';
-                                const eurFmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-                                const pctFmt = (n) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
                                 if (item.dataset.isMain) {
                                     const name = item.dataset.label.replace(/\s*\((%|€)\)\s*$/, '');
                                     // Index views have no portfolio €/invested-return
@@ -805,6 +857,10 @@ export class HistoricalChart {
                                     return `${name}: ${eurFmt(v)}${pctPart}`;
                                 }
                                 return `${item.dataset.label}: ${isPerformanceMode ? pctFmt(v) : eurFmt(v)}`;
+                            },
+                            footer: (items) => {
+                                if (!items.length) return [];
+                                return portfolioSummaryLines(items[0].dataIndex);
                             }
                         }
                     }
@@ -818,5 +874,9 @@ export class HistoricalChart {
                 }
             }
         });
+
+        // Drag-to-zoom leaves the chart zoomed in until explicitly reset —
+        // double-click anywhere on it to snap back to the full period.
+        canvas.ondblclick = () => { if (this.chart?.resetZoom) this.chart.resetZoom(); };
     }
 }
