@@ -43,6 +43,7 @@ export class HistoricalChart {
         this.currentMode = 'portfolio'; // 'portfolio' | 'asset' | 'index'
         this.selectedAssets = [];
         this.zoomModeEnabled = false; // drag-to-zoom toggle, see _injectSelectionToggle (drag-to-compare is the default, always on)
+        this._isZoomed = false; // true once a drag-zoom has actually been applied to the current chart
         this.currentBenchmark = null;
         this.customTitle = null;
 
@@ -236,15 +237,35 @@ export class HistoricalChart {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'period-btn selection-mode-toggle';
-            btn.title = 'Activer le zoom par glisser-déposer (double-clic pour réinitialiser)';
-            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass-plus"></i>';
             btn.addEventListener('click', () => {
+                // Once a zoom is actually applied, the button's job switches
+                // from "arm zoom mode" to "undo it" — a second click always
+                // takes you back to the view from before the zoom, rather
+                // than requiring a double-click on the chart itself.
+                if (this._isZoomed) { this._resetZoom?.(); return; }
                 this.zoomModeEnabled = !this.zoomModeEnabled;
-                document.querySelectorAll('.selection-mode-toggle').forEach(b => b.classList.toggle('active', this.zoomModeEnabled));
-                if (this._canvasEl) this._canvasEl.style.cursor = this.zoomModeEnabled ? 'zoom-in' : 'crosshair';
+                this._updateSelectionToggleUI();
             });
             container.appendChild(btn);
         });
+        this._updateSelectionToggleUI();
+    }
+
+    // Reflects the current zoom state on every injected toggle button (there
+    // can be more than one — desktop + mobile rows) and on the canvas cursor.
+    _updateSelectionToggleUI() {
+        document.querySelectorAll('.selection-mode-toggle').forEach(b => {
+            if (this._isZoomed) {
+                b.classList.add('active');
+                b.title = 'Réinitialiser le zoom';
+                b.innerHTML = '<i class="fa-solid fa-magnifying-glass-minus"></i>';
+            } else {
+                b.classList.toggle('active', !!this.zoomModeEnabled);
+                b.title = 'Activer le zoom par glisser-déposer';
+                b.innerHTML = '<i class="fa-solid fa-magnifying-glass-plus"></i>';
+            }
+        });
+        if (this._canvasEl) this._canvasEl.style.cursor = this.zoomModeEnabled ? 'zoom-in' : 'crosshair';
     }
 
     getStartEndTs(days) {
@@ -787,6 +808,8 @@ export class HistoricalChart {
     // entirely up to us — here, a positioned HTML element.
     _renderExternalTooltip(context, opts) {
         const { canvas, graphData } = opts;
+        if (opts.dragState?.active) return; // a drag-selection box owns this element right now
+
         this._ensureTooltipStyles();
         const el = this._ensureTooltipEl(canvas);
 
@@ -845,6 +868,8 @@ export class HistoricalChart {
     _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData) {
         if (this.chart) { this.chart.destroy(); this.chart = null; }
         canvas.parentNode?.querySelector(':scope > .hc-tooltip')?.classList.remove('visible');
+        this._isZoomed = false; // a freshly-built chart never starts zoomed
+        this._updateSelectionToggleUI();
         const ctx = canvas.getContext('2d');
         const datasets = [];
 
@@ -955,7 +980,16 @@ export class HistoricalChart {
 
         const eurFmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
         const pctFmt = (n) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
-        const tooltipOpts = { canvas, graphData, isPerformanceMode, isIndexMode, isUnitView, displayValues, pctSeries, eurFmt, pctFmt, kpiData };
+        // Shared with _renderExternalTooltip below: Chart.js keeps calling the
+        // `external` hover callback on every mousemove regardless of
+        // tooltip.enabled — that flag only controls Chart.js's OWN canvas
+        // drawing, not whether the callback fires. Without this guard, the
+        // very next mousemove after releasing a drag would silently
+        // overwrite the persisted selection box with the normal single-point
+        // hover content, making it look like it "disappeared" on its own
+        // instead of staying until an explicit click.
+        const dragState = { active: false };
+        const tooltipOpts = { canvas, graphData, isPerformanceMode, isIndexMode, isUnitView, displayValues, pctSeries, eurFmt, pctFmt, kpiData, dragState };
 
         // Drag-selection ("Google Finance" style) IS the default interaction:
         // dragging across the chart shows Total Value / Total Return /
@@ -1052,6 +1086,7 @@ export class HistoricalChart {
 
         const onDown = (evt) => {
             isSelecting = true;
+            dragState.active = true;
             selStart = selEnd = indexFromClientX(clientXOf(evt));
             if (this.chart) { this.chart.options.plugins.tooltip.enabled = false; this.chart.update('none'); }
             evt.preventDefault();
@@ -1070,6 +1105,7 @@ export class HistoricalChart {
             // instead of leaving a zero-width selection on screen.
             if (selStart === selEnd) {
                 selStart = null; selEnd = null;
+                dragState.active = false;
                 tooltipEl.classList.remove('visible');
                 if (this.chart) { this.chart.options.plugins.tooltip.enabled = true; this.chart.update('none'); }
                 return;
@@ -1085,18 +1121,26 @@ export class HistoricalChart {
                 this.chart.options.scales.x.max = graphData.labels[i1];
                 this.chart.update();
                 selStart = null; selEnd = null;
+                dragState.active = false;
                 tooltipEl.classList.remove('visible');
                 this.chart.options.plugins.tooltip.enabled = true;
+                this._isZoomed = true;
+                this._updateSelectionToggleUI();
+                return;
             }
             // Default (zoom off): the selection + info box stay exactly as
-            // shown, persisted until the next click/drag clears them.
+            // shown (dragState stays active) until the next click/drag
+            // clears them — see the selStart===selEnd branch above.
         };
         const onReset = () => {
             if (!this.chart?.options.scales.x.min) return;
             delete this.chart.options.scales.x.min;
             delete this.chart.options.scales.x.max;
             this.chart.update();
+            this._isZoomed = false;
+            this._updateSelectionToggleUI();
         };
+        this._resetZoom = onReset;
 
         canvas.addEventListener('mousedown', onDown);
         canvas.addEventListener('mousemove', onMove);
