@@ -42,7 +42,7 @@ export class HistoricalChart {
         this.currentPeriod = 1;
         this.currentMode = 'portfolio'; // 'portfolio' | 'asset' | 'index'
         this.selectedAssets = [];
-        this.selectionModeEnabled = false; // drag-to-compare toggle, see _injectSelectionToggle
+        this.zoomModeEnabled = false; // drag-to-zoom toggle, see _injectSelectionToggle (drag-to-compare is the default, always on)
         this.currentBenchmark = null;
         this.customTitle = null;
 
@@ -222,9 +222,11 @@ export class HistoricalChart {
 
     // A small toggle dropped next to the period buttons (1J/2J/1M/...), one
     // per container so it shows up wherever those buttons do (desktop +
-    // mobile rows on Dashboard, the single row on Investments). Off by
-    // default: normal single-point hover is what most people want most of
-    // the time, so drag-to-compare only kicks in once explicitly turned on.
+    // mobile rows on Dashboard, the single row on Investments). Drag-to-
+    // compare (Total Value/Return/Variation for the dragged slice) is
+    // always on by default — this toggle repurposes that same drag into a
+    // zoom instead, for whoever wants to actually narrow the displayed
+    // range rather than just read it off.
     _injectSelectionToggle() {
         const containers = new Set();
         document.querySelectorAll('.period-btn').forEach(btn => containers.add(btn.parentNode));
@@ -234,12 +236,12 @@ export class HistoricalChart {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'period-btn selection-mode-toggle';
-            btn.title = 'Comparer deux points du graphique (glisser-déposer)';
-            btn.innerHTML = '<i class="fa-solid fa-crosshairs"></i>';
+            btn.title = 'Activer le zoom par glisser-déposer (double-clic pour réinitialiser)';
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass-plus"></i>';
             btn.addEventListener('click', () => {
-                this.selectionModeEnabled = !this.selectionModeEnabled;
-                document.querySelectorAll('.selection-mode-toggle').forEach(b => b.classList.toggle('active', this.selectionModeEnabled));
-                if (this._canvasEl) this._canvasEl.style.cursor = this.selectionModeEnabled ? 'crosshair' : '';
+                this.zoomModeEnabled = !this.zoomModeEnabled;
+                document.querySelectorAll('.selection-mode-toggle').forEach(b => b.classList.toggle('active', this.zoomModeEnabled));
+                if (this._canvasEl) this._canvasEl.style.cursor = this.zoomModeEnabled ? 'zoom-in' : 'crosshair';
             });
             container.appendChild(btn);
         });
@@ -684,27 +686,99 @@ export class HistoricalChart {
     background: rgba(8, 13, 26, 0.97);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 12px;
-    padding: 12px 14px;
-    min-width: 230px;
+    padding: 10px 14px;
+    min-width: 220px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.45);
     font-family: 'Inter', sans-serif;
     color: #f1f5f9;
     opacity: 0; transition: opacity 0.08s ease;
 }
 .hc-tooltip.visible { opacity: 1; }
-.hc-tooltip .hc-tt-title { font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 8px; letter-spacing: 0.02em; }
-.hc-tooltip .hc-tt-main { display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 700; margin-bottom: 4px; white-space: nowrap; }
-.hc-tooltip .hc-tt-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.hc-tooltip .hc-tt-secondary { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 500; color: #cbd5e1; margin-bottom: 2px; white-space: nowrap; }
-.hc-tooltip .hc-tt-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 8px 0; }
-.hc-tooltip .hc-tt-row { display: grid; grid-template-columns: 18px 100px 1fr auto; align-items: center; column-gap: 8px; font-size: 12px; font-weight: 500; color: #cbd5e1; padding: 2px 0; white-space: nowrap; }
-.hc-tooltip .hc-tt-row .hc-tt-icon { font-size: 12px; }
-.hc-tooltip .hc-tt-row .hc-tt-eur { text-align: right; font-variant-numeric: tabular-nums; color: #e2e8f0; }
-.hc-tooltip .hc-tt-row .hc-tt-pct { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.hc-tooltip .hc-tt-title { font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 6px; letter-spacing: 0.02em; }
+.hc-tooltip .hc-tt-row { display: grid; grid-template-columns: 18px 100px 1fr auto; align-items: center; column-gap: 8px; font-size: 13px; font-weight: 500; color: #e2e8f0; padding: 3px 0; white-space: nowrap; }
+.hc-tooltip .hc-tt-row .hc-tt-icon { font-size: 13px; }
+.hc-tooltip .hc-tt-row .hc-tt-eur { text-align: right; font-variant-numeric: tabular-nums; color: #f1f5f9; font-weight: 600; }
+.hc-tooltip .hc-tt-row .hc-tt-pct { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; min-width: 64px; }
 .hc-tooltip .positive { color: #2ecc71; }
 .hc-tooltip .negative { color: #e74c3c; }
 `;
         document.head.appendChild(style);
+    }
+
+    // Every KPI row (hover tooltip AND the drag-selection box) renders
+    // through this one function — name / amount / percentage, same grid,
+    // same weight, no row visually singled out and no divider between them.
+    _renderKpiRowsHtml(titleText, rows) {
+        const rowsHtml = rows.map(r => `<div class="hc-tt-row"><span class="hc-tt-icon">${r.icon}</span><span>${r.label}</span><span class="hc-tt-eur">${r.eur ?? ''}</span><span class="hc-tt-pct ${r.positive ? 'positive' : 'negative'}">${r.pct != null ? '(' + r.pct + ')' : ''}</span></div>`).join('');
+        return `<div class="hc-tt-title">${titleText}</div>${rowsHtml}`;
+    }
+
+    // The 3 unified rows (Total Value / Total Return / Var Today) at a
+    // single point in time — used for the normal hover tooltip. Restricted
+    // to genuine portfolio views: an index or a single asset's unit price
+    // has no "invested" or "cash" to build Return/Var Today from.
+    _buildKpiRows(idx, opts) {
+        const { graphData, pctSeries, eurFmt, pctFmt, kpiData, isIndexMode, isUnitView, isPerformanceMode, displayValues } = opts;
+        if (isIndexMode || isUnitView) {
+            const v = displayValues?.[idx];
+            if (v == null || isNaN(v)) return [];
+            const label = isUnitView ? 'Prix' : 'Cours';
+            return isPerformanceMode
+                ? [{ icon: '📊', label, eur: null, pct: pctFmt(v), positive: v >= 0 }]
+                : [{ icon: '📊', label, eur: eurFmt(v), pct: null, positive: true }];
+        }
+
+        const val = graphData.values?.[idx];
+        if (val == null || isNaN(val)) return [];
+        const pct = pctSeries?.[idx];
+        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(val), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
+
+        const investedAO = graphData.investedAssetOnly?.[idx];
+        const cash = kpiData?.cash || 0;
+        if (investedAO != null && !isNaN(investedAO)) {
+            const totalReturn = (val - cash) - investedAO;
+            const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+        }
+
+        // dailyTwr resets at every calendar-day boundary (see
+        // HistoryCalculator._buildSeries) — only populated for periods of up
+        // to ~7 days, where "the day" is still a meaningful unit.
+        const dTwr = graphData.dailyTwr?.[idx];
+        if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
+            const varTodayAbs = val - val / dTwr;
+            const varTodayPct = (dTwr - 1) * 100;
+            rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
+        }
+        return rows;
+    }
+
+    // The same 3-row shape, but for a dragged RANGE instead of one point:
+    // Total Value / Total Return as of the range's end, and "Variation" —
+    // the change between the two dragged points — standing in for Var Today
+    // (which is specifically about "today", not an arbitrary slice).
+    _buildSelectionRows(i0, i1, opts) {
+        const { graphData, pctSeries, eurFmt, pctFmt, kpiData } = opts;
+        const v0 = graphData.values?.[i0], v1 = graphData.values?.[i1];
+        if (v0 == null || v1 == null || isNaN(v0) || isNaN(v1)) return [];
+
+        const pct1 = pctSeries?.[i1];
+        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(v1), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
+
+        const investedAO = graphData.investedAssetOnly?.[i1];
+        const cash = kpiData?.cash || 0;
+        if (investedAO != null && !isNaN(investedAO)) {
+            const totalReturn = (v1 - cash) - investedAO;
+            const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+        }
+
+        if (v0 !== 0) {
+            const deltaAbs = v1 - v0;
+            const deltaPct = (deltaAbs / v0) * 100;
+            rows.push({ icon: '📅', label: 'Variation', eur: eurFmt(deltaAbs), pct: pctFmt(deltaPct), positive: deltaAbs >= 0 });
+        }
+        return rows;
     }
 
     // Chart.js's `external` tooltip mode: instead of letting Chart.js draw
@@ -712,9 +786,30 @@ export class HistoricalChart {
     // model (position, opacity, matched dataPoints) and leaves rendering
     // entirely up to us — here, a positioned HTML element.
     _renderExternalTooltip(context, opts) {
-        const { canvas, graphData, isPerformanceMode, isIndexMode, pctSeries, eurFmt, pctFmt, portfolioSummaryRows, mainColor } = opts;
+        const { canvas, graphData } = opts;
         this._ensureTooltipStyles();
+        const el = this._ensureTooltipEl(canvas);
 
+        const tt = context.tooltip;
+        if (!tt || tt.opacity === 0 || !tt.dataPoints?.length) {
+            el.classList.remove('visible');
+            return;
+        }
+        const dataPoints = tt.dataPoints.filter(dp => dp.dataset.label !== 'Base 0%');
+        if (!dataPoints.length) { el.classList.remove('visible'); return; }
+
+        const idx = dataPoints[0].dataIndex;
+        const ts = graphData.timestamps?.[idx];
+        const titleText = ts ? this._formatTooltipDate(ts) : (dataPoints[0].label || '');
+        const rows = this._buildKpiRows(idx, opts);
+        if (!rows.length) { el.classList.remove('visible'); return; }
+
+        el.innerHTML = this._renderKpiRowsHtml(titleText, rows);
+        el.classList.add('visible');
+        this._positionTooltipEl(el, canvas, context.chart.chartArea, tt.caretX, tt.caretY);
+    }
+
+    _ensureTooltipEl(canvas) {
         const parent = canvas.parentNode;
         if (!parent.style.position) parent.style.position = 'relative';
         let el = parent.querySelector(':scope > .hc-tooltip');
@@ -723,69 +818,22 @@ export class HistoricalChart {
             el.className = 'hc-tooltip';
             parent.appendChild(el);
         }
+        return el;
+    }
 
-        const tt = context.tooltip;
-        if (!tt || tt.opacity === 0 || !tt.dataPoints?.length) {
-            el.classList.remove('visible');
-            return;
-        }
-
-        const dataPoints = tt.dataPoints.filter(dp => dp.dataset.label !== 'Base 0%');
-        if (!dataPoints.length) { el.classList.remove('visible'); return; }
-        const idx = dataPoints[0].dataIndex;
-        const ts = graphData.timestamps?.[idx];
-        const titleText = ts ? this._formatTooltipDate(ts) : (dataPoints[0].label || '');
-
-        let html = `<div class="hc-tt-title">${titleText}</div>`;
-
-        dataPoints.forEach(dp => {
-            const v = dp.raw;
-            if (v === null || v === undefined) return;
-            const color = dp.dataset.borderColor || mainColor;
-            if (dp.dataset.isMain) {
-                const name = dp.dataset.label.replace(/\s*\((%|€)\)\s*$/, '');
-                let valueHtml;
-                if (isPerformanceMode) {
-                    const eur = !isIndexMode ? graphData.values?.[idx] : null;
-                    const eurPart = (eur != null && !isNaN(eur)) ? ` <span style="color:#94a3b8;font-weight:500;">·&nbsp;&nbsp;${eurFmt(eur)}</span>` : '';
-                    valueHtml = `<span style="color:${v >= 0 ? '#2ecc71' : '#e74c3c'}">${pctFmt(v)}</span>${eurPart}`;
-                } else {
-                    const pct = !isIndexMode ? pctSeries?.[idx] : null;
-                    const pctPart = (pct != null && !isNaN(pct)) ? ` <span style="color:${pct >= 0 ? '#2ecc71' : '#e74c3c'};font-weight:600;">(${pctFmt(pct)})</span>` : '';
-                    valueHtml = `${eurFmt(v)}${pctPart}`;
-                }
-                html += `<div class="hc-tt-main"><span class="hc-tt-dot" style="background:${color}"></span><span>${name}</span><span>${valueHtml}</span></div>`;
-            } else {
-                const valueText = isPerformanceMode ? pctFmt(v) : eurFmt(v);
-                html += `<div class="hc-tt-secondary"><span class="hc-tt-dot" style="background:${color}"></span><span>${dp.dataset.label}</span><span>${valueText}</span></div>`;
-            }
-        });
-
-        const rows = portfolioSummaryRows(idx);
-        if (rows.length) {
-            html += `<div class="hc-tt-divider"></div>`;
-            rows.forEach(r => {
-                html += `<div class="hc-tt-row"><span class="hc-tt-icon">${r.icon}</span><span>${r.label}</span><span class="hc-tt-eur">${r.eur}</span><span class="hc-tt-pct ${r.positive ? 'positive' : 'negative'}">(${r.pct})</span></div>`;
-            });
-        }
-
-        el.innerHTML = html;
-        el.classList.add('visible');
-
-        // Positioned relative to the canvas's own offset within its
-        // (relatively-positioned) parent, flipped to the left of the cursor
-        // and clamped vertically/horizontally so it never spills outside the
-        // chart area regardless of where in the curve the cursor is.
-        const area = context.chart.chartArea;
-        const elW = el.offsetWidth || 230, elH = el.offsetHeight || 130;
-        let left = canvas.offsetLeft + tt.caretX + 14;
+    // Shared placement logic for both the hover tooltip and the
+    // drag-selection box: anchored to one x pixel, flipped to whichever side
+    // has room, and clamped so it never spills outside the chart area.
+    _positionTooltipEl(el, canvas, area, anchorX, anchorY) {
+        const elW = el.offsetWidth || 220, elH = el.offsetHeight || 110;
+        let left = canvas.offsetLeft + anchorX + 14;
         const maxLeft = canvas.offsetLeft + area.right - elW;
-        if (left > maxLeft) left = canvas.offsetLeft + tt.caretX - elW - 14;
+        if (left > maxLeft) left = canvas.offsetLeft + anchorX - elW - 14;
         left = Math.max(canvas.offsetLeft + area.left, left);
 
-        let top = canvas.offsetTop + area.top + 4;
+        let top = canvas.offsetTop + (anchorY != null ? anchorY - elH / 2 : area.top + 4);
         const maxTop = canvas.offsetTop + area.bottom - elH;
-        top = Math.min(top, Math.max(canvas.offsetTop + area.top, maxTop));
+        top = Math.min(Math.max(top, canvas.offsetTop + area.top), maxTop);
 
         el.style.left = `${left}px`;
         el.style.top = `${top}px`;
@@ -907,52 +955,18 @@ export class HistoricalChart {
 
         const eurFmt = (n) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
         const pctFmt = (n) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+        const tooltipOpts = { canvas, graphData, isPerformanceMode, isIndexMode, isUnitView, displayValues, pctSeries, eurFmt, pctFmt, kpiData };
 
-        // Portfolio-wide figures (not meaningful for a single index/unit-price
-        // view, so restricted to the actual portfolio chart) shown as extra
-        // tooltip lines that move with the hovered point, independent of
-        // whichever mode (€/%) is currently plotted.
-        // Total Value is deliberately NOT repeated here — it's already the €
-        // half of the main line above (or the line itself, in value mode), so
-        // showing it again just duplicated the same number. Structured rows
-        // (rather than pre-formatted strings) so the external HTML tooltip
-        // can lay them out in a real grid — canvas text can't be column-
-        // aligned reliably across rows of different label lengths.
-        const portfolioSummaryRows = (idx) => {
-            if (isIndexMode || isUnitView) return [];
-            const val = graphData.values?.[idx];
-            if (val == null || isNaN(val)) return [];
-            const rows = [];
-
-            const investedAO = graphData.investedAssetOnly?.[idx];
-            const cash = kpiData?.cash || 0;
-            if (investedAO != null && !isNaN(investedAO)) {
-                const totalReturn = (val - cash) - investedAO;
-                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
-            }
-
-            // dailyTwr resets at every calendar-day boundary (see
-            // HistoryCalculator._buildSeries) — only populated for periods of
-            // up to ~7 days, where "the day" is still a meaningful unit.
-            const dTwr = graphData.dailyTwr?.[idx];
-            if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
-                const varTodayAbs = val - val / dTwr;
-                const varTodayPct = (dTwr - 1) * 100;
-                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
-            }
-            return rows;
-        };
-
-        // Drag-selection ("Google Finance" style): compares two points on the
-        // ALREADY-displayed period — it never re-fetches or rescales the
-        // chart, it just overlays the delta between the two dragged points.
-        // Off by default; toggled via the button injected next to the period
-        // buttons (see _injectSelectionToggle) so it never steals the normal
-        // single-point hover tooltip.
+        // Drag-selection ("Google Finance" style) IS the default interaction:
+        // dragging across the chart shows Total Value / Total Return /
+        // Variation for that slice, without ever re-fetching or rescaling the
+        // chart itself. The toggle next to the period buttons (see
+        // _injectSelectionToggle) repurposes the SAME drag into a zoom
+        // instead — the two are mutually exclusive per drag, decided at
+        // mouseup by whether zoom mode is on.
         let selStart = null, selEnd = null, isSelecting = false;
         this._canvasEl = canvas;
-        canvas.style.cursor = this.selectionModeEnabled ? 'crosshair' : '';
+        canvas.style.cursor = this.zoomModeEnabled ? 'zoom-in' : 'crosshair';
 
         const indexFromClientX = (clientX) => {
             const rect = canvas.getBoundingClientRect();
@@ -972,7 +986,7 @@ export class HistoricalChart {
                 const c = chart.ctx;
 
                 c.save();
-                c.fillStyle = 'rgba(59,130,246,0.10)';
+                c.fillStyle = this.zoomModeEnabled ? 'rgba(168,85,247,0.10)' : 'rgba(59,130,246,0.10)';
                 c.fillRect(x0, top, Math.max(1, x1 - x0), bottom - top);
                 c.setLineDash([4, 4]);
                 c.strokeStyle = 'rgba(255,255,255,0.4)';
@@ -993,50 +1007,6 @@ export class HistoricalChart {
                         c.restore();
                     });
                 }
-
-                const v0 = graphData.values?.[i0], v1 = graphData.values?.[i1];
-                if (v0 == null || v1 == null || v0 === 0) return;
-                const deltaAbs = v1 - v0;
-                const deltaPct = (deltaAbs / v0) * 100;
-                const positive = deltaAbs >= 0;
-                const t0 = graphData.timestamps?.[i0], t1 = graphData.timestamps?.[i1];
-                const dateStr = (t0 && t1) ? `${this._formatTooltipDate(t0)}  →  ${this._formatTooltipDate(t1)}` : '';
-                const valueStr = v1.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-                const pctStr = `${positive ? '+' : ''}${deltaPct.toFixed(2)}%`;
-
-                c.save();
-                c.font = "600 13px 'Inter', sans-serif";
-                const line1 = `${valueStr}  (${pctStr})`;
-                const w1 = c.measureText(line1).width;
-                c.font = "500 11px 'Inter', sans-serif";
-                const w2 = c.measureText(dateStr).width;
-                const boxW = Math.max(w1, w2) + 24;
-                const boxH = 46;
-                let boxX = Math.min(x0, x1);
-                boxX = Math.max(chart.chartArea.left, Math.min(boxX, chart.chartArea.right - boxW));
-                const boxY = top + 8;
-
-                c.fillStyle = 'rgba(8, 13, 26, 0.97)';
-                c.strokeStyle = 'rgba(255,255,255,0.12)';
-                c.lineWidth = 1;
-                const r = 8;
-                c.beginPath();
-                c.moveTo(boxX + r, boxY);
-                c.arcTo(boxX + boxW, boxY, boxX + boxW, boxY + boxH, r);
-                c.arcTo(boxX + boxW, boxY + boxH, boxX, boxY + boxH, r);
-                c.arcTo(boxX, boxY + boxH, boxX, boxY, r);
-                c.arcTo(boxX, boxY, boxX + boxW, boxY, r);
-                c.closePath();
-                c.fill(); c.stroke();
-
-                c.font = "600 13px 'Inter', sans-serif";
-                c.fillStyle = positive ? '#2ecc71' : '#e74c3c';
-                c.textBaseline = 'top';
-                c.fillText(line1, boxX + 12, boxY + 7);
-                c.font = "500 11px 'Inter', sans-serif";
-                c.fillStyle = '#94a3b8';
-                c.fillText(dateStr, boxX + 12, boxY + 26);
-                c.restore();
             }
         };
 
@@ -1051,10 +1021,7 @@ export class HistoricalChart {
                     legend: { display: false },
                     tooltip: {
                         enabled: false,
-                        external: (context) => this._renderExternalTooltip(context, {
-                            canvas, graphData, isPerformanceMode, isIndexMode, pctSeries,
-                            eurFmt, pctFmt, portfolioSummaryRows, mainColor
-                        })
+                        external: (context) => this._renderExternalTooltip(context, tooltipOpts)
                     }
                 },
                 scales: {
@@ -1068,31 +1035,67 @@ export class HistoricalChart {
         });
 
         const clientXOf = (evt) => evt.touches?.[0]?.clientX ?? evt.changedTouches?.[0]?.clientX ?? evt.clientX;
+        const tooltipEl = this._ensureTooltipEl(canvas);
+        this._ensureTooltipStyles();
+
+        const showSelectionBox = () => {
+            const i0 = Math.min(selStart, selEnd), i1 = Math.max(selStart, selEnd);
+            const rows = this._buildSelectionRows(i0, i1, tooltipOpts);
+            if (!rows.length) { tooltipEl.classList.remove('visible'); return; }
+            const t0 = graphData.timestamps?.[i0], t1 = graphData.timestamps?.[i1];
+            const titleText = (t0 && t1) ? `${this._formatTooltipDate(t0)}  →  ${this._formatTooltipDate(t1)}` : '';
+            tooltipEl.innerHTML = this._renderKpiRowsHtml(titleText, rows);
+            tooltipEl.classList.add('visible');
+            const anchorX = this.chart.scales.x.getPixelForValue(i0);
+            this._positionTooltipEl(tooltipEl, canvas, this.chart.chartArea, anchorX, null);
+        };
 
         const onDown = (evt) => {
-            if (!this.selectionModeEnabled) return;
             isSelecting = true;
             selStart = selEnd = indexFromClientX(clientXOf(evt));
-            if (this.chart) {
-                this.chart.options.plugins.tooltip.enabled = false;
-                this.chart.update('none');
-            }
+            if (this.chart) { this.chart.options.plugins.tooltip.enabled = false; this.chart.update('none'); }
             evt.preventDefault();
         };
         const onMove = (evt) => {
             if (!isSelecting || !this.chart) return;
             selEnd = indexFromClientX(clientXOf(evt));
             this.chart.update('none');
+            if (selStart !== selEnd) showSelectionBox();
         };
         const onUp = () => {
             if (!isSelecting) return;
             isSelecting = false;
-            // A plain click (no actual drag) clears whatever selection was
-            // showing instead of leaving a zero-width one on screen.
+
+            // A plain click (no actual drag) clears whatever was showing
+            // instead of leaving a zero-width selection on screen.
             if (selStart === selEnd) {
                 selStart = null; selEnd = null;
+                tooltipEl.classList.remove('visible');
                 if (this.chart) { this.chart.options.plugins.tooltip.enabled = true; this.chart.update('none'); }
+                return;
             }
+
+            if (this.zoomModeEnabled) {
+                // Zoom mode: the drag rescales the x-axis to that range
+                // instead of showing the info box — a real "redo the
+                // graph on this period", but purely visual (same already-
+                // fetched data, no re-fetch/recalculation).
+                const i0 = Math.min(selStart, selEnd), i1 = Math.max(selStart, selEnd);
+                this.chart.options.scales.x.min = graphData.labels[i0];
+                this.chart.options.scales.x.max = graphData.labels[i1];
+                this.chart.update();
+                selStart = null; selEnd = null;
+                tooltipEl.classList.remove('visible');
+                this.chart.options.plugins.tooltip.enabled = true;
+            }
+            // Default (zoom off): the selection + info box stay exactly as
+            // shown, persisted until the next click/drag clears them.
+        };
+        const onReset = () => {
+            if (!this.chart?.options.scales.x.min) return;
+            delete this.chart.options.scales.x.min;
+            delete this.chart.options.scales.x.max;
+            this.chart.update();
         };
 
         canvas.addEventListener('mousedown', onDown);
@@ -1101,6 +1104,7 @@ export class HistoricalChart {
         canvas.addEventListener('touchstart', onDown, { passive: false });
         canvas.addEventListener('touchmove', onMove, { passive: false });
         window.addEventListener('touchend', onUp);
+        canvas.addEventListener('dblclick', onReset);
 
         // _renderChartJs recreates the Chart instance (and re-adds listeners)
         // on every period/mode change on the SAME canvas element — without
@@ -1114,6 +1118,7 @@ export class HistoricalChart {
             canvas.removeEventListener('touchstart', onDown);
             canvas.removeEventListener('touchmove', onMove);
             window.removeEventListener('touchend', onUp);
+            canvas.removeEventListener('dblclick', onReset);
         };
     }
 }
