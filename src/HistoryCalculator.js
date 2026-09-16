@@ -717,6 +717,23 @@ export class HistoryCalculator {
                     if (hist?.[ts] != null) price = hist[ts];
                     else if (hist) price = findClosestPrice(hist, ts, interval, isCryptoTicker(t));
                     if (price == null && lastKnownPrices.has(t)) price = lastKnownPrices.get(t);
+
+                    // On the very last plotted point of the 1D view ("now"), the
+                    // intraday candle can be a few minutes behind a freshly-fetched
+                    // live price — same principle as the close resolution above
+                    // (prefer whichever source is actually more recent), applied
+                    // here to the curve's own endpoint instead of the table/KPI
+                    // text only. Guarded to the LAST point specifically (not every
+                    // point) and to a live price fetched within the last 10
+                    // minutes, so this can't reintroduce the old "force the last
+                    // point" bug where a stale/wrong live snapshot for an illiquid
+                    // ticker created a fake cliff.
+                    if (days === 1 && i === displayTimestamps.length - 1) {
+                        const live = this.storage.getCurrentPrice(t);
+                        if (live?.price > 0 && live.lastUpdate && (Date.now() - live.lastUpdate) < 10 * 60 * 1000) {
+                            price = live.price;
+                        }
+                    }
                 }
 
                 if (price != null) {
