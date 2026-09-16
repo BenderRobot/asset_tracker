@@ -226,17 +226,6 @@ export class DataManager {
             let dayChange = null;
             let dayPct = null;
 
-            // DEBUG LOG
-            if (ticker === 'AL2SI') {
-                console.log(`[AL2SI Debug] yesterdayCloseMap has AL2SI: ${yesterdayCloseMap && yesterdayCloseMap.has(ticker)}`);
-                console.log(`[AL2SI Debug] currentValue: ${currentValue}`);
-                console.log(`[AL2SI Debug] previousClose from storage: ${previousClose}`);
-                console.log(`[AL2SI Debug] currentPrice: ${currentPrice}`);
-                if (yesterdayCloseMap && yesterdayCloseMap.has(ticker)) {
-                    console.log(`[AL2SI Debug] yesterdayCloseMap value:`, yesterdayCloseMap.get(ticker));
-                }
-            }
-
             // LOGIQUE CORRIGÉE : Utiliser yesterdayCloseMap en priorité.
             // HistoryCalculator calcule finement la vraie clôture de la veille (ou le prix à minuit pour les cryptos)
             // en gérant les fallbacks Binance. yesterdayCloseMap contient la VALEUR TOTALE (prix * qty).
@@ -258,10 +247,6 @@ export class DataManager {
                     dayChange = referenceCurrentValue - yesterdayTotal;
                     dayPct = (dayChange / yesterdayTotal) * 100;
                     usedYesterdayCloseMap = true;
-
-                    if (ticker === 'AL2SI' || ticker === 'BTC') {
-                        console.log(`[${ticker} Debug] yesterdayTotal=${yesterdayTotal.toFixed(2)}, todayYestQty=${todayYestQty?.toFixed(2) ?? 'n/a'}, used=${referenceCurrentValue.toFixed(2)}, dayChange=${dayChange.toFixed(2)}`);
-                    }
                 } else if (yesterdayTotal === 0) {
                     // Si l'actif n'était pas détenu à la clôture d'hier,
                     // sa variation journalière ne doit pas être comptée sur le P&L d'aujourd'hui.
@@ -282,10 +267,6 @@ export class DataManager {
                     dayPct = ((currentPrice - effectivePreviousClose) / effectivePreviousClose) * 100;
                     const dayChangeOriginal = (currentPrice - effectivePreviousClose) * data.quantity;
                     dayChange = dayChangeOriginal * currentRate;
-
-                    if (ticker === 'AL2SI' || ticker === 'BTC') {
-                        console.log(`[${ticker} Debug] Using storage.previousClose`);
-                    }
                 } else {
                     dayChange = 0;
                     dayPct = 0;

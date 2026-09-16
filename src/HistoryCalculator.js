@@ -72,7 +72,7 @@ export class HistoryCalculator {
             : tickers.filter(t => !t.startsWith('CASH-')).some(t => isCryptoTicker(t));
         const isMixed = !isSingleAsset && isMixedPortfolio(tickers);
 
-        console.log(`[HistoryCalc] ${isSingleAsset ? 'Single' : (isMixed ? 'Mixed' : 'Multi')} portfolio, isCrypto=${isCrypto}, isMixed=${isMixed}, days=${days}`, tickers);
+        console.log(`[HistoryCalc] ${isSingleAsset ? 'Single' : (isMixed ? 'Mixed' : 'Multi')} portfolio, isCrypto=${isCrypto}, isMixed=${isMixed}, days=${days}, tickers=${tickers.join(',')}`);
 
         const win = this._computeDisplayWindow(days, isCrypto, isMixed, ledger);
         const interval = getIntervalForPeriod(days);
@@ -439,12 +439,29 @@ export class HistoryCalculator {
                     allowFetch: useDedicatedFetch
                 });
 
-                // DIAGNOSTIC (temporary): show exactly which calendar cutoff each
-                // ticker resolved its "previous close" against, to check whether it
-                // is really landing on YESTERDAY or silently slipping to the day
-                // before that.
-                if (useDedicatedFetch) {
-                    console.log(`[CUTOFF DIAG] ${t}: cutoff=${new Date(cutoffTs).toISOString()} → closePrice=${closePrice}`);
+                // DIAGNOSTIC (temporary): one line per ticker with everything needed
+                // to compare against the real broker app — Yahoo symbol used, the
+                // dedicated daily-fetch close, what the same-cutoff intraday candles
+                // (the data the curve is drawn from) say instead, the live snapshot
+                // price, and the day-change % each of those two closes implies. If
+                // dedicatedClose and intradayClose disagree, the dedicated daily
+                // fetch is unreliable for this ticker. If they agree with EACH OTHER
+                // but still disagree with the real app, the whole Yahoo listing is
+                // the mismatch, not this app's logic.
+                if (useDedicatedFetch && !t.startsWith('CASH-')) {
+                    const intraday = historicalDataMap?.get(t);
+                    let intradayClose = null;
+                    if (intraday) {
+                        const keys = Object.keys(intraday).map(Number).sort((a, b) => a - b);
+                        for (const k of keys) { if (k <= cutoffTs) intradayClose = intraday[k]; else break; }
+                    }
+                    const livePrice = this.storage.getCurrentPrice(t)?.price ?? null;
+                    const pct = (base) => (base && livePrice) ? (((livePrice - base) / base) * 100).toFixed(2) + '%' : 'n/a';
+                    console.log(
+                        `[PRICE DIAG] ${t} (${formatTicker(t)}) cutoff=${new Date(cutoffTs).toISOString().slice(0, 16)} | ` +
+                        `dedicatedClose=${closePrice} intradayClose=${intradayClose} livePrice=${livePrice} | ` +
+                        `dayChange vs dedicated=${pct(closePrice)} vs intraday=${pct(intradayClose)}`
+                    );
                 }
 
                 if (closePrice > 0) {
