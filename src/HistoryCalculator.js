@@ -654,9 +654,31 @@ export class HistoryCalculator {
         // gets skipped before its price is even looked up — the whole series comes
         // out null. This is not a purchase happening "during" the window; it's the
         // starting position the window's price movements apply on top of.
+        //
+        // BUG FOUND: for the 1D view, this used a single cutoff of
+        // win.displayStartTs - 1 for every ticker — but for a stocks-only
+        // portfolio, win.displayStartTs is the market's OPEN time, not midnight
+        // (see _computeDisplayWindow). A cash withdrawal/deposit dated with just
+        // a date (defaults to midnight) sits BETWEEN yesterday's close cutoff and
+        // market open. Seeding it here baked it into quantities/totalValue from
+        // the very first point, while periodDenominator (resolved from
+        // yesterday's close via the SAME getCloseCutoffForTicker, which
+        // correctly EXCLUDES it) stayed at the pre-flow amount — a permanent fake
+        // day P&L equal to the flow, because it never reached the loop's
+        // cashFlow detection below and so never got the symmetric rescale that
+        // already handles an intraday buy/sell/deposit/withdrawal correctly.
+        // Using the same per-ticker cutoff here as for yesterdayClose closes
+        // that gap (the flow is instead picked up by the i===0 iteration below).
+        // For any other period, displayStart is always midnight-aligned already,
+        // so this cutoff is identical to the old win.displayStartTs - 1 — no
+        // behavior change there.
+        const seedCutoff = (days === 1)
+            ? new Map(tickers.map(t => [t, getCloseCutoffForTicker(t, win.displayStart)]))
+            : null;
         for (const t of tickers) {
+            const cutoff = seedCutoff ? seedCutoff.get(t) : win.displayStartTs - 1;
             for (const entry of ledger.byTicker.get(t) || []) {
-                if (entry.date.getTime() <= win.displayStartTs - 1) {
+                if (entry.date.getTime() <= cutoff) {
                     quantities.set(t, quantities.get(t) + entry.quantity);
                     let rate = 1;
                     if (!isSingleAsset) {
@@ -688,9 +710,14 @@ export class HistoryCalculator {
             let cashFlow = 0;
             let quantityChanged = false;
             for (const t of tickers) {
+                // Mirrors the seed cutoff above at i===0, so a flow dated between
+                // yesterday's close and win.displayStartTs (the pre-market gap on
+                // a stocks 1D view) is caught here instead of being silently
+                // absorbed into the seed above.
+                const lowerBound = (i === 0 && seedCutoff) ? seedCutoff.get(t) : prevTs;
                 for (const entry of ledger.byTicker.get(t) || []) {
                     const entryTs = entry.date.getTime();
-                    if (entryTs > prevTs && entryTs <= ts) {
+                    if (entryTs > lowerBound && entryTs <= ts) {
                         quantities.set(t, quantities.get(t) + entry.quantity);
                         let rate = 1;
                         if (!isSingleAsset) {
