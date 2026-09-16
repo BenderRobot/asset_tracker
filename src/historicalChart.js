@@ -769,18 +769,21 @@ export class HistoricalChart {
         // view, so restricted to the actual portfolio chart) shown as extra
         // tooltip lines that move with the hovered point, independent of
         // whichever mode (€/%) is currently plotted.
+        // Total Value is deliberately NOT repeated here — it's already the €
+        // half of the main line above (or the line itself, in value mode), so
+        // showing it again just duplicated the same number.
         const portfolioSummaryLines = (idx) => {
             if (isIndexMode || isUnitView) return [];
             const val = graphData.values?.[idx];
             if (val == null || isNaN(val)) return [];
-            const lines = [`Total Value: ${eurFmt(val)}`];
+            const lines = [];
 
             const investedAO = graphData.investedAssetOnly?.[idx];
             const cash = kpiData?.cash || 0;
             if (investedAO != null && !isNaN(investedAO)) {
                 const totalReturn = (val - cash) - investedAO;
                 const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-                lines.push(`Total Return: ${eurFmt(totalReturn)} (${pctFmt(totalReturnPct)})`);
+                lines.push(`Total Return   ${eurFmt(totalReturn)}  (${pctFmt(totalReturnPct)})`);
             }
 
             // dailyTwr resets at every calendar-day boundary (see
@@ -788,9 +791,9 @@ export class HistoricalChart {
             // up to ~7 days, where "the day" is still a meaningful unit.
             const dTwr = graphData.dailyTwr?.[idx];
             if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
-                const varDayAbs = val - val / dTwr;
-                const varDayPct = (dTwr - 1) * 100;
-                lines.push(`Var Day: ${eurFmt(varDayAbs)} (${pctFmt(varDayPct)})`);
+                const varTodayAbs = val - val / dTwr;
+                const varTodayPct = (dTwr - 1) * 100;
+                lines.push(`Var Today      ${eurFmt(varTodayAbs)}  (${pctFmt(varTodayPct)})`);
             }
             return lines;
         };
@@ -815,22 +818,23 @@ export class HistoricalChart {
                     },
                     tooltip: {
                         filter: (item) => item.dataset.label !== 'Base 0%',
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                        titleColor: '#e2e8f0',
-                        titleFont: { size: 13, weight: '600' },
-                        titleMarginBottom: 8,
-                        bodyColor: '#cbd5e1',
-                        bodyFont: { size: 12 },
-                        bodySpacing: 6,
-                        footerColor: '#94a3b8',
-                        footerFont: { size: 11, weight: '500' },
-                        footerMarginTop: 8,
-                        borderColor: 'rgba(255,255,255,0.08)',
+                        backgroundColor: 'rgba(8, 13, 26, 0.97)',
+                        titleColor: '#f8fafc',
+                        titleFont: { size: 13, weight: '600', family: "'Inter', sans-serif" },
+                        titleMarginBottom: 10,
+                        bodyColor: '#f1f5f9',
+                        bodyFont: { size: 14, weight: '600', family: "'Inter', sans-serif" },
+                        bodySpacing: 8,
+                        footerColor: '#cbd5e1',
+                        footerFont: { size: 12, weight: '500', family: "'Inter', monospace" },
+                        footerSpacing: 6,
+                        footerMarginTop: 10,
+                        borderColor: 'rgba(255,255,255,0.12)',
                         borderWidth: 1,
-                        cornerRadius: 10,
-                        padding: 12,
+                        cornerRadius: 12,
+                        padding: 14,
                         displayColors: true,
-                        boxWidth: 8, boxHeight: 8, boxPadding: 6,
+                        boxWidth: 9, boxHeight: 9, boxPadding: 8,
                         usePointStyle: true,
                         callbacks: {
                             title: (items) => {
