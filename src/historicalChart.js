@@ -27,14 +27,6 @@ import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js';
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
-// chartjs-plugin-zoom (loaded as a plain <script> after chart.js on
-// investments.html/dashboard.html) exposes itself as window.ChartZoom but,
-// unlike some Chart.js plugins, does not auto-register — it has to be done
-// once, here, before any chart using drag-to-zoom is created.
-if (typeof window !== 'undefined' && window.Chart && window.ChartZoom && !window.Chart.registry.plugins.get('zoom')) {
-    try { window.Chart.register(window.ChartZoom); } catch (e) { /* already registered elsewhere */ }
-}
-
 export class HistoricalChart {
     constructor(storage, dataManager, ui, investmentsPage) {
         this.storage = storage;
@@ -50,6 +42,7 @@ export class HistoricalChart {
         this.currentPeriod = 1;
         this.currentMode = 'portfolio'; // 'portfolio' | 'asset' | 'index'
         this.selectedAssets = [];
+        this.selectionModeEnabled = false; // drag-to-compare toggle, see _injectSelectionToggle
         this.currentBenchmark = null;
         this.customTitle = null;
 
@@ -176,6 +169,8 @@ export class HistoricalChart {
     // "NY" button is created for each additional full year, right before "All",
     // so the list grows one button per birthday instead of staying capped.
     updatePeriodButtonsAvailability() {
+        this._injectSelectionToggle();
+
         const firstPurchase = this.storage.getPurchases()
             .map(p => new Date(p.date))
             .filter(d => !isNaN(d.getTime()))
@@ -222,6 +217,31 @@ export class HistoricalChart {
                 });
                 allBtn.parentNode.insertBefore(btn, allBtn);
             }
+        });
+    }
+
+    // A small toggle dropped next to the period buttons (1J/2J/1M/...), one
+    // per container so it shows up wherever those buttons do (desktop +
+    // mobile rows on Dashboard, the single row on Investments). Off by
+    // default: normal single-point hover is what most people want most of
+    // the time, so drag-to-compare only kicks in once explicitly turned on.
+    _injectSelectionToggle() {
+        const containers = new Set();
+        document.querySelectorAll('.period-btn').forEach(btn => containers.add(btn.parentNode));
+
+        containers.forEach(container => {
+            if (container.querySelector('.selection-mode-toggle')) return;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'period-btn selection-mode-toggle';
+            btn.title = 'Comparer deux points du graphique (glisser-déposer)';
+            btn.innerHTML = '<i class="fa-solid fa-crosshairs"></i>';
+            btn.addEventListener('click', () => {
+                this.selectionModeEnabled = !this.selectionModeEnabled;
+                document.querySelectorAll('.selection-mode-toggle').forEach(b => b.classList.toggle('active', this.selectionModeEnabled));
+                if (this._canvasEl) this._canvasEl.style.cursor = this.selectionModeEnabled ? 'crosshair' : '';
+            });
+            container.appendChild(btn);
         });
     }
 
@@ -714,7 +734,7 @@ export class HistoricalChart {
             const perfData = pctSeries;
 
             datasets.push({
-                label: 'Performance Portfolio (%)', data: perfData, borderColor: mainColor,
+                label: 'Total Value (%)', data: perfData, borderColor: mainColor,
                 backgroundColor: (c) => makeGradient(c.chart, 0), borderWidth: 2, fill: true,
                 pointRadius: 0, tension: 0.3, spanGaps: true,
                 segment: { borderColor: (c) => segmentColor(c, 0) },
@@ -744,7 +764,7 @@ export class HistoricalChart {
             if (!isIndexMode && !isUnitView && graphData.invested) {
                 datasets.push({ label: 'Investi (€)', data: graphData.invested, borderColor: '#3b82f6', borderWidth: 2, fill: false, pointRadius: 0, borderDash: [5, 5], hidden: true, spanGaps: true });
             }
-            let label = isUnitView ? 'Prix unitaire (€)' : (isIndexMode ? 'Cours' : 'Valeur Portfolio (€)');
+            let label = isUnitView ? 'Prix unitaire (€)' : (isIndexMode ? 'Cours' : 'Total Value (€)');
             const bicolorRef = (this.currentPeriod === 1 && referenceClose > 0) ? referenceClose : null;
 
             datasets.push({
@@ -783,7 +803,7 @@ export class HistoricalChart {
             if (investedAO != null && !isNaN(investedAO)) {
                 const totalReturn = (val - cash) - investedAO;
                 const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-                lines.push(`Total Return   ${eurFmt(totalReturn)}  (${pctFmt(totalReturnPct)})`);
+                lines.push(`💰 Total Return   ${eurFmt(totalReturn)}  (${pctFmt(totalReturnPct)})`);
             }
 
             // dailyTwr resets at every calendar-day boundary (see
@@ -793,29 +813,116 @@ export class HistoricalChart {
             if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
                 const varTodayAbs = val - val / dTwr;
                 const varTodayPct = (dTwr - 1) * 100;
-                lines.push(`Var Today      ${eurFmt(varTodayAbs)}  (${pctFmt(varTodayPct)})`);
+                lines.push(`📅 Var Today      ${eurFmt(varTodayAbs)}  (${pctFmt(varTodayPct)})`);
             }
             return lines;
+        };
+
+        // Drag-selection ("Google Finance" style): compares two points on the
+        // ALREADY-displayed period — it never re-fetches or rescales the
+        // chart, it just overlays the delta between the two dragged points.
+        // Off by default; toggled via the button injected next to the period
+        // buttons (see _injectSelectionToggle) so it never steals the normal
+        // single-point hover tooltip.
+        let selStart = null, selEnd = null, isSelecting = false;
+        this._canvasEl = canvas;
+        canvas.style.cursor = this.selectionModeEnabled ? 'crosshair' : '';
+
+        const indexFromClientX = (clientX) => {
+            const rect = canvas.getBoundingClientRect();
+            const px = clientX - rect.left;
+            const idx = Math.round(this.chart.scales.x.getValueForPixel(px));
+            return Math.max(0, Math.min(graphData.labels.length - 1, idx));
+        };
+
+        const selectionPlugin = {
+            id: 'dragSelection',
+            afterDraw: (chart) => {
+                if (selStart === null || selEnd === null) return;
+                const i0 = Math.min(selStart, selEnd), i1 = Math.max(selStart, selEnd);
+                const xScale = chart.scales.x, yScale = chart.scales.y;
+                const x0 = xScale.getPixelForValue(i0), x1 = xScale.getPixelForValue(i1);
+                const top = chart.chartArea.top, bottom = chart.chartArea.bottom;
+                const c = chart.ctx;
+
+                c.save();
+                c.fillStyle = 'rgba(59,130,246,0.10)';
+                c.fillRect(x0, top, Math.max(1, x1 - x0), bottom - top);
+                c.setLineDash([4, 4]);
+                c.strokeStyle = 'rgba(255,255,255,0.4)';
+                c.lineWidth = 1;
+                [x0, x1].forEach(x => { c.beginPath(); c.moveTo(x, top); c.lineTo(x, bottom); c.stroke(); });
+                c.restore();
+
+                const mainDs = chart.data.datasets.find(d => d.isMain);
+                if (mainDs) {
+                    [[x0, i0], [x1, i1]].forEach(([x, i]) => {
+                        const v = mainDs.data[i];
+                        if (v == null || isNaN(v)) return;
+                        const y = yScale.getPixelForValue(v);
+                        c.save();
+                        c.fillStyle = mainColor;
+                        c.beginPath(); c.arc(x, y, 4, 0, Math.PI * 2); c.fill();
+                        c.strokeStyle = '#0b1220'; c.lineWidth = 2; c.stroke();
+                        c.restore();
+                    });
+                }
+
+                const v0 = graphData.values?.[i0], v1 = graphData.values?.[i1];
+                if (v0 == null || v1 == null || v0 === 0) return;
+                const deltaAbs = v1 - v0;
+                const deltaPct = (deltaAbs / v0) * 100;
+                const positive = deltaAbs >= 0;
+                const t0 = graphData.timestamps?.[i0], t1 = graphData.timestamps?.[i1];
+                const dateStr = (t0 && t1) ? `${this._formatTooltipDate(t0)}  →  ${this._formatTooltipDate(t1)}` : '';
+                const valueStr = v1.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+                const pctStr = `${positive ? '+' : ''}${deltaPct.toFixed(2)}%`;
+
+                c.save();
+                c.font = "600 13px 'Inter', sans-serif";
+                const line1 = `${valueStr}  (${pctStr})`;
+                const w1 = c.measureText(line1).width;
+                c.font = "500 11px 'Inter', sans-serif";
+                const w2 = c.measureText(dateStr).width;
+                const boxW = Math.max(w1, w2) + 24;
+                const boxH = 46;
+                let boxX = Math.min(x0, x1);
+                boxX = Math.max(chart.chartArea.left, Math.min(boxX, chart.chartArea.right - boxW));
+                const boxY = top + 8;
+
+                c.fillStyle = 'rgba(8, 13, 26, 0.97)';
+                c.strokeStyle = 'rgba(255,255,255,0.12)';
+                c.lineWidth = 1;
+                const r = 8;
+                c.beginPath();
+                c.moveTo(boxX + r, boxY);
+                c.arcTo(boxX + boxW, boxY, boxX + boxW, boxY + boxH, r);
+                c.arcTo(boxX + boxW, boxY + boxH, boxX, boxY + boxH, r);
+                c.arcTo(boxX, boxY + boxH, boxX, boxY, r);
+                c.arcTo(boxX, boxY, boxX + boxW, boxY, r);
+                c.closePath();
+                c.fill(); c.stroke();
+
+                c.font = "600 13px 'Inter', sans-serif";
+                c.fillStyle = positive ? '#2ecc71' : '#e74c3c';
+                c.textBaseline = 'top';
+                c.fillText(line1, boxX + 12, boxY + 7);
+                c.font = "500 11px 'Inter', sans-serif";
+                c.fillStyle = '#94a3b8';
+                c.fillText(dateStr, boxX + 12, boxY + 26);
+                c.restore();
+            }
         };
 
         this.chart = new Chart(ctx, {
             type: 'line',
             data: { labels: graphData.labels, datasets },
+            plugins: [selectionPlugin],
             options: {
                 responsive: true, maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: { display: false },
-                    // Drag horizontally across the chart to zoom into that time
-                    // range; double-click resets back to the full period (wired
-                    // up below, after the chart is created).
-                    zoom: {
-                        pan: { enabled: false },
-                        zoom: {
-                            drag: { enabled: true, backgroundColor: 'rgba(59,130,246,0.15)', borderColor: 'rgba(59,130,246,0.4)', borderWidth: 1 },
-                            mode: 'x'
-                        }
-                    },
                     tooltip: {
                         filter: (item) => item.dataset.label !== 'Base 0%',
                         backgroundColor: 'rgba(8, 13, 26, 0.97)',
@@ -879,8 +986,53 @@ export class HistoricalChart {
             }
         });
 
-        // Drag-to-zoom leaves the chart zoomed in until explicitly reset —
-        // double-click anywhere on it to snap back to the full period.
-        canvas.ondblclick = () => { if (this.chart?.resetZoom) this.chart.resetZoom(); };
+        const clientXOf = (evt) => evt.touches?.[0]?.clientX ?? evt.changedTouches?.[0]?.clientX ?? evt.clientX;
+
+        const onDown = (evt) => {
+            if (!this.selectionModeEnabled) return;
+            isSelecting = true;
+            selStart = selEnd = indexFromClientX(clientXOf(evt));
+            if (this.chart) {
+                this.chart.options.plugins.tooltip.enabled = false;
+                this.chart.update('none');
+            }
+            evt.preventDefault();
+        };
+        const onMove = (evt) => {
+            if (!isSelecting || !this.chart) return;
+            selEnd = indexFromClientX(clientXOf(evt));
+            this.chart.update('none');
+        };
+        const onUp = () => {
+            if (!isSelecting) return;
+            isSelecting = false;
+            // A plain click (no actual drag) clears whatever selection was
+            // showing instead of leaving a zero-width one on screen.
+            if (selStart === selEnd) {
+                selStart = null; selEnd = null;
+                if (this.chart) { this.chart.options.plugins.tooltip.enabled = true; this.chart.update('none'); }
+            }
+        };
+
+        canvas.addEventListener('mousedown', onDown);
+        canvas.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        canvas.addEventListener('touchstart', onDown, { passive: false });
+        canvas.addEventListener('touchmove', onMove, { passive: false });
+        window.addEventListener('touchend', onUp);
+
+        // _renderChartJs recreates the Chart instance (and re-adds listeners)
+        // on every period/mode change on the SAME canvas element — without
+        // this, listeners would pile up across re-renders instead of being
+        // replaced.
+        if (this._selectionCleanup) this._selectionCleanup();
+        this._selectionCleanup = () => {
+            canvas.removeEventListener('mousedown', onDown);
+            canvas.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            canvas.removeEventListener('touchstart', onDown);
+            canvas.removeEventListener('touchmove', onMove);
+            window.removeEventListener('touchend', onUp);
+        };
     }
 }

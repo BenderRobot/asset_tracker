@@ -424,6 +424,13 @@
     display: none;
 }
 
+.selection-mode-toggle {
+    margin-left: 6px;
+    padding-left: 10px;
+    padding-right: 10px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 /* Benchmark Select */
 .benchmark-wrapper {
     position: relative;
