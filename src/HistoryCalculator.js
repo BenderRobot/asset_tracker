@@ -114,7 +114,8 @@ export class HistoryCalculator {
         const series = await this._buildSeries({
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
             dynamicRate, isSingleAsset, interval, days, labelFormatFunc,
-            resolveCloseBefore, initialYesterdayClose: yesterday.total, win
+            resolveCloseBefore, initialYesterdayClose: yesterday.total, win,
+            diagYesterdayPrices: yesterday.prices, diagYesterdayQty: yesterday.quantities
         });
 
         const purchasePoints = isSingleAsset
@@ -607,7 +608,7 @@ export class HistoryCalculator {
     // ========================================================
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
-    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win }) {
+    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, diagYesterdayPrices, diagYesterdayQty }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
         const twr = [], dailyTwr = [];
 
@@ -706,6 +707,19 @@ export class HistoryCalculator {
                     hasAnyPrice = true; priced++;
                     if (isSingleAsset) unitPrice = price;
                     lastKnownPrices.set(t, price);
+
+                    // DIAGNOSTIC (temporary): at the very first plotted point of a 1D
+                    // view, compare the price actually used against the per-ticker
+                    // "yesterday close" already resolved for the same ticker — if they
+                    // disagree for a ticker whose real price barely moved overnight,
+                    // that ticker's anchor/injection is the bug, not real market data.
+                    if (days === 1 && i === 0 && !isCash && diagYesterdayPrices) {
+                        const yClose = diagYesterdayPrices.get(t);
+                        const yQty = diagYesterdayQty?.get(t);
+                        if (yClose != null) {
+                            console.log(`[DAY-START DIAG] ${t}: price@00:00=${price} vs yesterdayClose=${yClose} qty=${qty} (yQty=${yQty}) → diff=${(((price - yClose) / yClose) * 100).toFixed(2)}%`);
+                        }
+                    }
                 }
                 totalInvested += investedByTicker.get(t);
                 if (!isCash) totalInvestedAssetOnly += investedByTicker.get(t);
