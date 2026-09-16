@@ -253,23 +253,18 @@ export class InvestmentsPage {
       }
     }
 
-    // --- CORRECTION VAR DAY: Lancer le calcul précis en arrière-plan si pas encore fait ---
-    if (!this.historyChecked) {
-      this.historyChecked = true;
-      console.log("DEBUG: All Asset Types present:", [...new Set(this.storage.getPurchases().map(p => p.assetType))]);
-      const allPurchases = this.storage.getPurchases().filter(p => {
-        const type = (p.assetType || 'Stock').toLowerCase();
-        return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
-      });
-      console.log("Declenching background yesterdayClose calculation...");
-      this.dataManager.calculateAllAssetsYesterdayClose(allPurchases).then(() => {
-        console.log("Background yesterdayClose finished.");
-        // Re-render only when market is closed (when open, app.js refreshPrices handles it)
-        if (this.api.isMarketClosed()) {
-          this.render(this.currentSearchQuery, false);
-        }
-      }).catch(err => console.warn('[investmentsPage] yesterdayClose background calc failed:', err));
-    }
+    // A background "warm-up" call to calculateAllAssetsYesterdayClose(allPurchases)
+    // used to run here once per page load, on the FULL unfiltered portfolio,
+    // purely for its side effect of pre-populating the shared price cache — its
+    // own result was discarded. That is a second, independent invocation of the
+    // exact resolution logic the chart itself already runs (via
+    // historicalChart.update() → _resolveTodayData()), and when it finished it
+    // re-rendered the page a second time — a real risk of the text KPIs and the
+    // chart curve momentarily reflecting two different render passes of the
+    // same data, and the cause verified for one instance of "text says +161€ but
+    // the curve sits below 0%". Removed: there is now exactly one render path
+    // (via historicalChart.update()), so there is nothing left to warm up
+    // separately or to race against.
   }
 
   getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
