@@ -1561,7 +1561,15 @@ class DashboardApp {
 
             // Event listener (toujours à jour)
             cardElement.onclick = () => {
+                // Recliquer sur la carte déjà active désélectionne l'indice et
+                // revient à la vue portefeuille — jusqu'ici il n'existait aucun
+                // moyen de revenir en arrière une fois un indice sélectionné.
+                const wasActive = cardElement.classList.contains('active-index');
                 document.querySelectorAll('.market-card').forEach(c => c.classList.remove('active-index'));
+                if (wasActive) {
+                    if (this.chart) this.chart.showPortfolioChart();
+                    return;
+                }
                 cardElement.classList.add('active-index');
 
                 this.api.fetchBatchPrices([targetTicker], true); // Use targetTicker (Futures if applicable)

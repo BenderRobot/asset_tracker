@@ -86,6 +86,9 @@ export class HistoricalChart {
         this.currentBenchmark = null;
         const benchmarkSelect = document.getElementById('benchmark-select');
         if (benchmarkSelect) benchmarkSelect.value = '';
+        // Defensive: clear any "selected" highlight left on a market/index card
+        // (dashboardApp.js) — a no-op on pages (investments.html) that have none.
+        document.querySelectorAll('.market-card.active-index').forEach(c => c.classList.remove('active-index'));
         await this.update(true, false);
     }
 
@@ -687,6 +690,34 @@ export class HistoricalChart {
             titleIcon.innerHTML = logoInfo.html;
         } else {
             titleIcon.textContent = titleConfig.icon || '📈';
+        }
+        this._updateBackButton(titleText);
+    }
+
+    // A small "✕" back-to-portfolio affordance next to the title, shown only in
+    // index mode (dashboard market cards) — until now the only entry point in
+    // the app with no way back: clicking an index card again also deselects it
+    // (see dashboardApp.js), but that alone isn't discoverable without a visible
+    // control. No-op on pages (investments.html) that never enter index mode.
+    _updateBackButton(titleText) {
+        const container = titleText.closest('.chart-title');
+        if (!container) return;
+        let btn = container.querySelector('.chart-back-btn');
+        if (this.currentMode !== 'index') {
+            btn?.remove();
+            return;
+        }
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'chart-back-btn';
+            btn.title = 'Revenir au portefeuille';
+            btn.innerHTML = '<i class="fas fa-xmark"></i>';
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showPortfolioChart();
+            });
+            container.appendChild(btn);
         }
     }
 
