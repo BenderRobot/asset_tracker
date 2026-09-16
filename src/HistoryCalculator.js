@@ -457,6 +457,26 @@ export class HistoryCalculator {
                     }
                     const livePrice = this.storage.getCurrentPrice(t)?.price ?? null;
                     const pct = (base) => (base && livePrice) ? (((livePrice - base) / base) * 100).toFixed(2) + '%' : 'n/a';
+
+                    // RAW DAILY BARS: replicate resolveTickerPreviousClose's own dedicated
+                    // fetch (same symbol, same window) and print EVERY bar it received —
+                    // not just the one it picked — to see whether there's a gap right
+                    // before the cutoff (thin listing skipping a day) that makes it fall
+                    // back to a stale bar despite the cutoff DATE itself being correct.
+                    try {
+                        const rawDaily = await this.api.getHistoricalPricesWithRetry(
+                            formatTicker(t),
+                            Math.floor(cutoffTs / 1000) - 7 * 86400,
+                            Math.floor(cutoffTs / 1000),
+                            '1d'
+                        );
+                        const rawKeys = Object.keys(rawDaily || {}).map(Number).sort((a, b) => a - b);
+                        const rawStr = rawKeys.map(k => `${new Date(k).toISOString().slice(0, 10)}=${rawDaily[k]}`).join(', ');
+                        console.log(`[DAILY BARS] ${t} (${formatTicker(t)}) raw 1d bars in window: ${rawStr || '(none)'}`);
+                    } catch (err) {
+                        console.warn(`[DAILY BARS] ${t} raw fetch failed:`, err.message);
+                    }
+
                     console.log(
                         `[PRICE DIAG] ${t} (${formatTicker(t)}) cutoff=${new Date(cutoffTs).toISOString().slice(0, 16)} | ` +
                         `dedicatedClose=${closePrice} intradayClose=${intradayClose} livePrice=${livePrice} | ` +
