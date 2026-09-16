@@ -775,6 +775,7 @@ export class HistoryCalculator {
                         // price later would look like a fake jump).
                         const isComplete = expected > 0 && priced === expected;
                         if (isComplete && totalValue > 0) resolved = totalValue;
+                        console.log(`[HistoryCalc] day anchor FALLBACK for ${dayKey}: resolveCloseBefore returned null/0, using ${isComplete ? `current totalValue=${totalValue.toFixed(2)}` : 'nothing (incomplete pricing)'}`);
                     }
 
                     if (resolved !== null) {
@@ -784,6 +785,7 @@ export class HistoryCalculator {
                             periodDenominator = resolved;
                             displayedYesterdayClose = resolved;
                         }
+                        console.log(`[HistoryCalc] day anchor SET for ${dayKey}: periodDenominator=${periodDenominator?.toFixed(2)}, dayDenominator=${dayDenominator?.toFixed(2)}, isFirstAnchor=${isFirstAnchor}`);
                     }
                 }
             }
@@ -794,6 +796,7 @@ export class HistoryCalculator {
                 const valueBeforeFlow = totalValue - cashFlow;
                 if (valueBeforeFlow > 0) {
                     const scale = totalValue / valueBeforeFlow;
+                    console.log(`[HistoryCalc] TWR rescale @ ${new Date(ts).toISOString()}: cashFlow=${cashFlow.toFixed(2)}, totalValue=${totalValue.toFixed(2)}, valueBeforeFlow=${valueBeforeFlow.toFixed(2)}, scale=${scale.toFixed(5)}, periodDenom ${periodDenominator?.toFixed(2)} -> ${(periodDenominator * scale).toFixed(2)}`);
                     if (periodDenominator) periodDenominator *= scale;
                     if (dayDenominator) dayDenominator *= scale;
                 }
