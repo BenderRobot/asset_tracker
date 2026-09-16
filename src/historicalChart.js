@@ -50,7 +50,11 @@ export class HistoricalChart {
         // Reference-line visibility (Clôture Hier / PRU) — a per-viewer display
         // preference, so it's persisted in localStorage rather than app state.
         this.refLineVisibility = {
-            close: this._loadRefLinePref('close'),
+            // No toggle is ever offered on the Dashboard (this.ui is null there
+            // — see _syncReferenceLineToggles), so its line must not be
+            // silently turned off by a preference set on the Investments page:
+            // both pages share the same origin/localStorage key.
+            close: this.ui ? this._loadRefLinePref('close') : true,
             pru: this._loadRefLinePref('pru')
         };
 
@@ -666,7 +670,13 @@ export class HistoricalChart {
             container.id = 'ref-lines-toggle';
             container.className = 'toggle-group';
             anchor.parentNode.insertBefore(container, anchor.nextSibling);
-            [['close', 'Clôture'], ['pru', 'PRU']].forEach(([key, label]) => {
+            // On the Dashboard (this.ui is null there — see dashboardApp.js,
+            // which never passes a real ui object), the "Clôture" toggle has no
+            // real use: that page never offers anything else to compare the 1D
+            // curve against, so skip it entirely instead of a button nobody
+            // asked for. "PRU" already never applies there (no asset mode).
+            const lines = this.ui ? [['close', 'Clôture'], ['pru', 'PRU']] : [['pru', 'PRU']];
+            lines.forEach(([key, label]) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'toggle-btn';
@@ -684,8 +694,8 @@ export class HistoricalChart {
         }
         const closeBtn = container.querySelector('[data-refline="close"]');
         const pruBtn = container.querySelector('[data-refline="pru"]');
-        const showClose = this.currentPeriod === 1;
-        const showPru = isSingleAssetMode;
+        const showClose = !!closeBtn && this.currentPeriod === 1;
+        const showPru = !!pruBtn && isSingleAssetMode;
         if (closeBtn) closeBtn.style.display = showClose ? '' : 'none';
         if (pruBtn) pruBtn.style.display = showPru ? '' : 'none';
         container.style.display = (showClose || showPru) ? '' : 'none';
