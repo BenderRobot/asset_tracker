@@ -544,7 +544,7 @@ export class HistoricalChart {
         const isPositive = (vsYesterdayAbs !== null ? vsYesterdayAbs : perfAbs) >= 0;
         const mainColor = isPositive ? '#2ecc71' : '#e74c3c';
 
-        this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, perfPct, (!isSingleAssetMode ? displayPriceEnd : undefined));
+        this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig);
 
         this._renderTitle(titleConfig, currentTicker, isSingleAssetMode);
 
@@ -603,7 +603,7 @@ export class HistoricalChart {
     // ========================================================
     // Chart.js construction
     // ========================================================
-    _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, targetEndPct, targetValueEnd) {
+    _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig) {
         if (this.chart) { this.chart.destroy(); this.chart = null; }
         const ctx = canvas.getContext('2d');
         const datasets = [];
@@ -650,24 +650,7 @@ export class HistoricalChart {
 
             const series = hasDailyTwr ? graphData.dailyTwr : graphData.twr;
             const start = hasDailyTwr ? 1.0 : (series[firstIndex] || 1.0);
-            let perfData = series.map(v => (v === null || v === undefined) ? null : ((v - start) / start) * 100);
-
-            // Realign the curve's OWN endpoint onto the same number the text panel
-            // shows (PÉRIODE/VAR. JOUR, live-snapshot based) — a uniform additive
-            // shift across every point, not a single-point override. The shape
-            // (relative ups/downs through the day) is preserved untouched; only the
-            // curve's vertical position moves, so it stops visually contradicting
-            // the numbers right below it. A single-point override at just the last
-            // index was tried before and rejected (it drew a fake cliff whenever the
-            // live price for one illiquid ticker was off) — this shifts the whole
-            // series instead, so there is no discontinuity anywhere in the line.
-            if (this.currentPeriod === 1 && typeof targetEndPct === 'number' && !isNaN(targetEndPct)) {
-                const lastPerf = perfData[lastIndex];
-                if (lastPerf !== null && lastPerf !== undefined && !isNaN(lastPerf)) {
-                    const shift = targetEndPct - lastPerf;
-                    perfData = perfData.map(v => (v === null || v === undefined) ? null : v + shift);
-                }
-            }
+            const perfData = series.map(v => (v === null || v === undefined) ? null : ((v - start) / start) * 100);
 
             datasets.push({
                 label: 'Performance Portfolio (%)', data: perfData, borderColor: mainColor,
@@ -702,21 +685,8 @@ export class HistoricalChart {
             let label = isUnitView ? 'Prix unitaire (€)' : (isIndexMode ? 'Cours' : 'Valeur Portfolio (€)');
             const bicolorRef = (this.currentPeriod === 1 && referenceClose > 0) ? referenceClose : null;
 
-            // Same realignment as the performance curve above, for the € view: shift
-            // the whole line so its endpoint matches the live-snapshot FIN/TOTAL
-            // VALUE shown below/above it, instead of the graph's own (possibly
-            // stale) last historical candle.
-            let valueData = displayValues;
-            if (!isUnitView && !isIndexMode && this.currentPeriod === 1 && typeof targetValueEnd === 'number' && !isNaN(targetValueEnd)) {
-                const lastVal = displayValues[lastIndex];
-                if (lastVal !== null && lastVal !== undefined && !isNaN(lastVal)) {
-                    const shift = targetValueEnd - lastVal;
-                    valueData = displayValues.map(v => (v === null || v === undefined) ? null : v + shift);
-                }
-            }
-
             datasets.push({
-                label, data: valueData, borderColor: mainColor,
+                label, data: displayValues, borderColor: mainColor,
                 backgroundColor: (c) => makeGradient(c.chart, bicolorRef || 0),
                 borderWidth: 3, fill: true, tension: 0.3, pointRadius: 0, spanGaps: true,
                 ...(bicolorRef ? { segment: { borderColor: (c) => segmentColor(c, bicolorRef) } } : {})

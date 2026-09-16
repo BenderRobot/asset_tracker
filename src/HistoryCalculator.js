@@ -439,6 +439,14 @@ export class HistoryCalculator {
                     allowFetch: useDedicatedFetch
                 });
 
+                // DIAGNOSTIC (temporary): show exactly which calendar cutoff each
+                // ticker resolved its "previous close" against, to check whether it
+                // is really landing on YESTERDAY or silently slipping to the day
+                // before that.
+                if (useDedicatedFetch) {
+                    console.log(`[CUTOFF DIAG] ${t}: cutoff=${new Date(cutoffTs).toISOString()} → closePrice=${closePrice}`);
+                }
+
                 if (closePrice > 0) {
                     prices.set(t, closePrice);
                     let rate = 1;
@@ -480,28 +488,19 @@ export class HistoryCalculator {
     }
 
     // The first plotted point of a 1D view (00:00) must be pinned to the SAME
-    // resolved "yesterday close" used as the day's anchor (dayDenominator),
-    // for every ticker without exception — stocks AND crypto alike.
-    //
-    // Stocks have no quote before the market opens, so without this they'd
-    // simply be missing at 00:00. But crypto trades continuously, so it
-    // already HAS a real price at 00:00 in the fetched candles — and that real
-    // price is not guaranteed to equal the ticker's own resolved previous
-    // close (different resolution path: live candle lookup vs
-    // resolveTickerPreviousClose's cutoff-aware chain). Left alone, that
-    // mismatch shows up as a fake gap at the very start of the curve for any
-    // portfolio holding crypto — verified: BTC's real 00:00 price differed
-    // from its resolved previous close by several percent, creating a portfolio-
-    // wide dip visible before the stock market had even opened, with no real
-    // price move behind it. Always overwriting the 00:00 point with the exact
-    // same per-ticker close used for the anchor removes this class of bug
-    // entirely: the curve and its own anchor can no longer disagree about
-    // where "today" starts, for any asset type.
+    // Stocks have no quote before the market opens: without SOME price at
+    // 00:00, they would simply be absent from the day's first point. This only
+    // fills a MISSING timestamp — it never overwrites a real fetched price
+    // (crypto already has genuine continuous data at 00:00, and that real data
+    // must be left alone; forcing it to match a separately-resolved "close"
+    // is exactly the kind of display-level patch that hides a real bug instead
+    // of fixing it — tried once, produced a worse, more obviously fake cliff,
+    // reverted).
     _injectMidnightPrices(tickers, historicalDataMap, win, yesterday) {
         for (const t of tickers) {
             if (t.startsWith('CASH-')) continue;
             const hist = historicalDataMap.get(t);
-            if (!hist) continue;
+            if (!hist || hist[win.displayStartTs]) continue;
 
             let price = yesterday.prices.get(t) || null;
             if (!price) {
