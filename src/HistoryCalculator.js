@@ -114,8 +114,7 @@ export class HistoryCalculator {
         const series = await this._buildSeries({
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
             dynamicRate, isSingleAsset, interval, days, labelFormatFunc,
-            resolveCloseBefore, initialYesterdayClose: yesterday.total, win,
-            diagYesterdayPrices: yesterday.prices, diagYesterdayQty: yesterday.quantities
+            resolveCloseBefore, initialYesterdayClose: yesterday.total, win
         });
 
         const purchasePoints = isSingleAsset
@@ -480,23 +479,29 @@ export class HistoryCalculator {
         }
     }
 
-    // Stocks don't quote before the market opens: without a price at 00:00, a
-    // portfolio holding both crypto (already moving) and stocks (silent until the
-    // open) would show a misleadingly flat stock contribution overnight. Seed
-    // midnight with the same official close already resolved above, so the first
-    // plotted point is the 0% base to the cent.
+    // The first plotted point of a 1D view (00:00) must be pinned to the SAME
+    // resolved "yesterday close" used as the day's anchor (dayDenominator),
+    // for every ticker without exception — stocks AND crypto alike.
+    //
+    // Stocks have no quote before the market opens, so without this they'd
+    // simply be missing at 00:00. But crypto trades continuously, so it
+    // already HAS a real price at 00:00 in the fetched candles — and that real
+    // price is not guaranteed to equal the ticker's own resolved previous
+    // close (different resolution path: live candle lookup vs
+    // resolveTickerPreviousClose's cutoff-aware chain). Left alone, that
+    // mismatch shows up as a fake gap at the very start of the curve for any
+    // portfolio holding crypto — verified: BTC's real 00:00 price differed
+    // from its resolved previous close by several percent, creating a portfolio-
+    // wide dip visible before the stock market had even opened, with no real
+    // price move behind it. Always overwriting the 00:00 point with the exact
+    // same per-ticker close used for the anchor removes this class of bug
+    // entirely: the curve and its own anchor can no longer disagree about
+    // where "today" starts, for any asset type.
     _injectMidnightPrices(tickers, historicalDataMap, win, yesterday) {
-        const lastCloseTs = getLastTradingDay(new Date());
-        lastCloseTs.setHours(23, 59, 59, 999);
-        const needsInjection =
-            (win.displayStartTs <= lastCloseTs.getTime() && lastCloseTs.getTime() < win.displayStartTs + 3600000) ||
-            (new Date().getDay() === 1);
-        if (!needsInjection) return;
-
         for (const t of tickers) {
             if (t.startsWith('CASH-')) continue;
             const hist = historicalDataMap.get(t);
-            if (!hist || hist[win.displayStartTs]) continue;
+            if (!hist) continue;
 
             let price = yesterday.prices.get(t) || null;
             if (!price) {
@@ -608,7 +613,7 @@ export class HistoryCalculator {
     // ========================================================
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
-    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, diagYesterdayPrices, diagYesterdayQty }) {
+    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
         const twr = [], dailyTwr = [];
 
@@ -707,19 +712,6 @@ export class HistoryCalculator {
                     hasAnyPrice = true; priced++;
                     if (isSingleAsset) unitPrice = price;
                     lastKnownPrices.set(t, price);
-
-                    // DIAGNOSTIC (temporary): at the very first plotted point of a 1D
-                    // view, compare the price actually used against the per-ticker
-                    // "yesterday close" already resolved for the same ticker — if they
-                    // disagree for a ticker whose real price barely moved overnight,
-                    // that ticker's anchor/injection is the bug, not real market data.
-                    if (days === 1 && i === 0 && !isCash && diagYesterdayPrices) {
-                        const yClose = diagYesterdayPrices.get(t);
-                        const yQty = diagYesterdayQty?.get(t);
-                        if (yClose != null) {
-                            console.log(`[DAY-START DIAG] ${t}: price@00:00=${price} vs yesterdayClose=${yClose} qty=${qty} (yQty=${yQty}) → diff=${(((price - yClose) / yClose) * 100).toFixed(2)}%`);
-                        }
-                    }
                 }
                 totalInvested += investedByTicker.get(t);
                 if (!isCash) totalInvestedAssetOnly += investedByTicker.get(t);
