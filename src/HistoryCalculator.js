@@ -671,6 +671,7 @@ export class HistoryCalculator {
         let dayKeyAnchored = null;
         let displayedYesterdayClose = initialYesterdayClose;
         let dayStartValue = null;
+        let lastPointDebug = null;
 
         for (let i = 0; i < displayTimestamps.length; i++) {
             const ts = displayTimestamps[i];
@@ -756,6 +757,9 @@ export class HistoryCalculator {
             if (shouldAnchorOnClose) {
                 const dayKey = new Date(ts).toDateString();
                 if (dayKey !== dayKeyAnchored) {
+                    if (lastPointDebug) {
+                        console.log(`[HistoryCalc] day boundary @ ${dayKey}: last point of prior day was ${lastPointDebug.dayKey} @ ${new Date(lastPointDebug.ts).toISOString()} totalValue=${lastPointDebug.totalValue.toFixed(2)}, twr=${lastPointDebug.twr?.toFixed(5)} — this point totalValue=${totalValue.toFixed(2)} (priced=${priced}/${expected})`);
+                    }
                     const isFirstAnchor = periodDenominator === null;
                     let resolved = null;
 
@@ -814,6 +818,7 @@ export class HistoryCalculator {
                 pointTwr = 1.0;
             }
             twr.push(pointTwr);
+            lastPointDebug = { dayKey: new Date(ts).toDateString(), ts, totalValue, twr: pointTwr };
 
             const useDailyTwr = shouldAnchorOnClose && dayDenominator > 0;
             dailyTwr.push((!hasAnyPrice && !quantityChanged) ? null : (useDailyTwr ? totalValue / dayDenominator : null));
