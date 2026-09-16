@@ -395,7 +395,7 @@ export class HistoricalChart {
             if (!graphData || !graphData.labels || graphData.labels.length === 0) {
                 this.showMessage('Pas de données disponibles pour cette période');
             } else {
-                const kpiData = this._computeAggregateKPIs({ targetSummary, targetCashReserve });
+                const kpiData = this._computeAggregateKPIs({ targetSummary, targetCashReserve, todayGraphData });
                 this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData);
 
                 if (!isSingleAsset && !isIndexMode) {
@@ -420,34 +420,49 @@ export class HistoricalChart {
 
     // Aggregate "today" numbers (Total Value / Total Return / Var Today).
     //
-    // SOURCE: targetSummary — i.e. calculateHoldings/calculateSummary, the exact
-    // same engine and the exact same live snapshot prices that build the table
-    // rows. This used to derive these numbers from the graph's own historical
-    // candle data instead, on the theory that "the graph is the single source
-    // of truth" — but that meant Total Value/Var Today used whatever price the
-    // graph's last fetched candle happened to hold for each ticker, while every
-    // table row used the fresher live snapshot price. Verified concretely: on a
-    // 7-ticker filtered view, summing the table's live-priced VALUE column gave
-    // 20 989,72€ while the graph's own last point gave 20 752,08€ — a 237,64€
-    // gap with no real price movement behind it, just two different "current
-    // price" sources for the same tickers. There is only one legitimate source
-    // for "current value" in this app: the live snapshot the table already
-    // shows. The graph's plotted curve still comes from historical candles (see
-    // renderChart) — but the NUMBERS shown (FIN, TOTAL VALUE, VAR TODAY) are all
-    // overridden to this same live-snapshot total, so what you read always
-    // matches what the table says, to the cent.
-    _computeAggregateKPIs({ targetSummary, targetCashReserve }) {
+    // SOURCE: todayGraphData — the exact same object the curve itself is drawn
+    // from (see renderChart/_renderChartJs). Total Value/Var Today used to be
+    // computed from targetSummary (calculateHoldings, live snapshot prices)
+    // instead — a SEPARATE engine from the curve — on the theory that the
+    // graph's historical candles could be stale. That created its own bug: the
+    // text (table-derived) and the curve (graph-derived) could each be
+    // internally consistent yet still disagree with EACH OTHER by tens or
+    // hundreds of euros, because they never actually shared a number, just two
+    // formulas that were supposed to agree. Now that the graph's own last point
+    // prefers a fresh live price when one is available (see _buildSeries), it is
+    // safe to make it the single source again: text and curve read the exact
+    // same array, so they cannot disagree.
+    // investedAssetOnly still comes from targetSummary — that is a cost-basis
+    // question (weighted-average purchase price, correctly reduced on a partial
+    // sell), not a "which price is freshest" question, so there was never a
+    // real SSOT conflict to resolve for it.
+    _computeAggregateKPIs({ targetSummary, targetCashReserve, todayGraphData }) {
         const cash = targetCashReserve.total || 0;
-        const totalValue = (targetSummary.totalCurrentEUR || 0) + cash;
         const investedAssetOnly = targetSummary.totalInvestedEUR || 0;
+
+        const values = todayGraphData?.values;
+        let totalValue = null;
+        if (values) {
+            for (let i = values.length - 1; i >= 0; i--) {
+                if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) { totalValue = values[i]; break; }
+            }
+        }
+
+        let varTodayAbs = null, varTodayPct = null;
+        if (totalValue !== null && todayGraphData?.yesterdayClose > 0) {
+            varTodayAbs = totalValue - todayGraphData.yesterdayClose;
+            varTodayPct = (varTodayAbs / todayGraphData.yesterdayClose) * 100;
+        } else {
+            // No graph data (index/single-asset modes don't build a dedicated
+            // todayGraphData) — targetSummary remains the only source there.
+            if (totalValue === null) totalValue = (targetSummary.totalCurrentEUR || 0) + cash;
+            varTodayAbs = targetSummary.totalDayChangeEUR ?? null;
+            varTodayPct = targetSummary.dayChangePct ?? null;
+        }
+
         const totalReturn = totalValue - cash - investedAssetOnly;
         const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
-        return {
-            totalValue, cash, totalReturn, totalReturnPct,
-            varTodayAbs: targetSummary.totalDayChangeEUR ?? null,
-            varTodayPct: targetSummary.dayChangePct ?? null,
-            investedAssetOnly
-        };
+        return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly };
     }
 
     // ========================================================
