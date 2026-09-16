@@ -49,6 +49,7 @@ export class HistoricalChart {
 
         this.isLoading = false;
         this._pendingUpdate = null;
+        this._pendingPeriod = undefined;
         this._autoRefreshTimeout = null;
         this._autoRefreshInterval = null;
         this.lastRefreshTime = null;
@@ -125,11 +126,25 @@ export class HistoricalChart {
     }
 
     async changePeriod(days) {
-        if (this.isLoading) return;
+        // BUG FOUND: silently dropping the request when isLoading left the
+        // period button visually "active" (setupPeriodButtons toggles that
+        // class unconditionally, before this even runs) while the chart kept
+        // showing the PREVIOUS period's data underneath — e.g. clicking "All"
+        // right after a broker filter change (still loading) left "All"
+        // highlighted over a stale 1D chart, with PÉRIODE reading as VAR. JOUR.
+        // Queue the latest request instead of dropping it, and drain it once
+        // the in-flight load finishes — same coalesce-to-latest pattern as
+        // update()'s own _pendingUpdate.
+        if (this.isLoading) { this._pendingPeriod = days; return; }
         this.currentPeriod = days;
         this.stopAutoRefresh();
         await this.update(true, true);
         this.startAutoRefresh();
+        if (this._pendingPeriod !== undefined) {
+            const next = this._pendingPeriod;
+            this._pendingPeriod = undefined;
+            if (next !== this.currentPeriod) await this.changePeriod(next);
+        }
     }
 
     // Binds the period-tab buttons (1J/2J/1W/.../All) directly to changePeriod().
