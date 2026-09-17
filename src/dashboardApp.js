@@ -11,7 +11,7 @@ import { HistoricalChart } from './historicalChart.js?v=24';
 import { IndexCardChart } from './indexCardChart.js';
 import { ChartKPIManager } from './chartKPIManager.js'; // NOUVEAU : Pour sparkline
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
-import { UIComponents } from './ui.js?v=2';
+import { UIComponents } from './ui.js?v=3';
 import { NotificationManager } from './NotificationManager.js';
 import { FCMManager } from './fcmManager.js'; // NEW: FCM for Android notifications
 

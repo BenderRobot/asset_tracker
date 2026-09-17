@@ -5,10 +5,10 @@
 // ========================================
 import { Storage } from './storage.js?v=2';
 import { PriceAPI } from './api.js?v=7';
-import { UIComponents } from './ui.js?v=2';
+import { UIComponents } from './ui.js?v=3';
 import { FilterManager } from './filters.js';
 import { AchatsPage } from './achatsPage.js?v=7';
-import { InvestmentsPage } from './investmentsPage.js?v=15';
+import { InvestmentsPage } from './investmentsPage.js?v=16';
 import { HistoricalChart } from './historicalChart.js?v=24';
 import { DataManager } from './dataManager.js?v=11';
 import { initMarketStatus } from './marketStatus.js?v=3';

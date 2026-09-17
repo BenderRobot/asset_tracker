@@ -152,14 +152,14 @@ export class UIComponents {
         // The card this modal explains can itself be showing a FILTERED figure
         // (broker/ticker/type filter active on the Investments page) — but
         // calculateByBroker() above always covers every broker in storage.
-        // Only show that breakdown when it actually reconciles with the
-        // number it's supposed to explain (i.e. nothing is filtered); showing
-        // an unfiltered per-broker split under a filtered total would silently
-        // not add up — exactly the kind of mismatch this app has otherwise
-        // gone to great lengths to avoid.
-        const brokerTotalSum = allBrokers.reduce((s, b) => s + b.totalValue, 0);
-        const showBrokerBreakdown = allBrokers.length > 1 && Math.abs(brokerTotalSum - totalValueWithCash) < 1;
-        const byBroker = showBrokerBreakdown ? allBrokers : [];
+        // Only show that breakdown when the caller confirms nothing is
+        // filtered (see investmentsPage.js's hasActiveFilter) — showing an
+        // unfiltered per-broker split under a filtered total would silently
+        // not add up. NOT decided by comparing sums: kpis.totalValue comes
+        // from the graph's TWR engine while this per-broker split is a plain
+        // calculateHoldings sum — two different, both-correct methodologies
+        // that don't reconcile to the cent even with no filter active.
+        const byBroker = (allBrokers.length > 1 && !summary.hasActiveFilter) ? allBrokers : [];
 
         const modal = this._ensureTotalValueModal();
         const body = document.getElementById('total-value-modal-body');

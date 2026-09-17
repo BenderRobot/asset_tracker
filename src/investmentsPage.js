@@ -64,13 +64,26 @@ export class InvestmentsPage {
       // (au lieu d'une 2e copie de fmt/fmtPct/updateEl). kpis.totalValue inclut
       // déjà le cash (voir portfolioKPIs.js) → cashReserveTotal=0 ici pour ne
       // pas le compter deux fois.
+      // Told explicitly (rather than inferred from whether the numbers happen
+      // to add up — see ui.js's per-broker breakdown, dropped that approach:
+      // kpis.totalValue comes from the graph's TWR engine while the per-broker
+      // split is a plain calculateHoldings sum, two different methodologies
+      // that were never going to reconcile to the cent even with NO filter
+      // active, which hid the breakdown unconditionally).
+      const hasActiveFilter = !!(
+        this.currentAssetTypeFilter ||
+        this.currentBrokerFilter ||
+        this.currentSearchQuery ||
+        this.filterManager?.getSelectedTickers().size
+      );
       const adaptedSummary = {
         totalCurrentEUR: kpis.totalValue,
         totalInvestedEUR: kpis.invested,
         gainTotal: kpis.totalReturn,
         gainPct: kpis.totalReturnPct,
         totalDayChangeEUR: kpis.varToday,
-        dayChangePct: kpis.varTodayPct
+        dayChangePct: kpis.varTodayPct,
+        hasActiveFilter
       };
       this.ui.updateTopKPIs(adaptedSummary, 0, this.marketStatus);
 
