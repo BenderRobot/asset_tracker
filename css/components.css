@@ -453,3 +453,39 @@ tbody tr:hover {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
     font-weight: 600;
 }
+
+/* --- Hover Breakdown Tooltip (e.g. Total Value = Invested + Return + Cash) --- */
+[data-tooltip] {
+    position: relative;
+    cursor: help;
+}
+
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-8px);
+    background: rgba(8, 13, 26, 0.97);
+    color: #f1f5f9;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.6;
+    white-space: pre-line;
+    text-align: left;
+    width: max-content;
+    max-width: 260px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 50;
+}
+
+[data-tooltip]:hover::after {
+    opacity: 1;
+}

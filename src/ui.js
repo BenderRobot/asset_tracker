@@ -35,6 +35,25 @@ export class UIComponents {
         const totalValueWithCash = (summary.totalCurrentEUR || 0) + cashReserveTotal;
         updateHTML('total-current', `${formatSimple(totalValueWithCash)}`);
 
+        // Hover breakdown: Total Value = Invested + Total Return + Cash. Cash
+        // isn't available here as its own number (cashReserveTotal is always 0
+        // from both callers — totalCurrentEUR already includes it, see their
+        // own comments) — derive it instead of plumbing a new parameter, so the
+        // tooltip can never disagree with the number it explains: this equation
+        // is exact by construction (historicalChart.js _computeAggregateKPIs
+        // defines totalReturn = totalValue - cash - investedAssetOnly).
+        const totalCard = document.getElementById('total-current')?.closest('.summary-card');
+        if (totalCard) {
+            const investedForTooltip = summary.totalInvestedEUR || 0;
+            const totalReturnForTooltip = summary.gainTotal || 0;
+            const cashForTooltip = totalValueWithCash - investedForTooltip - totalReturnForTooltip;
+            totalCard.dataset.tooltip =
+                `Investi : ${formatSimple(investedForTooltip)}\n` +
+                `+ Rendement : ${formatSimple(totalReturnForTooltip)}\n` +
+                `+ Cash : ${formatSimple(cashForTooltip)}\n` +
+                `= Total : ${formatSimple(totalValueWithCash)}`;
+        }
+
         // FIX UNIFIÉ: Met à jour la valeur "Invested" sur les deux pages
         const investedSubtitleEl = document.getElementById('invested');
         if (investedSubtitleEl) {
