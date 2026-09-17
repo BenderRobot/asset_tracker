@@ -455,45 +455,72 @@ tbody tr:hover {
 }
 
 /* --- Hover Breakdown Tooltip (e.g. Total Value = Invested + Return + Cash) --- */
-[data-tooltip] {
-    position: relative;
-    cursor: help;
+/* --- KPI Modals (Total Value breakdown, and Dashboard's gainer/loser/
+   allocation modals — see dashboardApp.js openKPIModal/.kpi-modal-*) ---
+   Base rules duplicated here from dashboard.css so any page loading only
+   components.css (e.g. Investments, via ui.js's Total Value modal) still
+   gets them correctly styled; dashboard.css keeps its own copy plus its
+   mobile-responsive overrides, which don't apply anywhere else anyway. */
+.kpi-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(7, 11, 30, 0.78);
+    backdrop-filter: blur(5px);
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
 }
 
-/* .summary-card has overflow:hidden (to round its corners cleanly) which
-   clips the ::after tooltip below, since it renders above the card's own box
-   — disable clipping specifically while hovering a card that carries a
-   tooltip, rather than removing overflow:hidden from every summary card. */
-.summary-card[data-tooltip]:hover {
-    overflow: visible;
+.kpi-modal-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 820px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
 }
 
-[data-tooltip]::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%) translateY(-8px);
-    background: rgba(8, 13, 26, 0.97);
-    color: #f1f5f9;
-    padding: 10px 14px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    font-family: 'Inter', sans-serif;
-    font-size: 12px;
-    font-weight: 500;
-    line-height: 1.6;
-    white-space: pre-line;
-    text-align: left;
-    width: max-content;
-    max-width: 260px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.15s ease;
-    z-index: 50;
+.kpi-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
-[data-tooltip]:hover::after {
-    opacity: 1;
+.kpi-modal-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
 }
+
+.kpi-modal-close {
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.2s;
+}
+
+.kpi-modal-close:hover {
+    color: var(--text-primary);
+}
+
+.kpi-modal-body {
+    padding: 0;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+

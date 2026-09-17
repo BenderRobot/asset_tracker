@@ -35,24 +35,14 @@ export class UIComponents {
         const totalValueWithCash = (summary.totalCurrentEUR || 0) + cashReserveTotal;
         updateHTML('total-current', `${formatSimple(totalValueWithCash)}`);
 
-        // Hover breakdown: Total Value = Invested + Total Return + Cash. Cash
+        // Click breakdown: Total Value = Invested + Total Return + Cash. Cash
         // isn't available here as its own number (cashReserveTotal is always 0
         // from both callers — totalCurrentEUR already includes it, see their
         // own comments) — derive it instead of plumbing a new parameter, so the
-        // tooltip can never disagree with the number it explains: this equation
+        // modal can never disagree with the number it explains: this equation
         // is exact by construction (historicalChart.js _computeAggregateKPIs
         // defines totalReturn = totalValue - cash - investedAssetOnly).
-        const totalCard = document.getElementById('total-current')?.closest('.summary-card');
-        if (totalCard) {
-            const investedForTooltip = summary.totalInvestedEUR || 0;
-            const totalReturnForTooltip = summary.gainTotal || 0;
-            const cashForTooltip = totalValueWithCash - investedForTooltip - totalReturnForTooltip;
-            totalCard.dataset.tooltip =
-                `Investi : ${formatSimple(investedForTooltip)}\n` +
-                `+ Rendement : ${formatSimple(totalReturnForTooltip)}\n` +
-                `+ Cash : ${formatSimple(cashForTooltip)}\n` +
-                `= Total : ${formatSimple(totalValueWithCash)}`;
-        }
+        this._updateTotalValueModal(summary, totalValueWithCash, formatSimple);
 
         // FIX UNIFIÉ: Met à jour la valeur "Invested" sur les deux pages
         const investedSubtitleEl = document.getElementById('invested');
@@ -107,6 +97,77 @@ export class UIComponents {
 				}
 			}
 		}
+    }
+
+    // Total Value's breakdown modal — same visual language as the Dashboard's
+    // other KPI modals (gainer/loser/allocation, see dashboardApp.js
+    // openKPIModal/.kpi-modal-* classes), but owned here in the shared UI
+    // layer instead of duplicated per page, since Total Value's own card
+    // exists identically on both Dashboard and Investments (see updateTopKPIs
+    // above). Built once, refreshed with fresh numbers on every KPI update.
+    _ensureTotalValueModal() {
+        let modal = document.getElementById('total-value-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'total-value-modal';
+        modal.className = 'kpi-modal-overlay';
+        modal.style.display = 'none';
+        modal.innerHTML = `
+            <div class="kpi-modal-box" style="max-width:400px;">
+                <div class="kpi-modal-header">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <i class="fas fa-wallet" style="font-size:15px;color:#3b82f6;"></i>
+                        <h3>Détail — Total Value</h3>
+                    </div>
+                    <button class="kpi-modal-close" id="close-total-value-modal">&times;</button>
+                </div>
+                <div class="kpi-modal-body" id="total-value-modal-body" style="padding:20px 24px;"></div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const close = () => { modal.style.display = 'none'; };
+        modal.querySelector('#close-total-value-modal').addEventListener('click', close);
+        modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+        return modal;
+    }
+
+    _updateTotalValueModal(summary, totalValueWithCash, formatSimple) {
+        const totalCard = document.getElementById('total-current')?.closest('.summary-card');
+        if (!totalCard) return;
+
+        const invested = summary.totalInvestedEUR || 0;
+        const totalReturn = summary.gainTotal || 0;
+        const cash = totalValueWithCash - invested - totalReturn;
+        const returnColor = totalReturn >= 0 ? '#10b981' : '#ef4444';
+
+        const modal = this._ensureTotalValueModal();
+        const body = document.getElementById('total-value-modal-body');
+        if (body) {
+            const row = (label, value, color) => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color);">
+                    <span style="color:var(--text-muted);font-size:13px;">${label}</span>
+                    <span style="font-weight:600;${color ? `color:${color};` : ''}">${formatSimple(value)}</span>
+                </div>`;
+            body.innerHTML =
+                row('Investi', invested) +
+                row('Rendement total', totalReturn, returnColor) +
+                row('Cash', cash) +
+                `<div style="display:flex;justify-content:space-between;align-items:center;padding-top:14px;margin-top:4px;">
+                    <span style="font-weight:700;">Total Value</span>
+                    <span style="font-weight:700;font-size:16px;">${formatSimple(totalValueWithCash)}</span>
+                </div>`;
+        }
+
+        totalCard.style.cursor = 'pointer';
+        // updateTopKPIs runs on every render — guard so the listener is bound
+        // exactly once instead of piling up a new one each time.
+        if (!totalCard.dataset.totalValueClickBound) {
+            totalCard.dataset.totalValueClickBound = '1';
+            totalCard.addEventListener('click', () => { modal.style.display = 'flex'; });
+        }
     }
 
     // Tout ce qui n'est PAS les 5 KPI du haut : best/worst asset (total + jour),
