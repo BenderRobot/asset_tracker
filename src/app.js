@@ -5,12 +5,12 @@
 // ========================================
 import { Storage } from './storage.js?v=2';
 import { PriceAPI } from './api.js?v=7';
-import { UIComponents } from './ui.js';
+import { UIComponents } from './ui.js?v=2';
 import { FilterManager } from './filters.js';
 import { AchatsPage } from './achatsPage.js?v=7';
 import { InvestmentsPage } from './investmentsPage.js?v=15';
 import { HistoricalChart } from './historicalChart.js?v=24';
-import { DataManager } from './dataManager.js?v=10';
+import { DataManager } from './dataManager.js?v=11';
 import { initMarketStatus } from './marketStatus.js?v=3';
 import { ASSET_TYPES, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED, DASHBOARD_INDICES, PRICE_PROXY_URL } from './config.js';
 import { getBrokers, getBrokersSync, fillSelect, attachAddBrokerHandler } from './brokerService.js';
@@ -22,7 +22,7 @@ class App {
     this.api = new PriceAPI(this.storage);
     this.brokersList = getBrokersSync();
     this.dataManager = new DataManager(this.storage, this.api);
-    this.ui = new UIComponents(this.storage);
+    this.ui = new UIComponents(this.storage, this.dataManager);
     this.filterManager = new FilterManager(this.storage);
 
     this.marketStatus = initMarketStatus(this.storage);

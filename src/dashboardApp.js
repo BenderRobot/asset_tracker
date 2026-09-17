@@ -6,12 +6,12 @@
 import { Storage } from './storage.js?v=2';
 import { PriceAPI } from './api.js?v=7';
 import { MarketStatus } from './marketStatus.js?v=2';
-import { DataManager } from './dataManager.js?v=8';
+import { DataManager } from './dataManager.js?v=9';
 import { HistoricalChart } from './historicalChart.js?v=24';
 import { IndexCardChart } from './indexCardChart.js';
 import { ChartKPIManager } from './chartKPIManager.js'; // NOUVEAU : Pour sparkline
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
-import { UIComponents } from './ui.js';
+import { UIComponents } from './ui.js?v=2';
 import { NotificationManager } from './NotificationManager.js';
 import { FCMManager } from './fcmManager.js'; // NEW: FCM for Android notifications
 
@@ -51,7 +51,7 @@ class DashboardApp {
         this.marketStatus = new MarketStatus(this.storage);
         this.dataManager = new DataManager(this.storage, this.api);
         this.chartKPIManager = new ChartKPIManager(this.api, this.storage, this.dataManager, this.marketStatus);
-        this.ui = new UIComponents(this.storage);
+        this.ui = new UIComponents(this.storage, this.dataManager);
         this.notificationManager = new NotificationManager(this.dataManager); // <-- NEW
 
         this.mockPageInterface = {

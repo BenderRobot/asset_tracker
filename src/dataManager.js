@@ -612,6 +612,49 @@ export class DataManager {
         };
     }
 
+    // SINGLE SOURCE OF TRUTH pour la ventilation par courtier (utilisée par la
+    // modale "Détail — Total Value", voir ui.js) : réutilise calculateHoldings/
+    // calculateSummary/calculateCashReserve — les mêmes fonctions que le
+    // rapport global — juste filtrées par courtier, plutôt qu'un second calcul
+    // indépendant qui pourrait un jour diverger du reste de l'app.
+    // NOTE: sans yesterdayCloseMap (qui exige l'historique TWR asynchrone de
+    // HistoryCalculator, coûteux à relancer par courtier juste pour une
+    // modale informative), la variation du jour par courtier retombe sur le
+    // fallback storage.previousClose de calculateHoldings — une approximation
+    // suffisante ici, qui peut légèrement différer du "VAR TODAY" agrégé
+    // (lui résolu via le moteur TWR) en cas de mouvement de cash intrajournalier
+    // sur ce courtier précis.
+    calculateByBroker(purchases) {
+        const brokers = [...new Set(purchases.map(p => p.broker || 'RV-CT'))];
+
+        return brokers.map(broker => {
+            const brokerPurchases = purchases.filter(p => (p.broker || 'RV-CT') === broker);
+            const assetPurchases = brokerPurchases.filter(p => {
+                const type = (p.assetType || 'Stock').toLowerCase();
+                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
+            });
+            const cashPurchases = brokerPurchases.filter(p => {
+                const type = (p.assetType || 'Stock').toLowerCase();
+                return type === 'cash' || type === 'dividend' || p.type === 'dividend';
+            });
+
+            const holdings = this.calculateHoldings(assetPurchases).filter(h => (h.quantity || 0) > 0.0001);
+            const summary = this.calculateSummary(holdings);
+            const cashReserve = this.calculateCashReserve(cashPurchases);
+
+            return {
+                broker,
+                totalValue: (summary.totalCurrentEUR || 0) + cashReserve.total,
+                invested: summary.totalInvestedEUR || 0,
+                totalReturn: summary.gainTotal || 0,
+                totalReturnPct: summary.gainPct || 0,
+                dayChange: summary.totalDayChangeEUR || 0,
+                dayChangePct: summary.dayChangePct || 0,
+                cash: cashReserve.total
+            };
+        }).sort((a, b) => b.totalValue - a.totalValue);
+    }
+
     calculateDiversification(holdings) {
         const herfindahl = holdings.reduce((sum, asset) => sum + Math.pow(asset.weight / 100, 2), 0);
         const effectiveAssets = herfindahl > 0 ? 1 / herfindahl : 0;

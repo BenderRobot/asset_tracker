@@ -7,8 +7,9 @@ function escHtml(str) {
 }
 
 export class UIComponents {
-    constructor(storage) {
+    constructor(storage, dataManager = null) {
         this.storage = storage;
+        this.dataManager = dataManager;
     }
 
     // SINGLE SOURCE OF TRUTH : les 5 ids du haut (Total Value/Return/Var Today) ne
@@ -42,7 +43,7 @@ export class UIComponents {
         // modal can never disagree with the number it explains: this equation
         // is exact by construction (historicalChart.js _computeAggregateKPIs
         // defines totalReturn = totalValue - cash - investedAssetOnly).
-        this._updateTotalValueModal(summary, totalValueWithCash, formatSimple);
+        this._updateTotalValueModal(summary, totalValueWithCash, formatSimple, formatPctSimple);
 
         // FIX UNIFIÉ: Met à jour la valeur "Invested" sur les deux pages
         const investedSubtitleEl = document.getElementById('invested');
@@ -114,7 +115,7 @@ export class UIComponents {
         modal.className = 'kpi-modal-overlay';
         modal.style.display = 'none';
         modal.innerHTML = `
-            <div class="kpi-modal-box" style="max-width:400px;">
+            <div class="kpi-modal-box" style="max-width:460px;">
                 <div class="kpi-modal-header">
                     <div style="display:flex;align-items:center;gap:10px;">
                         <i class="fas fa-wallet" style="font-size:15px;color:#3b82f6;"></i>
@@ -134,40 +135,94 @@ export class UIComponents {
         return modal;
     }
 
-    _updateTotalValueModal(summary, totalValueWithCash, formatSimple) {
-        const totalCard = document.getElementById('total-current')?.closest('.summary-card');
-        if (!totalCard) return;
-
+    // Three sections: the Total Value breakdown itself (Investi + Rendement +
+    // Cash), then Rendement total and Var Today — each with their own
+    // per-broker detail, via dataManager.calculateByBroker() (SSOT: reuses
+    // calculateHoldings/calculateSummary/calculateCashReserve, just scoped per
+    // broker, instead of a parallel calculation living in this modal).
+    _updateTotalValueModal(summary, totalValueWithCash, formatSimple, formatPctSimple) {
         const invested = summary.totalInvestedEUR || 0;
         const totalReturn = summary.gainTotal || 0;
         const cash = totalValueWithCash - invested - totalReturn;
-        const returnColor = totalReturn >= 0 ? '#10b981' : '#ef4444';
+        const dayChange = summary.totalDayChangeEUR ?? null;
+        const dayChangePct = summary.dayChangePct ?? null;
+        const color = (v) => (v >= 0 ? '#10b981' : '#ef4444');
+
+        const allBrokers = this.dataManager ? this.dataManager.calculateByBroker(this.storage.getPurchases()) : [];
+        // The card this modal explains can itself be showing a FILTERED figure
+        // (broker/ticker/type filter active on the Investments page) — but
+        // calculateByBroker() above always covers every broker in storage.
+        // Only show that breakdown when it actually reconciles with the
+        // number it's supposed to explain (i.e. nothing is filtered); showing
+        // an unfiltered per-broker split under a filtered total would silently
+        // not add up — exactly the kind of mismatch this app has otherwise
+        // gone to great lengths to avoid.
+        const brokerTotalSum = allBrokers.reduce((s, b) => s + b.totalValue, 0);
+        const showBrokerBreakdown = allBrokers.length > 1 && Math.abs(brokerTotalSum - totalValueWithCash) < 1;
+        const byBroker = showBrokerBreakdown ? allBrokers : [];
 
         const modal = this._ensureTotalValueModal();
         const body = document.getElementById('total-value-modal-body');
         if (body) {
-            const row = (label, value, color) => `
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color);">
-                    <span style="color:var(--text-muted);font-size:13px;">${label}</span>
-                    <span style="font-weight:600;${color ? `color:${color};` : ''}">${formatSimple(value)}</span>
+            const row = (label, value, rowColor, opts = {}) => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:${opts.compact ? '5px 0' : '10px 0'};${opts.noBorder ? '' : 'border-bottom:1px solid var(--border-color);'}">
+                    <span style="color:var(--text-muted);font-size:${opts.compact ? '12px' : '13px'};${opts.indent ? 'padding-left:12px;' : ''}">${escHtml(label)}</span>
+                    <span style="font-weight:${opts.compact ? '500' : '600'};${rowColor ? `color:${rowColor};` : ''}font-size:${opts.compact ? '12px' : '14px'};">${formatSimple(value)}${opts.pct != null ? ` <span style="opacity:0.85;">(${formatPctSimple(opts.pct)})</span>` : ''}</span>
                 </div>`;
+
+            const sectionTitle = (label) => `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:18px 0 4px;">${label}</div>`;
+
+            const brokerRows = (valueKey, pctKey) => byBroker.length === 0 ? '' : byBroker.map(b =>
+                row(b.broker, b[valueKey], color(b[valueKey]), { compact: true, indent: true, noBorder: true, pct: b[pctKey] })
+            ).join('');
+
             body.innerHTML =
-                row('Investi', invested) +
-                row('Rendement total', totalReturn, returnColor) +
-                row('Cash', cash) +
-                `<div style="display:flex;justify-content:space-between;align-items:center;padding-top:14px;margin-top:4px;">
-                    <span style="font-weight:700;">Total Value</span>
-                    <span style="font-weight:700;font-size:16px;">${formatSimple(totalValueWithCash)}</span>
-                </div>`;
+                `<div id="tv-section-total">` +
+                    sectionTitle('Vue d\'ensemble') +
+                    row('Investi', invested) +
+                    row('Rendement total', totalReturn, color(totalReturn)) +
+                    row('Cash', cash) +
+                    `<div style="display:flex;justify-content:space-between;align-items:center;padding-top:14px;margin-top:4px;">
+                        <span style="font-weight:700;">Total Value</span>
+                        <span style="font-weight:700;font-size:16px;">${formatSimple(totalValueWithCash)}</span>
+                    </div>` +
+                `</div>` +
+                `<div id="tv-section-return">` +
+                    sectionTitle('Rendement total') +
+                    row(byBroker.length ? 'Ensemble du portefeuille' : 'Total', totalReturn, color(totalReturn), { pct: summary.gainPct, noBorder: byBroker.length === 0 }) +
+                    brokerRows('totalReturn', 'totalReturnPct') +
+                `</div>` +
+                `<div id="tv-section-day">` +
+                    sectionTitle('Var Today') +
+                    (dayChange != null
+                        ? row(byBroker.length ? 'Ensemble du portefeuille' : 'Total', dayChange, color(dayChange), { pct: dayChangePct, noBorder: byBroker.length === 0 }) +
+                          brokerRows('dayChange', 'dayChangePct')
+                        : `<div style="color:var(--text-muted);font-size:12px;">Non disponible</div>`) +
+                `</div>`;
         }
 
-        totalCard.style.cursor = 'pointer';
-        // updateTopKPIs runs on every render — guard so the listener is bound
-        // exactly once instead of piling up a new one each time.
-        if (!totalCard.dataset.totalValueClickBound) {
-            totalCard.dataset.totalValueClickBound = '1';
-            totalCard.addEventListener('click', () => { modal.style.display = 'flex'; });
-        }
+        // All three top KPI cards (Total Value / Total Return / Var Today) open
+        // this SAME modal now that it covers all three — each jumps straight
+        // to its own section instead of dumping the visitor at the top and
+        // making them scroll to find what they clicked on.
+        const bindTrigger = (cardValueId, sectionId) => {
+            const card = document.getElementById(cardValueId)?.closest('.summary-card');
+            if (!card) return;
+            card.style.cursor = 'pointer';
+            // updateTopKPIs runs on every render — guard so the listener is
+            // bound exactly once instead of piling up a new one each time.
+            if (card.dataset.totalValueClickBound) return;
+            card.dataset.totalValueClickBound = '1';
+            card.addEventListener('click', () => {
+                modal.style.display = 'flex';
+                requestAnimationFrame(() => {
+                    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            });
+        };
+        bindTrigger('total-current', 'tv-section-total');
+        bindTrigger('total-gain-loss', 'tv-section-return');
+        bindTrigger('total-invested', 'tv-section-day');
     }
 
     // Tout ce qui n'est PAS les 5 KPI du haut : best/worst asset (total + jour),
