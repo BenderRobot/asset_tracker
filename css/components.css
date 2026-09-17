@@ -460,6 +460,14 @@ tbody tr:hover {
     cursor: help;
 }
 
+/* .summary-card has overflow:hidden (to round its corners cleanly) which
+   clips the ::after tooltip below, since it renders above the card's own box
+   — disable clipping specifically while hovering a card that carries a
+   tooltip, rather than removing overflow:hidden from every summary card. */
+.summary-card[data-tooltip]:hover {
+    overflow: visible;
+}
+
 [data-tooltip]::after {
     content: attr(data-tooltip);
     position: absolute;
