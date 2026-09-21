@@ -691,44 +691,84 @@ export class DataManager {
     // différentes des mêmes positions, jamais deux calculs séparés : la somme
     // des courtiers égale le total du portefeuille par construction, ET le
     // coût de revient de chaque courtier est réellement le sien.
-    calculateByBroker(purchases) {
-        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+    //
+    // BUG FOUND (confirmé, un 3e niveau) : même avec le coût de revient
+    // (invested) désormais correct par courtier, la VALEUR DE MARCHÉ
+    // courante restait calculée différemment d'ici (storage.getCurrentPrice
+    // brut, sans condition) et de l'agrégat affiché ailleurs dans l'app
+    // (historicalChart.js → HistoryCalculator, qui ne réutilise le prix
+    // "live" pour le dernier point du jour QUE s'il a moins de 10 minutes,
+    // sinon retombe sur la dernière bougie intraday déjà récupérée). Sur un
+    // titre dont le snapshot live n'a pas été rafraîchi depuis >10 min au
+    // moment du calcul, les deux méthodes peuvent choisir un prix différent
+    // — confirmé comme cause d'un écart de ~300€ sur ce portefeuille (la
+    // page filtrée sur un courtier, qui passe par HistoryCalculator, et la
+    // modale, qui ne l'utilisait pas, ne choisissaient pas le même prix pour
+    // le même titre au même instant).
+    //
+    // Fix : recalculer le rendement PAR COURTIER en relançant EXACTEMENT le
+    // même moteur (calculateHistory → HistoryCalculator) que l'agrégat — pas
+    // storage.getCurrentPrice en direct. Contrairement à Var Today (voir
+    // calculateDayChangeByBroker plus bas, qui NE PEUT PAS faire ça à cause
+    // du rescaling non-linéaire du TWR), Total Value est une simple somme
+    // prix × quantité : linéaire, donc un rejeu par courtier se recompose
+    // exactement en le total du portefeuille. Async (un appel réseau par
+    // courtier) — ne se déclenche qu'à l'ouverture de la modale (voir ui.js).
+    async calculateReturnByBroker(purchases) {
         const brokers = [...new Set(purchases.map(p => p.broker || 'RV-CT'))];
 
-        const assetPurchases = purchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-        });
-        const cashPurchases = purchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-        });
+        const results = await Promise.all(brokers.map(async (broker) => {
+            const brokerPurchases = purchases.filter(p => (p.broker || 'RV-CT') === broker);
+            const assetPurchases = brokerPurchases.filter(p => {
+                const type = (p.assetType || 'Stock').toLowerCase();
+                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
+            });
+            const cashPurchases = brokerPurchases.filter(p => {
+                const type = (p.assetType || 'Stock').toLowerCase();
+                return type === 'cash' || type === 'dividend' || p.type === 'dividend';
+            });
 
-        const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate);
-        const cashReserve = this.calculateCashReserve(cashPurchases);
+            const cashReserve = this.calculateCashReserve(cashPurchases);
+            const cash = cashReserve.total;
 
-        const perBroker = new Map(brokers.map(b => [b, { invested: 0, totalReturn: 0 }]));
-        positions.forEach(pos => {
-            if ((pos.quantity || 0) <= 0.0001) return;
-            const enriched = this._enrichAggregatedPosition(pos.ticker, pos, dynamicRate, null);
-            const entry = perBroker.get(pos.broker);
-            if (!entry) return;
-            entry.invested += enriched.invested || 0;
-            entry.totalReturn += enriched.gainEUR || 0;
-        });
+            if (assetPurchases.length === 0) {
+                return { broker, invested: 0, totalReturn: 0, totalReturnPct: 0, totalValue: cash, cash };
+            }
 
-        return brokers.map(broker => {
-            const entry = perBroker.get(broker);
-            const cash = cashReserve.byBroker[broker] || 0;
+            // Coût de revient : synchrone, déjà correct (positions isolées
+            // par courtier, voir _buildPositionsByBrokerTicker ci-dessus).
+            const holdings = this.calculateHoldings([...assetPurchases]).filter(h => (h.quantity || 0) > 0.0001);
+            const invested = holdings.reduce((s, h) => s + (h.invested || 0), 0);
+
+            // Valeur de marché : LE MÊME appel que historicalChart.js fait
+            // pour l'agrégat portefeuille (this.dataManager.calculateHistory),
+            // juste restreint aux achats de ce courtier.
+            const graphData = await this.calculateHistory([...assetPurchases, ...cashPurchases], 1);
+            const values = graphData?.values;
+            let totalValue = null;
+            if (values) {
+                for (let i = values.length - 1; i >= 0; i--) {
+                    if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) { totalValue = values[i]; break; }
+                }
+            }
+            if (totalValue === null) {
+                // Repli si le graphique n'a rien retourné (ex: marché fermé
+                // sans historique disponible) plutôt que de perdre ce courtier.
+                totalValue = holdings.reduce((s, h) => s + (h.currentValue || 0), 0) + cash;
+            }
+
+            const totalReturn = totalValue - cash - invested;
             return {
                 broker,
-                invested: entry.invested,
-                totalReturn: entry.totalReturn,
-                totalReturnPct: entry.invested > 0 ? (entry.totalReturn / entry.invested) * 100 : 0,
-                cash,
-                totalValue: entry.invested + entry.totalReturn + cash
+                invested,
+                totalReturn,
+                totalReturnPct: invested > 0 ? (totalReturn / invested) * 100 : 0,
+                totalValue,
+                cash
             };
-        }).sort((a, b) => b.totalValue - a.totalValue);
+        }));
+
+        return results.sort((a, b) => b.totalValue - a.totalValue);
     }
 
     // SINGLE SOURCE OF TRUTH pour la variation du jour par courtier — même
