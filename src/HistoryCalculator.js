@@ -769,6 +769,25 @@ export class HistoryCalculator {
                         if (live?.price > 0 && live.lastUpdate && (Date.now() - live.lastUpdate) < 10 * 60 * 1000) {
                             price = live.price;
                         }
+
+                        // DIAGNOSTIC : sur ce tout dernier point (celui qui devient
+                        // "Total Value"/"Total Return" en haut de page), signale tout
+                        // écart notable entre le prix retenu ici (bougie intraday,
+                        // éventuellement remplacé par le live ci-dessus) et le prix
+                        // live actuellement en storage — que le remplacement se soit
+                        // déclenché ou non. Permet de confirmer si un titre précis a
+                        // un prix "figé" dans ce graphique (bougie non rafraîchie ou
+                        // live jugé pas assez frais) pendant que calculateHoldings
+                        // (le tableau) utilise déjà le bon prix live, sans avoir à
+                        // deviner sur le total du portefeuille.
+                        if (live?.price > 0 && price != null) {
+                            const diffPct = Math.abs(price - live.price) / live.price * 100;
+                            if (diffPct > 0.3) {
+                                const usedLive = price === live.price;
+                                const ageMin = live.lastUpdate ? (Date.now() - live.lastUpdate) / 60000 : null;
+                                console.warn(`[HistoryCalc] Écart de prix sur le dernier point pour ${t} : bougie/retenu=${price}, live storage=${live.price} (${diffPct.toFixed(2)}%). Live utilisé=${usedLive} (lastUpdate=${ageMin === null ? 'absent' : ageMin.toFixed(1) + ' min'}). Ce titre contribue à un écart de ${((price - live.price) * qty).toFixed(2)}€ sur Total Value.`);
+                            }
+                        }
                     }
                 }
 
