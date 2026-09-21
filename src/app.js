@@ -835,7 +835,7 @@ class App {
       }
 
       const text = await file.text();
-      const worker = new Worker('../csvWorker.js');
+      const worker = new Worker('../csvWorker.js?v=2');
       worker.postMessage(text);
 
       const result = await new Promise((resolve, reject) => {
@@ -853,7 +853,17 @@ class App {
 
       worker.terminate();
 
-      const { purchases, count } = result;
+      const { purchases, count, warnings } = result;
+
+      if (warnings && warnings.length > 0) {
+        console.warn('[CSV Import] Types d\'actif non reconnus (importés en tant que Stock par défaut) :', warnings);
+        alert(
+          `Attention : ${warnings.length} ligne(s) ont un type d'actif non reconnu et ont été importées en tant que "Stock" par défaut ` +
+          `(ex: un projet immobilier/crowdfunding dont le libellé ne correspond pas exactement à "Real Estate"). ` +
+          `Ces lignes ne se verront jamais attribuer de prix de marché et fausseront le Rendement Total affiché tant qu'elles ne seront pas corrigées manuellement (page Achats → modifier la ligne → Type d'actif).\n\n` +
+          warnings.slice(0, 10).join('\n') + (warnings.length > 10 ? `\n… et ${warnings.length - 10} autre(s)` : '')
+        );
+      }
 
       if (count > 0) {
         let successCount = 0;
