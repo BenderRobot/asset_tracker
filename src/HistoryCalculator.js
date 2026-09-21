@@ -157,7 +157,11 @@ export class HistoryCalculator {
                 date: parseDate(p.date),
                 price: parseFloat(p.price),
                 quantity: parseFloat(p.quantity),
-                currency: p.currency || 'EUR'
+                currency: p.currency || 'EUR',
+                // Same ticker held across two brokers has the same cost-basis
+                // isolation need as the portfolio view below — see
+                // costBasisByBrokerTicker in _buildSeries.
+                broker: p.broker || 'RV-CT'
             }));
         } else {
             purchases.forEach(p => {
@@ -165,10 +169,11 @@ export class HistoryCalculator {
                 const isCash = type === 'cash' || p.ticker.toUpperCase() === 'CASH' || p.ticker.toUpperCase() === 'EUR';
                 const currency = p.currency || 'EUR';
                 const t = isCash ? `CASH-${currency}` : p.ticker.toUpperCase();
+                const broker = p.broker || 'RV-CT';
                 if (isCash) {
-                    addEntry(t, { date: parseDate(p.date), price: 1.0, quantity: parseFloat(p.price) || 0, currency });
+                    addEntry(t, { date: parseDate(p.date), price: 1.0, quantity: parseFloat(p.price) || 0, currency, broker });
                 } else {
-                    addEntry(t, { date: parseDate(p.date), price: parseFloat(p.price), quantity: parseFloat(p.quantity), currency });
+                    addEntry(t, { date: parseDate(p.date), price: parseFloat(p.price), quantity: parseFloat(p.quantity), currency, broker });
                 }
             });
         }
@@ -646,6 +651,45 @@ export class HistoryCalculator {
         const quantities = new Map(tickers.map(t => [t, 0]));
         const investedByTicker = new Map(tickers.map(t => [t, 0]));
 
+        // SINGLE SOURCE OF TRUTH pour le coût de revient (Total Return), isolé
+        // par (courtier, ticker) — même principe que
+        // dataManager.js::_buildPositionsByBrokerTicker. NE PAS confondre avec
+        // investedByTicker/cashFlow ci-dessus : ceux-ci suivent le flux de CASH
+        // NET (achat = +prix×qté, vente = -prix×qté) et alimentent le rescale
+        // TWR (periodDenominator/dayDenominator plus bas) — une notion
+        // différente et déjà correcte, à laquelle on ne touche pas ici. Le
+        // coût de revient, lui, doit être réduit AU PRORATA sur une vente (pas
+        // simplement diminué du produit de la vente), et seulement pour LE
+        // COURTIER qui a vendu — sinon une vente chez un courtier efface à
+        // tort le coût de revient d'un AUTRE courtier détenant le même titre
+        // (le même bug architectural déjà corrigé dans calculateHoldings).
+        const costBasisByBrokerTicker = new Map(); // "broker::ticker" -> {qty, cost}
+        const assetCostBasisByTicker = new Map(tickers.map(t => [t, 0])); // agrégat par ticker, tenu à jour par delta
+
+        const applyCostBasisEntry = (t, entry, rate) => {
+            if (t.startsWith('CASH-')) return; // le cash n'a pas de "coût de revient" à isoler, son solde net suffit
+            const key = `${entry.broker || 'RV-CT'}::${t}`;
+            if (!costBasisByBrokerTicker.has(key)) costBasisByBrokerTicker.set(key, { qty: 0, cost: 0 });
+            const pos = costBasisByBrokerTicker.get(key);
+            const before = pos.cost;
+            if (entry.quantity > 0) {
+                pos.qty += entry.quantity;
+                pos.cost += entry.price * entry.quantity * rate;
+            } else {
+                const sellQty = Math.abs(entry.quantity);
+                if (pos.qty > 0) {
+                    const ratio = sellQty / pos.qty;
+                    pos.cost -= pos.cost * ratio;
+                    pos.qty -= sellQty;
+                } else {
+                    pos.qty -= sellQty;
+                }
+                if (pos.qty <= 0.0001) { pos.qty = 0; pos.cost = 0; }
+            }
+            const delta = pos.cost - before;
+            assetCostBasisByTicker.set(t, (assetCostBasisByTicker.get(t) || 0) + delta);
+        };
+
         // CRITICAL: seed quantities/invested with every purchase dated BEFORE the
         // displayed window starts — i.e. the entire pre-existing portfolio (bought
         // weeks/months/years ago). Without this, `quantities` starts at 0 and the
@@ -686,6 +730,7 @@ export class HistoryCalculator {
                         if (currency === 'USD') rate = dynamicRate;
                     }
                     investedByTicker.set(t, investedByTicker.get(t) + entry.price * entry.quantity * rate);
+                    applyCostBasisEntry(t, entry, rate);
                 }
             }
         }
@@ -728,6 +773,7 @@ export class HistoryCalculator {
                         investedByTicker.set(t, investedByTicker.get(t) + flow);
                         cashFlow += flow;
                         quantityChanged = true;
+                        applyCostBasisEntry(t, entry, rate);
                     }
                 }
             }
@@ -739,8 +785,8 @@ export class HistoryCalculator {
                 const qty = quantities.get(t);
                 const isCash = t.startsWith('CASH-');
                 if (Math.abs(qty) <= 0.000001) {
-                    totalInvested += investedByTicker.get(t);
-                    if (!isCash) totalInvestedAssetOnly += investedByTicker.get(t);
+                    totalInvested += isCash ? investedByTicker.get(t) : (assetCostBasisByTicker.get(t) || 0);
+                    if (!isCash) totalInvestedAssetOnly += assetCostBasisByTicker.get(t) || 0;
                     continue;
                 }
                 expected++;
@@ -802,8 +848,8 @@ export class HistoryCalculator {
                     if (isSingleAsset) unitPrice = price;
                     lastKnownPrices.set(t, price);
                 }
-                totalInvested += investedByTicker.get(t);
-                if (!isCash) totalInvestedAssetOnly += investedByTicker.get(t);
+                totalInvested += isCash ? investedByTicker.get(t) : (assetCostBasisByTicker.get(t) || 0);
+                if (!isCash) totalInvestedAssetOnly += assetCostBasisByTicker.get(t) || 0;
             }
 
             // --- daily anchor: resolve once per calendar day, reusing the SAME

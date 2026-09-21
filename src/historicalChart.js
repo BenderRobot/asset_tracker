@@ -954,7 +954,7 @@ export class HistoricalChart {
     // an index or a single asset's unit price has no "invested" or "cash" to
     // build Total Return from.
     _buildKpiRows(idx, opts) {
-        const { graphData, pctSeries, eurFmt, pctFmt, kpiData, isIndexMode, isUnitView, isPerformanceMode, displayValues } = opts;
+        const { graphData, pctSeries, eurFmt, pctFmt, kpiData, isIndexMode, isUnitView, isPerformanceMode, displayValues, lastIndex } = opts;
         if (isIndexMode || isUnitView) {
             const v = displayValues?.[idx];
             if (v == null || isNaN(v)) return [];
@@ -967,14 +967,30 @@ export class HistoricalChart {
         const val = graphData.values?.[idx];
         if (val == null || isNaN(val)) return [];
         const pct = pctSeries?.[idx];
-        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(val), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
 
-        const investedAO = graphData.investedAssetOnly?.[idx];
+        // On the CURRENT point specifically, reuse kpiData as-is (the exact
+        // same numbers the top KPI cards show — SSOT since _computeAggregateKPIs
+        // was simplified to a plain sum over calculateHoldings) instead of
+        // recomputing Total Value/Return from the graph engine's own separate
+        // time series below. That series still merges positions by ticker only
+        // (HistoryCalculator's own ledger, not yet given the same per-broker
+        // fix as dataManager.js's calculateHoldings) and can disagree with the
+        // table by a lot on some points — fine for a past moment in time (this
+        // genuinely IS a different point), but "now" must match what's on
+        // screen everywhere else.
+        const isNowPoint = lastIndex != null && idx === lastIndex && kpiData?.totalReturn != null;
         const cash = kpiData?.cash || 0;
-        if (investedAO != null && !isNaN(investedAO)) {
-            const totalReturn = (val - cash) - investedAO;
-            const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+        const totalValueEur = isNowPoint ? kpiData.totalValue : val;
+        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(totalValueEur), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
+        if (isNowPoint) {
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(kpiData.totalReturn), pct: pctFmt(kpiData.totalReturnPct || 0), positive: kpiData.totalReturn >= 0 });
+        } else {
+            const investedAO = graphData.investedAssetOnly?.[idx];
+            if (investedAO != null && !isNaN(investedAO)) {
+                const totalReturn = (val - cash) - investedAO;
+                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
+                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+            }
         }
 
         // Only on the 1D tab: "Var Today" is specifically about today, and
@@ -982,11 +998,15 @@ export class HistoricalChart {
         // 1W tooltip showed it relative to a mid-week close, which just read
         // as a confusing 4th number rather than "today").
         if (this.currentPeriod === 1) {
-            const dTwr = graphData.dailyTwr?.[idx];
-            if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
-                const varTodayAbs = val - val / dTwr;
-                const varTodayPct = (dTwr - 1) * 100;
-                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
+            if (isNowPoint && kpiData.varTodayAbs != null) {
+                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(kpiData.varTodayAbs), pct: pctFmt(kpiData.varTodayPct || 0), positive: kpiData.varTodayAbs >= 0 });
+            } else {
+                const dTwr = graphData.dailyTwr?.[idx];
+                if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
+                    const varTodayAbs = val - val / dTwr;
+                    const varTodayPct = (dTwr - 1) * 100;
+                    rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
+                }
             }
         }
 
@@ -1012,23 +1032,33 @@ export class HistoricalChart {
     // the change between the two dragged points — standing in for Var Today
     // (which is specifically about "today", not an arbitrary slice).
     _buildSelectionRows(i0, i1, opts) {
-        const { graphData, pctSeries, eurFmt, pctFmt, kpiData } = opts;
+        const { graphData, pctSeries, eurFmt, pctFmt, kpiData, lastIndex } = opts;
         const v0 = graphData.values?.[i0], v1 = graphData.values?.[i1];
         if (v0 == null || v1 == null || isNaN(v0) || isNaN(v1)) return [];
 
-        const pct1 = pctSeries?.[i1];
-        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(v1), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
-
-        const investedAO = graphData.investedAssetOnly?.[i1];
+        // Same SSOT rule as _buildKpiRows: when the drag ends on the CURRENT
+        // point, show the exact same Total Value/Return as the top KPI cards
+        // instead of the graph engine's own separate (ticker-merged) series.
+        const isNowPoint = lastIndex != null && i1 === lastIndex && kpiData?.totalReturn != null;
         const cash = kpiData?.cash || 0;
-        if (investedAO != null && !isNaN(investedAO)) {
-            const totalReturn = (v1 - cash) - investedAO;
-            const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+        const totalValueEur = isNowPoint ? kpiData.totalValue : v1;
+
+        const pct1 = pctSeries?.[i1];
+        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(totalValueEur), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
+
+        if (isNowPoint) {
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(kpiData.totalReturn), pct: pctFmt(kpiData.totalReturnPct || 0), positive: kpiData.totalReturn >= 0 });
+        } else {
+            const investedAO = graphData.investedAssetOnly?.[i1];
+            if (investedAO != null && !isNaN(investedAO)) {
+                const totalReturn = (v1 - cash) - investedAO;
+                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
+                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+            }
         }
 
         if (v0 !== 0) {
-            const deltaAbs = v1 - v0;
+            const deltaAbs = totalValueEur - v0;
             const deltaPct = (deltaAbs / v0) * 100;
             rows.push({ icon: '📅', label: 'Variation', eur: eurFmt(deltaAbs), pct: pctFmt(deltaPct), positive: deltaAbs >= 0 });
         }
@@ -1239,7 +1269,7 @@ export class HistoricalChart {
         // hover content, making it look like it "disappeared" on its own
         // instead of staying until an explicit click.
         const dragState = { active: false };
-        const tooltipOpts = { canvas, graphData, isPerformanceMode, isIndexMode, isUnitView, displayValues, pctSeries, eurFmt, pctFmt, kpiData, dragState, benchPctSeries, benchmarkLabel };
+        const tooltipOpts = { canvas, graphData, isPerformanceMode, isIndexMode, isUnitView, displayValues, pctSeries, eurFmt, pctFmt, kpiData, dragState, benchPctSeries, benchmarkLabel, lastIndex };
 
         // Drag-selection ("Google Finance" style) IS the default interaction:
         // dragging across the chart shows Total Value / Total Return /

@@ -7,7 +7,7 @@ import { formatCurrency, formatPercent } from './utils.js';
 
 // === CHANGEMENT 1 : Importer les nouvelles dépendances ===
 import { PriceAPI } from './api.js';
-import { DataManager } from './dataManager.js?v=4';
+import { DataManager } from './dataManager.js?v=5';
 import { DividendManager } from './dividendManager.js'; // NEW: Import Dividend Manager
 // AJOUT : Importer MarketStatus (avec le cache buster)
 import { MarketStatus } from './marketStatus.js?v=2';

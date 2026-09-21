@@ -4,7 +4,7 @@
 
 import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
-import { HistoryCalculator } from './HistoryCalculator.js?v=4';
+import { HistoryCalculator } from './HistoryCalculator.js?v=5';
 import { db, auth } from './firebaseConfig.js';
 import {
     getIntervalForPeriod,
