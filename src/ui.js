@@ -135,18 +135,30 @@ export class UIComponents {
         return modal;
     }
 
+    static _tvColor(v) { return v >= 0 ? '#10b981' : '#ef4444'; }
+
+    static _tvRow(label, value, rowColor, formatSimple, formatPctSimple, opts = {}) {
+        return `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:${opts.compact ? '5px 0' : '10px 0'};${opts.noBorder ? '' : 'border-bottom:1px solid var(--border-color);'}">
+                <span style="color:var(--text-muted);font-size:${opts.compact ? '12px' : '13px'};${opts.indent ? 'padding-left:12px;' : ''}">${escHtml(label)}</span>
+                <span style="font-weight:${opts.compact ? '500' : '600'};${rowColor ? `color:${rowColor};` : ''}font-size:${opts.compact ? '12px' : '14px'};">${formatSimple(value)}${opts.pct != null ? ` <span style="opacity:0.85;">(${formatPctSimple(opts.pct)})</span>` : ''}</span>
+            </div>`;
+    }
+
     // Three sections: the Total Value breakdown itself (Investi + Rendement +
     // Cash), then Rendement total and Var Today — each with their own
-    // per-broker detail, via dataManager.calculateByBroker() (SSOT: reuses
-    // calculateHoldings/calculateSummary/calculateCashReserve, just scoped per
-    // broker, instead of a parallel calculation living in this modal).
+    // per-broker detail. Total Return's breakdown comes from
+    // dataManager.calculateByBroker() (cheap, synchronous). Var Today's does
+    // NOT — see _loadDayChangeByBroker() below for why it's loaded on demand
+    // instead of recomputed on every KPI refresh.
     _updateTotalValueModal(summary, totalValueWithCash, formatSimple, formatPctSimple) {
         const invested = summary.totalInvestedEUR || 0;
         const totalReturn = summary.gainTotal || 0;
         const cash = totalValueWithCash - invested - totalReturn;
         const dayChange = summary.totalDayChangeEUR ?? null;
         const dayChangePct = summary.dayChangePct ?? null;
-        const color = (v) => (v >= 0 ? '#10b981' : '#ef4444');
+        const color = UIComponents._tvColor;
+        const row = (label, value, rowColor, opts) => UIComponents._tvRow(label, value, rowColor, formatSimple, formatPctSimple, opts);
 
         const allBrokers = this.dataManager ? this.dataManager.calculateByBroker(this.storage.getPurchases()) : [];
         // The card this modal explains can itself be showing a FILTERED figure
@@ -155,25 +167,22 @@ export class UIComponents {
         // Only show that breakdown when the caller confirms nothing is
         // filtered (see investmentsPage.js's hasActiveFilter) — showing an
         // unfiltered per-broker split under a filtered total would silently
-        // not add up. NOT decided by comparing sums: kpis.totalValue comes
-        // from the graph's TWR engine while this per-broker split is a plain
-        // calculateHoldings sum — two different, both-correct methodologies
-        // that don't reconcile to the cent even with no filter active.
+        // not add up.
         const byBroker = (allBrokers.length > 1 && !summary.hasActiveFilter) ? allBrokers : [];
+        // Read fresh at click time by the (single, persistent) listeners below
+        // instead of being captured in their closure — updateTopKPIs runs on
+        // every KPI refresh, so byBroker/formatSimple/formatPctSimple here are
+        // only this render's snapshot; a listener bound once on the first
+        // render must not keep using that first render's values forever.
+        this._tvLatest = { byBroker, formatSimple, formatPctSimple };
 
         const modal = this._ensureTotalValueModal();
         const body = document.getElementById('total-value-modal-body');
         if (body) {
-            const row = (label, value, rowColor, opts = {}) => `
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:${opts.compact ? '5px 0' : '10px 0'};${opts.noBorder ? '' : 'border-bottom:1px solid var(--border-color);'}">
-                    <span style="color:var(--text-muted);font-size:${opts.compact ? '12px' : '13px'};${opts.indent ? 'padding-left:12px;' : ''}">${escHtml(label)}</span>
-                    <span style="font-weight:${opts.compact ? '500' : '600'};${rowColor ? `color:${rowColor};` : ''}font-size:${opts.compact ? '12px' : '14px'};">${formatSimple(value)}${opts.pct != null ? ` <span style="opacity:0.85;">(${formatPctSimple(opts.pct)})</span>` : ''}</span>
-                </div>`;
-
             const sectionTitle = (label) => `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:18px 0 4px;">${label}</div>`;
 
-            const brokerRows = (valueKey, pctKey) => byBroker.length === 0 ? '' : byBroker.map(b =>
-                row(b.broker, b[valueKey], color(b[valueKey]), { compact: true, indent: true, noBorder: true, pct: b[pctKey] })
+            const returnBrokerRows = byBroker.length === 0 ? '' : byBroker.map(b =>
+                row(b.broker, b.totalReturn, color(b.totalReturn), { compact: true, indent: true, noBorder: true, pct: b.totalReturnPct })
             ).join('');
 
             body.innerHTML =
@@ -190,13 +199,13 @@ export class UIComponents {
                 `<div id="tv-section-return">` +
                     sectionTitle('Rendement total') +
                     row(byBroker.length ? 'Ensemble du portefeuille' : 'Total', totalReturn, color(totalReturn), { pct: summary.gainPct, noBorder: byBroker.length === 0 }) +
-                    brokerRows('totalReturn', 'totalReturnPct') +
+                    returnBrokerRows +
                 `</div>` +
                 `<div id="tv-section-day">` +
                     sectionTitle('Var Today') +
                     (dayChange != null
                         ? row(byBroker.length ? 'Ensemble du portefeuille' : 'Total', dayChange, color(dayChange), { pct: dayChangePct, noBorder: byBroker.length === 0 }) +
-                          brokerRows('dayChange', 'dayChangePct')
+                          `<div id="tv-broker-daychange"></div>`
                         : `<div style="color:var(--text-muted);font-size:12px;">Non disponible</div>`) +
                 `</div>`;
         }
@@ -215,6 +224,7 @@ export class UIComponents {
             card.dataset.totalValueClickBound = '1';
             card.addEventListener('click', () => {
                 modal.style.display = 'flex';
+                this._loadDayChangeByBroker();
                 requestAnimationFrame(() => {
                     document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 });
@@ -223,6 +233,38 @@ export class UIComponents {
         bindTrigger('total-current', 'tv-section-total');
         bindTrigger('total-gain-loss', 'tv-section-return');
         bindTrigger('total-invested', 'tv-section-day');
+    }
+
+    // Var Today's per-broker detail needs the SAME TWR engine the aggregate
+    // itself is resolved through (dataManager.calculateDayChangeByBroker,
+    // reusing HistoryCalculator via calculateHistory) — calculateHoldings'
+    // synchronous fallback (previousClose-based) doesn't handle intraday
+    // buys/sells or cash movements and was measured ~195€ off from the
+    // aggregate on a real portfolio. Relaunching the TWR engine per broker is
+    // real network work, so it only runs when the modal is actually opened,
+    // not on every KPI refresh (unlike the Total Return breakdown above).
+    async _loadDayChangeByBroker() {
+        const container = document.getElementById('tv-broker-daychange');
+        if (!container || !this.dataManager) return;
+        const { byBroker, formatSimple, formatPctSimple } = this._tvLatest || {};
+        if (!byBroker || byBroker.length === 0) { container.innerHTML = ''; return; }
+        if (container.dataset.loading === '1') return;
+
+        container.dataset.loading = '1';
+        container.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:6px 0 6px 12px;">Chargement du détail par courtier…</div>`;
+        try {
+            const results = await this.dataManager.calculateDayChangeByBroker(this.storage.getPurchases());
+            const byName = new Map(results.map(r => [r.broker, r]));
+            container.innerHTML = byBroker.map(b => {
+                const r = byName.get(b.broker) || { dayChange: 0, dayChangePct: 0 };
+                return UIComponents._tvRow(b.broker, r.dayChange, UIComponents._tvColor(r.dayChange), formatSimple, formatPctSimple, { compact: true, indent: true, noBorder: true, pct: r.dayChangePct });
+            }).join('');
+        } catch (err) {
+            container.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding-left:12px;">Détail indisponible</div>`;
+            console.warn('[UI] calculateDayChangeByBroker failed:', err);
+        } finally {
+            container.dataset.loading = '';
+        }
     }
 
     // Tout ce qui n'est PAS les 5 KPI du haut : best/worst asset (total + jour),

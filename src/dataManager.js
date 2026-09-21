@@ -612,18 +612,26 @@ export class DataManager {
         };
     }
 
-    // SINGLE SOURCE OF TRUTH pour la ventilation par courtier (utilisée par la
-    // modale "Détail — Total Value", voir ui.js) : réutilise calculateHoldings/
-    // calculateSummary/calculateCashReserve — les mêmes fonctions que le
-    // rapport global — juste filtrées par courtier, plutôt qu'un second calcul
-    // indépendant qui pourrait un jour diverger du reste de l'app.
-    // NOTE: sans yesterdayCloseMap (qui exige l'historique TWR asynchrone de
-    // HistoryCalculator, coûteux à relancer par courtier juste pour une
-    // modale informative), la variation du jour par courtier retombe sur le
-    // fallback storage.previousClose de calculateHoldings — une approximation
-    // suffisante ici, qui peut légèrement différer du "VAR TODAY" agrégé
-    // (lui résolu via le moteur TWR) en cas de mouvement de cash intrajournalier
-    // sur ce courtier précis.
+    // SINGLE SOURCE OF TRUTH pour la ventilation par courtier — Total Value /
+    // Investi / Rendement total (utilisée par la modale "Détail — Total
+    // Value", voir ui.js). Réutilise calculateHoldings/calculateSummary/
+    // calculateCashReserve, juste filtrées par courtier.
+    //
+    // BUG FOUND (confirmé) : le filtre incluait l'immobilier ('real estate'),
+    // alors que historicalChart.js EXCLUT ce type de l'agrégat "Total Return"
+    // (voir son update(), filtre `type !== 'real estate'`) — le gain immobilier
+    // fuitait donc dans la somme par courtier sans jamais apparaître dans le
+    // total affiché au-dessus, faisant diverger les deux de plusieurs
+    // centaines d'euros. Exclu ici aussi, pour matcher exactement le même
+    // périmètre que l'agrégat qu'on est censé expliquer.
+    //
+    // Ne calcule PAS de variation du jour ici : calculateHoldings() sans
+    // yesterdayCloseMap retombe sur son fallback storage.previousClose, qui ne
+    // gère ni les achats/ventes intrajournaliers ni les mouvements de cash —
+    // contrairement au moteur TWR (dailyTwr) qui alimente le "VAR TODAY"
+    // agrégé. Utiliser ce fallback ici produisait un écart confirmé de ~195€
+    // avec l'agrégat sur ce portefeuille. Voir calculateDayChangeByBroker()
+    // ci-dessous, qui réutilise CE MÊME moteur TWR par courtier à la place.
     calculateByBroker(purchases) {
         const brokers = [...new Set(purchases.map(p => p.broker || 'RV-CT'))];
 
@@ -631,7 +639,7 @@ export class DataManager {
             const brokerPurchases = purchases.filter(p => (p.broker || 'RV-CT') === broker);
             const assetPurchases = brokerPurchases.filter(p => {
                 const type = (p.assetType || 'Stock').toLowerCase();
-                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
+                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
             });
             const cashPurchases = brokerPurchases.filter(p => {
                 const type = (p.assetType || 'Stock').toLowerCase();
@@ -648,11 +656,62 @@ export class DataManager {
                 invested: summary.totalInvestedEUR || 0,
                 totalReturn: summary.gainTotal || 0,
                 totalReturnPct: summary.gainPct || 0,
-                dayChange: summary.totalDayChangeEUR || 0,
-                dayChangePct: summary.dayChangePct || 0,
                 cash: cashReserve.total
             };
         }).sort((a, b) => b.totalValue - a.totalValue);
+    }
+
+    // SINGLE SOURCE OF TRUTH pour la variation du jour par courtier : relance
+    // le MÊME moteur TWR (calculateHistory → HistoryCalculator) que l'agrégat
+    // "VAR TODAY", juste sur les achats d'un seul courtier à la fois, plutôt
+    // que le fallback storage.previousClose de calculateHoldings (voir
+    // calculateByBroker ci-dessus). Async et volontairement séparée de
+    // calculateByBroker — ne se déclenche qu'à l'ouverture de la modale
+    // (voir ui.js), pas à chaque rafraîchissement des KPIs, pour ne pas
+    // multiplier les appels réseau par courtier en continu.
+    async calculateDayChangeByBroker(purchases) {
+        const brokers = [...new Set(purchases.map(p => p.broker || 'RV-CT'))];
+
+        const results = await Promise.all(brokers.map(async (broker) => {
+            const relevant = purchases.filter(p => {
+                if ((p.broker || 'RV-CT') !== broker) return false;
+                const type = (p.assetType || 'Stock').toLowerCase();
+                // Real Estate n'a pas de cotation de marché (calculateHoldings
+                // le confirme : previousClose est toujours absent pour ce
+                // type), donc sa variation du jour est structurellement nulle
+                // — exclu ici aussi, pour matcher calculateByBroker.
+                return type !== 'real estate';
+            });
+            if (relevant.length === 0) return { broker, dayChange: 0, dayChangePct: 0 };
+
+            // Même logique que historicalChart.js _computeAggregateKPIs :
+            // dailyTwr (résistant aux achats/ventes/mouvements de cash du
+            // jour) en priorité, repli sur yesterdayClose si absent.
+            const graphData = await this.calculateHistory(relevant, 1);
+            const values = graphData?.values;
+            let totalValue = null, lastValidIdx = -1;
+            if (values) {
+                for (let i = values.length - 1; i >= 0; i--) {
+                    if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) {
+                        totalValue = values[i]; lastValidIdx = i; break;
+                    }
+                }
+            }
+
+            const dTwr = (lastValidIdx >= 0) ? graphData?.dailyTwr?.[lastValidIdx] : null;
+            let dayChange = null, dayChangePct = null;
+            if (totalValue !== null && dTwr != null && !isNaN(dTwr) && dTwr > 0) {
+                dayChangePct = (dTwr - 1) * 100;
+                dayChange = totalValue - totalValue / dTwr;
+            } else if (totalValue !== null && graphData?.yesterdayClose > 0) {
+                dayChange = totalValue - graphData.yesterdayClose;
+                dayChangePct = (dayChange / graphData.yesterdayClose) * 100;
+            }
+
+            return { broker, dayChange: dayChange ?? 0, dayChangePct: dayChangePct ?? 0 };
+        }));
+
+        return results;
     }
 
     calculateDiversification(holdings) {

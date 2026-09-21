@@ -6,12 +6,12 @@
 import { Storage } from './storage.js?v=2';
 import { PriceAPI } from './api.js?v=7';
 import { MarketStatus } from './marketStatus.js?v=2';
-import { DataManager } from './dataManager.js?v=9';
+import { DataManager } from './dataManager.js?v=10';
 import { HistoricalChart } from './historicalChart.js?v=24';
 import { IndexCardChart } from './indexCardChart.js';
 import { ChartKPIManager } from './chartKPIManager.js'; // NOUVEAU : Pour sparkline
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
-import { UIComponents } from './ui.js?v=3';
+import { UIComponents } from './ui.js?v=4';
 import { NotificationManager } from './NotificationManager.js';
 import { FCMManager } from './fcmManager.js'; // NEW: FCM for Android notifications
 
