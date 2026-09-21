@@ -224,6 +224,22 @@ export class DataManager {
         let currentValue = null;
         let investedEUR = data.invested;
 
+        // DIAGNOSTIC : signale les titres dont le prix utilisé ici n'est pas
+        // "frais" au sens de HistoryCalculator.js (celui-ci ne réutilise le
+        // prix live pour le dernier point du jour que s'il a moins de 10
+        // minutes, sinon retombe sur la dernière bougie intraday déjà
+        // récupérée — cette fonction-ci n'a pas accès aux bougies, elle ne
+        // PEUT PAS appliquer la même règle). Permet d'identifier PRÉCISÉMENT
+        // quel(s) titre(s) expliquent un écart entre une page utilisant
+        // calculateHoldings (Analytics, Achats) et le Dashboard/Investments
+        // (moteur graphique), au lieu de deviner sur le total global.
+        if (data.assetType !== 'Real Estate' && currentPrice > 0) {
+            const ageMin = d.lastUpdate ? (Date.now() - d.lastUpdate) / 60000 : null;
+            if (ageMin === null || ageMin > 10) {
+                console.warn(`[calculateHoldings] Prix possiblement périmé pour ${ticker} : ${ageMin === null ? 'jamais mis à jour' : ageMin.toFixed(1) + ' min'} — le Dashboard (moteur graphique) peut avoir choisi un prix différent pour ce même titre à cet instant.`);
+            }
+        }
+
         // === SPECIAL LOGIC: REAL ESTATE ===
         // Real Estate assets don't have a market price. We calculate value based on linear interest.
         if (data.assetType === 'Real Estate') {
@@ -618,6 +634,13 @@ export class DataManager {
         // This prevents sold assets from appearing in analytics and causing errors
         holdings = holdings.filter(h => (h.quantity || 0) > 0.0001);
 
+        // Analytics deliberately includes Real Estate in its headline Total
+        // Return (unlike Dashboard/Investments) — it's the one page meant to
+        // show the WHOLE portfolio in one number. Reverted the exclusion I
+        // added here earlier; see calculateHoldings's diagnostic logging
+        // instead for the actual ~285-300€ gap this page can still show vs
+        // Dashboard's own Total Return (a stock-side price-source difference,
+        // not a Real Estate scope issue — see notes in _enrichAggregatedPosition).
         const summary = this.calculateSummary(holdings);
         const cashReserve = this.calculateCashReserve(cashPurchases);
 
