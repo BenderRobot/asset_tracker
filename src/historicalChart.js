@@ -551,64 +551,63 @@ export class HistoricalChart {
 
     // Aggregate "today" numbers (Total Value / Total Return / Var Today).
     //
-    // SOURCE: todayGraphData — the exact same object the curve itself is drawn
-    // from (see renderChart/_renderChartJs). Total Value/Var Today used to be
-    // computed from targetSummary (calculateHoldings, live snapshot prices)
-    // instead — a SEPARATE engine from the curve — on the theory that the
-    // graph's historical candles could be stale. That created its own bug: the
-    // text (table-derived) and the curve (graph-derived) could each be
-    // internally consistent yet still disagree with EACH OTHER by tens or
-    // hundreds of euros, because they never actually shared a number, just two
-    // formulas that were supposed to agree. Now that the graph's own last point
-    // prefers a fresh live price when one is available (see _buildSeries), it is
-    // safe to make it the single source again: text and curve read the exact
-    // same array, so they cannot disagree.
-    // investedAssetOnly still comes from targetSummary — that is a cost-basis
-    // question (weighted-average purchase price, correctly reduced on a partial
-    // sell), not a "which price is freshest" question, so there was never a
-    // real SSOT conflict to resolve for it.
+    // SIMPLIFIED BY REQUEST: Total Value and Total Return are now the plain
+    // sum of every individual holding — targetSummary, from calculateHoldings,
+    // the EXACT SAME data the holdings table itself is built from — instead of
+    // the graph curve's own endpoint (todayGraphData.values). This guarantees,
+    // by construction, that "Total Return" always equals the sum of every
+    // row's own P&L visible in the table: totalReturn = totalCurrentEUR -
+    // totalInvestedEUR = Σ(asset.currentValue - asset.invested) =
+    // Σ(asset.gainEUR), algebraically, not by two formulas happening to agree.
+    // There is no longer a second, independent calculation for the table and
+    // the KPI cards to silently drift apart on — that drift (the graph
+    // engine's own separate price resolution vs calculateHoldings') was the
+    // root of every "table vs KPI" mismatch chased through this file's history.
     _computeAggregateKPIs({ targetSummary, targetCashReserve, todayGraphData }) {
         const cash = targetCashReserve.total || 0;
         const investedAssetOnly = targetSummary.totalInvestedEUR || 0;
+        const totalValue = (targetSummary.totalCurrentEUR || 0) + cash;
+        const totalReturn = targetSummary.gainTotal || 0;
+        const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
 
+        // Var Today is the one figure that still needs the graph engine —
+        // BUG FOUND (kept fixed): a plain cash withdrawal/deposit (no asset
+        // bought or sold) shows up as a fake gain/loss on a raw "today's sum
+        // minus yesterday's sum", because both totals already include cash at
+        // whatever level it happened to be that day. `dailyTwr` doesn't have
+        // this problem — _buildSeries rescales it around every quantity/cash
+        // change precisely so a buy/sell/deposit/withdrawal can't register as
+        // a fake move. dTwr is only a RATIO though, so it's applied to the
+        // NEW (table-based) totalValue above rather than the graph's own —
+        // the displayed € amount stays anchored to the same "Total Value"
+        // shown everywhere else, instead of quietly reverting to a second,
+        // graph-only total for this one number.
+        let varTodayAbs = null, varTodayPct = null;
         const values = todayGraphData?.values;
-        let totalValue = null, lastValidIdx = -1;
+        let lastValidIdx = -1;
         if (values) {
             for (let i = values.length - 1; i >= 0; i--) {
-                if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) { totalValue = values[i]; lastValidIdx = i; break; }
+                if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) { lastValidIdx = i; break; }
             }
         }
-
-        let varTodayAbs = null, varTodayPct = null;
-        // BUG FOUND: a plain cash withdrawal/deposit (no asset bought or
-        // sold) was showing up as a fake gain/loss on VAR TODAY, because
-        // `totalValue - yesterdayClose` is a raw subtraction between two
-        // totals that both already include cash at whatever level it
-        // happened to be that day — a withdrawal lowers today's totalValue
-        // by exactly the amount taken out, and that shows up here as if the
-        // portfolio had lost that much. `dailyTwr` doesn't have this problem:
-        // _buildSeries already rescales it around every quantity/cash change
-        // precisely so a buy/sell/deposit/withdrawal can't register as a
-        // fake move — it's the same array the curve itself is drawn from and
-        // the same one the hover tooltip's own "Var Today" row already uses,
-        // so using it here too keeps all three in agreement.
         const dTwr = (lastValidIdx >= 0) ? todayGraphData?.dailyTwr?.[lastValidIdx] : null;
-        if (totalValue !== null && dTwr != null && !isNaN(dTwr) && dTwr > 0) {
+        if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
             varTodayPct = (dTwr - 1) * 100;
             varTodayAbs = totalValue - totalValue / dTwr;
-        } else if (totalValue !== null && todayGraphData?.yesterdayClose > 0) {
-            varTodayAbs = totalValue - todayGraphData.yesterdayClose;
-            varTodayPct = (varTodayAbs / todayGraphData.yesterdayClose) * 100;
-        } else {
-            // No graph data (index/single-asset modes don't build a dedicated
-            // todayGraphData) — targetSummary remains the only source there.
-            if (totalValue === null) totalValue = (targetSummary.totalCurrentEUR || 0) + cash;
+        } else if (todayGraphData?.yesterdayClose > 0 && lastValidIdx >= 0) {
+            // Fallback keeps using the graph's OWN totalValue for this ratio,
+            // since that's what yesterdayClose was resolved against.
+            const graphTotalValue = values[lastValidIdx];
+            varTodayPct = ((graphTotalValue - todayGraphData.yesterdayClose) / todayGraphData.yesterdayClose) * 100;
+            varTodayAbs = (varTodayPct / 100) * totalValue;
+        }
+        if (varTodayAbs === null) {
+            // No graph data at all (index/single-asset modes don't build a
+            // dedicated todayGraphData) — targetSummary is the only source.
             varTodayAbs = targetSummary.totalDayChangeEUR ?? null;
             varTodayPct = targetSummary.dayChangePct ?? null;
         }
 
-        const totalReturn = totalValue - cash - investedAssetOnly;
-        const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
         return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly };
     }
 
