@@ -65,6 +65,7 @@ export class Storage {
             if (e.key === 'currentData' && e.newValue) {
                 console.log('🔄 Sync: Prix mis à jour par un autre onglet');
                 this.currentData = JSON.parse(e.newValue);
+                this._normalizeLastUpdateFields(this.currentData);
                 this.priceTimestamps = this.loadTimestamps(); // Recharger aussi les timestamps
                 // Optionnel: On pourrait déclencher un render ici via eventBus
             }
@@ -155,11 +156,29 @@ export class Storage {
     loadCurrentData() {
         try {
             const data = localStorage.getItem('currentData');
-            return data ? JSON.parse(data) : {};
+            const parsed = data ? JSON.parse(data) : {};
+            this._normalizeLastUpdateFields(parsed);
+            return parsed;
         } catch (e) {
             console.error('Erreur chargement prix:', e);
             return {};
         }
+    }
+
+    // One-time migration, run on every load of `currentData` (not just future
+    // writes — see applyCachedPrices' own fix): entries already sitting in
+    // localStorage from BEFORE that fix — written with `lastUpdated` but no
+    // `lastUpdate` — would otherwise never get corrected until their next
+    // Firestore sync, which isCacheValid() can delay for a long time. Mutates
+    // in place so it self-heals immediately instead of only fixing prices
+    // going forward.
+    _normalizeLastUpdateFields(dataObj) {
+        Object.keys(dataObj).forEach(ticker => {
+            const entry = dataObj[ticker];
+            if (entry && entry.lastUpdate === undefined && entry.lastUpdated !== undefined) {
+                entry.lastUpdate = entry.lastUpdated;
+            }
+        });
     }
 
     loadTimestamps() {

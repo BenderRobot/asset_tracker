@@ -1,4 +1,4 @@
-import { Storage } from './storage.js?v=3';
+import { Storage } from './storage.js?v=4';
 import { UIComponents } from './ui.js';
 import { MortgageCalculator } from './mortgageCalculator.js';
 import { DataManager } from './dataManager.js';

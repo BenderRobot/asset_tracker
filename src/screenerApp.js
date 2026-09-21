@@ -1,7 +1,7 @@
 // ============================================================
 // screenerApp.js — Stock Screener & Analysis Page
 // ============================================================
-import { Storage } from './storage.js?v=3';
+import { Storage } from './storage.js?v=4';
 import { PRICE_PROXY_URL } from './config.js';
 import logger from '../utils/logger.js';
 

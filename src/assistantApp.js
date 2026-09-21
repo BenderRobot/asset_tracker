@@ -2,7 +2,7 @@
 // assistantApp.js - AI Portfolio Assistant
 // ========================================
 
-import { Storage } from './storage.js?v=3';
+import { Storage } from './storage.js?v=4';
 import { DataManager } from './dataManager.js';
 import { PriceAPI } from './api.js';
 import { GEMINI_PROXY_URL } from './config.js';

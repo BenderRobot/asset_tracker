@@ -2,7 +2,7 @@
 // analyticsApp.js - (v2 - Avec MarketStatus)
 // ========================================
 
-import { Storage } from './storage.js?v=3';
+import { Storage } from './storage.js?v=4';
 import { formatCurrency, formatPercent } from './utils.js';
 
 // === CHANGEMENT 1 : Importer les nouvelles dépendances ===

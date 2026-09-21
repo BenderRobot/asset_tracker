@@ -3,7 +3,7 @@
 // ========================================
 // app.js - (v13 - FIX INDICES LOADING)
 // ========================================
-import { Storage } from './storage.js?v=3';
+import { Storage } from './storage.js?v=4';
 import { PriceAPI } from './api.js?v=7';
 import { UIComponents } from './ui.js?v=5';
 import { FilterManager } from './filters.js';

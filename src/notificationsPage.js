@@ -1,6 +1,6 @@
 import { auth } from './firebaseConfig.js';
 import { DataManager } from './dataManager.js';
-import { Storage } from './storage.js?v=3';
+import { Storage } from './storage.js?v=4';
 import { PriceAPI } from './api.js';
 import { NotificationManager } from './NotificationManager.js';
 
