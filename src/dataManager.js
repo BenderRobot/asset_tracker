@@ -131,167 +131,206 @@ export class DataManager {
         return { invested, accrued, currentValue: invested + accrued, daysHeld };
     }
 
-    calculateHoldings(assetPurchases, yesterdayCloseMap = null) {
-        const aggregated = {};
-        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+    // SINGLE SOURCE OF TRUTH pour le ledger de positions : construit des
+    // positions ISOLÉES par (courtier, ticker) — jamais fusionnées entre
+    // courtiers avant qu'une vente ne s'applique.
+    //
+    // BUG FOUND (architectural, confirmé) : l'ancien calculateHoldings
+    // fusionnait directement par ticker seul. Une vente chez UN courtier
+    // réduisait alors le coût de revient au prorata de la quantité FUSIONNÉE
+    // (tous courtiers confondus), pas seulement celle de ce courtier. Exemple
+    // réel : 10 AAPL @100€ chez A + 10 AAPL @200€ chez B (30€/action de coût
+    // moyen fusionné sur 20 titres = 3000€), puis vente des 10 AAPL de A. Le
+    // modèle fusionné réduisait l'investi de 50% (ratio = 10 vendus / 20
+    // détenus) → 1500€ restants, alors que les 10 actions RÉELLEMENT encore
+    // détenues (chez B, jamais touchées) avaient coûté 2000€ — un écart de
+    // 500€ sur ce seul exemple, qui se répercutait autant sur le total
+    // portefeuille que sur la ventilation par courtier (elles partagent la
+    // même erreur, donc "les sommes tombaient juste" n'aurait rien prouvé).
+    //
+    // Fix : chaque (courtier, ticker) a sa propre quantité et son propre coût
+    // de revient, mis à jour uniquement par LES ACHATS/VENTES DE CE COURTIER.
+    // calculateHoldings (vue par ticker) et calculateByBroker (vue par
+    // courtier) sont désormais deux agrégations DIFFÉRENTES des MÊMES
+    // positions — jamais deux calculs indépendants — donc la somme des
+    // courtiers égale le total du portefeuille par construction algébrique,
+    // et le coût de revient de chaque courtier est réellement le sien.
+    _buildPositionsByBrokerTicker(assetPurchases, dynamicRate) {
+        const sorted = [...assetPurchases].sort((a, b) => new Date(a.date) - new Date(b.date));
+        const positions = new Map(); // key: `${broker}::${ticker}`
 
-        // 1. TRIER PAR DATE
-        assetPurchases.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-        assetPurchases.forEach(p => {
-            const t = p.ticker.toUpperCase();
-            if (!aggregated[t]) {
-                aggregated[t] = {
+        sorted.forEach(p => {
+            const ticker = p.ticker.toUpperCase();
+            const broker = p.broker || 'RV-CT';
+            const key = `${broker}::${ticker}`;
+            if (!positions.has(key)) {
+                positions.set(key, {
+                    ticker, broker,
                     name: p.name,
                     assetType: p.assetType || 'Stock',
                     quantity: 0,
                     invested: 0,
                     purchases: []
-                };
+                });
             }
-
+            const pos = positions.get(key);
             const currency = p.currency || 'EUR';
             const rate = currency === 'USD' ? dynamicRate : 1;
 
             if (p.quantity > 0) {
                 // ACHAT
-                aggregated[t].quantity += p.quantity;
-                aggregated[t].invested += p.price * p.quantity * rate;
+                pos.quantity += p.quantity;
+                pos.invested += p.price * p.quantity * rate;
             } else {
-                // VENTE
+                // VENTE — n'impacte QUE la position de ce courtier pour ce ticker
                 const sellQty = Math.abs(p.quantity);
-                const currentQty = aggregated[t].quantity;
+                const currentQty = pos.quantity;
 
                 if (currentQty > 0) {
                     const ratio = sellQty / currentQty;
-                    aggregated[t].invested -= (aggregated[t].invested * ratio);
-                    aggregated[t].quantity -= sellQty;
+                    pos.invested -= (pos.invested * ratio);
+                    pos.quantity -= sellQty;
                 } else {
-                    aggregated[t].quantity -= sellQty;
+                    pos.quantity -= sellQty;
                 }
 
-                if (aggregated[t].quantity <= 0.0001) {
-                    aggregated[t].quantity = 0;
-                    aggregated[t].invested = 0;
+                if (pos.quantity <= 0.0001) {
+                    pos.quantity = 0;
+                    pos.invested = 0;
                 }
             }
-            aggregated[t].purchases.push(p);
+            pos.purchases.push(p);
         });
 
-        const enriched = Object.entries(aggregated).map(([ticker, data]) => {
-            const d = this.storage.getCurrentPrice(ticker) || {};
-            const currency = d.currency || 'EUR';
+        return [...positions.values()];
+    }
 
-            // rate = 1 because data.invested is already in EUR (converted per-purchase above)
-            // currentRate converts the live market price for USD assets (e.g. BKSY)
-            const currentRate = (currency === 'USD') ? dynamicRate : 1;
-            const rate = 1;
-            const previousClose = d.previousClose;
+    // Enrichit une position déjà agrégée (quantité + coût de revient) avec le
+    // prix de marché courant : currentValue, gainEUR, gainPct, avgPrice,
+    // dayChange. SEULE implémentation de cette logique — réutilisée à la fois
+    // pour la vue par ticker (calculateHoldings, ci-dessous) et par courtier
+    // (calculateByBroker), pour que les deux restent cohérentes par
+    // construction plutôt que deux copies de la même formule.
+    _enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap) {
+        const d = this.storage.getCurrentPrice(ticker) || {};
+        const currency = d.currency || 'EUR';
 
-            let currentPrice = d.price;
-            let currentValue = null;
-            let investedEUR = data.invested * rate;
+        // currentRate convertit le prix de marché courant pour les actifs USD
+        // (ex: BKSY) — data.invested est déjà en EUR (converti achat par achat).
+        const currentRate = (currency === 'USD') ? dynamicRate : 1;
+        const previousClose = d.previousClose;
 
-            // === SPECIAL LOGIC: REAL ESTATE ===
-            // Real Estate assets don't have a market price. We calculate value based on linear interest.
-            if (data.assetType === 'Real Estate') {
-                // Calculate accumulated value from each purchase
-                let totalREValue = 0;
-                let totalREInvested = 0;
+        let currentPrice = d.price;
+        let currentValue = null;
+        let investedEUR = data.invested;
 
-                data.purchases.forEach(p => {
-                    const { invested: pInvested, currentValue: pCurrentValue } = this.calculateRealEstateAccrual(p);
-                    totalREInvested += pInvested;
-                    totalREValue += pCurrentValue;
-                });
+        // === SPECIAL LOGIC: REAL ESTATE ===
+        // Real Estate assets don't have a market price. We calculate value based on linear interest.
+        if (data.assetType === 'Real Estate') {
+            let totalREValue = 0;
+            let totalREInvested = 0;
 
-                investedEUR = totalREInvested;
-                currentValue = totalREValue;
-                // Set simulated "current price" so other calculations work if needed
-                if (data.quantity > 0) {
-                    currentPrice = currentValue / data.quantity;
-                }
+            data.purchases.forEach(p => {
+                const { invested: pInvested, currentValue: pCurrentValue } = this.calculateRealEstateAccrual(p);
+                totalREInvested += pInvested;
+                totalREValue += pCurrentValue;
+            });
+
+            investedEUR = totalREInvested;
+            currentValue = totalREValue;
+            if (data.quantity > 0) {
+                currentPrice = currentValue / data.quantity;
+            }
+        } else {
+            currentValue = currentPrice ? currentPrice * data.quantity * currentRate : null;
+        }
+
+        const avgPriceEUR = (data.quantity > 0) ? investedEUR / data.quantity : 0;
+
+        const currentValueEUR = currentValue ?? null;
+        const gainEUR = currentValueEUR !== null ? currentValueEUR - investedEUR : null;
+        const gainPct = investedEUR > 0 && gainEUR !== null ? (gainEUR / investedEUR) * 100 : null;
+
+        let dayChange = null;
+        let dayPct = null;
+        let usedYesterdayCloseMap = false;
+
+        // LOGIQUE CORRIGÉE : Utiliser yesterdayCloseMap en priorité.
+        // HistoryCalculator calcule finement la vraie clôture de la veille (ou le prix à minuit pour les cryptos)
+        // en gérant les fallbacks Binance. yesterdayCloseMap contient la VALEUR TOTALE (prix * qty).
+        if (yesterdayCloseMap && yesterdayCloseMap.has(ticker) && yesterdayCloseMap.get(ticker) !== null) {
+            const mapEntry = yesterdayCloseMap.get(ticker);
+            const yesterdayTotal = (typeof mapEntry === 'object') ? mapEntry.yesterdayClose : mapEntry;
+            const todayYestQty = (typeof mapEntry === 'object') ? mapEntry.todayValueOfYesterdayHoldings : null;
+
+            if (yesterdayTotal > 0 && currentValueEUR !== null) {
+                const referenceCurrentValue = (todayYestQty !== null && todayYestQty > 0)
+                    ? todayYestQty
+                    : currentValueEUR;
+                dayChange = referenceCurrentValue - yesterdayTotal;
+                dayPct = (dayChange / yesterdayTotal) * 100;
+                usedYesterdayCloseMap = true;
+            } else if (yesterdayTotal === 0) {
+                dayChange = 0;
+                dayPct = 0;
+                usedYesterdayCloseMap = true;
+            }
+        }
+
+        // FALLBACK : Si yesterdayCloseMap n'a rien trouvé, on utilise storage.previousClose
+        if (!usedYesterdayCloseMap && currentPrice && currentPrice > 0) {
+            const effectivePreviousClose = (previousClose && previousClose > 0) ? previousClose : currentPrice;
+
+            if (effectivePreviousClose !== currentPrice) {
+                dayPct = ((currentPrice - effectivePreviousClose) / effectivePreviousClose) * 100;
+                dayChange = (currentPrice - effectivePreviousClose) * data.quantity * currentRate;
             } else {
-                // Standard Market Asset Logic — apply currentRate to convert USD→EUR
-                currentValue = currentPrice ? currentPrice * data.quantity * currentRate : null;
+                dayChange = 0;
+                dayPct = 0;
             }
+        }
 
-            // FIX: Re-calculate avgPriceEUR after investedEUR is finalized
-            const avgPriceEUR = (data.quantity > 0) ? investedEUR / data.quantity : 0;
+        return {
+            ticker,
+            name: data.name,
+            assetType: data.assetType,
+            quantity: data.quantity,
+            avgPrice: avgPriceEUR,
+            invested: investedEUR,
+            currentPrice: currentPrice ? currentPrice * currentRate : null,
+            currentValue: currentValueEUR,
+            gainEUR,
+            gainPct,
+            dayChange,
+            dayPct,
+            weight: 0,
+            purchases: data.purchases
+        };
+    }
 
-            const currentValueEUR = currentValue ?? null; // currentRate already applied above
-            const gainEUR = currentValueEUR !== null ? currentValueEUR - investedEUR : null;
-            const gainPct = investedEUR > 0 && gainEUR !== null ? (gainEUR / investedEUR) * 100 : null;
+    calculateHoldings(assetPurchases, yesterdayCloseMap = null) {
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+        const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate);
 
-            let dayChange = null;
-            let dayPct = null;
-
-            // LOGIQUE CORRIGÉE : Utiliser yesterdayCloseMap en priorité.
-            // HistoryCalculator calcule finement la vraie clôture de la veille (ou le prix à minuit pour les cryptos)
-            // en gérant les fallbacks Binance. yesterdayCloseMap contient la VALEUR TOTALE (prix * qty).
-            let usedYesterdayCloseMap = false;
-
-            if (yesterdayCloseMap && yesterdayCloseMap.has(ticker) && yesterdayCloseMap.get(ticker) !== null) {
-                const mapEntry = yesterdayCloseMap.get(ticker);
-                // Support ancien format (nombre) et nouveau format (objet)
-                const yesterdayTotal = (typeof mapEntry === 'object') ? mapEntry.yesterdayClose : mapEntry;
-                const todayYestQty   = (typeof mapEntry === 'object') ? mapEntry.todayValueOfYesterdayHoldings : null;
-
-                if (yesterdayTotal > 0 && currentValueEUR !== null) {
-                    // Utiliser todayValueOfYesterdayHoldings quand disponible :
-                    // = currentPrice × qtyYesterday (pas qtyActuelle)
-                    // Évite que les achats intraday gonfle artificiellement VAR TODAY
-                    const referenceCurrentValue = (todayYestQty !== null && todayYestQty > 0)
-                        ? todayYestQty
-                        : currentValueEUR;
-                    dayChange = referenceCurrentValue - yesterdayTotal;
-                    dayPct = (dayChange / yesterdayTotal) * 100;
-                    usedYesterdayCloseMap = true;
-                } else if (yesterdayTotal === 0) {
-                    // Si l'actif n'était pas détenu à la clôture d'hier,
-                    // sa variation journalière ne doit pas être comptée sur le P&L d'aujourd'hui.
-                    dayChange = 0;
-                    dayPct = 0;
-                    usedYesterdayCloseMap = true;
-                    if (ticker === 'AL2SI' || ticker === 'BTC') {
-                        console.log(`[${ticker} Debug] No holdings yesterday: setting dayChange to 0 for intraday purchase.`);
-                    }
-                }
+        // Agrégation par TICKER (une ligne par actif, tous courtiers
+        // confondus) — même vue qu'avant pour le tableau/les résumés, mais
+        // calculée en sommant des positions par courtier déjà correctement
+        // isolées, au lieu de fusionner dès le départ.
+        const byTicker = new Map();
+        positions.forEach(pos => {
+            if (!byTicker.has(pos.ticker)) {
+                byTicker.set(pos.ticker, { name: pos.name, assetType: pos.assetType, quantity: 0, invested: 0, purchases: [] });
             }
-
-            // FALLBACK : Si yesterdayCloseMap n'a rien trouvé, on utilise storage.previousClose
-            if (!usedYesterdayCloseMap && currentPrice && currentPrice > 0) {
-                const effectivePreviousClose = (previousClose && previousClose > 0) ? previousClose : currentPrice;
-
-                if (effectivePreviousClose !== currentPrice) {
-                    dayPct = ((currentPrice - effectivePreviousClose) / effectivePreviousClose) * 100;
-                    const dayChangeOriginal = (currentPrice - effectivePreviousClose) * data.quantity;
-                    dayChange = dayChangeOriginal * currentRate;
-                } else {
-                    dayChange = 0;
-                    dayPct = 0;
-                }
-            }
-
-            return {
-                ticker,
-                name: data.name,
-                assetType: data.assetType,
-                quantity: data.quantity,
-                avgPrice: avgPriceEUR,
-                invested: investedEUR,
-                currentPrice: currentPrice ? currentPrice * currentRate : null,
-                currentValue: currentValueEUR,
-                gainEUR,
-                gainPct,
-                dayChange,
-                dayPct,
-                weight: 0,
-                purchases: data.purchases
-            };
+            const agg = byTicker.get(pos.ticker);
+            agg.quantity += pos.quantity;
+            agg.invested += pos.invested;
+            agg.purchases.push(...pos.purchases);
         });
+        byTicker.forEach(agg => agg.purchases.sort((a, b) => new Date(a.date) - new Date(b.date)));
 
-        return enriched;
+        return Array.from(byTicker.entries()).map(([ticker, data]) =>
+            this._enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap)
+        );
     }
 
     calculateSummary(holdings) {
@@ -632,26 +671,28 @@ export class DataManager {
     // Investi / Rendement total (utilisée par la modale "Détail — Total
     // Value", voir ui.js).
     //
-    // BUG FOUND (confirmé, deux fois) :
+    // BUG FOUND (confirmé, deux fois, corrigés) :
     // 1. L'immobilier ('real estate') était inclus ici alors que
     //    historicalChart.js l'EXCLUT de l'agrégat "Total Return" (son
-    //    update(), filtre `type !== 'real estate'`) — corrigé, exclu ici aussi.
-    // 2. Recalculer chaque courtier INDÉPENDAMMENT (calculateHoldings sur les
-    //    seuls achats de ce courtier) ne se réconcilie PAS avec l'agrégat dès
-    //    qu'un même titre est détenu dans plusieurs courtiers : le coût moyen
-    //    pondéré et la réduction du coût sur une vente (voir calculateHoldings
-    //    plus haut, `ratio = sellQty / currentQty`) sont calculés sur le
-    //    portefeuille FUSIONNÉ par titre, pas courtier par courtier — un écart
-    //    confirmé de ~294€ sur ce portefeuille (Bitstack notamment).
+    //    update(), filtre `type !== 'real estate'`) — exclu ici aussi.
+    // 2. (architectural) Une v1 recalculait chaque courtier INDÉPENDAMMENT
+    //    (calculateHoldings sur les seuls achats de ce courtier) ; une v2
+    //    répartissait ensuite un total déjà fusionné au prorata de la
+    //    quantité — les deux souffrent de la MÊME racine : calculateHoldings
+    //    fusionnait le coût de revient par ticker AVANT qu'une vente d'un
+    //    courtier ne s'applique, donc une vente chez un courtier pouvait
+    //    réduire le coût de revient reconstitué d'un AUTRE courtier qui
+    //    n'avait rien vendu (voir _buildPositionsByBrokerTicker ci-dessus).
     //
-    // Fix : ne PAS recalculer par courtier. Calculer UNE FOIS le portefeuille
-    // fusionné (calculateHoldings sur tous les achats, le calcul EXACT qui
-    // alimente déjà l'agrégat), puis RÉPARTIR le gain/investi de chaque titre
-    // entre les courtiers au prorata de la quantité qu'ils en détiennent
-    // réellement. La somme des courtiers reconstitue alors le total EXACTEMENT
-    // — par construction algébrique (les fractions par titre totalisent 1),
-    // pas parce que deux calculs séparés "devraient" tomber d'accord.
+    // Fix définitif : ne calcule plus rien ici. Agrège directement les
+    // positions (courtier, ticker) déjà correctement isolées — LA MÊME
+    // source que calculateHoldings (vue par ticker) — juste groupées par
+    // courtier au lieu du ticker. Les deux vues sont deux agrégations
+    // différentes des mêmes positions, jamais deux calculs séparés : la somme
+    // des courtiers égale le total du portefeuille par construction, ET le
+    // coût de revient de chaque courtier est réellement le sien.
     calculateByBroker(purchases) {
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
         const brokers = [...new Set(purchases.map(p => p.broker || 'RV-CT'))];
 
         const assetPurchases = purchases.filter(p => {
@@ -663,22 +704,17 @@ export class DataManager {
             return type === 'cash' || type === 'dividend' || p.type === 'dividend';
         });
 
-        const holdings = this.calculateHoldings([...assetPurchases]).filter(h => (h.quantity || 0) > 0.0001);
-        const qtyByTickerByBroker = this._brokerQuantitiesByTicker(assetPurchases);
+        const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate);
         const cashReserve = this.calculateCashReserve(cashPurchases);
 
         const perBroker = new Map(brokers.map(b => [b, { invested: 0, totalReturn: 0 }]));
-        holdings.forEach(h => {
-            const brokerQtys = qtyByTickerByBroker.get(h.ticker) || new Map();
-            const totalQty = [...brokerQtys.values()].reduce((s, q) => s + q, 0);
-            if (Math.abs(totalQty) < 0.000001) return;
-            brokerQtys.forEach((qty, broker) => {
-                const entry = perBroker.get(broker);
-                if (!entry) return;
-                const fraction = qty / totalQty;
-                entry.invested += (h.invested || 0) * fraction;
-                entry.totalReturn += (h.gainEUR || 0) * fraction;
-            });
+        positions.forEach(pos => {
+            if ((pos.quantity || 0) <= 0.0001) return;
+            const enriched = this._enrichAggregatedPosition(pos.ticker, pos, dynamicRate, null);
+            const entry = perBroker.get(pos.broker);
+            if (!entry) return;
+            entry.invested += enriched.invested || 0;
+            entry.totalReturn += enriched.gainEUR || 0;
         });
 
         return brokers.map(broker => {
