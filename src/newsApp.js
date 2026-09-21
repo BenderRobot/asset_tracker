@@ -1,7 +1,7 @@
 const STORAGE_KEY = 'customRssFeeds';
 const NEWS_STORAGE_KEY = 'newsCache_v2'; // v2 = force bust du cache stale
 
-import { Storage } from './storage.js';
+import { Storage } from './storage.js?v=3';
 import { PriceAPI } from './api.js';
 import { DataManager } from './dataManager.js';
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';

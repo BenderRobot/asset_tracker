@@ -807,7 +807,25 @@ export class Storage {
         if (!pricesMap || pricesMap.size === 0) return;
 
         pricesMap.forEach((data, ticker) => {
-            this.setCurrentPrice(ticker, data);
+            // BUG FOUND (confirmed via console diagnostics): Firestore-synced
+            // prices (marketDataSync.js) carry a per-ticker `lastUpdated`
+            // timestamp, but HistoryCalculator.js's "use the live price for
+            // the day's last point only if <10min fresh" rule — and
+            // dataManager.js's own staleness diagnostic — both check
+            // `lastUpdate` (no "d"), the field api.js sets on a direct fetch.
+            // Every ticker arriving via this Firestore sync path (the normal
+            // "follower mode" route that avoids a redundant API call across
+            // tabs/sessions) therefore looked "never updated" to that check
+            // even when genuinely fresh, forcing the graph engine to fall
+            // back to candle-based pricing far more often than intended — a
+            // real, confirmed source of price divergence between the graph
+            // (Dashboard/Investments) and calculateHoldings (Analytics/
+            // Achats, which reads storage.getCurrentPrice directly with no
+            // freshness check at all, so it never noticed the mismatch).
+            const normalized = (data && data.lastUpdate === undefined && data.lastUpdated !== undefined)
+                ? { ...data, lastUpdate: data.lastUpdated }
+                : data;
+            this.setCurrentPrice(ticker, normalized);
         });
 
         console.log(`[Storage] Applied ${pricesMap.size} cached prices from Firestore`);

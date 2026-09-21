@@ -224,19 +224,37 @@ export class DataManager {
         let currentValue = null;
         let investedEUR = data.invested;
 
-        // DIAGNOSTIC : signale les titres dont le prix utilisé ici n'est pas
-        // "frais" au sens de HistoryCalculator.js (celui-ci ne réutilise le
-        // prix live pour le dernier point du jour que s'il a moins de 10
-        // minutes, sinon retombe sur la dernière bougie intraday déjà
-        // récupérée — cette fonction-ci n'a pas accès aux bougies, elle ne
-        // PEUT PAS appliquer la même règle). Permet d'identifier PRÉCISÉMENT
-        // quel(s) titre(s) expliquent un écart entre une page utilisant
-        // calculateHoldings (Analytics, Achats) et le Dashboard/Investments
-        // (moteur graphique), au lieu de deviner sur le total global.
-        if (data.assetType !== 'Real Estate' && currentPrice > 0) {
-            const ageMin = d.lastUpdate ? (Date.now() - d.lastUpdate) / 60000 : null;
-            if (ageMin === null || ageMin > 10) {
-                console.warn(`[calculateHoldings] Prix possiblement périmé pour ${ticker} : ${ageMin === null ? 'jamais mis à jour' : ageMin.toFixed(1) + ' min'} — le Dashboard (moteur graphique) peut avoir choisi un prix différent pour ce même titre à cet instant.`);
+        // DIAGNOSTIC — deux cas distincts, le premier bien plus grave que le
+        // second :
+        //
+        // 1. AUCUN prix du tout (currentPrice absent) : ce titre est compté
+        //    dans investedEUR (ci-dessous, inconditionnel) mais contribue 0 à
+        //    currentValue/gainEUR — son Total Return est donc amputé de la
+        //    TOTALITÉ de son montant investi, pas juste de son gain. C'est
+        //    exactement ce qui arrive à un projet immobilier/crowdfunding mal
+        //    étiqueté (assetType ≠ "Real Estate" exactement, ex. après un
+        //    import CSV — voir csvWorker.js) dont le nom de projet se
+        //    retrouve traité comme un ticker boursier introuvable (aucun prix
+        //    ne pourra jamais se résoudre pour "Foncière Redland").
+        // 2. Prix présent mais pas "frais" au sens de HistoryCalculator.js
+        //    (qui ne réutilise le prix live pour le dernier point du jour que
+        //    s'il a moins de 10 minutes, sinon retombe sur la bougie intraday
+        //    la plus récente — cette fonction-ci n'a pas accès aux bougies,
+        //    elle ne PEUT PAS appliquer la même règle) : écart plus faible,
+        //    de l'ordre du prix, pas de l'investi entier.
+        //
+        // Permet d'identifier PRÉCISÉMENT quel(s) titre(s) expliquent un
+        // écart entre une page utilisant calculateHoldings (Analytics,
+        // Achats) et le Dashboard/Investments (moteur graphique), au lieu de
+        // deviner sur le total global.
+        if (data.assetType !== 'Real Estate') {
+            if (!(currentPrice > 0)) {
+                console.error(`[calculateHoldings] AUCUN PRIX pour "${ticker}" (assetType="${data.assetType}") — ${investedEUR.toFixed(2)}€ investis comptés dans le total mais 0€ de valeur de marché : le Total Return de cette page est amputé de ${investedEUR.toFixed(2)}€ à cause de ce seul titre. Si "${ticker}" est en réalité un projet immobilier/crowdfunding, corrige son Type d'actif (page Achats) sur exactement "Real Estate".`);
+            } else {
+                const ageMin = d.lastUpdate ? (Date.now() - d.lastUpdate) / 60000 : null;
+                if (ageMin === null || ageMin > 10) {
+                    console.warn(`[calculateHoldings] Prix possiblement périmé pour ${ticker} : ${ageMin === null ? 'jamais mis à jour' : ageMin.toFixed(1) + ' min'} — le Dashboard (moteur graphique) peut avoir choisi un prix différent pour ce même titre à cet instant.`);
+                }
             }
         }
 

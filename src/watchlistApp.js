@@ -1,4 +1,4 @@
-import { Storage } from './storage.js';
+import { Storage } from './storage.js?v=3';
 import { PRICE_PROXY_URL } from './config.js';
 import { auth } from './firebaseConfig.js';
 import logger from '../utils/logger.js';
