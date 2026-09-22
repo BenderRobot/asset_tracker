@@ -52,6 +52,11 @@ class DashboardApp {
         this.dataManager = new DataManager(this.storage, this.api);
         this.chartKPIManager = new ChartKPIManager(this.api, this.storage, this.dataManager, this.marketStatus);
         this.ui = new UIComponents(this.storage, this.dataManager);
+        // Même convention que watchlistApp.js/analyticsApp.js/realEstateApp.js —
+        // permet d'appeler dashboardApp.dataManager.debugDividendPhantomGap()
+        // depuis la console du navigateur (voir dataManager.js, méthode
+        // DIAGNOSTIC TEMPORAIRE, à retirer une fois l'audit du 16 346,00€ conclu).
+        window.dashboardApp = this;
         this.notificationManager = new NotificationManager(this.dataManager); // <-- NEW
 
         this.mockPageInterface = {
