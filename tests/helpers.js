@@ -4,7 +4,7 @@
 // isolation from localStorage/Firestore/network, which is what makes them
 // fast, deterministic and side-effect-free.
 
-export function createFakeStorage({ prices = {}, conversionRate = null } = {}) {
+export function createFakeStorage({ prices = {}, conversionRate = null, assetTypes = {} } = {}) {
     const priceStore = new Map(Object.entries(prices));
     return {
         getCurrentPrice(ticker) {
@@ -16,6 +16,12 @@ export function createFakeStorage({ prices = {}, conversionRate = null } = {}) {
         },
         getConversionRate(pair) {
             if (pair === 'USD_TO_EUR') return conversionRate;
+            return null;
+        },
+        getAssetType(ticker) {
+            return assetTypes[ticker.toUpperCase()] || null;
+        },
+        getAssetCategory() {
             return null;
         }
     };

@@ -4,6 +4,7 @@
 import { YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE, PRICE_PROXY_URL } from './config.js?v=2';
 import { sleep } from './utils.js';
 import { resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js';
+import { marketCalendarEngine } from './MarketCalendarEngine.js';
 
 // Les anciennes clés et proxys ont été retirés pour la sécurité
 
@@ -574,6 +575,13 @@ export class PriceAPI {
         const result = chartData.chart.result[0];
         const timestamps = result.timestamp;
         const quotes = result.indicators.quote[0].close;
+
+        // Phase 2.5 : alimente MarketCalendarEngine avec les VRAIES métadonnées
+        // exchange/timezone/session que Yahoo renvoie déjà ici (exchangeTimezoneName,
+        // currentTradingPeriod...) — jusqu'ici jamais extraites au-delà de `currency`.
+        // Effet de bord pur : ne change ni la valeur ni la forme retournée par cette
+        // fonction (voir audit Phase 2.5, section "éviter les changements API inutiles").
+        marketCalendarEngine.ingestProviderMetadata(ticker, result.meta);
 
         if (!timestamps || timestamps.length < 2) {
           console.warn(`[DEBUG ${ticker}] Insufficient data (${timestamps?.length || 0} points)`);
