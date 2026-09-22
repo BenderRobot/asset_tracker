@@ -191,7 +191,30 @@ export class HistoryCalculator {
         } else {
             purchases.forEach(p => {
                 const type = (p.assetType || '').toLowerCase();
-                const isCash = type === 'cash' || p.ticker.toUpperCase() === 'CASH' || p.ticker.toUpperCase() === 'EUR';
+                // BUG FOUND (root cause of the 53 226,78€ vs 36 880,78€ report) : cette
+                // classification ne reconnaissait QUE `assetType === 'cash'` — pas les
+                // dividendes (assetType 'Dividend' / p.type === 'dividend'), alors que
+                // dataManager.calculateCashReserve (qui alimente investedAssetOnly/
+                // cashReserve — voir buildTodaySnapshot) traite déjà les deux comme
+                // équivalents : `type === 'cash' || type === 'dividend' || p.type ===
+                // 'dividend'`. Un dividende est enregistré (voir achatsPage.js::
+                // handleConfirmDividends/handleManualDividend) avec le TICKER DE
+                // L'ACTION SOUS-JACENTE (ex: "AAPL"), `price = montant net reçu`,
+                // `quantity = 1` — jamais un vrai achat d'action. Sans ce cas dans
+                // `isCash`, chaque dividende tombait dans la branche "achat" ci-dessous :
+                // +1 action fantôme d'AAPL, achetée au prix du montant du dividende, et
+                // valorisée ensuite au prix COURANT d'AAPL dans _buildSeries — une action
+                // fantôme par dividende versé, qui s'accumule indéfiniment (jamais
+                // "vendue") et gonfle le dernier point du graphique (Total Value/FIN/
+                // tooltip) d'autant de quantité fictive que de dividendes reçus au fil
+                // des ans, alors que calculateHoldings (le tableau/les cartes KPI) exclut
+                // déjà correctement les lignes dividende de son propre calcul de
+                // position. Fix : router un dividende exactement comme un mouvement de
+                // cash (même bucket `CASH-{currency}`, même formule `quantity =
+                // parseFloat(p.price)` — sûr ici car ces deux types de lignes ont
+                // toujours `quantity: 1` à la création, voir app.js/achatsPage.js).
+                const isCash = type === 'cash' || type === 'dividend' || p.type === 'dividend'
+                    || p.ticker.toUpperCase() === 'CASH' || p.ticker.toUpperCase() === 'EUR';
                 const currency = p.currency || 'EUR';
                 const t = isCash ? `CASH-${currency}` : p.ticker.toUpperCase();
                 const broker = p.broker || 'RV-CT';
