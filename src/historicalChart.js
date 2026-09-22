@@ -463,6 +463,12 @@ export class HistoricalChart {
             } else if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
                 isSingleAsset = true;
                 currentTicker = this.selectedAssets[0];
+                // Capturé AVANT tout await de ce cycle (même règle que
+                // dataManager.buildTodaySnapshot pour le mode portefeuille) — sans
+                // ça, portfolioKPIs.updateFromGraph() n'a aucun moyen de rejeter un
+                // refresh PORTEFEUILLE plus ancien qui répondrait APRÈS que cet
+                // actif ait été sélectionné (voir le bug KPI-non-synchronisé).
+                snapshotStartedAt = Date.now();
                 if (forceApi) await this.api.fetchBatchPrices([currentTicker]);
 
                 const pagePurchases = this.getFilteredPurchasesFromPage(false);
@@ -832,7 +838,20 @@ export class HistoricalChart {
             priceStart, priceEnd: displayPriceEnd, priceHigh, priceLow, avgPrice, decimals
         });
 
-        if (!isSingleAssetMode && !isIndexMode) {
+        // BUG FOUND (KPI top cards non synchronisés en mode actif) : cette
+        // condition excluait `isSingleAssetMode` — en mode actif (drill-down
+        // OU vue portefeuille filtrée sur un seul ticker), portfolioKPIs
+        // n'était donc JAMAIS mis à jour, et les 4 cartes du haut restaient
+        // figées sur le dernier snapshot PORTEFEUILLE affiché avant la
+        // sélection de cet actif. kpiData est pourtant déjà calculé plus haut
+        // de façon mode-agnostique (_computeAggregateKPIs, à partir de
+        // targetSummary/targetCashReserve — l'actif seul en mode 'asset',
+        // cash=0 puisque targetCashReserve n'est jamais renseigné dans cette
+        // branche de update()) : aucun second moteur, aucune formule
+        // spéciale, on lui fait juste atteindre portfolioKPIs dans TOUS les
+        // modes sauf l'index (qui n'a pas de notion de "Total Return
+        // portefeuille" à afficher — comportement inchangé pour lui).
+        if (!isIndexMode) {
             const periodMap = { 1: '1d', 2: '2d', 7: '1w', 30: '1m', 90: '3m', 180: '6m', 365: '1y', 730: '2y' };
             portfolioKPIs.updateFromGraph({
                 values: graphData.values,
@@ -844,7 +863,10 @@ export class HistoricalChart {
                 liveTotalReturn: kpiData ? kpiData.totalReturn : null,
                 liveTotalReturnPct: kpiData ? kpiData.totalReturnPct : null,
                 // Garde anti-race (voir portfolioKPIs.updateFromGraph) : capturé
-                // avant tout await de ce cycle par dataManager.buildTodaySnapshot.
+                // avant tout await de ce cycle, par dataManager.buildTodaySnapshot
+                // en mode portefeuille, ou directement dans update() en mode actif
+                // (voir plus haut) — jamais absent, pour qu'un refresh d'un AUTRE
+                // mode/actif ne puisse jamais écraser celui-ci après coup.
                 snapshotStartedAt: kpiData?.snapshotStartedAt ?? null
             });
         }

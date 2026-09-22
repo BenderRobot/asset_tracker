@@ -79,7 +79,15 @@ export class HistoryCalculator {
     // remplace la lecture de storage.getConversionRate — pour que ce moteur et
     // calculateHoldings (Total Value) utilisent EXACTEMENT le même taux de
     // change pour le même rendu, jamais deux lectures indépendantes.
-    async calculateGenericHistory(purchases, days, isSingleAsset = false, historicalFxMap = null, dynamicRateOverride = null) {
+    // `debugCapture` (INSTRUMENTATION TEMPORAIRE, diagnostic du -42,16€ /
+    // -150€ écarts "22:00 vs dernier point") : optionnel, null par défaut —
+    // n'existe QUE pour dataManager.debugLastPointDivergence(). Quand fourni
+    // (un tableau), _buildSeries y pousse un enregistrement PAR (ticker,
+    // timestamp) documentant le prix/la source/la valeur RÉELLEMENT utilisés
+    // par ce calcul — sans jamais changer une seule valeur retournée. Aucun
+    // appelant existant ne passe ce paramètre ; comportement strictement
+    // inchangé quand il vaut null (voir tests : 102/102 inchangés).
+    async calculateGenericHistory(purchases, days, isSingleAsset = false, historicalFxMap = null, dynamicRateOverride = null, debugCapture = null) {
         const ledger = this._buildLedger(purchases, isSingleAsset);
         if (!ledger.firstPurchaseDate) return emptyResult();
 
@@ -131,7 +139,7 @@ export class HistoryCalculator {
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
             dynamicRate, isSingleAsset, interval, days, labelFormatFunc,
             resolveCloseBefore, initialYesterdayClose: yesterday.total, win, historicalFxMap,
-            midnightValuationSeed
+            midnightValuationSeed, debugCapture
         });
 
         const purchasePoints = isSingleAsset
@@ -693,7 +701,7 @@ export class HistoryCalculator {
     // ========================================================
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
-    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null, midnightValuationSeed = null }) {
+    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
         const twr = [], dailyTwr = [];
 
@@ -851,18 +859,24 @@ export class HistoryCalculator {
                 }
                 expected++;
 
+                // INSTRUMENTATION TEMPORAIRE (debugCapture) — trace la PROVENANCE du
+                // prix retenu, sans influencer `price` lui-même : chaque branche
+                // ci-dessous ne fait qu'étiqueter la décision déjà prise par le code
+                // existant.
+                let priceSource = isCash ? 'cash' : 'none';
+
                 let price = null;
                 if (isCash) {
                     price = 1.0;
                 } else {
                     const hist = historicalDataMap.get(t);
-                    if (hist?.[ts] != null) price = hist[ts];
+                    if (hist?.[ts] != null) { price = hist[ts]; priceSource = 'candle'; }
                     // Valorisation (pas une observation) au tout premier point de la
                     // fenêtre (00:00), uniquement si aucune vraie bougie n'existe déjà
                     // à cet instant précis — voir _resolveMidnightValuationSeed.
-                    else if (ts === win.displayStartTs && midnightValuationSeed?.has(t)) price = midnightValuationSeed.get(t);
-                    else if (hist) price = findClosestPrice(hist, ts, interval, isCryptoTicker(t));
-                    if (price == null && lastKnownPrices.has(t)) price = lastKnownPrices.get(t);
+                    else if (ts === win.displayStartTs && midnightValuationSeed?.has(t)) { price = midnightValuationSeed.get(t); priceSource = 'midnightSeed'; }
+                    else if (hist) { price = findClosestPrice(hist, ts, interval, isCryptoTicker(t)); if (price != null) priceSource = 'closestPrice'; }
+                    if (price == null && lastKnownPrices.has(t)) { price = lastKnownPrices.get(t); priceSource = 'lastKnown'; }
 
                     // On the very last plotted point of the 1D view ("now"), the
                     // intraday candle can be a few minutes behind a freshly-fetched
@@ -878,6 +892,7 @@ export class HistoryCalculator {
                         const live = this.storage.getCurrentPrice(t);
                         if (live?.price > 0 && live.lastUpdate && (Date.now() - live.lastUpdate) < 10 * 60 * 1000) {
                             price = live.price;
+                            priceSource = 'liveOverride';
                         }
 
                         // DIAGNOSTIC : sur ce tout dernier point (celui qui devient
@@ -901,9 +916,9 @@ export class HistoryCalculator {
                     }
                 }
 
+                let rate = 1;
+                let currency = 'EUR';
                 if (price != null) {
-                    let rate = 1;
-                    let currency = 'EUR';
                     if (!isSingleAsset) {
                         currency = this.storage.getCurrentPrice(t)?.currency || 'EUR';
                         if (currency === 'USD') rate = dynamicRate;
@@ -931,6 +946,17 @@ export class HistoryCalculator {
                 }
                 totalInvested += isCash ? investedByTicker.get(t) : (assetCostBasisByTicker.get(t) || 0);
                 if (!isCash) totalInvestedAssetOnly += assetCostBasisByTicker.get(t) || 0;
+
+                // INSTRUMENTATION TEMPORAIRE — voir debugCapture plus haut. Un
+                // enregistrement par (ticker, timestamp) réellement traité par CE
+                // calcul, jamais une reconstruction a posteriori.
+                if (debugCapture) {
+                    debugCapture.push({
+                        ts, ticker: t, quantity: qty, price, currency, rate,
+                        value: price != null ? price * qty * rate : null,
+                        source: priceSource, isLastPoint: i === displayTimestamps.length - 1
+                    });
+                }
             }
 
             // --- daily anchor: resolve once per calendar day, reusing the SAME
