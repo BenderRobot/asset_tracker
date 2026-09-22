@@ -17,10 +17,19 @@
 //     denominator intraday, whether they are buys or sells — a sale must not
 //     register as a fake loss any more than a purchase should register as a
 //     fake gain.
-//  3. Market-open times are DST-aware (MarketUtils.getMarketOpenUTCHour), not
-//     a hardcoded UTC offset that silently drifts by an hour every summer.
+//  3. Per-ticker market/session questions (is it a trading day, DST-aware
+//     open/close, previous/next session) have ONE owner — MarketCalendarEngine
+//     (Phase 2), itself built on MarketUtils' existing DST-aware primitives.
+//     _computeDisplayWindow below still resolves the DISPLAYED WINDOW's own
+//     boundaries directly (a "which dates does this chart cover" question,
+//     not a single ticker's session) — not yet routed through the engine;
+//     flagged as follow-up work, not silently left inconsistent.
 //  4. Stock candles never snap forward across a weekend/holiday gap
 //     (findClosestPrice(..., allowForward=false) for non-crypto tickers).
+//  5. The Global 1D window is 00:00 → now in the portfolio timezone (see
+//     _computeDisplayWindow's days===1 branch), never the first exchange's
+//     open time — a closed market is valorized at its last real price
+//     (lastKnownPrices carry-forward), never given a fabricated candle.
 
 import { USD_TO_EUR_FALLBACK_RATE } from './config.js';
 import { parseDate } from './utils.js';
@@ -34,7 +43,6 @@ import {
     formatTicker,
     resolveTickerPreviousClose,
     getCloseCutoffForTicker,
-    getMarketOpenUTCHour,
     resolveHistoricalUsdToEurRate
 } from './MarketUtils.js';
 
@@ -62,11 +70,15 @@ export class HistoryCalculator {
     // ========================================================
     // Public entry point
     // ========================================================
-    async calculateGenericHistory(purchases, days, isSingleAsset = false, historicalFxMap = null) {
+    // `dynamicRateOverride` : quand fourni par dataManager.buildTodaySnapshot(),
+    // remplace la lecture de storage.getConversionRate — pour que ce moteur et
+    // calculateHoldings (Total Value) utilisent EXACTEMENT le même taux de
+    // change pour le même rendu, jamais deux lectures indépendantes.
+    async calculateGenericHistory(purchases, days, isSingleAsset = false, historicalFxMap = null, dynamicRateOverride = null) {
         const ledger = this._buildLedger(purchases, isSingleAsset);
         if (!ledger.firstPurchaseDate) return emptyResult();
 
-        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+        const dynamicRate = dynamicRateOverride ?? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE);
         const tickers = Array.from(ledger.byTicker.keys());
         const isCrypto = isSingleAsset
             ? isCryptoTicker(tickers[0] || '')
@@ -101,9 +113,9 @@ export class HistoryCalculator {
         const yesterdayRefDate = (days === 1) ? win.displayStart : new Date();
         const yesterday = await resolveCloseBefore(yesterdayRefDate, 'yesterdayClose', true);
 
-        if (days === 1) {
-            this._injectMidnightPrices(tickers, historicalDataMap, win, yesterday);
-        }
+        const midnightValuationSeed = (days === 1)
+            ? this._resolveMidnightValuationSeed(tickers, historicalDataMap, win, yesterday)
+            : null;
 
         const displayTimestamps = this._buildTimestampGrid(days, historicalDataMap, win, ledger, interval, isCrypto);
 
@@ -113,7 +125,8 @@ export class HistoryCalculator {
         const series = await this._buildSeries({
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
             dynamicRate, isSingleAsset, interval, days, labelFormatFunc,
-            resolveCloseBefore, initialYesterdayClose: yesterday.total, win, historicalFxMap
+            resolveCloseBefore, initialYesterdayClose: yesterday.total, win, historicalFxMap,
+            midnightValuationSeed
         });
 
         const purchasePoints = isSingleAsset
@@ -135,7 +148,13 @@ export class HistoryCalculator {
             twr: series.twr,
             dailyTwr: series.dailyTwr,
             historicalDataMap,
-            isMixed
+            isMixed,
+            // SINGLE SOURCE OF TRUTH pour "le prix couramment utilisé, par
+            // ticker, au dernier point de CE calcul" — dataManager.
+            // buildTodaySnapshot() le réinjecte tel quel dans calculateHoldings
+            // pour que Total Value ne puisse jamais lire un prix différent de
+            // celui qui a produit le dernier point du graphique.
+            resolvedPrices: series.resolvedPrices
         };
     }
 
@@ -230,18 +249,19 @@ export class HistoryCalculator {
             displayStart = start;
             bufferDays = 5;
         } else if (days === 1) {
-            // Stocks, weekday: the window opens at the market's real open time
-            // today, DST-aware, so an overnight/pre-market gap is never hidden
-            // behind a synthetic "yesterday close" point that starts too late.
-            const tickers = Array.from(ledger.byTicker.keys());
-            const hasEU = tickers.some(t => t.endsWith('.PA') || t.endsWith('.DE') || t.includes('EUR') ||
-                (ledger.byTicker.get(t)?.[0]?.currency === 'EUR'));
-            const openUTCHour = hasEU
-                ? getMarketOpenUTCHour(9, 'Europe/Paris', today)
-                : getMarketOpenUTCHour(9.5, 'America/New_York', today);
-            const h = Math.floor(openUTCHour);
-            const m = Math.round((openUTCHour - h) * 60);
-            displayStart = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), h, m, 0));
+            // Phase 2 — Global 1D MUST be 00:00 → maintenant in the portfolio
+            // timezone (see MarketCalendarEngine.getPortfolioTimezone), not the
+            // first exchange's open time. Before market open, the loop below
+            // carries forward each ticker's last known price (yesterday's close —
+            // see lastKnownPrices/_injectMidnightPrices) instead of fabricating a
+            // new candle: the flat pre-open segment this produces is a genuine
+            // PORTFOLIO VALUATION at a real, already-known price, not an invented
+            // observation. getCloseCutoffForTicker (used everywhere "yesterday"
+            // is resolved for this same 1D view) is unaffected — extending the
+            // window's own start earlier does not change what counts as
+            // "yesterday" for a given ticker.
+            displayStart = new Date(today);
+            displayStart.setHours(0, 0, 0, 0);
             bufferDays = 5;
         } else if (days === 2) {
             const start = new Date(today); start.setHours(0, 0, 0, 0);
@@ -521,19 +541,24 @@ export class HistoryCalculator {
         return { total: assetsFound > 0 ? total : 0, quantities, prices };
     }
 
-    // Stocks have no quote before the market opens: without SOME price at
-    // 00:00, they would simply be absent from the day's first point. This only
-    // fills a MISSING timestamp — it never overwrites a real fetched price
-    // (crypto already has genuine continuous data at 00:00, and that real data
-    // must be left alone; forcing it to match a separately-resolved "close"
-    // is exactly the kind of display-level patch that hides a real bug instead
-    // of fixing it — tried once, produced a worse, more obviously fake cliff,
-    // reverted).
-    _injectMidnightPrices(tickers, historicalDataMap, win, yesterday) {
+    // Phase 2 — OBSERVATION vs VALORISATION (section 10-12 de l'audit) : stocks
+    // have no quote before the market opens, but the Global 1D window now
+    // starts at 00:00 (see _computeDisplayWindow), so the day's FIRST plotted
+    // point can be many hours before any real candle exists for a stock. A
+    // portfolio VALUATION at that instant is legitimate (last real known
+    // price) — but it must NEVER be written into `historicalDataMap`, which
+    // represents actual market OBSERVATIONS (real candles). This used to write
+    // directly into `hist[win.displayStartTs]` — a duplicated price under a
+    // synthetic timestamp is exactly the "fake observation" pattern the audit
+    // bans. Fix: return a separate seed Map that _buildSeries consults ONLY at
+    // ts===win.displayStartTs, with the exact same priority a real candle
+    // would have had — historicalDataMap itself is never mutated.
+    _resolveMidnightValuationSeed(tickers, historicalDataMap, win, yesterday) {
+        const seed = new Map();
         for (const t of tickers) {
             if (t.startsWith('CASH-')) continue;
             const hist = historicalDataMap.get(t);
-            if (!hist || hist[win.displayStartTs]) continue;
+            if (hist?.[win.displayStartTs] != null) continue; // une vraie bougie existe déjà — rien à faire
 
             let price = yesterday.prices.get(t) || null;
             if (!price) {
@@ -541,10 +566,11 @@ export class HistoryCalculator {
                 if (pd?.previousClose > 0) price = pd.previousClose;
                 else if (isCryptoTicker(t) && pd?.price > 0) price = pd.price;
             }
-            if (!price) price = findClosestPrice(hist, win.displayStartTs - 3600000, '1h', isCryptoTicker(t));
+            if (!price && hist) price = findClosestPrice(hist, win.displayStartTs - 3600000, '1h', isCryptoTicker(t));
 
-            if (price > 0) hist[win.displayStartTs] = price;
+            if (price > 0) seed.set(t, price);
         }
+        return seed;
     }
 
     // ========================================================
@@ -645,12 +671,13 @@ export class HistoryCalculator {
     // ========================================================
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
-    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null }) {
+    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null, midnightValuationSeed = null }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
         const twr = [], dailyTwr = [];
 
         const quantities = new Map(tickers.map(t => [t, 0]));
         const investedByTicker = new Map(tickers.map(t => [t, 0]));
+        const resolvedPrices = new Map(); // ticker -> {price, currency, previousClose, lastUpdate} au dernier point
 
         // SINGLE SOURCE OF TRUTH pour le coût de revient (Total Return), isolé
         // par (courtier, ticker) — même principe que
@@ -808,6 +835,10 @@ export class HistoryCalculator {
                 } else {
                     const hist = historicalDataMap.get(t);
                     if (hist?.[ts] != null) price = hist[ts];
+                    // Valorisation (pas une observation) au tout premier point de la
+                    // fenêtre (00:00), uniquement si aucune vraie bougie n'existe déjà
+                    // à cet instant précis — voir _resolveMidnightValuationSeed.
+                    else if (ts === win.displayStartTs && midnightValuationSeed?.has(t)) price = midnightValuationSeed.get(t);
                     else if (hist) price = findClosestPrice(hist, ts, interval, isCryptoTicker(t));
                     if (price == null && lastKnownPrices.has(t)) price = lastKnownPrices.get(t);
 
@@ -850,14 +881,31 @@ export class HistoryCalculator {
 
                 if (price != null) {
                     let rate = 1;
+                    let currency = 'EUR';
                     if (!isSingleAsset) {
-                        const currency = this.storage.getCurrentPrice(t)?.currency || 'EUR';
+                        currency = this.storage.getCurrentPrice(t)?.currency || 'EUR';
                         if (currency === 'USD') rate = dynamicRate;
                     }
                     totalValue += price * qty * rate;
                     hasAnyPrice = true; priced++;
                     if (isSingleAsset) unitPrice = price;
                     lastKnownPrices.set(t, price);
+
+                    // Capture, pour le dernier point SEULEMENT, exactement le prix
+                    // que CE calcul vient d'utiliser — voir resolvedPrices dans le
+                    // retour de calculateGenericHistory : dataManager.
+                    // buildTodaySnapshot() réinjecte cette même Map dans
+                    // calculateHoldings, pour que Total Value ne puisse jamais
+                    // recalculer "maintenant" avec un prix différent.
+                    if (!isSingleAsset && i === displayTimestamps.length - 1) {
+                        const stored = this.storage.getCurrentPrice(t);
+                        resolvedPrices.set(t, {
+                            price,
+                            currency,
+                            previousClose: stored?.previousClose ?? null,
+                            lastUpdate: stored?.lastUpdate ?? null
+                        });
+                    }
                 }
                 totalInvested += isCash ? investedByTicker.get(t) : (assetCostBasisByTicker.get(t) || 0);
                 if (!isCash) totalInvestedAssetOnly += assetCostBasisByTicker.get(t) || 0;
@@ -945,7 +993,7 @@ export class HistoryCalculator {
         // could therefore drift from it — align it on the same single anchor.
         if (days === 1 && periodDenominator > 0) dayStartValue = periodDenominator;
 
-        return { labels, invested, investedAssetOnly, values, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue };
+        return { labels, invested, investedAssetOnly, values, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue, resolvedPrices };
     }
 
     // ========================================================

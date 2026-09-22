@@ -22,6 +22,7 @@ export class PortfolioKPIs {
             invested: 0,
             source: null,      // 'graph' or null
             timestamp: null,
+            snapshotStartedAt: null, // voir garde anti-race ci-dessous
             period: null       // '1d', '1w', etc.
         };
 
@@ -32,15 +33,40 @@ export class PortfolioKPIs {
     /**
      * Update KPIs from graph data
      * CRITICAL: This should ONLY be called by historicalChart.js
-     * 
+     *
+     * ANTI-RACE : deux instances de HistoricalChart (Dashboard ET Investments
+     * ont chacune la leur) peuvent écrire ici, et un refresh peut se
+     * chevaucher avec le suivant (bouton période cliqué pendant qu'un appel
+     * réseau précédent est encore en vol, auto-refresh 30s de dashboardApp.js,
+     * etc.). `graphData.snapshotStartedAt` doit être capturé par l'appelant
+     * AVANT tout await (voir dataManager.buildTodaySnapshot) : si une requête
+     * plus ANCIENNE répond APRÈS une plus récente, elle est ignorée ici plutôt
+     * que d'écraser un état plus frais avec un état périmé — sans ça, Total
+     * Value pourrait revenir en arrière quand deux refresh se chevauchent.
+     *
      * @param {Object} graphData - Data from the graph
      * @param {Array} graphData.values - Array of portfolio values over time
      * @param {Number} graphData.invested - Total amount invested
      * @param {Number} graphData.vsYesterdayAbs - Absolute variation vs yesterday
      * @param {Number} graphData.vsYesterdayPct - Percentage variation vs yesterday
      * @param {String} graphData.period - Period ('1d', '1w', etc.)
+     * @param {Number} [graphData.snapshotStartedAt] - Date.now() capturé par
+     *   l'appelant avant le moindre await de ce cycle de calcul.
      */
     updateFromGraph(graphData) {
+        if (
+            graphData.snapshotStartedAt != null &&
+            this.kpis.snapshotStartedAt != null &&
+            graphData.snapshotStartedAt < this.kpis.snapshotStartedAt
+        ) {
+            console.warn(
+                `[PortfolioKPIs] Snapshot périmé ignoré (démarré à ${graphData.snapshotStartedAt}, ` +
+                `plus récent déjà affiché depuis ${this.kpis.snapshotStartedAt}) — évite qu'une réponse ` +
+                `réseau plus ancienne n'écrase un état plus récent.`
+            );
+            return;
+        }
+
         const lastValue = this.getLastValidValue(graphData.values);
         if (lastValue === null) {
             console.warn('[PortfolioKPIs] No valid last value in graph data');
@@ -75,6 +101,7 @@ export class PortfolioKPIs {
             invested: graphData.invested,
             source: 'graph',
             timestamp: Date.now(),
+            snapshotStartedAt: graphData.snapshotStartedAt ?? this.kpis.snapshotStartedAt ?? null,
             period: graphData.period || 'unknown'
         };
 
@@ -219,6 +246,7 @@ export class PortfolioKPIs {
             invested: 0,
             source: null,
             timestamp: null,
+            snapshotStartedAt: null,
             period: null
         };
         console.log('[PortfolioKPIs] Reset');

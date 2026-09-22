@@ -42,3 +42,10 @@ if (typeof globalThis.localStorage === 'undefined') {
         clear: () => store.clear()
     };
 }
+
+// portfolioKPIs.js schedules listener notifications via requestAnimationFrame,
+// a browser-only API — Node has no rendering loop, so run the callback on the
+// next microtask/macrotask instead.
+if (typeof globalThis.requestAnimationFrame === 'undefined') {
+    globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+}

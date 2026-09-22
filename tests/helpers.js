@@ -1,17 +1,37 @@
-// Test double for storage.js — implements only the surface DataManager actually
-// reads (getCurrentPrice, getConversionRate). Deliberately NOT the real
-// storage.js: these tests exercise the real DataManager/HistoryCalculator engine
-// in isolation from localStorage/Firestore, which is what makes them fast and
-// side-effect-free.
+// Test doubles for storage.js and api.js — implement only the surface
+// DataManager/HistoryCalculator actually read. Deliberately NOT the real
+// storage.js/api.js: these tests exercise the real engine classes in
+// isolation from localStorage/Firestore/network, which is what makes them
+// fast, deterministic and side-effect-free.
+
 export function createFakeStorage({ prices = {}, conversionRate = null } = {}) {
+    const priceStore = new Map(Object.entries(prices));
     return {
         getCurrentPrice(ticker) {
-            return prices[ticker.toUpperCase()] || null;
+            const entry = priceStore.get(ticker.toUpperCase());
+            return typeof entry === 'function' ? entry() : (entry || null);
+        },
+        setCurrentPrice(ticker, data) {
+            priceStore.set(ticker.toUpperCase(), data);
         },
         getConversionRate(pair) {
             if (pair === 'USD_TO_EUR') return conversionRate;
             return null;
         }
+    };
+}
+
+// Every network method HistoryCalculator/DataManager might call, all
+// answering with "no historical data" by default — the engine is written to
+// fall back to storage.getCurrentPrice()'s previousClose/price in that case
+// (see MarketUtils.resolveTickerPreviousClose), which is exactly the
+// deterministic, network-free path these tests want.
+export function createFakeApi(overrides = {}) {
+    return {
+        async getHistoricalPricesWithRetry() { return {}; },
+        async fetchCryptoKlinesFromBinance() { return {}; },
+        async fetchBatchPrices() { return {}; },
+        ...overrides
     };
 }
 

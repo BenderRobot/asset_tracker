@@ -3,19 +3,27 @@
 // ========================================
 //
 // SINGLE SOURCE OF TRUTH RULE (the whole reason this file was rewritten):
-// exactly ONE call resolves "today's" portfolio data per update() cycle —
-// _resolveTodayData(). That same object feeds:
+// exactly ONE call resolves "today's" FINANCIAL SNAPSHOT per update() cycle —
+// dataManager.buildTodaySnapshot() for portfolio mode (_resolveTodayData() is
+// kept for the single-asset drill-down, which has no "Total Value" card to
+// reconcile against). That snapshot bundles todayGraphData (the graph's own
+// series) together with holdings/summary/cash computed from the EXACT SAME
+// resolved prices and FX rate — not two engines each reading
+// storage.getCurrentPrice()/getConversionRate() independently. It feeds:
 //   - the visible curve (when the 1D tab is active, it IS the curve's data —
 //     no second fetch)
 //   - the top KPI cards (TOTAL VALUE / TOTAL RETURN / VAR TODAY), via
 //     portfolioKPIs
 //   - the chart's own stats panel (FIN / DÉBUT / HAUT / BAS / PÉRIODE /
 //     VAR. JOUR / CLÔTURE HIER), via chartKPIManager
+//   - the tooltip (reads graphData.values/pctSeries directly — no per-point
+//     substitution, see _buildKpiRows)
 //   - the table's "Day P&L" column (yesterdayCloseMap), via
 //     dataManager.calculateHoldings
 // No other code path in this file computes "today's change" a second,
 // independent way. That duplication — not any single formula — was the root
-// cause of every table/KPI/chart mismatch found in this app.
+// cause of every table/KPI/chart mismatch found in this app (see
+// dataManager.buildTodaySnapshot's own doc comment for the full audit).
 
 import { eventBus } from './eventBus.js';
 import { ChartKPIManager } from './chartKPIManager.js';
@@ -399,6 +407,11 @@ export class HistoricalChart {
             let targetHoldings = [];
             let targetSummary = {};
             let targetCashReserve = { total: 0 };
+            // Capturé par dataManager.buildTodaySnapshot() AVANT tout await de ce
+            // cycle — sert de garde anti-race dans portfolioKPIs.updateFromGraph
+            // (voir plus bas) pour qu'une réponse plus ancienne ne puisse jamais
+            // écraser un état plus récent.
+            let snapshotStartedAt = null;
             let titleConfig;
             let isSingleAsset = false;
             let isIndexMode = (this.currentMode === 'index');
@@ -487,7 +500,6 @@ export class HistoricalChart {
                     return type === 'cash' || type === 'dividend' || p.type === 'dividend';
                 });
 
-                targetCashReserve = this.dataManager.calculateCashReserve(cashPurchases);
                 if (titleConfig.mode === 'asset') {
                     isSingleAsset = true;
                     currentTicker = this.filterManager.getSelectedTickers().values().next().value;
@@ -498,19 +510,30 @@ export class HistoricalChart {
                     if (tickers.length > 0) await this.api.fetchBatchPrices(tickers);
                 }
 
-                graphData = await this.dataManager.calculateHistory([...assetPurchases, ...cashPurchases], this.currentPeriod);
+                // SNAPSHOT FINANCIER UNIQUE (cause racine de l'audit : "Fin"/le
+                // tooltip du dernier point/Clôture hier pouvaient différer de "Total
+                // Value"/"Var Today" parce que le graphique (HistoryCalculator) et
+                // calculateHoldings lisaient storage.getCurrentPrice()/
+                // getConversionRate() à deux instants distincts). Un seul appel
+                // résout "aujourd'hui" — todayGraphData ET targetHoldings/
+                // targetSummary en sortent réconciliés par construction (mêmes prix,
+                // même taux), jamais deux jeux de données pour le même instant.
+                const snapshot = await this.dataManager.buildTodaySnapshot(assetPurchases, cashPurchases);
+                todayGraphData = snapshot.todayGraphData;
+                targetHoldings = snapshot.holdings;
+                targetSummary = snapshot.summary;
+                targetCashReserve = snapshot.cashReserve;
+                snapshotStartedAt = snapshot.snapshotStartedAt;
 
-                // SSOT: on the 1D tab this IS graphData (zero extra fetch); on any
-                // other tab, one dedicated period=1 call — never a third, separate
-                // "day change" computation anywhere downstream of this.
-                todayGraphData = await this._resolveTodayData(assetPurchases, cashPurchases, false, graphData);
-                const yesterdayCloseMap = this.dataManager.buildYesterdayCloseMapFromGraphData(todayGraphData);
-                // Taux USD/EUR figé à la date de chaque transaction (invariant 9) —
-                // mémoïsé par dataManager, pas de coût réseau supplémentaire ici.
-                const portfolioFxMap = await this.dataManager.getHistoricalFxMap(assetPurchases);
-
-                targetHoldings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap, portfolioFxMap);
-                targetSummary = this.dataManager.calculateSummary(targetHoldings);
+                // Sur l'onglet 1D, le graphique affiché EST le snapshot d'aujourd'hui
+                // (zéro appel réseau supplémentaire). Sur une autre période (1W, 1M…),
+                // une série plus large est construite séparément pour l'affichage —
+                // "aujourd'hui" (Var Today/Clôture hier/Total Value) reste
+                // exclusivement défini par le snapshot ci-dessus, jamais par le
+                // dernier point de cette série-là.
+                graphData = (this.currentPeriod === 1)
+                    ? todayGraphData
+                    : await this.dataManager.calculateHistory([...assetPurchases, ...cashPurchases], this.currentPeriod);
             }
 
             if (benchmarkWrapper) benchmarkWrapper.style.display = (isSingleAsset || isIndexMode) ? 'none' : 'block';
@@ -532,7 +555,7 @@ export class HistoricalChart {
             if (!graphData || !graphData.labels || graphData.labels.length === 0) {
                 this.showMessage('Pas de données disponibles pour cette période');
             } else {
-                const kpiData = this._computeAggregateKPIs({ targetSummary, targetCashReserve, todayGraphData });
+                const kpiData = this._computeAggregateKPIs({ targetSummary, targetCashReserve, todayGraphData, snapshotStartedAt });
                 this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData);
 
                 if (!isSingleAsset && !isIndexMode) {
@@ -569,7 +592,7 @@ export class HistoricalChart {
     // the KPI cards to silently drift apart on — that drift (the graph
     // engine's own separate price resolution vs calculateHoldings') was the
     // root of every "table vs KPI" mismatch chased through this file's history.
-    _computeAggregateKPIs({ targetSummary, targetCashReserve, todayGraphData }) {
+    _computeAggregateKPIs({ targetSummary, targetCashReserve, todayGraphData, snapshotStartedAt = null }) {
         const cash = targetCashReserve.total || 0;
         const investedAssetOnly = targetSummary.totalInvestedEUR || 0;
         const totalValue = (targetSummary.totalCurrentEUR || 0) + cash;
@@ -614,7 +637,7 @@ export class HistoricalChart {
             varTodayPct = targetSummary.dayChangePct ?? null;
         }
 
-        return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly };
+        return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly, snapshotStartedAt };
     }
 
     // BUG FOUND: #view-toggle means two different things depending on what's
@@ -765,47 +788,32 @@ export class HistoricalChart {
         let referenceClose = referenceCloseIn ?? graphData.yesterdayClose ?? priceStart;
         if (!referenceClose || isNaN(referenceClose)) referenceClose = priceStart;
 
-        // VAR TODAY: ALWAYS the graph-derived value (kpiData.varTodayAbs), the same
-        // number driving the top KPI cards — never re-derived here.
+        // VAR TODAY : dérivé de kpiData.varTodayAbs, lui-même calculé (voir
+        // historicalChart::_computeAggregateKPIs) à partir de graphData —
+        // et graphData EST désormais le snapshot unique construit par
+        // dataManager.buildTodaySnapshot() (voir update()) : priceEnd
+        // (displayValues[lastIndex]) et referenceClose (graphData.yesterdayClose)
+        // ci-dessus proviennent DÉJÀ des mêmes prix/taux que kpiData.totalValue —
+        // il n'y a plus deux snapshots à réconcilier après coup. PÉRIODE (perfAbs/
+        // perfPct, calculé plus haut depuis graphData.twr) reste volontairement
+        // indépendant de Var Today : sur l'onglet 1D les deux coïncident parce que
+        // periodDenominator == dayDenominator pour une fenêtre d'un seul jour, pas
+        // parce que l'un écrase l'autre.
         let vsYesterdayAbs = null, vsYesterdayPct = null;
         if (!isIndexMode && kpiData?.varTodayAbs !== null && kpiData?.varTodayAbs !== undefined && !isNaN(kpiData.varTodayAbs)) {
             vsYesterdayAbs = kpiData.varTodayAbs;
             vsYesterdayPct = kpiData.varTodayPct || 0;
-            // BUG FOUND: this used to derive CLÔTURE HIER from the graph's own RAW
-            // last point (displayValues[lastIndex], historical-candle based) minus
-            // the LIVE-based vsYesterdayAbs — mixing two different "current value"
-            // bases. Since FIN is displayed as kpiData.totalValue (live-based, see
-            // displayPriceEnd below), CLÔTURE HIER must be derived from that SAME
-            // base, or FIN − CLÔTURE HIER stops equaling VAR JOUR and the curve
-            // (anchored on the graph's own true close) visibly disagrees with the
-            // text (verified: text showed +177€/+0.85% while the curve sat almost
-            // entirely below 0%, because CLÔTURE HIER was off by ~300€).
-            if (!isSingleAssetMode && kpiData?.totalValue !== undefined && kpiData?.totalValue !== null) {
-                referenceClose = kpiData.totalValue - vsYesterdayAbs;
-            }
         } else if (priceEnd !== null && referenceClose) {
             vsYesterdayAbs = priceEnd - referenceClose;
             vsYesterdayPct = referenceClose !== 0 ? (vsYesterdayAbs / referenceClose) * 100 : 0;
         }
 
-        // PÉRIODE == VAR. JOUR on the 1D tab: they are the exact same concept
-        // ("change over the displayed period" vs "change today") and must show
-        // the exact same number. Overriding perfAbs/perfPct here (computed above
-        // from the graph's own TWR series) with vsYesterdayAbs/vsYesterdayPct
-        // (table-derived, live snapshot) is what actually makes that true —
-        // computing them via two different paths is what produced PÉRIODE
-        // -247,57€ next to VAR. JOUR -9,76€ for the same day.
-        if (this.currentPeriod === 1 && vsYesterdayAbs !== null && !isNaN(vsYesterdayAbs)) {
-            perfAbs = vsYesterdayAbs;
-            perfPct = vsYesterdayPct;
-        }
-
-        // FIN affiché = TOTAL VALUE (même nombre que la carte KPI), pour le
-        // portefeuille (pas un actif unique, pas un indice).
-        let displayPriceEnd = priceEnd;
-        if (!isSingleAssetMode && !isIndexMode && kpiData?.totalValue !== undefined && kpiData?.totalValue !== null) {
-            displayPriceEnd = kpiData.totalValue;
-        }
+        // "Fin" est le dernier point RÉEL du graphique — jamais substitué par
+        // kpiData.totalValue après coup (voir audit : ce genre de substitution
+        // ciblée sur le dernier point est justement ce qui produisait un tooltip
+        // incohérent avec la courbe). Depuis buildTodaySnapshot(), les deux sont
+        // déjà la même valeur par construction pour le portefeuille en vue 1D.
+        const displayPriceEnd = priceEnd;
 
         const isPositive = (vsYesterdayAbs !== null ? vsYesterdayAbs : perfAbs) >= 0;
         const mainColor = isPositive ? '#2ecc71' : '#e74c3c';
@@ -834,7 +842,10 @@ export class HistoricalChart {
                 cashDetails: { total: kpiData ? kpiData.cash : 0 },
                 liveTotalValue: kpiData ? kpiData.totalValue : null,
                 liveTotalReturn: kpiData ? kpiData.totalReturn : null,
-                liveTotalReturnPct: kpiData ? kpiData.totalReturnPct : null
+                liveTotalReturnPct: kpiData ? kpiData.totalReturnPct : null,
+                // Garde anti-race (voir portfolioKPIs.updateFromGraph) : capturé
+                // avant tout await de ce cycle par dataManager.buildTodaySnapshot.
+                snapshotStartedAt: kpiData?.snapshotStartedAt ?? null
             });
         }
 
@@ -977,29 +988,19 @@ export class HistoricalChart {
         if (val == null || isNaN(val)) return [];
         const pct = pctSeries?.[idx];
 
-        // On the CURRENT point specifically, reuse kpiData as-is (the exact
-        // same numbers the top KPI cards show — SSOT since _computeAggregateKPIs
-        // was simplified to a plain sum over calculateHoldings) instead of
-        // recomputing Total Value/Return from the graph engine's own separate
-        // time series below. That series still merges positions by ticker only
-        // (HistoryCalculator's own ledger, not yet given the same per-broker
-        // fix as dataManager.js's calculateHoldings) and can disagree with the
-        // table by a lot on some points — fine for a past moment in time (this
-        // genuinely IS a different point), but "now" must match what's on
-        // screen everywhere else.
-        const isNowPoint = lastIndex != null && idx === lastIndex && kpiData?.totalReturn != null;
+        // GRAPH POINT = TOOLTIP POINT : aucune substitution spéciale sur le
+        // dernier point. graphData EST le snapshot unique construit par
+        // dataManager.buildTodaySnapshot() (voir historicalChart::update()), donc
+        // val (graphData.values[idx]) au dernier index égale déjà kpiData.totalValue
+        // par construction pour le portefeuille en vue 1D — plus besoin de
+        // remplacer l'un par l'autre après coup ici.
         const cash = kpiData?.cash || 0;
-        const totalValueEur = isNowPoint ? kpiData.totalValue : val;
-        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(totalValueEur), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
-        if (isNowPoint) {
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(kpiData.totalReturn), pct: pctFmt(kpiData.totalReturnPct || 0), positive: kpiData.totalReturn >= 0 });
-        } else {
-            const investedAO = graphData.investedAssetOnly?.[idx];
-            if (investedAO != null && !isNaN(investedAO)) {
-                const totalReturn = (val - cash) - investedAO;
-                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
-            }
+        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(val), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
+        const investedAO = graphData.investedAssetOnly?.[idx];
+        if (investedAO != null && !isNaN(investedAO)) {
+            const totalReturn = (val - cash) - investedAO;
+            const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
         }
 
         // Only on the 1D tab: "Var Today" is specifically about today, and
@@ -1007,15 +1008,11 @@ export class HistoricalChart {
         // 1W tooltip showed it relative to a mid-week close, which just read
         // as a confusing 4th number rather than "today").
         if (this.currentPeriod === 1) {
-            if (isNowPoint && kpiData.varTodayAbs != null) {
-                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(kpiData.varTodayAbs), pct: pctFmt(kpiData.varTodayPct || 0), positive: kpiData.varTodayAbs >= 0 });
-            } else {
-                const dTwr = graphData.dailyTwr?.[idx];
-                if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
-                    const varTodayAbs = val - val / dTwr;
-                    const varTodayPct = (dTwr - 1) * 100;
-                    rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
-                }
+            const dTwr = graphData.dailyTwr?.[idx];
+            if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
+                const varTodayAbs = val - val / dTwr;
+                const varTodayPct = (dTwr - 1) * 100;
+                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
             }
         }
 
@@ -1045,29 +1042,23 @@ export class HistoricalChart {
         const v0 = graphData.values?.[i0], v1 = graphData.values?.[i1];
         if (v0 == null || v1 == null || isNaN(v0) || isNaN(v1)) return [];
 
-        // Same SSOT rule as _buildKpiRows: when the drag ends on the CURRENT
-        // point, show the exact same Total Value/Return as the top KPI cards
-        // instead of the graph engine's own separate (ticker-merged) series.
-        const isNowPoint = lastIndex != null && i1 === lastIndex && kpiData?.totalReturn != null;
+        // GRAPH POINT = TOOLTIP POINT ici aussi (voir _buildKpiRows) : v1 au
+        // dernier index égale déjà kpiData.totalValue par construction, plus
+        // besoin de substitution.
         const cash = kpiData?.cash || 0;
-        const totalValueEur = isNowPoint ? kpiData.totalValue : v1;
 
         const pct1 = pctSeries?.[i1];
-        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(totalValueEur), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
+        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(v1), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
 
-        if (isNowPoint) {
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(kpiData.totalReturn), pct: pctFmt(kpiData.totalReturnPct || 0), positive: kpiData.totalReturn >= 0 });
-        } else {
-            const investedAO = graphData.investedAssetOnly?.[i1];
-            if (investedAO != null && !isNaN(investedAO)) {
-                const totalReturn = (v1 - cash) - investedAO;
-                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
-            }
+        const investedAO = graphData.investedAssetOnly?.[i1];
+        if (investedAO != null && !isNaN(investedAO)) {
+            const totalReturn = (v1 - cash) - investedAO;
+            const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
         }
 
         if (v0 !== 0) {
-            const deltaAbs = totalValueEur - v0;
+            const deltaAbs = v1 - v0;
             const deltaPct = (deltaAbs / v0) * 100;
             rows.push({ icon: '📅', label: 'Variation', eur: eurFmt(deltaAbs), pct: pctFmt(deltaPct), positive: deltaAbs >= 0 });
         }

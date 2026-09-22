@@ -265,8 +265,16 @@ export class DataManager {
     // pour la vue par ticker (calculateHoldings, ci-dessous) et par courtier
     // (calculateByBroker), pour que les deux restent cohérentes par
     // construction plutôt que deux copies de la même formule.
-    _enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap) {
-        const d = this.storage.getCurrentPrice(ticker) || {};
+    // `resolvedPrices` (optionnel) : Map ticker -> {price, currency, previousClose,
+    // lastUpdate} déjà résolue par HistoryCalculator pour CE MÊME instant (voir
+    // buildTodaySnapshot ci-dessous). Quand elle est fournie, on l'utilise à la
+    // place d'une nouvelle lecture de storage.getCurrentPrice — sinon Total Value
+    // (ici) et le dernier point du graphique (HistoryCalculator) peuvent lire le
+    // prix "courant" à deux instants légèrement différents et donc deux valeurs
+    // différentes pour le même ticker au même instant affiché (c'est la cause
+    // racine de l'incohérence Fin/Total Value/tooltip — voir audit).
+    _enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap, resolvedPrices = null) {
+        const d = resolvedPrices?.get(ticker) || this.storage.getCurrentPrice(ticker) || {};
         const currency = d.currency || 'EUR';
 
         // currentRate convertit le prix de marché courant pour les actifs USD
@@ -435,8 +443,15 @@ export class DataManager {
         return [...byBroker.values()];
     }
 
-    calculateHoldings(assetPurchases, yesterdayCloseMap = null, historicalFxMap = null) {
-        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+    // `priceSnapshot` (optionnel) : { dynamicRate, prices } déjà résolu par
+    // buildTodaySnapshot() ci-dessous, pour que Total Value (ici) et le dernier
+    // point du graphique (HistoryCalculator) partagent EXACTEMENT le même taux de
+    // change et les mêmes prix "courants" — jamais deux lectures indépendantes de
+    // storage à deux instants différents pour le même rendu. Sans snapshot fourni
+    // (compatibilité des appelants existants), le comportement est inchangé :
+    // lecture directe de storage à l'instant de l'appel.
+    calculateHoldings(assetPurchases, yesterdayCloseMap = null, historicalFxMap = null, priceSnapshot = null) {
+        const dynamicRate = priceSnapshot?.dynamicRate ?? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE);
         const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate, historicalFxMap);
 
         // Agrégation par TICKER (une ligne par actif, tous courtiers
@@ -456,7 +471,7 @@ export class DataManager {
         byTicker.forEach(agg => agg.purchases.sort((a, b) => new Date(a.date) - new Date(b.date)));
 
         return Array.from(byTicker.entries()).map(([ticker, data]) =>
-            this._enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap)
+            this._enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap, priceSnapshot?.prices)
         );
     }
 
@@ -1151,12 +1166,65 @@ export class DataManager {
         return this.historyCalculator.getHistoryWithCache(ticker, startTs, endTs, interval);
     }
 
-    async calculateGenericHistory(purchases, days, isSingleAsset = false) {
+    // `dynamicRateOverride`/`historicalFxMapOverride` : quand fournis (voir
+    // buildTodaySnapshot ci-dessous), on saute la résolution habituelle et on
+    // utilise EXACTEMENT le taux déjà figé par l'appelant pour ce rendu — pour
+    // que le graphique et calculateHoldings ne puissent jamais lire le taux
+    // courant à deux instants différents.
+    async calculateGenericHistory(purchases, days, isSingleAsset = false, dynamicRateOverride = null, historicalFxMapOverride = null) {
         // Le coût de revient du graphique (tooltip "Investi") doit être figé au même
         // taux historique que calculateHoldings pour la même transaction — sinon le
         // tooltip peut afficher un "Investi" différent du KPI "Investi" affiché juste
         // au-dessus, pour la même date, à cause du seul taux de change (invariant 9).
-        const historicalFxMap = await this.getHistoricalFxMap(purchases);
-        return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset, historicalFxMap);
+        const historicalFxMap = historicalFxMapOverride ?? await this.getHistoricalFxMap(purchases);
+        return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset, historicalFxMap, dynamicRateOverride);
+    }
+
+    // ============================================================
+    // SINGLE SOURCE OF TRUTH — SNAPSHOT FINANCIER "MAINTENANT"
+    // ============================================================
+    //
+    // Cause racine (audit) : Total Value/Fin du graphique/tooltip du dernier
+    // point/Clôture hier/Var Today étaient chacun capables de lire
+    // storage.getCurrentPrice()/getConversionRate() à un instant légèrement
+    // différent — HistoryCalculator (le graphique) et calculateHoldings (Total
+    // Value) sont deux moteurs distincts qui, jusqu'ici, résolvaient chacun sa
+    // propre idée de "maintenant". Un prix live rafraîchi entre les deux
+    // lectures (ou un ticker dont le live est périmé >10min pour l'un mais pas
+    // pour l'autre) produisait deux valorisations différentes du MÊME instant —
+    // c'est ce qui rendait "Fin"/le tooltip du dernier point incohérents avec
+    // la carte "Total Value"/"Var Today", même si chaque nombre pris
+    // isolément était calculé correctement.
+    //
+    // Fix structurel : UNE seule fonction construit "l'état financier
+    // maintenant" pour toute l'UI. Elle résout le graphique EN PREMIER — lui
+    // seul sait retomber sur la dernière bougie si le prix live d'un ticker
+    // est périmé (>10min), au lieu de fabriquer un faux dernier point — PUIS
+    // réutilise EXACTEMENT les prix et le taux de change que le graphique
+    // vient de résoudre (HistoryCalculator expose son propre "resolvedPrices",
+    // construit à partir de ce qu'il a réellement utilisé pour son dernier
+    // point) pour calculer holdings/summary/cash. Il n'existe plus de second
+    // jeu de données pour le même instant : Total Value EST, par construction
+    // algébrique, la valeur du dernier point du graphique "aujourd'hui".
+    //
+    // `snapshotStartedAt` est capturé AVANT tout await : un appelant peut s'en
+    // servir pour ignorer un résultat plus ancien arrivé après un plus récent
+    // (voir portfolioKPIs.updateFromGraph et historicalChart.js::update()).
+    async buildTodaySnapshot(assetPurchases, cashPurchases = []) {
+        const snapshotStartedAt = Date.now();
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+        const historicalFxMap = await this.getHistoricalFxMap(assetPurchases);
+
+        const todayGraphData = await this.calculateGenericHistory(
+            [...assetPurchases, ...cashPurchases], 1, false, dynamicRate, historicalFxMap
+        );
+
+        const holdings = this.calculateHoldings(assetPurchases, null, historicalFxMap, {
+            dynamicRate, prices: todayGraphData.resolvedPrices
+        });
+        const summary = this.calculateSummary(holdings);
+        const cashReserve = this.calculateCashReserve(cashPurchases);
+
+        return { snapshotStartedAt, dynamicRate, historicalFxMap, todayGraphData, holdings, summary, cashReserve };
     }
 }

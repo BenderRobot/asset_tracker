@@ -88,6 +88,16 @@ class DashboardApp {
         this.globalNews = [];
         this.lastHoldings = [];
 
+        // ANTI-RACE : refreshDataInBackground() et loadPortfolioData() sont toutes
+        // les deux lancées sans attente au démarrage (voir init()) et calculent
+        // chacune leurs propres holdings/summary de façon indépendante avant
+        // d'écrire les KPI secondaires (Top Gainer/Loser, Allocation). Sans garde,
+        // celle qui répond en dernier "gagne" même si elle a démarré AVANT
+        // l'autre et lu des prix plus anciens. Un ticket incrémenté au DÉBUT de
+        // chaque appel, vérifié juste avant d'écrire, garantit qu'un calcul plus
+        // ancien ne peut jamais écraser le résultat d'un calcul démarré après lui.
+        this._portfolioRenderGen = 0;
+
         this.selectedAssetFilter = '';
 
         // Initialize FCM for Android notifications
@@ -293,10 +303,25 @@ class DashboardApp {
         }
     }
 
+    // Voir _portfolioRenderGen dans le constructeur : à appeler au tout début
+    // d'un calcul KPI secondaire (avant tout await), puis _isLatestPortfolioRender
+    // juste avant d'écrire le résultat.
+    _beginPortfolioRender() {
+        return ++this._portfolioRenderGen;
+    }
+    _isLatestPortfolioRender(ticket) {
+        if (ticket !== this._portfolioRenderGen) {
+            console.warn(`[Dashboard] Rendu KPI secondaire #${ticket} ignoré — un calcul démarré après lui (#${this._portfolioRenderGen}) a la priorité.`);
+            return false;
+        }
+        return true;
+    }
+
     /**
      * Render dashboard with cached data
      */
     renderWithCachedData(cachedData) {
+        const renderTicket = this._beginPortfolioRender();
         try {
             // Extract data from cache structure
             const cacheSum = cachedData.summary || {};
@@ -333,8 +358,10 @@ class DashboardApp {
             const activeHoldings = assets.filter(h => (h.quantity || 0) > 0.0001);
 
             // Render secondary KPIs (TOP GAINER, TOP LOSER, TOP ASSET, ASSET ALLOCATION)
-            this.renderKPIs(fullSummary, cashReserve, activeHoldings);
-            this.renderAllocation(activeHoldings, summary.totalCurrentEUR);
+            if (this._isLatestPortfolioRender(renderTicket)) {
+                this.renderKPIs(fullSummary, cashReserve, activeHoldings);
+                this.renderAllocation(activeHoldings, summary.totalCurrentEUR);
+            }
 
             console.log('📊 Dashboard rendered from cache');
         } catch (error) {
@@ -346,6 +373,7 @@ class DashboardApp {
      * Refresh data in background and update cache
      */
     async refreshDataInBackground() {
+        const renderTicket = this._beginPortfolioRender();
         try {
             console.log('🔄 Refreshing data in background...');
 
@@ -384,8 +412,10 @@ class DashboardApp {
             };
 
             // Render secondary KPIs (TOP GAINER, TOP LOSER, TOP ASSET, ASSET ALLOCATION)
-            this.renderKPIs(fullSummary, cash.total, holdings);
-            this.renderAllocation(holdings, summary.totalCurrentEUR);
+            if (this._isLatestPortfolioRender(renderTicket)) {
+                this.renderKPIs(fullSummary, cash.total, holdings);
+                this.renderAllocation(holdings, summary.totalCurrentEUR);
+            }
 
             // Save to cache for next time
             // WRAPPED IN TRY/CATCH to prevent blocking the UI if Firestore Quota is exceeded
@@ -700,13 +730,16 @@ class DashboardApp {
     }
 
     async loadPortfolioData() {
+        const renderTicket = this._beginPortfolioRender();
         try {
             const purchases = this.storage.getPurchases();
             if (purchases.length === 0) {
                 const zeroSummary = { totalCurrentEUR: 0, totalInvestedEUR: 0, gainTotal: 0, gainPct: 0, totalDayChangeEUR: 0, dayChangePct: 0, movementsCount: 0, assetsCount: 0 };
-                this.renderKPIs(zeroSummary, 0, []);
-                this.renderAllocation([], 0);
-                this.ui.updatePortfolioSummary(zeroSummary, 0, 0, null);
+                if (this._isLatestPortfolioRender(renderTicket)) {
+                    this.renderKPIs(zeroSummary, 0, []);
+                    this.renderAllocation([], 0);
+                    this.ui.updatePortfolioSummary(zeroSummary, 0, 0, null);
+                }
                 return;
             }
 
@@ -835,8 +868,10 @@ class DashboardApp {
             // this.ui.updatePortfolioSummary(summary, summary.movementsCount, cashReserve.total, this.marketStatus);
 
             // NOTE: renderKPIs s'occupe des cartes secondaires (Top Gainer, Top Loser, Allocation)
-            this.renderKPIs(summary, cashReserve.total, holdings);
-            this.renderAllocation(holdings, summary.totalCurrentEUR);
+            if (this._isLatestPortfolioRender(renderTicket)) {
+                this.renderKPIs(summary, cashReserve.total, holdings);
+                this.renderAllocation(holdings, summary.totalCurrentEUR);
+            }
 
         } catch (error) { console.error("Erreur chargement portfolio:", error); }
     }
