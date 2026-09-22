@@ -42,8 +42,11 @@ export class AchatsPage {
     // await this.api.fetchBatchPrices(tickers, true); // <--- LIGNE SUPPRIMÉE
 
     // 4. Enrichir les deux listes séparément
-    const enrichedAssets = this.dataManager.calculateEnrichedPurchases(assetPurchases);
-    const enrichedCash = this.dataManager.calculateEnrichedPurchases(cashMovements);
+    // Taux USD/EUR figé à la date de chaque transaction (invariant 9) — voir
+    // dataManager.getHistoricalFxMap / MarketUtils.resolveHistoricalUsdToEurRate.
+    const historicalFxMap = await this.dataManager.getHistoricalFxMap(filtered);
+    const enrichedAssets = this.dataManager.calculateEnrichedPurchases(assetPurchases, historicalFxMap);
+    const enrichedCash = this.dataManager.calculateEnrichedPurchases(cashMovements, historicalFxMap);
 
     // 5. Combiner pour l'affichage
     const allEnriched = [...enrichedAssets, ...enrichedCash];
@@ -185,7 +188,7 @@ export class AchatsPage {
     // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
     const yesterdayCloseAssetPurchases = assetPurchases.filter(p => p.type !== 'dividend');
     const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(yesterdayCloseAssetPurchases);
-    const holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap);
+    const holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap);
     const summary = this.dataManager.calculateSummary(holdings);
     const globalCashReserve = this.dataManager.calculateCashReserve(this.storage.getPurchases());
 

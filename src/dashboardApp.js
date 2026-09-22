@@ -352,8 +352,11 @@ class DashboardApp {
             const purchases = this.storage.getPurchases();
             const marketPurchases = purchases.filter(p => p.assetType !== 'Real Estate');
 
+            // Taux USD/EUR figé à la date de chaque transaction (invariant 9).
+            const historicalFxMap = await this.dataManager.getHistoricalFxMap(marketPurchases);
+
             // Generate fresh report
-            const freshReport = this.dataManager.generateFullReport(marketPurchases);
+            const freshReport = this.dataManager.generateFullReport(marketPurchases, null, historicalFxMap);
 
             // Update UI with fresh data
             const holdings = freshReport.assets || [];
@@ -746,8 +749,10 @@ class DashboardApp {
 
             // [MODIFICATION] Pré-calculer les clôtures veille alignées sur le graphique pour cohérence P&L
             const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(assetPurchases);
+            // Taux USD/EUR figé à la date de chaque transaction (invariant 9).
+            const historicalFxMap = await this.dataManager.getHistoricalFxMap(assetPurchases);
 
-            let holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap);
+            let holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap);
 
             // CRITICAL FIX: Filter out zero-quantity holdings (fully sold positions)
             // Use threshold to account for floating-point precision
@@ -797,6 +802,20 @@ class DashboardApp {
             });
             console.log('Cash reserve:', cashReserve.total);
             console.log('===================================');
+
+            // Diagnostic lecture seule des invariants comptables (voir audit) — ne
+            // modifie jamais les données, ne bloque jamais le rendu même en cas
+            // d'erreur interne. Volontairement limité à un warn console : la
+            // détection d'un écart doit être immédiate pour qui développe, sans
+            // ajouter de surface UI pour ce qui reste un outil de diagnostic.
+            try {
+                const consistency = this.dataManager.validatePortfolioConsistency(assetPurchases, cashPurchases, historicalFxMap);
+                if (!consistency.valid) {
+                    console.warn('[validatePortfolioConsistency] Invariants violés :', consistency.differences, consistency);
+                }
+            } catch (diagErr) {
+                console.warn('[validatePortfolioConsistency] Diagnostic indisponible:', diagErr);
+            }
 
             // === SAVE KPIs TO FIRESTORE (Leader Mode) ===
             if (shouldRefresh) {

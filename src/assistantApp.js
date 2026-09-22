@@ -572,7 +572,9 @@ Titre:`;
             // SINGLE SOURCE OF TRUTH pour la clôture de la veille (même moteur que
             // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
             const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(assetPurchases);
-            const holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap);
+            // Taux USD/EUR figé à la date de chaque transaction (invariant 9).
+            const historicalFxMap = await this.dataManager.getHistoricalFxMap(assetPurchases);
+            const holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap);
             const summary = this.dataManager.calculateSummary(holdings);
             const performance = this.dataManager.analyzePerformance(holdings);
             const diversification = this.dataManager.calculateDiversification(holdings);
@@ -585,15 +587,20 @@ Titre:`;
                 byType[type].push(h);
             });
 
+            // BUG FOUND (audit) : reconstruisait l'investi par courtier en resommant
+            // les transactions brutes (`+= p.price * p.quantity`), sans conversion FX
+            // ET sans réduction proportionnelle du coût de revient sur une vente — un
+            // 3e calcul indépendant qui pouvait annoncer, à la voix, un investi par
+            // courtier différent de celui affiché sur Dashboard/Investments/Achats.
+            // Fix : agrège les MÊMES positions (broker,ticker) que calculateHoldings.
+            const investedByBroker = this.dataManager.getInvestedByBroker(assetPurchases, historicalFxMap);
             const byBroker = {};
-            assetPurchases.forEach(p => {
-                const broker = p.broker || 'Non spécifié';
-                if (!byBroker[broker]) {
-                    byBroker[broker] = { count: 0, totalInvested: 0, assets: new Set() };
-                }
-                byBroker[broker].count++;
-                byBroker[broker].totalInvested += (p.price * p.quantity);
-                byBroker[broker].assets.add(p.ticker);
+            investedByBroker.forEach(entry => {
+                byBroker[entry.broker] = {
+                    count: entry.transactionsCount,
+                    totalInvested: entry.invested,
+                    assets: entry.assets
+                };
             });
 
             const primaryResidence = this.storage.getPrimaryResidence();

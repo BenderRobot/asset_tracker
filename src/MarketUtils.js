@@ -53,6 +53,64 @@ export function getLastTradingDay(date) {
 }
 
 /**
+ * SINGLE SOURCE OF TRUTH pour convertir un montant USD ACHETÉ à une date donnée en
+ * EUR — utilisée à la fois par dataManager.js (positions, transactions) et
+ * HistoryCalculator.js (coût de revient du graphique), pour ne jamais avoir deux
+ * implémentations indépendantes de la même règle.
+ *
+ * `historicalFxMap` est une Map date('YYYY-MM-DD') -> taux EUR->USD (ex: fournie par
+ * dataManager.fetchHistoricalFxRateMap('EURUSD=X', ...), càd "1 EUR = X USD" — on
+ * inverse pour obtenir USD->EUR).
+ *
+ * Invariant 9 : une variation du taux COURANT ne doit jamais modifier rétroactivement
+ * un montant EUR déjà investi. Ne fabrique jamais un taux silencieusement : si aucune
+ * cotation n'existe à la date exacte ni dans une fenêtre de ±7 jours (weekend/jour
+ * férié FX), retombe explicitement sur `fallbackRate` (le taux courant) et LOG le
+ * repli, avec le contexte (ticker/broker) pour permettre de diagnostiquer précisément
+ * quelle transaction reste approximée tant que la donnée historique n'est pas dispo.
+ *
+ * @param {string|Date} dateInput
+ * @param {Map<string, number>|null} historicalFxMap
+ * @param {number} fallbackRate
+ * @param {{ticker?: string, broker?: string}} context
+ * @returns {number} taux USD->EUR à appliquer
+ */
+export function resolveHistoricalUsdToEurRate(dateInput, historicalFxMap, fallbackRate, context = {}) {
+    const label = `${context.ticker || '?'} / ${context.broker || '?'}`;
+
+    if (!historicalFxMap || historicalFxMap.size === 0) {
+        console.warn(`[FX] Aucun taux historique EUR/USD chargé — repli explicite sur le taux courant (${fallbackRate}) pour ${label} du ${dateInput}.`);
+        return fallbackRate;
+    }
+
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return fallbackRate;
+
+    const toKey = (dd) => dd.toISOString().split('T')[0];
+    let eurUsdRate = historicalFxMap.get(toKey(d));
+
+    if (!eurUsdRate) {
+        for (let i = 1; i <= 7 && !eurUsdRate; i++) {
+            const back = new Date(d); back.setDate(d.getDate() - i);
+            eurUsdRate = historicalFxMap.get(toKey(back));
+        }
+    }
+    if (!eurUsdRate) {
+        for (let i = 1; i <= 7 && !eurUsdRate; i++) {
+            const fwd = new Date(d); fwd.setDate(d.getDate() + i);
+            eurUsdRate = historicalFxMap.get(toKey(fwd));
+        }
+    }
+
+    if (!eurUsdRate) {
+        console.warn(`[FX] Taux historique EUR/USD introuvable (±7j) pour ${label} du ${toKey(d)} — repli explicite sur le taux courant (${fallbackRate}).`);
+        return fallbackRate;
+    }
+
+    return 1 / eurUsdRate;
+}
+
+/**
  * Checks if a ticker is a crypto.
  * @param {string} ticker
  * @returns {boolean}

@@ -465,7 +465,10 @@ export class HistoricalChart {
 
                 todayGraphData = await this._resolveTodayData(targetAssetPurchases, [], true, graphData);
                 const yesterdayCloseMap = this.dataManager.buildYesterdayCloseMapFromGraphData(todayGraphData);
-                targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap);
+                // Taux USD/EUR figé à la date de chaque transaction (invariant 9) —
+                // mémoïsé par dataManager, pas de coût réseau supplémentaire ici.
+                const singleAssetFxMap = await this.dataManager.getHistoricalFxMap(targetAssetPurchases);
+                targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap, singleAssetFxMap);
                 targetSummary = this.dataManager.calculateSummary(targetHoldings);
 
                 const name = targetAssetPurchases[0]?.name || currentTicker;
@@ -502,8 +505,11 @@ export class HistoricalChart {
                 // "day change" computation anywhere downstream of this.
                 todayGraphData = await this._resolveTodayData(assetPurchases, cashPurchases, false, graphData);
                 const yesterdayCloseMap = this.dataManager.buildYesterdayCloseMapFromGraphData(todayGraphData);
+                // Taux USD/EUR figé à la date de chaque transaction (invariant 9) —
+                // mémoïsé par dataManager, pas de coût réseau supplémentaire ici.
+                const portfolioFxMap = await this.dataManager.getHistoricalFxMap(assetPurchases);
 
-                targetHoldings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap);
+                targetHoldings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap, portfolioFxMap);
                 targetSummary = this.dataManager.calculateSummary(targetHoldings);
             }
 
@@ -841,7 +847,10 @@ export class HistoricalChart {
             .filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase())
             .filter(p => { const type = (p.assetType || 'Stock').toLowerCase(); return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend'; });
         if (!purchases.length) return 0;
-        const holdings = this.dataManager.calculateHoldings(purchases);
+        // Lecture synchrone du cache FX déjà chargé par ce même update() (voir
+        // dataManager.getCachedHistoricalFxMap) — cette méthode ne peut pas
+        // attendre un nouvel appel réseau, elle est appelée depuis renderChart.
+        const holdings = this.dataManager.calculateHoldings(purchases, null, this.dataManager.getCachedHistoricalFxMap());
         return holdings?.[0]?.avgPrice || 0;
     }
 

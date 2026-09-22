@@ -8,6 +8,7 @@ import { PAGE_SIZE, USD_TO_EUR_FALLBACK_RATE } from './config.js';
 import { formatCurrency, formatPercent, formatQuantity } from './utils.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
+import { resolveHistoricalUsdToEurRate } from './MarketUtils.js';
 
 // Pour les stocks US cotés en EU (Xetra/Frankfurt), on redirige vers le ticker US primaire
 // afin que le screener trouve les données Yahoo Finance correctement.
@@ -361,17 +362,31 @@ export class InvestmentsPage {
           : '-';
         const qty = purchase.quantity != null ? formatQuantity(purchase.quantity) : '-';
 
-        // Gain total de cet achat
-        const buyValue = (purchase.price || 0) * (purchase.quantity || 0);
-        const usdRate = buyCurrency === 'USD' ? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE) : 1;
-        const purchaseGainEUR = p.currentPrice && purchase.price
-          ? (p.currentPrice - purchase.price) * (purchase.quantity || 0) * usdRate
+        // Gain total de cet achat — délègue au même calcul que calculateHoldings
+        // (dataManager) au lieu d'une 2e formule indépendante. Deux points
+        // corrigés ici :
+        // 1. Le coût de cet achat est figé au taux DU JOUR DE L'ACHAT (invariant 9),
+        //    jamais au taux courant.
+        // 2. p.currentPrice (sur la position déjà agrégée) est DÉJÀ converti en EUR
+        //    par calculateHoldings — le multiplier une 2e fois par un taux USD/EUR
+        //    (comme le faisait l'ancien code) double-convertissait la valeur
+        //    actuelle de toute ligne USD (ex: ~150$ affichés comme si le prix EUR
+        //    lui-même était encore en dollars).
+        const buyRate = buyCurrency === 'USD'
+          ? resolveHistoricalUsdToEurRate(
+              purchase.date,
+              this.dataManager.getCachedHistoricalFxMap(),
+              this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE,
+              { ticker: p.ticker, broker: purchase.broker }
+            )
+          : 1;
+        const purchaseCostEUR = (purchase.price || 0) * (purchase.quantity || 0) * buyRate;
+        const purchaseCurrentValue = p.currentPrice != null ? p.currentPrice * (purchase.quantity || 0) : null;
+        const purchaseGainEUR = purchaseCurrentValue !== null
+          ? purchaseCurrentValue - purchaseCostEUR
           : null;
-        const purchaseGainPct = purchase.price && purchaseGainEUR !== null
-          ? ((p.currentPrice - purchase.price) / purchase.price) * 100
-          : null;
-        const purchaseCurrentValue = p.currentPrice
-          ? p.currentPrice * (purchase.quantity || 0) * usdRate
+        const purchaseGainPct = purchaseCostEUR && purchaseGainEUR !== null
+          ? (purchaseGainEUR / purchaseCostEUR) * 100
           : null;
 
         const gainClass = purchaseGainEUR > 0 ? 'positive' : purchaseGainEUR < 0 ? 'negative' : '';

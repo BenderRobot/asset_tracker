@@ -12,7 +12,8 @@ import {
     getLastTradingDay,
     isCryptoTicker,
     formatTicker,
-    findClosestPrice
+    findClosestPrice,
+    resolveHistoricalUsdToEurRate
 } from './MarketUtils.js';
 
 export class DataManager {
@@ -77,7 +78,12 @@ export class DataManager {
         const byBroker = {};
         let total = 0;
         cashMovements.forEach(move => {
-            const broker = move.broker || 'Unknown';
+            // Même valeur par défaut que _buildPositionsByBrokerTicker ('RV-CT', pas
+            // 'Unknown') : sinon un mouvement de cash sans broker explicite (ex: import
+            // manuel) atterrit sous une clé différente de celle utilisée pour agréger
+            // les positions du même courtier par défaut, et validatePortfolioConsistency
+            // ne peut plus faire correspondre son cash à son broker.
+            const broker = move.broker || 'RV-CT';
             if (!byBroker[broker]) byBroker[broker] = 0;
             const amount = (move.price || 0) * (move.quantity || 1);
             byBroker[broker] += amount;
@@ -119,6 +125,51 @@ export class DataManager {
         return rates;
     }
 
+    // SINGLE SOURCE OF TRUTH pour la map de taux USD/EUR HISTORIQUES utilisée pour
+    // figer le coût EUR d'un ACHAT USD à SA date de transaction (jamais au taux
+    // courant — voir _resolveHistoricalUsdToEurRate ci-dessous et invariant 9 :
+    // une variation du taux courant ne doit jamais modifier rétroactivement
+    // l'investi historique). Mémoïsée par plage d'années couverte (1h de cache) ;
+    // ne fait AUCUN appel réseau si le portefeuille ne contient aucun achat USD.
+    async getHistoricalFxMap(purchases) {
+        const usdBuyDates = (purchases || [])
+            .filter(p => p.currency === 'USD' && p.quantity > 0 && p.date)
+            .map(p => new Date(p.date))
+            .filter(d => !isNaN(d.getTime()));
+
+        if (usdBuyDates.length === 0) return new Map();
+
+        const oldest = new Date(Math.min(...usdBuyDates.map(d => d.getTime())));
+        const yearsNeeded = Math.min(20, Math.max(1, Math.ceil((Date.now() - oldest.getTime()) / (365 * 86400 * 1000)) + 1));
+
+        if (this._historicalFxMapCache
+            && this._historicalFxMapCache.rangeYears >= yearsNeeded
+            && (Date.now() - this._historicalFxMapCache.fetchedAt) < 3600000) {
+            return this._historicalFxMapCache.map;
+        }
+
+        const map = await this.fetchHistoricalFxRateMap('EURUSD=X', yearsNeeded);
+        this._historicalFxMapCache = { map, rangeYears: yearsNeeded, fetchedAt: Date.now() };
+        return map;
+    }
+
+    // Lecture SYNCHRONE de la dernière map FX historique déjà résolue (voir
+    // getHistoricalFxMap ci-dessus) — pour les rendus synchrones (ex: sous-lignes
+    // d'achat d'investmentsPage.js) qui ne peuvent pas attendre un nouvel appel
+    // réseau. Retourne une Map vide tant qu'aucun appel async n'a encore résolu de
+    // map pour cette session : le taux courant reste alors utilisé en repli
+    // explicite (voir resolveHistoricalUsdToEurRate), jamais un taux inventé.
+    getCachedHistoricalFxMap() {
+        return this._historicalFxMapCache?.map || new Map();
+    }
+
+    // Thin wrapper — la logique elle-même vit dans MarketUtils.js
+    // (resolveHistoricalUsdToEurRate) pour être partagée avec HistoryCalculator.js
+    // sans deux implémentations indépendantes de la même règle.
+    _resolveHistoricalUsdToEurRate(dateInput, historicalFxMap, fallbackRate, context = {}) {
+        return resolveHistoricalUsdToEurRate(dateInput, historicalFxMap, fallbackRate, context);
+    }
+
     // SINGLE SOURCE OF TRUTH pour l'accroissement immobilier (intérêts simples),
     // utilisé par calculateHoldings, calculateEnrichedPurchases et realEstateApp.js.
     // Formule : Investi * (Taux/100) * (Jours détenus / 365).
@@ -155,7 +206,7 @@ export class DataManager {
     // positions — jamais deux calculs indépendants — donc la somme des
     // courtiers égale le total du portefeuille par construction algébrique,
     // et le coût de revient de chaque courtier est réellement le sien.
-    _buildPositionsByBrokerTicker(assetPurchases, dynamicRate) {
+    _buildPositionsByBrokerTicker(assetPurchases, dynamicRate, historicalFxMap = null) {
         const sorted = [...assetPurchases].sort((a, b) => new Date(a.date) - new Date(b.date));
         const positions = new Map(); // key: `${broker}::${ticker}`
 
@@ -175,10 +226,13 @@ export class DataManager {
             }
             const pos = positions.get(key);
             const currency = p.currency || 'EUR';
-            const rate = currency === 'USD' ? dynamicRate : 1;
 
             if (p.quantity > 0) {
-                // ACHAT
+                // ACHAT — le coût EUR est figé au taux du JOUR DE L'ACHAT (invariant 9),
+                // jamais au taux courant : voir _resolveHistoricalUsdToEurRate.
+                const rate = currency === 'USD'
+                    ? this._resolveHistoricalUsdToEurRate(p.date, historicalFxMap, dynamicRate, { ticker, broker })
+                    : 1;
                 pos.quantity += p.quantity;
                 pos.invested += p.price * p.quantity * rate;
             } else {
@@ -265,6 +319,21 @@ export class DataManager {
             let totalREInvested = 0;
 
             data.purchases.forEach(p => {
+                // BUG DE CONCEPTION DOCUMENTÉ (audit invariants, non corrigé faute de
+                // spécification produit) : contrairement aux actions/ETF/crypto, une
+                // "vente" (quantité négative) sur une ligne Real Estate n'est PAS
+                // réduite proportionnellement au coût de revient (voir
+                // _buildPositionsByBrokerTicker) — calculateRealEstateAccrual applique
+                // sa formule d'intérêts simples telle quelle à une quantité négative.
+                // Le résultat n'est pas garanti cohérent avec l'invariant
+                // currentValue - invested = return pour ce ticker. Un projet
+                // immobilier n'est normalement jamais revendu par fraction dans ce
+                // produit (durée figée, pas de marché secondaire) — ce garde-fou sert
+                // à détecter le cas s'il survient plutôt que d'afficher un chiffre
+                // silencieusement faux.
+                if (p.quantity < 0) {
+                    console.warn(`[RealEstate] Vente détectée sur "${ticker}" (broker ${p.broker}) — le modèle Real Estate ne réduit pas proportionnellement le coût de revient comme pour un actif coté. Vérifier manuellement "Investi"/"Valeur actuelle" pour ce ticker.`);
+                }
                 const { invested: pInvested, currentValue: pCurrentValue } = this.calculateRealEstateAccrual(p);
                 totalREInvested += pInvested;
                 totalREValue += pCurrentValue;
@@ -342,9 +411,33 @@ export class DataManager {
         };
     }
 
-    calculateHoldings(assetPurchases, yesterdayCloseMap = null) {
+    // SINGLE SOURCE OF TRUTH pour l'investi par courtier SANS valeur de marché
+    // (pas d'appel réseau) — agrège les MÊMES positions (broker,ticker) que
+    // calculateHoldings, jamais une resommation indépendante des transactions
+    // brutes. Utilisée par assistantApp.js à la place de son ancienne boucle
+    // `+= p.price * p.quantity` qui ne gérait ni la conversion FX, ni la
+    // réduction proportionnelle du coût de revient sur une vente (voir audit).
+    getInvestedByBroker(assetPurchases, historicalFxMap = null) {
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
-        const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate);
+        const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate, historicalFxMap)
+            .filter(pos => (pos.quantity || 0) > 0.0001);
+
+        const byBroker = new Map();
+        positions.forEach(pos => {
+            if (!byBroker.has(pos.broker)) {
+                byBroker.set(pos.broker, { broker: pos.broker, invested: 0, transactionsCount: 0, assets: new Set() });
+            }
+            const entry = byBroker.get(pos.broker);
+            entry.invested += pos.invested;
+            entry.transactionsCount += pos.purchases.length;
+            entry.assets.add(pos.ticker);
+        });
+        return [...byBroker.values()];
+    }
+
+    calculateHoldings(assetPurchases, yesterdayCloseMap = null, historicalFxMap = null) {
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+        const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate, historicalFxMap);
 
         // Agrégation par TICKER (une ligne par actif, tous courtiers
         // confondus) — même vue qu'avant pour le tableau/les résumés, mais
@@ -458,7 +551,7 @@ export class DataManager {
         };
     }
 
-    calculateEnrichedPurchases(filteredPurchases) {
+    calculateEnrichedPurchases(filteredPurchases, historicalFxMap = null) {
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
 
         return filteredPurchases.map(p => {
@@ -503,8 +596,12 @@ export class DataManager {
 
             // currentPriceOriginal is already in EUR — storage.js converts USD→EUR at storage time
             const currentPriceEUR = currentPriceOriginal ?? null;
-            // buyPriceOriginal is in p.currency (original purchase currency, never converted by storage)
-            const buyRate = p.currency === 'USD' ? dynamicRate : 1;
+            // buyPriceOriginal is in p.currency (original purchase currency, never converted by storage).
+            // Figé au taux DE CETTE TRANSACTION (invariant 9) — jamais au taux courant,
+            // sinon "Investi" bouge tout seul quand le taux change sans nouvelle transaction.
+            const buyRate = p.currency === 'USD'
+                ? this._resolveHistoricalUsdToEurRate(p.date, historicalFxMap, dynamicRate, { ticker: t, broker: p.broker })
+                : 1;
             const buyPriceEUR = buyPriceOriginal * buyRate;
 
             const investedEUR = buyPriceEUR * p.quantity;
@@ -634,7 +731,7 @@ export class DataManager {
         }
     }
 
-    generateFullReport(purchases, yesterdayCloseMap = null) {
+    generateFullReport(purchases, yesterdayCloseMap = null, historicalFxMap = null) {
         // Exclude Dividends from Asset Holdings
         const assetPurchases = purchases.filter(p => {
             const type = (p.assetType || 'Stock').toLowerCase();
@@ -646,7 +743,7 @@ export class DataManager {
             return type === 'cash' || type === 'dividend' || p.type === 'dividend';
         });
 
-        let holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap);
+        let holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap);
 
         // CRITICAL FIX: Filter out zero-quantity holdings (fully sold assets)
         // This prevents sold assets from appearing in analytics and causing errors
@@ -757,6 +854,7 @@ export class DataManager {
     // courtier) — ne se déclenche qu'à l'ouverture de la modale (voir ui.js).
     async calculateReturnByBroker(purchases) {
         const brokers = [...new Set(purchases.map(p => p.broker || 'RV-CT'))];
+        const historicalFxMap = await this.getHistoricalFxMap(purchases);
 
         const results = await Promise.all(brokers.map(async (broker) => {
             const brokerPurchases = purchases.filter(p => (p.broker || 'RV-CT') === broker);
@@ -778,7 +876,7 @@ export class DataManager {
 
             // Coût de revient : synchrone, déjà correct (positions isolées
             // par courtier, voir _buildPositionsByBrokerTicker ci-dessus).
-            const holdings = this.calculateHoldings([...assetPurchases]).filter(h => (h.quantity || 0) > 0.0001);
+            const holdings = this.calculateHoldings([...assetPurchases], null, historicalFxMap).filter(h => (h.quantity || 0) > 0.0001);
             const invested = holdings.reduce((s, h) => s + (h.invested || 0), 0);
 
             // Valeur de marché : LE MÊME appel que historicalChart.js fait
@@ -896,6 +994,83 @@ export class DataManager {
         return { volatility: volatility.toFixed(2), maxDrawdown: maxDrawdown.toFixed(2), riskLevel: volatility < 15 ? 'Faible' : 'Élevé', recommendation: 'Risque calculé' };
     }
 
+    // === DIAGNOSTIC — LECTURE SEULE, NE MODIFIE JAMAIS LES DONNÉES ===
+    //
+    // Vérifie les invariants comptables du cahier des charges à partir des MÊMES
+    // positions (broker,ticker) que calculateHoldings/calculateSummary — jamais un
+    // recalcul séparé. Permet de diagnostiquer immédiatement un futur écart plutôt
+    // que de deviner sur les totaux affichés. `assetPurchases`/`cashPurchases` sont
+    // déjà le sous-ensemble pertinent (après filtres broker/ticker/type éventuels —
+    // voir investmentsPage.getFilteredPurchasesFromPage) : le retour reflète alors
+    // les invariants POUR CE SOUS-ENSEMBLE, pas nécessairement le portefeuille entier.
+    validatePortfolioConsistency(assetPurchases, cashPurchases = [], historicalFxMap = null, tolerance = 0.01) {
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+
+        const holdings = this.calculateHoldings(assetPurchases, null, historicalFxMap)
+            .filter(h => (h.quantity || 0) > 0.0001);
+        const summary = this.calculateSummary(holdings);
+        const cashReserve = this.calculateCashReserve(cashPurchases || []);
+
+        // Ventilation par courtier : ré-agrège les positions déjà isolées par
+        // _buildPositionsByBrokerTicker (même source que calculateHoldings), jamais
+        // un second calcul indépendant — la valeur de marché de chaque position
+        // vient de _enrichAggregatedPosition, la MÊME fonction que calculateHoldings
+        // utilise pour la vue par ticker.
+        const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate, historicalFxMap)
+            .filter(pos => (pos.quantity || 0) > 0.0001);
+
+        const byBrokerMap = new Map();
+        positions.forEach(pos => {
+            if (!byBrokerMap.has(pos.broker)) {
+                byBrokerMap.set(pos.broker, { broker: pos.broker, invested: 0, currentValue: 0, return: 0, cash: 0 });
+            }
+            const entry = byBrokerMap.get(pos.broker);
+            const enriched = this._enrichAggregatedPosition(pos.ticker, pos, dynamicRate, null);
+            entry.invested += pos.invested || 0;
+            entry.currentValue += enriched.currentValue || 0;
+            entry.return += (enriched.currentValue || 0) - (pos.invested || 0);
+        });
+
+        // Inclut les courtiers qui ne détiennent QUE du cash (aucune position actif).
+        Object.keys(cashReserve.byBroker || {}).forEach(broker => {
+            if (!byBrokerMap.has(broker)) {
+                byBrokerMap.set(broker, { broker, invested: 0, currentValue: 0, return: 0, cash: 0 });
+            }
+        });
+        byBrokerMap.forEach((entry, broker) => {
+            entry.cash = (cashReserve.byBroker || {})[broker] || 0;
+            entry.totalValue = entry.currentValue + entry.cash;
+        });
+
+        const byBroker = [...byBrokerMap.values()];
+        const sum = (key) => byBroker.reduce((s, b) => s + (b[key] || 0), 0);
+
+        const global = {
+            invested: summary.totalInvestedEUR || 0,
+            currentValue: summary.totalCurrentEUR || 0,
+            return: summary.gainTotal || 0,
+            cash: cashReserve.total || 0,
+            totalValue: (summary.totalCurrentEUR || 0) + (cashReserve.total || 0)
+        };
+
+        const differences = {
+            // Invariants 1-3 : global vs somme des courtiers.
+            invested: global.invested - sum('invested'),
+            currentValue: global.currentValue - sum('currentValue'),
+            return: global.return - sum('return'),
+            cash: global.cash - sum('cash'),
+            totalValue: global.totalValue - sum('totalValue'),
+            // Invariant 4 : return === currentValue - invested.
+            returnVsValueMinusInvested: global.return - (global.currentValue - global.invested),
+            // Invariant 6 : totalValue === invested + return + cash.
+            totalValueVsInvestedPlusReturnPlusCash: global.totalValue - (global.invested + global.return + global.cash)
+        };
+
+        const valid = Object.values(differences).every(d => Math.abs(d) <= tolerance);
+
+        return { global, byBroker, differences, valid };
+    }
+
     async calculateHistory(purchases, days) {
         const assetPurchases = purchases.filter(p => {
             const type = (p.assetType || 'Stock').toLowerCase();
@@ -977,6 +1152,11 @@ export class DataManager {
     }
 
     async calculateGenericHistory(purchases, days, isSingleAsset = false) {
-        return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset);
+        // Le coût de revient du graphique (tooltip "Investi") doit être figé au même
+        // taux historique que calculateHoldings pour la même transaction — sinon le
+        // tooltip peut afficher un "Investi" différent du KPI "Investi" affiché juste
+        // au-dessus, pour la même date, à cause du seul taux de change (invariant 9).
+        const historicalFxMap = await this.getHistoricalFxMap(purchases);
+        return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset, historicalFxMap);
     }
 }

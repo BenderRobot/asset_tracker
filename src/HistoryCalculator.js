@@ -34,7 +34,8 @@ import {
     formatTicker,
     resolveTickerPreviousClose,
     getCloseCutoffForTicker,
-    getMarketOpenUTCHour
+    getMarketOpenUTCHour,
+    resolveHistoricalUsdToEurRate
 } from './MarketUtils.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -61,7 +62,7 @@ export class HistoryCalculator {
     // ========================================================
     // Public entry point
     // ========================================================
-    async calculateGenericHistory(purchases, days, isSingleAsset = false) {
+    async calculateGenericHistory(purchases, days, isSingleAsset = false, historicalFxMap = null) {
         const ledger = this._buildLedger(purchases, isSingleAsset);
         if (!ledger.firstPurchaseDate) return emptyResult();
 
@@ -112,11 +113,11 @@ export class HistoryCalculator {
         const series = await this._buildSeries({
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
             dynamicRate, isSingleAsset, interval, days, labelFormatFunc,
-            resolveCloseBefore, initialYesterdayClose: yesterday.total, win
+            resolveCloseBefore, initialYesterdayClose: yesterday.total, win, historicalFxMap
         });
 
         const purchasePoints = isSingleAsset
-            ? this._buildPurchasePoints(ledger, tickers[0], displayTimestamps, series.labels, days, win, dynamicRate)
+            ? this._buildPurchasePoints(ledger, tickers[0], displayTimestamps, series.labels, days, win, dynamicRate, historicalFxMap)
             : [];
 
         return {
@@ -644,7 +645,7 @@ export class HistoryCalculator {
     // ========================================================
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
-    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win }) {
+    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
         const twr = [], dailyTwr = [];
 
@@ -666,15 +667,25 @@ export class HistoryCalculator {
         const costBasisByBrokerTicker = new Map(); // "broker::ticker" -> {qty, cost}
         const assetCostBasisByTicker = new Map(tickers.map(t => [t, 0])); // agrégat par ticker, tenu à jour par delta
 
-        const applyCostBasisEntry = (t, entry, rate) => {
+        // NB: le taux ici est délibérément résolu séparément de `rate` (passé par les
+        // appelants ci-dessous pour investedByTicker/cashFlow, qui reste au taux
+        // COURANT à dessein — c'est le flux de cash du jour, pas un coût de revient
+        // historique). Le coût de revient, lui, doit être figé au taux DE L'ACHAT
+        // (invariant 9) — jamais recalculé au taux du jour où le graphique est
+        // simplement rouvert. Voir MarketUtils.resolveHistoricalUsdToEurRate,
+        // partagée avec dataManager.js::_buildPositionsByBrokerTicker.
+        const applyCostBasisEntry = (t, entry) => {
             if (t.startsWith('CASH-')) return; // le cash n'a pas de "coût de revient" à isoler, son solde net suffit
             const key = `${entry.broker || 'RV-CT'}::${t}`;
             if (!costBasisByBrokerTicker.has(key)) costBasisByBrokerTicker.set(key, { qty: 0, cost: 0 });
             const pos = costBasisByBrokerTicker.get(key);
             const before = pos.cost;
             if (entry.quantity > 0) {
+                const costRate = entry.currency === 'USD'
+                    ? resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker: t, broker: entry.broker })
+                    : 1;
                 pos.qty += entry.quantity;
-                pos.cost += entry.price * entry.quantity * rate;
+                pos.cost += entry.price * entry.quantity * costRate;
             } else {
                 const sellQty = Math.abs(entry.quantity);
                 if (pos.qty > 0) {
@@ -730,7 +741,7 @@ export class HistoryCalculator {
                         if (currency === 'USD') rate = dynamicRate;
                     }
                     investedByTicker.set(t, investedByTicker.get(t) + entry.price * entry.quantity * rate);
-                    applyCostBasisEntry(t, entry, rate);
+                    applyCostBasisEntry(t, entry);
                 }
             }
         }
@@ -773,7 +784,7 @@ export class HistoryCalculator {
                         investedByTicker.set(t, investedByTicker.get(t) + flow);
                         cashFlow += flow;
                         quantityChanged = true;
-                        applyCostBasisEntry(t, entry, rate);
+                        applyCostBasisEntry(t, entry);
                     }
                 }
             }
@@ -940,7 +951,7 @@ export class HistoryCalculator {
     // ========================================================
     // 9. Purchase markers (single-asset unit-price view)
     // ========================================================
-    _buildPurchasePoints(ledger, ticker, displayTimestamps, labels, days, win, dynamicRate) {
+    _buildPurchasePoints(ledger, ticker, displayTimestamps, labels, days, win, dynamicRate, historicalFxMap = null) {
         const points = [];
         const entries = ledger.byTicker.get(ticker) || [];
         const endTs = (win.displayEndTs === Infinity) ? Date.now() : win.displayEndTs;
@@ -956,7 +967,9 @@ export class HistoryCalculator {
                 if (diff < minDiff) { minDiff = diff; closestIdx = i; }
             }
             if (closestIdx !== -1 && minDiff <= tolerance) {
-                const rate = entry.currency === 'USD' ? dynamicRate : 1;
+                const rate = entry.currency === 'USD'
+                    ? resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker, broker: entry.broker })
+                    : 1;
                 points.push({ x: labels[closestIdx], y: entry.price * rate, quantity: entry.quantity, date: entry.date });
             }
         }
