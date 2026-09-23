@@ -1174,13 +1174,18 @@ export class DataManager {
     // `debugCapture` (INSTRUMENTATION TEMPORAIRE) : passthrough vers
     // HistoryCalculator.calculateGenericHistory — voir sa propre doc. null par
     // défaut, aucun appelant existant ne le fournit, comportement inchangé.
-    async calculateGenericHistory(purchases, days, isSingleAsset = false, dynamicRateOverride = null, historicalFxMapOverride = null, debugCapture = null) {
+    // `livePriceSnapshot` (Option C, voir buildTodaySnapshot) : passthrough pur
+    // — si fourni, HistoryCalculator ne fait plus AUCUNE lecture de
+    // storage.getCurrentPrice() pour une valeur de prix ; sinon (autres
+    // appelants : mode actif, calculateAssetHistory, calculateIndexData...),
+    // HistoryCalculator capture lui-même son propre snapshot, comme avant.
+    async calculateGenericHistory(purchases, days, isSingleAsset = false, dynamicRateOverride = null, historicalFxMapOverride = null, debugCapture = null, livePriceSnapshot = null) {
         // Le coût de revient du graphique (tooltip "Investi") doit être figé au même
         // taux historique que calculateHoldings pour la même transaction — sinon le
         // tooltip peut afficher un "Investi" différent du KPI "Investi" affiché juste
         // au-dessus, pour la même date, à cause du seul taux de change (invariant 9).
         const historicalFxMap = historicalFxMapOverride ?? await this.getHistoricalFxMap(purchases);
-        return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset, historicalFxMap, dynamicRateOverride, debugCapture);
+        return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset, historicalFxMap, dynamicRateOverride, debugCapture, livePriceSnapshot);
     }
 
     // ============================================================
@@ -1213,13 +1218,22 @@ export class DataManager {
     // `snapshotStartedAt` est capturé AVANT tout await : un appelant peut s'en
     // servir pour ignorer un résultat plus ancien arrivé après un plus récent
     // (voir portfolioKPIs.updateFromGraph et historicalChart.js::update()).
-    async buildTodaySnapshot(assetPurchases, cashPurchases = []) {
+    //
+    // `livePriceSnapshot` (Option C — course entre historicalChart.update() et
+    // dashboardApp.loadPortfolioData(), tous deux appelant fetchBatchPrices()
+    // indépendamment) : quand fourni par le caller, il a été capturé
+    // IMMÉDIATEMENT après SON PROPRE fetchBatchPrices, sans aucun await entre
+    // les deux (voir historicalChart.js::update()) — c'est la source de vérité
+    // pour ce rendu, transmise telle quelle jusqu'à HistoryCalculator sans
+    // repasser par storage.getCurrentPrice() ici. Sans lui (autres appelants),
+    // le comportement précédent est conservé à l'identique.
+    async buildTodaySnapshot(assetPurchases, cashPurchases = [], livePriceSnapshot = null) {
         const snapshotStartedAt = Date.now();
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
         const historicalFxMap = await this.getHistoricalFxMap(assetPurchases);
 
         const todayGraphData = await this.calculateGenericHistory(
-            [...assetPurchases, ...cashPurchases], 1, false, dynamicRate, historicalFxMap
+            [...assetPurchases, ...cashPurchases], 1, false, dynamicRate, historicalFxMap, null, livePriceSnapshot
         );
 
         const holdings = this.calculateHoldings(assetPurchases, null, historicalFxMap, {

@@ -87,12 +87,32 @@ export class HistoryCalculator {
     // par ce calcul — sans jamais changer une seule valeur retournée. Aucun
     // appelant existant ne passe ce paramètre ; comportement strictement
     // inchangé quand il vaut null (voir tests : 102/102 inchangés).
-    async calculateGenericHistory(purchases, days, isSingleAsset = false, historicalFxMap = null, dynamicRateOverride = null, debugCapture = null) {
+    // `livePriceSnapshotOverride` (Option C — voir dataManager.buildTodaySnapshot
+    // et historicalChart.js::update()) : quand fourni, c'est un Map(ticker ->
+    // storage.getCurrentPrice(ticker)) déjà capturée par le CALLER, IMMÉDIATEMENT
+    // après SON PROPRE fetchBatchPrices, sans aucun await entre les deux — donc
+    // antérieure à toute course possible avec un fetch concurrent
+    // (dashboardApp.loadPortfolioData appelle aussi fetchBatchPrices, sans
+    // coordination — voir l'audit complet dans buildTodaySnapshot). Dans ce cas,
+    // AUCUNE lecture de storage.getCurrentPrice() n'est faite nulle part dans ce
+    // calcul pour une VALEUR de prix (currency comprise) — on réutilise
+    // exclusivement ce qui a été fourni, sans repli silencieux qui masquerait
+    // une erreur de plomberie dans ce chemin. Sans override (autres appelants :
+    // mode actif single-asset, calculateAssetHistory, calculateIndexData...),
+    // le comportement précédent est conservé à l'identique : capture locale ici,
+    // au tout début, avant le moindre await de CETTE fonction — toujours mieux
+    // qu'une relecture tardive, mais sans la garantie forte que seul l'appelant
+    // (avec son propre fetchBatchPrices juste avant) peut offrir.
+    async calculateGenericHistory(purchases, days, isSingleAsset = false, historicalFxMap = null, dynamicRateOverride = null, debugCapture = null, livePriceSnapshotOverride = null) {
         const ledger = this._buildLedger(purchases, isSingleAsset);
         if (!ledger.firstPurchaseDate) return emptyResult();
 
         const dynamicRate = dynamicRateOverride ?? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE);
         const tickers = Array.from(ledger.byTicker.keys());
+
+        const livePriceSnapshot = livePriceSnapshotOverride
+            ?? new Map(tickers.filter(t => !t.startsWith('CASH-')).map(t => [t, this.storage.getCurrentPrice(t)]));
+
         const isCrypto = isSingleAsset
             ? isCryptoTicker(tickers[0] || '')
             : tickers.filter(t => !t.startsWith('CASH-')).some(t => isCryptoTicker(t));
@@ -108,7 +128,7 @@ export class HistoryCalculator {
         await this._fillCryptoGapsFromBinance(tickers, historicalDataMap, days);
         await this._recoverFromClosedMarket(tickers, historicalDataMap, win, days, isCrypto, interval);
 
-        const lastKnownPrices = this._seedLastKnownPrices(tickers, historicalDataMap, win, days);
+        const lastKnownPrices = this._seedLastKnownPrices(tickers, historicalDataMap, win, days, livePriceSnapshot);
 
         // --- THE canonical "portfolio value at close before refDate" resolver ---
         // Reused for the period's own anchor below AND for every day boundary the
@@ -116,7 +136,7 @@ export class HistoryCalculator {
         // implementation of the same question.
         const resolveCloseBefore = (refDate, label, useDedicatedFetch) =>
             this._resolvePortfolioCloseBefore(ledger, refDate, tickers, {
-                dynamicRate, isSingleAsset, historicalDataMap, useDedicatedFetch, label
+                dynamicRate, isSingleAsset, historicalDataMap, useDedicatedFetch, label, livePriceSnapshot
             });
 
         // For a 1D view "yesterday" is relative to the day actually displayed
@@ -127,19 +147,19 @@ export class HistoryCalculator {
         const yesterday = await resolveCloseBefore(yesterdayRefDate, 'yesterdayClose', true);
 
         const midnightValuationSeed = (days === 1)
-            ? this._resolveMidnightValuationSeed(tickers, historicalDataMap, win, yesterday)
+            ? this._resolveMidnightValuationSeed(tickers, historicalDataMap, win, yesterday, livePriceSnapshot)
             : null;
 
         const displayTimestamps = this._buildTimestampGrid(days, historicalDataMap, win, ledger, interval, isCrypto);
 
         const { perTickerYesterdayClose, todayValueOfYesterdayHoldings } =
-            this._valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset);
+            this._valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset, livePriceSnapshot);
 
         const series = await this._buildSeries({
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
             dynamicRate, isSingleAsset, interval, days, labelFormatFunc,
             resolveCloseBefore, initialYesterdayClose: yesterday.total, win, historicalFxMap,
-            midnightValuationSeed, debugCapture
+            midnightValuationSeed, debugCapture, livePriceSnapshot
         });
 
         const purchasePoints = isSingleAsset
@@ -403,7 +423,13 @@ export class HistoryCalculator {
     // ========================================================
     // 4. Last-known-price backfill (used before any real candle exists)
     // ========================================================
-    _seedLastKnownPrices(tickers, historicalDataMap, win, days) {
+    // `livePriceSnapshot` : Map ticker -> storage.getCurrentPrice(ticker) capturée
+    // UNE FOIS par calculateGenericHistory, avant tout await — voir son propre
+    // commentaire ("snapshot non immuable"). Remplace les lectures live
+    // directes ci-dessous, qui pouvaient sinon observer un prix écrit par un
+    // flux concurrent (ex: dashboardApp.loadPortfolioData) après le fetch de
+    // CET appel mais avant que ce calcul n'atteigne ce ticker.
+    _seedLastKnownPrices(tickers, historicalDataMap, win, days, livePriceSnapshot) {
         const lastKnown = new Map();
 
         for (const t of tickers) {
@@ -414,7 +440,7 @@ export class HistoryCalculator {
             // (e.g. Monday's open leaking onto a weekend point) and misrepresent the
             // overnight gap.
             if (!isCrypto && !t.startsWith('CASH-') && typeof days === 'number' && days <= 2) {
-                const priceData = this.storage.getCurrentPrice(t);
+                const priceData = livePriceSnapshot.get(t);
                 if (priceData && priceData.previousClose > 0) { lastKnown.set(t, priceData.previousClose); continue; }
             }
 
@@ -425,7 +451,7 @@ export class HistoryCalculator {
             }
 
             if (!isCrypto) {
-                const priceData = this.storage.getCurrentPrice(t);
+                const priceData = livePriceSnapshot.get(t);
                 if (priceData?.price > 0) { lastKnown.set(t, priceData.price); continue; }
                 if (priceData?.previousClose > 0) { lastKnown.set(t, priceData.previousClose); continue; }
             }
@@ -435,7 +461,7 @@ export class HistoryCalculator {
         // position is never silently dropped from the total for lack of history.
         for (const t of tickers) {
             if (lastKnown.has(t) || t.startsWith('CASH-')) continue;
-            const priceData = this.storage.getCurrentPrice(t);
+            const priceData = livePriceSnapshot.get(t);
             const price = priceData?.price || priceData?.previousClose || 0;
             if (price > 0) lastKnown.set(t, price);
         }
@@ -452,7 +478,7 @@ export class HistoryCalculator {
     // request — otherwise Yahoo can return a marginally different closing candle
     // for "the same" day depending on which view triggered the fetch, and the
     // 1D/2D/1W views would each anchor on a different close for the same day.
-    async _resolvePortfolioCloseBefore(ledger, refDate, tickers, { dynamicRate, isSingleAsset, historicalDataMap, useDedicatedFetch, label = '' }) {
+    async _resolvePortfolioCloseBefore(ledger, refDate, tickers, { dynamicRate, isSingleAsset, historicalDataMap, useDedicatedFetch, label = '', livePriceSnapshot }) {
         const quantities = new Map();
         const prices = new Map();
         let total = 0, assetsFound = 0;
@@ -558,7 +584,7 @@ export class HistoryCalculator {
                     prices.set(t, closePrice);
                     let rate = 1;
                     if (!isSingleAsset) {
-                        const currency = this.storage.getCurrentPrice(t)?.currency || 'EUR';
+                        const currency = livePriceSnapshot.get(t)?.currency || 'EUR';
                         if (currency === 'USD') rate = dynamicRate;
                     }
                     total += closePrice * rate * qty;
@@ -583,7 +609,7 @@ export class HistoryCalculator {
     // bans. Fix: return a separate seed Map that _buildSeries consults ONLY at
     // ts===win.displayStartTs, with the exact same priority a real candle
     // would have had — historicalDataMap itself is never mutated.
-    _resolveMidnightValuationSeed(tickers, historicalDataMap, win, yesterday) {
+    _resolveMidnightValuationSeed(tickers, historicalDataMap, win, yesterday, livePriceSnapshot) {
         const seed = new Map();
         for (const t of tickers) {
             if (t.startsWith('CASH-')) continue;
@@ -592,7 +618,7 @@ export class HistoryCalculator {
 
             let price = yesterday.prices.get(t) || null;
             if (!price) {
-                const pd = this.storage.getCurrentPrice(t);
+                const pd = livePriceSnapshot.get(t); // voir calculateGenericHistory — snapshot immuable, pas une relecture live
                 if (pd?.previousClose > 0) price = pd.previousClose;
                 else if (isCryptoTicker(t) && pd?.price > 0) price = pd.price;
             }
@@ -671,7 +697,13 @@ export class HistoryCalculator {
     // ========================================================
     // 7. "Today's value of yesterday's holdings" (pure day-change table data)
     // ========================================================
-    _valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset) {
+    // `livePriceSnapshot` : voir calculateGenericHistory. Alimente la colonne
+    // "Day P&L" du tableau (via dataManager.buildYesterdayCloseMapFromGraphData)
+    // — DOIT lire le même prix figé que le reste de ce calcul, sinon le
+    // tableau et les cartes KPI (Total Value/Var Today, qui lisent le
+    // liveOverride de _buildSeries) peuvent en venir à représenter deux
+    // instants différents pour le même ticker.
+    _valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset, livePriceSnapshot) {
         const map = new Map();
         let total = 0, found = 0;
 
@@ -680,7 +712,7 @@ export class HistoryCalculator {
             const qtyYesterday = yesterday.quantities.get(t) || 0;
             if (qtyYesterday <= 0) continue;
 
-            const priceData = this.storage.getCurrentPrice(t);
+            const priceData = livePriceSnapshot.get(t);
             const currency = priceData?.currency || 'EUR';
             let rate = 1;
             if (!isSingleAsset && currency === 'USD') rate = dynamicRate;
@@ -701,7 +733,7 @@ export class HistoryCalculator {
     // ========================================================
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
-    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null }) {
+    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
         const twr = [], dailyTwr = [];
 
@@ -794,7 +826,7 @@ export class HistoryCalculator {
                     quantities.set(t, quantities.get(t) + entry.quantity);
                     let rate = 1;
                     if (!isSingleAsset) {
-                        const currency = this.storage.getCurrentPrice(t)?.currency || entry.currency || 'EUR';
+                        const currency = livePriceSnapshot.get(t)?.currency || entry.currency || 'EUR';
                         if (currency === 'USD') rate = dynamicRate;
                     }
                     investedByTicker.set(t, investedByTicker.get(t) + entry.price * entry.quantity * rate);
@@ -834,7 +866,7 @@ export class HistoryCalculator {
                         quantities.set(t, quantities.get(t) + entry.quantity);
                         let rate = 1;
                         if (!isSingleAsset) {
-                            const currency = this.storage.getCurrentPrice(t)?.currency || entry.currency || 'EUR';
+                            const currency = livePriceSnapshot.get(t)?.currency || entry.currency || 'EUR';
                             if (currency === 'USD') rate = dynamicRate;
                         }
                         const flow = entry.price * entry.quantity * rate;
@@ -888,8 +920,24 @@ export class HistoryCalculator {
                     // minutes, so this can't reintroduce the old "force the last
                     // point" bug where a stale/wrong live snapshot for an illiquid
                     // ticker created a fake cliff.
+                    //
+                    // BUG FOUND (Total Value/Var Today changeant entre deux reloads
+                    // sans mouvement de marché correspondant) : `live` lisait
+                    // storage.getCurrentPrice(t) EN DIRECT, à cet instant précis du
+                    // pipeline — potentiellement plusieurs secondes après le début
+                    // de calculateGenericHistory (fetch de l'historique, résolution
+                    // de la clôture veille...). Pendant cette fenêtre, un autre flux
+                    // concurrent (dashboardApp.loadPortfolioData, qui appelle aussi
+                    // fetchBatchPrices indépendamment, sans coordination) pouvait
+                    // avoir déjà réécrit storage.currentData pour CE ticker — cette
+                    // lecture captait alors un prix plus récent que celui que CE
+                    // calcul avait lui-même résolu, un "snapshot" pas réellement
+                    // figé. `livePriceSnapshot` est capturé une seule fois, tout en
+                    // haut de calculateGenericHistory, avant le moindre await — donc
+                    // immunisé contre toute écriture concurrente survenant PENDANT
+                    // ce calcul (voir son propre commentaire).
                     if (days === 1 && i === displayTimestamps.length - 1) {
-                        const live = this.storage.getCurrentPrice(t);
+                        const live = livePriceSnapshot.get(t);
                         if (live?.price > 0 && live.lastUpdate && (Date.now() - live.lastUpdate) < 10 * 60 * 1000) {
                             price = live.price;
                             priceSource = 'liveOverride';
@@ -920,7 +968,12 @@ export class HistoryCalculator {
                 let currency = 'EUR';
                 if (price != null) {
                     if (!isSingleAsset) {
-                        currency = this.storage.getCurrentPrice(t)?.currency || 'EUR';
+                        // Lecture "currency" seule (jamais une valeur volatile — voir
+                        // l'audit du ticket précédent) : peut rester une lecture live
+                        // directe sans risque de course, mais on réutilise déjà
+                        // `livePriceSnapshot` ici par cohérence avec la ligne
+                        // ci-dessous (même ticker, même objet).
+                        currency = livePriceSnapshot.get(t)?.currency || 'EUR';
                         if (currency === 'USD') rate = dynamicRate;
                     }
                     totalValue += price * qty * rate;
@@ -933,9 +986,10 @@ export class HistoryCalculator {
                     // retour de calculateGenericHistory : dataManager.
                     // buildTodaySnapshot() réinjecte cette même Map dans
                     // calculateHoldings, pour que Total Value ne puisse jamais
-                    // recalculer "maintenant" avec un prix différent.
+                    // recalculer "maintenant" avec un prix différent. `stored` vient
+                    // du même livePriceSnapshot figé (jamais une relecture tardive).
                     if (!isSingleAsset && i === displayTimestamps.length - 1) {
-                        const stored = this.storage.getCurrentPrice(t);
+                        const stored = livePriceSnapshot.get(t);
                         resolvedPrices.set(t, {
                             price,
                             currency,

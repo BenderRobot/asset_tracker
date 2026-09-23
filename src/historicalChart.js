@@ -511,10 +511,35 @@ export class HistoricalChart {
                     currentTicker = this.filterManager.getSelectedTickers().values().next().value;
                 }
 
-                if (forceApi) {
-                    const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
-                    if (tickers.length > 0) await this.api.fetchBatchPrices(tickers);
-                }
+                const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
+                if (forceApi && tickers.length > 0) await this.api.fetchBatchPrices(tickers);
+
+                // BUG FOUND (Total Value/Var Today différents entre deux reloads,
+                // même quand le marché n'a pas réellement bougé) : dataManager.
+                // buildTodaySnapshot()/calculateGenericHistory() capturaient leur
+                // propre "snapshot" de prix live PLUS TARD dans leur pipeline —
+                // après l'await buildTodaySnapshot::getHistoricalFxMap(), lui-même
+                // capable d'un vrai aller-retour réseau pour un portefeuille avec
+                // des actifs USD. Pendant CETTE fenêtre, dashboardApp.
+                // loadPortfolioData() (lancé sans attente, en parallèle, dès
+                // init() — voir son propre fetchBatchPrices) pouvait déjà avoir
+                // réécrit storage.currentData pour certains tickers avec un prix
+                // plus récent que celui que CE fetchBatchPrices venait de
+                // résoudre — un mélange non déterministe entre deux fetch
+                // concurrents, selon lequel arrivait en premier pour quel ticker.
+                //
+                // Fix : capturer livePriceSnapshot ICI, à la ligne suivante,
+                // SANS AUCUN AWAIT entre la fin de fetchBatchPrices et cette
+                // capture — puis le transmettre explicitement jusqu'à
+                // calculateGenericHistory/HistoryCalculator, qui l'utilisent
+                // exclusivement (aucune nouvelle lecture de
+                // storage.getCurrentPrice() pour une VALEUR de prix dans tout ce
+                // chemin — voir HistoryCalculator.js, calculateGenericHistory).
+                // Un fetch concurrent ultérieur peut toujours réécrire storage,
+                // mais ne peut plus être vu par CE calcul, déjà figé.
+                const livePriceSnapshot = new Map(
+                    tickers.map(t => [t, this.storage.getCurrentPrice(t)])
+                );
 
                 // SNAPSHOT FINANCIER UNIQUE (cause racine de l'audit : "Fin"/le
                 // tooltip du dernier point/Clôture hier pouvaient différer de "Total
@@ -524,7 +549,7 @@ export class HistoricalChart {
                 // résout "aujourd'hui" — todayGraphData ET targetHoldings/
                 // targetSummary en sortent réconciliés par construction (mêmes prix,
                 // même taux), jamais deux jeux de données pour le même instant.
-                const snapshot = await this.dataManager.buildTodaySnapshot(assetPurchases, cashPurchases);
+                const snapshot = await this.dataManager.buildTodaySnapshot(assetPurchases, cashPurchases, livePriceSnapshot);
                 todayGraphData = snapshot.todayGraphData;
                 targetHoldings = snapshot.holdings;
                 targetSummary = snapshot.summary;
