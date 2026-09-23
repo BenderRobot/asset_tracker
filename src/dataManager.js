@@ -1245,7 +1245,24 @@ export class DataManager {
             [...assetPurchases, ...cashPurchases], 1, false, dynamicRate, historicalFxMap, null, livePriceSnapshot
         );
 
-        const holdings = this.calculateHoldings(assetPurchases, null, historicalFxMap, {
+        // BUG FOUND (audit cohérence KPI/tableau, root cause) : ce `null` faisait
+        // retomber CHAQUE ligne du tableau (mode portefeuille — le chemin
+        // réellement utilisé au quotidien) sur le repli de _enrichAggregatedPosition
+        // qui valorise (currentPrice - previousClose) × la quantité TOTALE
+        // D'AUJOURD'HUI, jamais celle détenue hier. Un achat/vente survenu dans
+        // la journée sur UN SEUL ticker gonflait alors le "DAY P&L" de CE ticker
+        // (et donc Σ totalDayChangeEUR, donc Var Today) de (variation de prix) ×
+        // (quantité achetée/vendue aujourd'hui) — un cash-flow transformé en P&L
+        // apparent, exactement l'invariant 4 de l'audit. yesterdayCloseMap
+        // (calculé ci-dessous, PUR — perTickerYesterdayClose est déjà résolu
+        // dans todayGraphData, aucun appel réseau supplémentaire) porte la
+        // quantité réellement DÉTENUE HIER par ticker et fait déjà emprunter le
+        // chemin cash-flow-immune de _enrichAggregatedPosition (voir
+        // HistoryCalculator, qtyYesterday) — c'est déjà ce qu'utilise le mode
+        // actif unique (historicalChart.js) ; buildTodaySnapshot, qui alimente
+        // le mode portefeuille, était le seul appelant à ne pas le brancher.
+        const yesterdayCloseMap = this.buildYesterdayCloseMapFromGraphData(todayGraphData);
+        const holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap, {
             dynamicRate, prices: todayGraphData.resolvedPrices
         });
         const summary = this.calculateSummary(holdings);

@@ -623,28 +623,46 @@ export class HistoricalChart {
     // the KPI cards to silently drift apart on — that drift (the graph
     // engine's own separate price resolution vs calculateHoldings') was the
     // root of every "table vs KPI" mismatch chased through this file's history.
-    _computeAggregateKPIs({ targetSummary, targetCashReserve, todayGraphData, snapshotStartedAt = null }) {
+    _computeAggregateKPIs({ targetSummary, targetCashReserve, snapshotStartedAt = null }) {
         const cash = targetCashReserve.total || 0;
         const investedAssetOnly = targetSummary.totalInvestedEUR || 0;
         const totalValue = (targetSummary.totalCurrentEUR || 0) + cash;
         const totalReturn = targetSummary.gainTotal || 0;
         const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
 
-        // Var Today MUST use the exact same asset-level day P&L that feeds the
-        // holdings table. This is the canonical financial definition used by
-        // calculateHoldings/calculateSummary: for each position, compare today's
-        // value of yesterday's quantity with yesterday's close. Cash balances are
-        // deliberately excluded from this performance figure, so a deposit or
-        // withdrawal cannot appear as a gain/loss.
+
+        // BUG FOUND (audit cohérence KPI/tableau, régression du fix précédent) :
+        // cette fonction retombait ici sur targetSummary.totalDayChangeEUR
+        // SEULEMENT en dernier recours (aucune donnée de graphique). Le chemin
+        // PRINCIPAL — celui réellement emprunté dès qu'un todayGraphData/
+        // dailyTwr existe, c'est-à-dire le mode portefeuille normal, celui du
+        // rapport initial (KPI=121,41€ vs Σ table=362,08€) — appliquait un
+        // ratio `dailyTwr` (time-weighted, neutralisé aux cash-flows) au TOTAL
+        // du portefeuille : `totalValue - totalValue/dTwr`. Cette formule n'a
+        // AUCUNE raison de tomber sur la même valeur que Σ asset.dayChange :
+        // un TWR journalier est un ratio composé sur le portefeuille entier
+        // (pondéré par la séquence des cash-flows intra-journaliers), pas une
+        // somme additive des variations €. Les deux peuvent légitimement
+        // diverger dès qu'un achat/vente a lieu dans la journée — exactement
+        // le scénario du rapport — donc "le fix est déjà appliqué" était faux
+        // en pratique : il ne s'activait que quand les deux méthodes étaient
+        // de toute façon d'accord (aucun graphData exploitable).
         //
-        // Do NOT derive this KPI from dailyTwr here. dailyTwr is a useful chart
-        // normalization ratio, but it can have a different reference amount when
-        // cash flows occur around the day boundary. Converting that ratio back to
-        // euros was the direct cause of the table/KPI discrepancy reported in
-        // production (e.g. table ≈ 362€ vs KPI ≈ 121€). Using targetSummary makes
-        // the invariant explicit and algebraic:
-        //     KPI Var Today === Σ(table row DAY P&L)
-        // and keeps the percentage on the same denominator as the table rows.
+        // Fix : Var Today est TOUJOURS targetSummary.totalDayChangeEUR — la
+        // même somme que celle affichée par le tableau (calculateSummary, qui
+        // additionne le dayChange de chaque ligne). Aucun second calcul
+        // indépendant de ce nombre nulle part dans l'app (voir aussi
+        // _buildKpiRows plus bas, qui réutilise cette même valeur pour le
+        // point "maintenant" du tooltip). Le risque de "cash-flow transformé
+        // en P&L" que le ratio TWR cherchait à éviter n'existe pas ici : cette
+        // valeur ne contient jamais le cash (targetSummary ne porte que les
+        // actifs), et chaque asset.dayChange isole déjà la variation de
+        // marché de tout mouvement de quantité du jour (voir
+        // dataManager._enrichAggregatedPosition / todayValueOfYesterdayHoldings,
+        // qui valorise la quantité DÉTENUE HIER aux deux prix, jamais la
+        // quantité d'aujourd'hui) — donc un achat/vente/dépôt/retrait du jour
+        // ne peut pas se transformer en gain ou perte apparent ici.
+
         const varTodayAbs = targetSummary.totalDayChangeEUR ?? null;
         const varTodayPct = targetSummary.dayChangePct ?? null;
 
@@ -1034,12 +1052,31 @@ export class HistoricalChart {
         // stops meaning anything once the view spans more than one day (the
         // 1W tooltip showed it relative to a mid-week close, which just read
         // as a confusing 4th number rather than "today").
+        //
+        // BUG FOUND (second, independent "Var Today" — audit cohérence
+        // KPI/tableau) : ce point du tooltip recalculait sa propre valeur via
+        // `dailyTwr`, indépendamment de kpiData.varTodayAbs (désormais
+        // targetSummary.totalDayChangeEUR — voir _computeAggregateKPIs). Au
+        // point "maintenant" (idx === lastIndex, celui qu'on hover le plus
+        // souvent, juste au-dessus des 4 cartes KPI), ces deux nombres
+        // pouvaient afficher deux valeurs différentes pour le même libellé
+        // "Var Today" au même instant. Fix : au dernier point, réutiliser
+        // EXACTEMENT kpiData.varTodayAbs/Pct — plus aucun second calcul pour
+        // "maintenant". Pour un point PASSÉ de la journée (hover sur un point
+        // intermédiaire), il n'existe pas d'équivalent "table" à cet
+        // instant-là — le ratio dailyTwr (neutralisé aux cash-flows) reste
+        // l'estimation la plus proche disponible et n'est comparé à rien
+        // d'autre affiché à l'écran.
         if (this.currentPeriod === 1) {
-            const dTwr = graphData.dailyTwr?.[idx];
-            if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
-                const varTodayAbs = val - val / dTwr;
-                const varTodayPct = (dTwr - 1) * 100;
-                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
+            if (idx === lastIndex && kpiData?.varTodayAbs != null && !isNaN(kpiData.varTodayAbs)) {
+                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(kpiData.varTodayAbs), pct: pctFmt(kpiData.varTodayPct), positive: kpiData.varTodayAbs >= 0 });
+            } else {
+                const dTwr = graphData.dailyTwr?.[idx];
+                if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
+                    const varTodayAbs = val - val / dTwr;
+                    const varTodayPct = (dTwr - 1) * 100;
+                    rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
+                }
             }
         }
 

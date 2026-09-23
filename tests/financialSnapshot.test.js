@@ -83,7 +83,16 @@ describe('TEST 3 — deux refresh simultanés ne mélangent jamais leurs champs'
     });
 });
 
-describe('TEST 4 — Clôture hier a une définition unique', () => {
+describe('TEST 4 — Clôture hier a une définition unique (série interne dailyTwr du moteur graphique)', () => {
+    // NOTE (audit cohérence KPI/tableau) : ce test porte sur l'auto-cohérence
+    // INTERNE de todayGraphData.dailyTwr (le ratio journalier que le moteur
+    // graphique construit pour ses propres besoins de tooltip intra-journée —
+    // voir historicalChart::_buildKpiRows, points PASSÉS uniquement). Il ne
+    // teste PLUS "la formule de la KPI Var Today" : depuis le fix de
+    // historicalChart::_computeAggregateKPIs, la KPI (et le point "maintenant"
+    // du tooltip) est TOUJOURS targetSummary.totalDayChangeEUR — jamais ce
+    // ratio TWR. Voir tests/varTodayTableInvariant.test.js pour l'invariant
+    // KPI = Σ table.
     it('la clôture implicite du ratio TWR journalier égale la clôture brute résolue par le graphique', async () => {
         const storage = createFakeStorage({
             prices: { 'BTC-EUR': { price: 51000, currency: 'EUR', previousClose: 50000, lastUpdate: Date.now() } },
@@ -102,9 +111,10 @@ describe('TEST 4 — Clôture hier a une définition unique', () => {
         while (lastValidIdx >= 0 && (values[lastValidIdx] == null || isNaN(values[lastValidIdx]))) lastValidIdx--;
 
         const dTwr = dailyTwr[lastValidIdx];
-        // Même formule que historicalChart::_computeAggregateKPIs.
-        const varTodayAbs = totalValue - totalValue / dTwr;
-        const impliedReferenceClose = totalValue - varTodayAbs; // = totalValue / dTwr
+        // Formule interne du ratio TWR journalier (plus celle de la KPI — voir
+        // NOTE ci-dessus).
+        const twrImpliedVarToday = totalValue - totalValue / dTwr;
+        const impliedReferenceClose = totalValue - twrImpliedVarToday; // = totalValue / dTwr
 
         // "Clôture hier" brute, telle que résolue par le moteur du graphique.
         const rawYesterdayClose = todayGraphData.yesterdayClose;
@@ -113,8 +123,13 @@ describe('TEST 4 — Clôture hier a une définition unique', () => {
     });
 });
 
-describe('TEST 5 — Var Today réconcilié algébriquement avec valeur actuelle et référence', () => {
-    it('varTodayAbs = totalValue - referenceValue, exactement (pas juste approximativement)', async () => {
+describe('TEST 5 — ratio TWR journalier interne réconcilié algébriquement avec valeur actuelle et référence', () => {
+    // NOTE (audit cohérence KPI/tableau) : comme TEST 4, ceci teste
+    // l'auto-cohérence algébrique du ratio dailyTwr interne au moteur
+    // graphique — plus la formule de la KPI Var Today elle-même (voir
+    // historicalChart::_computeAggregateKPIs, désormais targetSummary.
+    // totalDayChangeEUR sans exception).
+    it('varTodayAbs (dérivé du TWR) = totalValue - referenceValue, exactement (pas juste approximativement)', async () => {
         const storage = createFakeStorage({
             prices: { AAPL: { price: 200, currency: 'EUR', previousClose: 190, lastUpdate: Date.now() } },
             conversionRate: 0.9
@@ -221,5 +236,74 @@ describe('TEST 8 — le dernier point ne bénéficie d\'aucune logique spéciale
         // voir _enrichAggregatedPosition's fallback direct à storage.getCurrentPrice).
         const holdingsValue = snapshot.holdings[0].currentValue;
         expect(holdingsValue).toBeCloseTo(0.1 * 48000, 6);
+    });
+});
+
+describe('TEST 9 — buildTodaySnapshot : un achat/vente du jour ne devient jamais du Day P&L (invariant 4)', () => {
+    // BUG FOUND (root cause de l'audit "KPI Var Today vs Σ table") :
+    // buildTodaySnapshot appelait calculateHoldings(assetPurchases, null, ...) —
+    // le `null` empêchait toute ligne de bénéficier de yesterdayCloseMap (déjà
+    // résolu, sans coût réseau, dans todayGraphData.perTickerYesterdayClose,
+    // via buildYesterdayCloseMapFromGraphData). Sans cette map,
+    // _enrichAggregatedPosition retombe sur son second calcul, moins précis :
+    // (currentPrice - previousClose) × la quantité TOTALE détenue AUJOURD'HUI —
+    // qui inclut tout achat/vente survenu dans la journée. Un achat le jour même
+    // gonflait alors le Day P&L affiché (table ET Var Today, qui en est la
+    // somme) de (variation de prix du jour) × (quantité achetée aujourd'hui),
+    // un cash-flow devenu P&L apparent.
+    it("un achat effectué aujourd'hui sur une position existante ne modifie pas le Day P&L déjà couru sur les titres détenus hier", async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const storage = createFakeStorage({
+            prices: { AAPL: { price: 200, currency: 'EUR', previousClose: 190, lastUpdate: Date.now() } },
+            conversionRate: 0.9
+        });
+        const dm = new DataManager(storage, createFakeApi());
+        const assetPurchases = [
+            purchase({ ticker: 'AAPL', assetType: 'Stock', price: 150, quantity: 5, date: '2024-01-01' }),
+            // Achat AUJOURD'HUI : pur cash-flow, aucune information de marché.
+            purchase({ ticker: 'AAPL', assetType: 'Stock', price: 200, quantity: 3, date: today })
+        ];
+
+        const snapshot = await dm.buildTodaySnapshot(assetPurchases, []);
+        const aapl = snapshot.holdings.find(h => h.ticker === 'AAPL');
+
+        // Day P&L correct : (200 - 190) × 5 (quantité détenue HIER) = 50€.
+        // La version buguée aurait donné (200 - 190) × 8 (quantité totale
+        // d'aujourd'hui, achat du jour inclus) = 80€.
+        expect(aapl.dayChange).toBeCloseTo(50, 2);
+        expect(aapl.dayChange).not.toBeCloseTo(80, 2);
+        expect(snapshot.summary.totalDayChangeEUR).toBeCloseTo(50, 2);
+    });
+});
+
+describe("TEST 10 — generateFullReport respecte yesterdayCloseMap (même invariant, chemin dashboardApp.refreshDataInBackground)", () => {
+    // BUG FOUND (même classe que TEST 9) : dashboardApp.js::refreshDataInBackground
+    // appelait generateFullReport(marketPurchases, null, historicalFxMap) — le
+    // rapport qui alimente le cache Firestore (mode "follower") et les KPI
+    // secondaires (Top Gainer/Loser du jour) subissait donc la même
+    // contamination cash-flow → Day P&L que buildTodaySnapshot. Ce test
+    // verrouille que generateFullReport, quand on lui fournit la map correcte
+    // (comme le fait désormais dashboardApp.js via calculateAllAssetsYesterdayClose,
+    // à l'identique d'analyticsApp.js), produit bien le Day P&L cash-flow-immune —
+    // pas juste que la fonction existe.
+    it("un achat du jour n'inflate pas dayChange dans le rapport quand yesterdayCloseMap est fourni", async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const storage = createFakeStorage({
+            prices: { AAPL: { price: 200, currency: 'EUR', previousClose: 190, lastUpdate: Date.now() } },
+            conversionRate: 0.9
+        });
+        const dm = new DataManager(storage, createFakeApi());
+        const purchases = [
+            purchase({ ticker: 'AAPL', assetType: 'Stock', price: 150, quantity: 5, date: '2024-01-01' }),
+            purchase({ ticker: 'AAPL', assetType: 'Stock', price: 200, quantity: 3, date: today })
+        ];
+
+        const yesterdayCloseMap = await dm.calculateAllAssetsYesterdayClose(purchases);
+        const report = dm.generateFullReport(purchases, yesterdayCloseMap);
+        const aapl = report.assets.find(a => a.ticker === 'AAPL');
+
+        expect(aapl.dayChange).toBeCloseTo(50, 2); // (200-190) × 5 détenus hier
+        expect(aapl.dayChange).not.toBeCloseTo(80, 2); // pas × 8 (avec l'achat du jour)
+        expect(report.summary.dayChange).toBeCloseTo(50, 2);
     });
 });

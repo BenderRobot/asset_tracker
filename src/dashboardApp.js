@@ -388,8 +388,15 @@ class DashboardApp {
             // Taux USD/EUR figé à la date de chaque transaction (invariant 9).
             const historicalFxMap = await this.dataManager.getHistoricalFxMap(marketPurchases);
 
+            // BUG FOUND (même classe que buildTodaySnapshot — audit cohérence
+            // KPI/tableau) : `null` ici faisait retomber le Day P&L de ce
+            // rapport (cache Firestore lu par le mode "follower"/secondaire) sur
+            // le repli previousClose × quantité TOTALE d'aujourd'hui, cash-flow
+            // intra-journée inclus. Même fix que buildTodaySnapshot/analyticsApp.
+            const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(marketPurchases);
+
             // Generate fresh report
-            const freshReport = this.dataManager.generateFullReport(marketPurchases, null, historicalFxMap);
+            const freshReport = this.dataManager.generateFullReport(marketPurchases, yesterdayCloseMap, historicalFxMap);
 
             // Update UI with fresh data
             const holdings = freshReport.assets || [];
