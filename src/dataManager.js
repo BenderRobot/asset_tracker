@@ -23,6 +23,12 @@ export class DataManager {
         this.historyCalculator = new HistoryCalculator(storage, api);
         // Compteur monotone pour snapshotId — voir buildPortfolioSnapshot.
         this._snapshotSeq = 0;
+        // Coalescing (audit dédup 2026-09-23, même mécanisme que
+        // api.js::_inFlightHistoricalRequests) : getHistoricalFxMap ci-dessous
+        // ne mémoïse qu'APRÈS résolution — dashboardApp.js l'appelle depuis 3
+        // chemins non attendus les uns par rapport aux autres (init), qui
+        // peuvent tous manquer ce cache avant qu'aucun n'ait résolu.
+        this._historicalFxMapInFlight = null;
     }
 
     // ============================================================
@@ -423,9 +429,19 @@ export class DataManager {
             return this._historicalFxMapCache.map;
         }
 
-        const map = await this.fetchHistoricalFxRateMap('EURUSD=X', yearsNeeded);
-        this._historicalFxMapCache = { map, rangeYears: yearsNeeded, fetchedAt: Date.now() };
-        return map;
+        // Coalescing : une requête déjà en vol qui couvre au moins autant
+        // d'années est réutilisée telle quelle plutôt que d'en relancer une
+        // seconde en parallèle (voir commentaire du constructeur).
+        if (this._historicalFxMapInFlight && this._historicalFxMapInFlight.rangeYears >= yearsNeeded) {
+            return this._historicalFxMapInFlight.promise;
+        }
+
+        const promise = this.fetchHistoricalFxRateMap('EURUSD=X', yearsNeeded).then(map => {
+            this._historicalFxMapCache = { map, rangeYears: yearsNeeded, fetchedAt: Date.now() };
+            return map;
+        }).finally(() => { this._historicalFxMapInFlight = null; });
+        this._historicalFxMapInFlight = { rangeYears: yearsNeeded, promise };
+        return promise;
     }
 
     // Lecture SYNCHRONE de la dernière map FX historique déjà résolue (voir

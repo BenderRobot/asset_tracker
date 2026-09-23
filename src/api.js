@@ -62,6 +62,19 @@ export class PriceAPI {
     this.storage = storage;
     // Les anciens proxys corsProxies et currentProxyIndex sont supprimés
     this.historicalPriceCache = this.loadHistoricalCache();
+    // Coalescing : le dashboard déclenche 3 chemins d'orchestration indépendants
+    // (refreshDataInBackground / loadPortfolioData / initHistoricalChart) qui
+    // redemandent quasiment simultanément le même (ticker, fenêtre, interval).
+    // historicalPriceCache ci-dessus ne protège que APRÈS succès (écrit ligne
+    // ~730) ; les 3 appels partent avant qu'aucun n'ait eu le temps de répondre
+    // et le trouvent tous vide (cache-stampede) → jusqu'à 3× le trafic réseau
+    // réel, seule cause du flood HTTP 429 observé en prod (audit 2026-09-23).
+    // Cette map retient la PROMESSE en cours par cacheKey : un appel concurrent
+    // pour la même clé reçoit la même promesse au lieu de relancer un fetch.
+    // Auto-invalidante (retirée dès résolution) — un refresh explicite ultérieur
+    // repart bien sur le réseau. Ne mémorise aucun résultat au-delà de la durée
+    // de l'appel en cours : ce n'est pas une nouvelle source de vérité.
+    this._inFlightHistoricalRequests = new Map();
   }
 
   isWeekend() {
@@ -595,6 +608,20 @@ export class PriceAPI {
 
     if (this.historicalPriceCache[cacheKey]) return this.historicalPriceCache[cacheKey];
 
+    // Coalescing (voir commentaire du constructeur) : une requête déjà en vol
+    // pour cette clé exacte est réutilisée telle quelle, succès ou échec inclus
+    // (isHistoricalFetchFailure() reste vrai pour tous les appelants concernés,
+    // aucun fallback silencieux introduit par le partage de la promesse).
+    const inFlight = this._inFlightHistoricalRequests.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries)
+      .finally(() => this._inFlightHistoricalRequests.delete(cacheKey));
+    this._inFlightHistoricalRequests.set(cacheKey, requestPromise);
+    return requestPromise;
+  }
+
+  async _doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries) {
     // L'appel se fait vers le Proxy Cloud Function pour l'historique
     // Nous passons tous les paramètres nécessaires au proxy
     let proxyUrl = `${PRICE_PROXY_URL}?symbol=${formatted}&type=${assetType}&interval=${interval}&period1=${startTs}&period2=${endTs}`;
