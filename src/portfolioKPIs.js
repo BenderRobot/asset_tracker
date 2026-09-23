@@ -23,6 +23,10 @@ export class PortfolioKPIs {
             source: null,      // 'graph' or null
             timestamp: null,
             snapshotStartedAt: null, // voir garde anti-race ci-dessous
+            // Invariant H (audit SSOT) : identifiant du PortfolioSnapshot canonique
+            // (dataManager.buildPortfolioSnapshot) dont TOUS les champs ci-dessus
+            // proviennent pour ce rendu — jamais un mélange de deux instants.
+            snapshotId: null,
             period: null       // '1d', '1w', etc.
         };
 
@@ -102,6 +106,7 @@ export class PortfolioKPIs {
             source: 'graph',
             timestamp: Date.now(),
             snapshotStartedAt: graphData.snapshotStartedAt ?? this.kpis.snapshotStartedAt ?? null,
+            snapshotId: graphData.snapshotId ?? null,
             period: graphData.period || 'unknown'
         };
 
@@ -247,6 +252,7 @@ export class PortfolioKPIs {
             source: null,
             timestamp: null,
             snapshotStartedAt: null,
+            snapshotId: null,
             period: null
         };
         console.log('[PortfolioKPIs] Reset');

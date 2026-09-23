@@ -134,52 +134,61 @@ describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/
         expect(kpis.totalValue).toBeCloseTo(760.25, 2);
     });
 
-    it('TEST 6 — Var Today = somme exacte du Day P&L du tableau, même avec un cash-flow', () => {
-        const { chart } = buildScenario();
+    it('TEST 5b — Var Today = somme exacte du Day P&L du tableau, même avec un cash-flow (portefeuille réel de production)', () => {
+        // Cas réel remonté en production (compte réel, mêmes ordres de grandeur
+        // que le rapport "297,18€" : ~37k€ de valeur totale, ~8.4k€ de retour).
+        // Réécrit pour l'interface SSOT actuelle : _computeAggregateKPIs ne lit
+        // plus targetSummary/targetCashReserve/todayGraphData directement, il
+        // lit exclusivement un PortfolioSnapshot déjà canonique — voir
+        // dataManager.buildPortfolioSnapshot. Le dailyTwr fourni ici (1.003281)
+        // impliquerait, avec l'ancien code, un Var Today TRÈS différent de
+        // 362,08€ s'il était encore utilisé — précisément ce que ce test
+        // continue de garantir impossible.
+        const { chart, dataManager } = buildScenario();
 
-        // Le tableau calcule le Day P&L des actifs hors mouvements de cash.
-        // Ici, on simule un cash-flow qui ferait diverger le dailyTwr de cette
-        // performance : l'ancien code aurait pu publier le ratio TWR reconverti
-        // en euros au lieu du totalDayChangeEUR du tableau.
-        const kpiData = chart._computeAggregateKPIs({
-            targetSummary: {
+        const portfolioSnapshot = dataManager.buildPortfolioSnapshot({
+            holdings: [],
+            summary: {
                 totalCurrentEUR: 36575.56,
                 totalInvestedEUR: 28179.89,
                 gainTotal: 8395.67,
                 totalDayChangeEUR: 362.08,
                 dayChangePct: 1.00
             },
-            targetCashReserve: { total: 461.67 },
-            todayGraphData: {
-                values: [36915.83, 37037.24],
-                dailyTwr: [1.0, 1.003281]
-            },
+            cashReserve: { total: 461.67 },
             snapshotStartedAt: 1000
         });
+
+        const kpiData = chart._computeAggregateKPIs({ portfolioSnapshot, snapshotStartedAt: 1000 });
 
         expect(kpiData.totalValue).toBeCloseTo(37037.23, 2);
         expect(kpiData.varTodayAbs).toBeCloseTo(362.08, 2);
         expect(kpiData.varTodayPct).toBeCloseTo(1.00, 2);
+        // Preuve que ce n'est PAS le ratio TWR (1.003281) reconverti en euros
+        // sur le total : totalValue*(1-1/dTwr) ≈ 121€, très différent de 362,08€.
+        expect(kpiData.varTodayAbs).not.toBeCloseTo(37037.23 * (1 - 1 / 1.003281), 0);
     });
 
     it('TEST 6 — anti-race : un refresh portefeuille plus ancien ne réécrit jamais les KPI d\'un actif plus récent', async () => {
-        const { chart } = buildScenario();
+        const { chart, dataManager } = buildScenario();
 
         // Simule le refresh PORTEFEUILLE démarré AVANT (snapshotStartedAt=1000)
         // mais dont la réponse arrive APRÈS la sélection de l'actif (2000) —
-        // exactement le scénario que ce ticket doit empêcher.
-        const portfolioKpiData = chart._computeAggregateKPIs({
-            targetSummary: { totalCurrentEUR: 1960.25, totalInvestedEUR: 1696.62, gainTotal: 263.63 },
-            targetCashReserve: { total: 50 },
-            todayGraphData: { values: [1960.25], dailyTwr: [1.0] },
-            snapshotStartedAt: 1000
+        // exactement le scénario que ce ticket doit empêcher. PortfolioSnapshot
+        // construit via le même producteur canonique que le moteur réel
+        // (dataManager.buildPortfolioSnapshot) — _computeAggregateKPIs ne lit
+        // plus targetSummary/todayGraphData directement (voir SSOT).
+        const portfolioSnapshotOld = dataManager.buildPortfolioSnapshot({
+            holdings: [], summary: { totalCurrentEUR: 1960.25, totalInvestedEUR: 1696.62, gainTotal: 263.63, totalDayChangeEUR: 260.25, dayChangePct: 15.3 },
+            cashReserve: { total: 50 }, snapshotStartedAt: 1000
         });
-        const assetKpiData = chart._computeAggregateKPIs({
-            targetSummary: { totalCurrentEUR: 760.25, totalInvestedEUR: 696.62, gainTotal: 63.63 },
-            targetCashReserve: { total: 0 },
-            todayGraphData: { values: [760.25], dailyTwr: [0.9819] },
-            snapshotStartedAt: 2000
+        const portfolioKpiData = chart._computeAggregateKPIs({ portfolioSnapshot: portfolioSnapshotOld, snapshotStartedAt: 1000 });
+
+        const portfolioSnapshotAsset = dataManager.buildPortfolioSnapshot({
+            holdings: [], summary: { totalCurrentEUR: 760.25, totalInvestedEUR: 696.62, gainTotal: 63.63, totalDayChangeEUR: -14.00, dayChangePct: -1.81 },
+            cashReserve: { total: 0 }, snapshotStartedAt: 2000
         });
+        const assetKpiData = chart._computeAggregateKPIs({ portfolioSnapshot: portfolioSnapshotAsset, snapshotStartedAt: 2000 });
 
         // L'actif (plus récent) répond EN PREMIER...
         chart.renderChart(document.getElementById('historical-portfolio-chart'),

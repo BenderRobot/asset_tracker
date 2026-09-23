@@ -407,6 +407,14 @@ export class HistoricalChart {
             let targetHoldings = [];
             let targetSummary = {};
             let targetCashReserve = { total: 0 };
+            // SSOT (audit architecture) : PortfolioSnapshot canonique produit par
+            // le moteur (dataManager.buildTodaySnapshot/buildAssetTodaySnapshot/
+            // buildIndexSnapshot) pour CE cycle — seule donnée que
+            // _computeAggregateKPIs est autorisée à lire pour Var Today/Total
+            // Value/Total Return. targetSummary/targetHoldings/targetCashReserve
+            // restent en plus pour la TABLE (investmentsPage.js) et les sous-lignes
+            // d'achat, mais ne sont plus utilisés pour dériver un KPI agrégé ici.
+            let portfolioSnapshot = null;
             // Capturé par dataManager.buildTodaySnapshot() AVANT tout await de ce
             // cycle — sert de garde anti-race dans portfolioKPIs.updateFromGraph
             // (voir plus bas) pour qu'une réponse plus ancienne ne puisse jamais
@@ -447,15 +455,18 @@ export class HistoricalChart {
                 this.lastYesterdayClose = indexPreviousClose;
 
                 if (graphData?.values?.length > 0) {
-                    const currentPrice = graphData.values[graphData.values.length - 1];
+                    const graphCurrentPrice = graphData.values[graphData.values.length - 1];
                     const startPrice = graphData.values[0];
-                    const diff = currentPrice - startPrice;
-                    targetSummary = {
-                        totalCurrentEUR: currentPrice, totalInvestedEUR: 0, gainTotal: diff,
-                        gainPct: startPrice > 0 ? (diff / startPrice) * 100 : 0,
-                        totalDayChangeEUR: indexPreviousClose ? currentPriceData.price - indexPreviousClose : diff,
-                        dayChangePct: indexPreviousClose > 0 ? ((currentPriceData.price - indexPreviousClose) / indexPreviousClose) * 100 : 0
-                    };
+                    // Moteur canonique (dataManager.buildIndexSnapshot) — même
+                    // formule qu'avant (Total Return sur la série affichée, Var
+                    // Today sur le prix live vs previousClose), désormais produite
+                    // à un seul endroit et enveloppée dans un PortfolioSnapshot figé.
+                    const indexSnap = this.dataManager.buildIndexSnapshot(currentTicker, {
+                        graphCurrentPrice, startPrice, previousClose: indexPreviousClose,
+                        livePrice: currentPriceData?.price
+                    });
+                    targetSummary = indexSnap.summary;
+                    portfolioSnapshot = indexSnap.portfolioSnapshot;
                 }
                 titleConfig = { mode: 'index', label: this.customTitle ? this.customTitle.label : currentTicker, icon: '🌎' };
 
@@ -478,17 +489,27 @@ export class HistoricalChart {
                         type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
                 });
 
+                // Orchestration de fetch inchangée (choix d'appel réseau selon la
+                // période affichée — pas un calcul financier, voir doc de
+                // dataManager.buildAssetPortfolioSnapshot ci-contre pour pourquoi
+                // elle reste ici plutôt que dans DataManager).
                 graphData = targetAssetPurchases.length === 0
                     ? await this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod)
                     : await this.dataManager.calculateGenericHistory(targetAssetPurchases, this.currentPeriod, true);
 
                 todayGraphData = await this._resolveTodayData(targetAssetPurchases, [], true, graphData);
-                const yesterdayCloseMap = this.dataManager.buildYesterdayCloseMapFromGraphData(todayGraphData);
                 // Taux USD/EUR figé à la date de chaque transaction (invariant 9) —
                 // mémoïsé par dataManager, pas de coût réseau supplémentaire ici.
                 const singleAssetFxMap = await this.dataManager.getHistoricalFxMap(targetAssetPurchases);
-                targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap, singleAssetFxMap);
-                targetSummary = this.dataManager.calculateSummary(targetHoldings);
+
+                // SSOT (audit architecture) : la partie CALCUL (yesterdayCloseMap →
+                // holdings → résumé → PortfolioSnapshot canonique) vit désormais
+                // dans DataManager, seule productrice de ces métriques — cette vue
+                // ne fait plus que l'appeler et lire son résultat.
+                const assetSnapshot = this.dataManager.buildAssetPortfolioSnapshot(currentTicker, targetAssetPurchases, todayGraphData, singleAssetFxMap);
+                targetHoldings = assetSnapshot.holdings;
+                targetSummary = assetSnapshot.summary;
+                portfolioSnapshot = assetSnapshot.portfolioSnapshot;
 
                 const name = targetAssetPurchases[0]?.name || currentTicker;
                 titleConfig = { mode: 'asset', label: `${currentTicker} • ${name}`, icon: this.dataManager.isCryptoTicker(currentTicker) ? '₿' : '📊' };
@@ -555,6 +576,7 @@ export class HistoricalChart {
                 targetSummary = snapshot.summary;
                 targetCashReserve = snapshot.cashReserve;
                 snapshotStartedAt = snapshot.snapshotStartedAt;
+                portfolioSnapshot = snapshot.portfolioSnapshot;
 
                 // Sur l'onglet 1D, le graphique affiché EST le snapshot d'aujourd'hui
                 // (zéro appel réseau supplémentaire). Sur une autre période (1W, 1M…),
@@ -586,12 +608,16 @@ export class HistoricalChart {
             if (!graphData || !graphData.labels || graphData.labels.length === 0) {
                 this.showMessage('Pas de données disponibles pour cette période');
             } else {
-                const kpiData = this._computeAggregateKPIs({ targetSummary, targetCashReserve, todayGraphData, snapshotStartedAt });
+                const kpiData = this._computeAggregateKPIs({ portfolioSnapshot, snapshotStartedAt });
                 this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData);
 
                 if (!isSingleAsset && !isIndexMode) {
-                    const statsToPass = { historicalDayChange: kpiData.varTodayAbs, historicalDayChangePct: kpiData.varTodayPct };
-                    this.investmentsPage.renderData(targetHoldings, targetSummary, targetCashReserve.total, statsToPass);
+                    // SSOT (audit architecture) : plus de 4e argument "chartStats" —
+                    // investmentsPage.renderData ne doit plus recevoir de valeur issue
+                    // du graphique pour ses KPI secondaires, uniquement les positions
+                    // canoniques (targetHoldings/targetSummary), seule source qu'elle
+                    // est autorisée à agréger (voir investmentsPage.js::renderData).
+                    this.investmentsPage.renderData(targetHoldings, targetSummary, targetCashReserve.total);
                 }
             }
 
@@ -609,64 +635,46 @@ export class HistoricalChart {
         }
     }
 
-    // Aggregate "today" numbers (Total Value / Total Return / Var Today).
+    // SÉLECTEUR PUR (audit architecture SSOT) — Total Value / Total Return /
+    // Var Today ne sont plus JAMAIS calculés ici : ils sont simplement LUS sur
+    // le PortfolioSnapshot canonique (dataManager.buildPortfolioSnapshot,
+    // produit en amont par buildTodaySnapshot/buildAssetPortfolioSnapshot/
+    // buildIndexSnapshot — les 3 seuls producteurs). Cette fonction ne fait
+    // qu'adapter les noms de champs canoniques (totalValue/totalReturn/dayPnl)
+    // au vocabulaire historique de ce fichier (varTodayAbs/varTodayPct) pour
+    // ne pas devoir renommer tous les appelants en aval (renderChart,
+    // kpiManager, portfolioKPIs) — zéro arithmétique.
     //
-    // SIMPLIFIED BY REQUEST: Total Value and Total Return are now the plain
-    // sum of every individual holding — targetSummary, from calculateHoldings,
-    // the EXACT SAME data the holdings table itself is built from — instead of
-    // the graph curve's own endpoint (todayGraphData.values). This guarantees,
-    // by construction, that "Total Return" always equals the sum of every
-    // row's own P&L visible in the table: totalReturn = totalCurrentEUR -
-    // totalInvestedEUR = Σ(asset.currentValue - asset.invested) =
-    // Σ(asset.gainEUR), algebraically, not by two formulas happening to agree.
-    // There is no longer a second, independent calculation for the table and
-    // the KPI cards to silently drift apart on — that drift (the graph
-    // engine's own separate price resolution vs calculateHoldings') was the
-    // root of every "table vs KPI" mismatch chased through this file's history.
-    _computeAggregateKPIs({ targetSummary, targetCashReserve, snapshotStartedAt = null }) {
-        const cash = targetCashReserve.total || 0;
-        const investedAssetOnly = targetSummary.totalInvestedEUR || 0;
-        const totalValue = (targetSummary.totalCurrentEUR || 0) + cash;
-        const totalReturn = targetSummary.gainTotal || 0;
-        const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
-
-
-        // BUG FOUND (audit cohérence KPI/tableau, régression du fix précédent) :
-        // cette fonction retombait ici sur targetSummary.totalDayChangeEUR
-        // SEULEMENT en dernier recours (aucune donnée de graphique). Le chemin
-        // PRINCIPAL — celui réellement emprunté dès qu'un todayGraphData/
-        // dailyTwr existe, c'est-à-dire le mode portefeuille normal, celui du
-        // rapport initial (KPI=121,41€ vs Σ table=362,08€) — appliquait un
-        // ratio `dailyTwr` (time-weighted, neutralisé aux cash-flows) au TOTAL
-        // du portefeuille : `totalValue - totalValue/dTwr`. Cette formule n'a
-        // AUCUNE raison de tomber sur la même valeur que Σ asset.dayChange :
-        // un TWR journalier est un ratio composé sur le portefeuille entier
-        // (pondéré par la séquence des cash-flows intra-journaliers), pas une
-        // somme additive des variations €. Les deux peuvent légitimement
-        // diverger dès qu'un achat/vente a lieu dans la journée — exactement
-        // le scénario du rapport — donc "le fix est déjà appliqué" était faux
-        // en pratique : il ne s'activait que quand les deux méthodes étaient
-        // de toute façon d'accord (aucun graphData exploitable).
-        //
-        // Fix : Var Today est TOUJOURS targetSummary.totalDayChangeEUR — la
-        // même somme que celle affichée par le tableau (calculateSummary, qui
-        // additionne le dayChange de chaque ligne). Aucun second calcul
-        // indépendant de ce nombre nulle part dans l'app (voir aussi
-        // _buildKpiRows plus bas, qui réutilise cette même valeur pour le
-        // point "maintenant" du tooltip). Le risque de "cash-flow transformé
-        // en P&L" que le ratio TWR cherchait à éviter n'existe pas ici : cette
-        // valeur ne contient jamais le cash (targetSummary ne porte que les
-        // actifs), et chaque asset.dayChange isole déjà la variation de
-        // marché de tout mouvement de quantité du jour (voir
-        // dataManager._enrichAggregatedPosition / todayValueOfYesterdayHoldings,
-        // qui valorise la quantité DÉTENUE HIER aux deux prix, jamais la
-        // quantité d'aujourd'hui) — donc un achat/vente/dépôt/retrait du jour
-        // ne peut pas se transformer en gain ou perte apparent ici.
-
-        const varTodayAbs = targetSummary.totalDayChangeEUR ?? null;
-        const varTodayPct = targetSummary.dayChangePct ?? null;
-
-        return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly, snapshotStartedAt };
+    // BUG FOUND (audit cohérence KPI/tableau, régression du fix précédent) :
+    // cette fonction calculait ELLE-MÊME Var Today ici, avec un repli sur
+    // targetSummary.totalDayChangeEUR SEULEMENT en dernier recours. Le chemin
+    // PRINCIPAL — celui réellement emprunté dès qu'un todayGraphData/dailyTwr
+    // existait, c'est-à-dire le mode portefeuille normal, celui du rapport
+    // initial (KPI=121,41€ vs Σ table=362,08€) — appliquait un ratio
+    // `dailyTwr` (time-weighted, neutralisé aux cash-flows) au TOTAL du
+    // portefeuille : `totalValue - totalValue/dTwr`. Cette formule n'a AUCUNE
+    // raison de tomber sur la même valeur que Σ asset.dayChange : un TWR
+    // journalier est un ratio composé sur le portefeuille entier (pondéré par
+    // la séquence des cash-flows intra-journaliers), pas une somme additive
+    // des variations €. Les deux peuvent légitimement diverger dès qu'un
+    // achat/vente a lieu dans la journée — exactement le scénario du rapport.
+    // Fix définitif : plus aucune formule locale du tout — cette fonction ne
+    // sait littéralement plus calculer Var Today, seulement le lire.
+    _computeAggregateKPIs({ portfolioSnapshot, snapshotStartedAt = null }) {
+        if (!portfolioSnapshot) {
+            return { totalValue: 0, cash: 0, totalReturn: 0, totalReturnPct: 0, varTodayAbs: null, varTodayPct: null, investedAssetOnly: 0, snapshotStartedAt, snapshotId: null };
+        }
+        return {
+            totalValue: portfolioSnapshot.totalValue,
+            cash: portfolioSnapshot.cash,
+            totalReturn: portfolioSnapshot.totalReturn,
+            totalReturnPct: portfolioSnapshot.totalReturnPct,
+            varTodayAbs: portfolioSnapshot.dayPnl,
+            varTodayPct: portfolioSnapshot.dayPnlPct,
+            investedAssetOnly: portfolioSnapshot.invested,
+            snapshotStartedAt: snapshotStartedAt ?? portfolioSnapshot.snapshotStartedAt,
+            snapshotId: portfolioSnapshot.snapshotId
+        };
     }
 
     // BUG FOUND: #view-toggle means two different things depending on what's
@@ -890,7 +898,12 @@ export class HistoricalChart {
                 // en mode portefeuille, ou directement dans update() en mode actif
                 // (voir plus haut) — jamais absent, pour qu'un refresh d'un AUTRE
                 // mode/actif ne puisse jamais écraser celui-ci après coup.
-                snapshotStartedAt: kpiData?.snapshotStartedAt ?? null
+                snapshotStartedAt: kpiData?.snapshotStartedAt ?? null,
+                // Invariant H (audit SSOT) : identifiant du PortfolioSnapshot
+                // canonique dont TOUS ces champs proviennent — permet de vérifier
+                // que Total Value/Total Return/Var Today affichés ensemble
+                // descendent bien du même instant de résolution, jamais un mélange.
+                snapshotId: kpiData?.snapshotId ?? null
             });
         }
 
@@ -1041,11 +1054,27 @@ export class HistoricalChart {
         // remplacer l'un par l'autre après coup ici.
         const cash = kpiData?.cash || 0;
         const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(val), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
-        const investedAO = graphData.investedAssetOnly?.[idx];
-        if (investedAO != null && !isNaN(investedAO)) {
-            const totalReturn = (val - cash) - investedAO;
-            const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+
+        // BUG FOUND (3e calcul indépendant, même famille que Var Today — audit
+        // architecture SSOT) : "Total Return" était recalculé ICI par
+        // soustraction (val - cash - investedAO) à CHAQUE point, y compris
+        // "maintenant" (idx === lastIndex), au lieu de lire kpiData.totalReturn
+        // (le PortfolioSnapshot canonique). Les deux tombaient d'accord "par
+        // construction" pour le portefeuille en vue 1D — exactement le genre
+        // d'argument qui s'est déjà révélé faux ailleurs dans ce fichier dès
+        // qu'un mode/filtre/cash-flow sort du cas nominal. Fix : au dernier
+        // point, kpiData.totalReturn est la SEULE source ; un point PASSÉ n'a
+        // pas d'équivalent canonique (pas de PortfolioSnapshot historisé) — la
+        // reconstruction locale y reste la seule estimation disponible.
+        if (idx === lastIndex && kpiData?.totalReturn != null && !isNaN(kpiData.totalReturn)) {
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(kpiData.totalReturn), pct: pctFmt(kpiData.totalReturnPct), positive: kpiData.totalReturn >= 0 });
+        } else {
+            const investedAO = graphData.investedAssetOnly?.[idx];
+            if (investedAO != null && !isNaN(investedAO)) {
+                const totalReturn = (val - cash) - investedAO;
+                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
+                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+            }
         }
 
         // Only on the 1D tab: "Var Today" is specifically about today, and
@@ -1055,29 +1084,18 @@ export class HistoricalChart {
         //
         // BUG FOUND (second, independent "Var Today" — audit cohérence
         // KPI/tableau) : ce point du tooltip recalculait sa propre valeur via
-        // `dailyTwr`, indépendamment de kpiData.varTodayAbs (désormais
-        // targetSummary.totalDayChangeEUR — voir _computeAggregateKPIs). Au
-        // point "maintenant" (idx === lastIndex, celui qu'on hover le plus
-        // souvent, juste au-dessus des 4 cartes KPI), ces deux nombres
-        // pouvaient afficher deux valeurs différentes pour le même libellé
-        // "Var Today" au même instant. Fix : au dernier point, réutiliser
-        // EXACTEMENT kpiData.varTodayAbs/Pct — plus aucun second calcul pour
-        // "maintenant". Pour un point PASSÉ de la journée (hover sur un point
-        // intermédiaire), il n'existe pas d'équivalent "table" à cet
-        // instant-là — le ratio dailyTwr (neutralisé aux cash-flows) reste
-        // l'estimation la plus proche disponible et n'est comparé à rien
-        // d'autre affiché à l'écran.
-        if (this.currentPeriod === 1) {
-            if (idx === lastIndex && kpiData?.varTodayAbs != null && !isNaN(kpiData.varTodayAbs)) {
-                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(kpiData.varTodayAbs), pct: pctFmt(kpiData.varTodayPct), positive: kpiData.varTodayAbs >= 0 });
-            } else {
-                const dTwr = graphData.dailyTwr?.[idx];
-                if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
-                    const varTodayAbs = val - val / dTwr;
-                    const varTodayPct = (dTwr - 1) * 100;
-                    rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(varTodayAbs), pct: pctFmt(varTodayPct), positive: varTodayAbs >= 0 });
-                }
-            }
+        // `dailyTwr`, indépendamment de kpiData.varTodayAbs (le PortfolioSnapshot
+        // canonique — voir _computeAggregateKPIs). Règle absolue de l'audit
+        // architecture (section TWR) : Var Today/Day P&L/Total Value/Total
+        // Return ne sont JAMAIS reconstruits depuis TWR, y compris pour un
+        // point passé de la journée — TWR peut alimenter des métriques
+        // d'ANALYSE (la courbe elle-même, "Période"), jamais republier une
+        // valeur portant le libellé d'une métrique canonique. Fix : "Var
+        // Today" n'est donc plus affiché QUE sur le dernier point (maintenant),
+        // exclusivement depuis kpiData.varTodayAbs/Pct — jamais recalculé,
+        // jamais affiché pour un point intermédiaire.
+        if (this.currentPeriod === 1 && idx === lastIndex && kpiData?.varTodayAbs != null && !isNaN(kpiData.varTodayAbs)) {
+            rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(kpiData.varTodayAbs), pct: pctFmt(kpiData.varTodayPct), positive: kpiData.varTodayAbs >= 0 });
         }
 
         this._pushBenchmarkRows(rows, idx, pct, opts);
@@ -1114,11 +1132,18 @@ export class HistoricalChart {
         const pct1 = pctSeries?.[i1];
         const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(v1), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
 
-        const investedAO = graphData.investedAssetOnly?.[i1];
-        if (investedAO != null && !isNaN(investedAO)) {
-            const totalReturn = (v1 - cash) - investedAO;
-            const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+        // Même fix que _buildKpiRows : au dernier point (fin de sélection =
+        // "maintenant"), Total Return vient exclusivement de kpiData.totalReturn
+        // (PortfolioSnapshot canonique), jamais d'une reconstruction locale.
+        if (i1 === lastIndex && kpiData?.totalReturn != null && !isNaN(kpiData.totalReturn)) {
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(kpiData.totalReturn), pct: pctFmt(kpiData.totalReturnPct), positive: kpiData.totalReturn >= 0 });
+        } else {
+            const investedAO = graphData.investedAssetOnly?.[i1];
+            if (investedAO != null && !isNaN(investedAO)) {
+                const totalReturn = (v1 - cash) - investedAO;
+                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
+                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
+            }
         }
 
         if (v0 !== 0) {

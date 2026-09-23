@@ -37,7 +37,6 @@ export class InvestmentsPage {
     this.currentBrokerFilter = '';
     this.currentHoldings = [];
     this.currentSearchQuery = '';
-    this.lastChartStats = null; // <-- NOUVEAU
 
     // Initialisation du toggle controls pour le graphique
     // On attend un peu que le DOM soit prêt si nécessaire, ou on l'appelle après. 
@@ -325,7 +324,12 @@ export class InvestmentsPage {
     });
   }
 
-  renderData(holdings, summary, cashReserveTotal, chartStats = null) { // <-- MODIFIÉ
+  // SSOT (audit architecture) : `holdings` DOIT être les positions canoniques
+  // déjà résolues par le moteur (dataManager.buildTodaySnapshot/calculateHoldings,
+  // via historicalChart.js::update()) — cette méthode ne lit/n'agrège plus
+  // aucune donnée issue du graphique (voir suppression du paramètre chartStats
+  // et de la logique d'écrasement qui l'utilisait, ci-dessous).
+  renderData(holdings, summary, cashReserveTotal) {
     this.currentHoldings = holdings;
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
@@ -470,46 +474,26 @@ export class InvestmentsPage {
         `;
     }).join('') || '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-secondary);">Aucun investissement correspondant.</td></tr>';
 
-    // --- CRITICAL FIX: Recalculate summary based on FILTERED holdings ---
-    // Problem: VAR TODAY was calculated from ALL holdings, but table shows only filtered ones
-    // Solution: Recalculate summary from filteredHoldings to match what's actually displayed
+    // SSOT (audit architecture) : le résumé affiché ici est TOUJOURS dérivé
+    // des positions canoniques déjà filtrées (filteredHoldings — elles-mêmes
+    // issues de targetHoldings/portfolioSnapshot.positions produit par
+    // historicalChart.js::update(), voir getFilteredPurchasesFromPage, seule
+    // source de filtrage partagée par le graphique ET le tableau). calculateSummary
+    // est la SEULE formule d'agrégation (Σ position.dayChange, Σ position.gainEUR,
+    // etc.) — jamais recalculée différemment ici.
+    //
+    // BUG FOUND (interdit dans la nouvelle architecture — voir audit SSOT) :
+    // ce bloc écrasait finalSummary.totalDayChangeEUR/gainTotal par une valeur
+    // venant du GRAPHIQUE (chartStats/effectiveChartStats, potentiellement
+    // this.lastChartStats — un état d'un rendu PRÉCÉDENT, donc potentiellement
+    // périmé par rapport au filtre actuellement affiché) au lieu de la valeur
+    // canonique déjà correcte. Un graphique (courbe TWR) n'est jamais une
+    // source de vérité financière — voir historicalChart::_computeAggregateKPIs,
+    // qui ne fait plus lui non plus ce genre de substitution. Fix : toujours
+    // utiliser filteredSummary tel quel (déjà la somme exacte des lignes
+    // affichées) — aucun second calcul, aucun choix entre deux sources.
     const filteredSummary = this.dataManager.calculateSummary(filteredHoldings);
-
-    // --- LOGIQUE D'ÉCRASEMENT DES STATS PAR LE GRAPHIQUE ---
-    // 1. Définir les stats du graphique (pour la persistance si pagination)
-    if (chartStats) this.lastChartStats = chartStats;
-    const effectiveChartStats = chartStats || this.lastChartStats;
-
-    // 2. Créer un résumé final BASÉ SUR LES DONNÉES FILTRÉES
-    let finalSummary = { ...filteredSummary }; // Use filtered summary as base
-
-    // CRITICAL FIX: GRAPH IS THE SINGLE SOURCE OF TRUTH FOR ALL KPIs
-    // Override ALL summary values with chart values to ensure consistency with Dashboard
-    const isSingleAssetView = filteredHoldings.length === 1;
-
-    if (!isSingleAssetView && effectiveChartStats) {
-      // Full portfolio view: Use chart's values (SINGLE SOURCE OF TRUTH)
-
-      // 2. Total Return: Recalculate based on graph's Total Value
-      if (finalSummary.totalInvestedEUR) {
-        finalSummary.gainTotal = finalSummary.totalCurrentEUR - finalSummary.totalInvestedEUR;
-        finalSummary.gainPct = finalSummary.totalInvestedEUR > 0
-          ? (finalSummary.gainTotal / finalSummary.totalInvestedEUR) * 100
-          : 0;
-        console.log(`[Investments] ✅ Total Return from graph: ${finalSummary.gainTotal.toFixed(2)}€`);
-      }
-
-      // 3. Var Today: Use graph's historical day change
-      if (effectiveChartStats.historicalDayChange !== null) {
-        finalSummary.totalDayChangeEUR = effectiveChartStats.historicalDayChange;
-        finalSummary.dayChangePct = effectiveChartStats.historicalDayChangePct;
-        console.log(`[Investments] ✅ Var Today from graph: ${effectiveChartStats.historicalDayChange.toFixed(2)}€`);
-      }
-    } else {
-      // Single asset or filtered view: Keep filteredSummary values
-      console.log('[Investments] Using filteredSummary (single asset view)');
-    }
-    // --- FIN LOGIQUE D'ÉCRASEMENT ---
+    const finalSummary = filteredSummary;
 
     // === MODIF : Passage de marketStatus (utilise finalSummary) ===
     // Les 5 KPI du haut sont écrits UNIQUEMENT par le listener portfolioKPIs
@@ -518,7 +502,6 @@ export class InvestmentsPage {
 
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
-      // L'appel récursif se fera avec this.lastChartStats qui sera récupéré au début de renderData
       this.renderData(this.currentHoldings, summary, cashReserveTotal);
     });
 

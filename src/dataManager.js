@@ -21,6 +21,161 @@ export class DataManager {
         this.storage = storage;
         this.api = api;
         this.historyCalculator = new HistoryCalculator(storage, api);
+        // Compteur monotone pour snapshotId — voir buildPortfolioSnapshot.
+        this._snapshotSeq = 0;
+    }
+
+    // ============================================================
+    // PORTFOLIOSNAPSHOT — LE SEUL PRODUCTEUR DE MÉTRIQUES FINANCIÈRES
+    // CANONIQUES DE L'APPLICATION (audit architecture SSOT)
+    // ============================================================
+    //
+    // Règle : UNE métrique financière = UNE formule = UN producteur (ce
+    // fichier) = UNE source canonique (l'objet retourné ici, immuable). Les
+    // vues (historicalChart.js, investmentsPage.js, dashboardApp.js,
+    // chartKPIManager.js) ne DOIVENT plus jamais recalculer totalValue,
+    // totalReturn, dayPnl/Var Today ou dayPct — uniquement lire ces champs sur
+    // le PortfolioSnapshot qu'on leur transmet. Un test statique
+    // (tests/architectureFinancialSsot.test.js) fait échouer la suite si un de
+    // ces fichiers réintroduit un tel calcul.
+    //
+    // Ce mapper est délibérément PUR et SYNCHRONE : il ne fait plus aucune
+    // résolution de prix/taux — ce travail est déjà fait par le moteur
+    // (buildTodaySnapshot pour le portefeuille, buildAssetTodaySnapshot pour
+    // un actif seul, buildIndexSnapshot pour un indice). Il ne fait
+    // qu'agréger/canonicaliser un résultat de moteur DÉJÀ résolu, une seule
+    // fois, dans une forme figée (Object.freeze) que rien en aval ne peut
+    // modifier silencieusement.
+    //
+    // TWR (voir HistoryCalculator/todayGraphData.dailyTwr) est explicitement
+    // HORS de cet objet : c'est une métrique d'ANALYSE de performance
+    // (HistoricalAnalytics), pas une métrique de snapshot financier — voir
+    // historicalChart.js, qui ne lit plus jamais dailyTwr pour produire Var
+    // Today/Total Value/Total Return. Le sens de dépendance est strictement
+    // PortfolioSnapshot → TWR Analytics, jamais l'inverse.
+    _nextSnapshotId() {
+        this._snapshotSeq += 1;
+        return `snap-${Date.now()}-${this._snapshotSeq}`;
+    }
+
+    // Position canonique pour UNE ligne (un ticker) — mappe le vocabulaire
+    // interne historique de calculateHoldings (dayChange/gainEUR/gainPct) vers
+    // le vocabulaire canonique du PortfolioSnapshot (dayPnl/totalReturn/
+    // totalReturnPct) demandé par l'architecture SSOT, sans dupliquer le
+    // calcul : chaque champ ici est une simple RE-LECTURE d'un champ déjà
+    // produit par _enrichAggregatedPosition, jamais une nouvelle formule.
+    // `quantity` reste la valeur EXACTE (pleine précision flottante) telle que
+    // calculée par _buildPositionsByBrokerTicker — jamais arrondie ici (voir
+    // invariant "arrondi = affichage seulement", app.js pour le bug historique
+    // inverse).
+    _mapHoldingToPosition(holding) {
+        return Object.freeze({
+            ticker: holding.ticker,
+            name: holding.name,
+            assetType: holding.assetType,
+            quantity: holding.quantity,               // rawQuantity — pleine précision
+            avgPrice: holding.avgPrice,
+            currentPrice: holding.currentPrice,
+            previousClose: holding.previousClose ?? null,
+            currentValue: holding.currentValue,
+            invested: holding.invested,
+            totalReturn: holding.gainEUR,
+            totalReturnPct: holding.gainPct,
+            yesterdayQuantity: holding.yesterdayQuantity ?? null,
+            dayPnl: holding.dayChange,
+            dayPnlPct: holding.dayPct,
+            weight: holding.weight,
+            purchases: Object.freeze([...(holding.purchases || [])])
+        });
+    }
+
+    // LE canonicalizer : transforme le résultat déjà résolu d'un moteur
+    // (buildTodaySnapshot / buildAssetTodaySnapshot / buildIndexSnapshot) en
+    // PortfolioSnapshot figé. `holdings`/`summary`/`cashReserve` sont
+    // EXACTEMENT ce que calculateHoldings/calculateSummary/calculateCashReserve
+    // ont produit — cette fonction ne fait qu'assembler et figer, jamais
+    // recalculer une métrique de marché.
+    //
+    //     snapshot.dayPnl        === Σ snapshot.positions[].dayPnl   (par construction : summary.totalDayChangeEUR est DÉJÀ cette somme — voir calculateSummary)
+    //     snapshot.totalValue    === Σ positions[].currentValue + snapshot.cash
+    //     snapshot.totalReturn   === Σ positions[].totalReturn        (= totalValue des actifs - invested, cash exclu — définition actuelle de gainTotal)
+    buildPortfolioSnapshot({ holdings, summary, cashReserve, snapshotStartedAt = null, pricesTimestamp = null, meta = null }) {
+        const cash = cashReserve?.total || 0;
+        const invested = summary.totalInvestedEUR || 0;
+        const totalValue = (summary.totalCurrentEUR || 0) + cash;
+        const totalReturn = summary.gainTotal || 0;
+        const totalReturnPct = invested > 0 ? (totalReturn / invested) * 100 : 0;
+        const dayPnl = summary.totalDayChangeEUR ?? 0;
+        const dayPnlPct = summary.dayChangePct ?? 0;
+
+        const positions = Object.freeze(holdings.map(h => this._mapHoldingToPosition(h)));
+
+        return Object.freeze({
+            snapshotId: this._nextSnapshotId(),
+            generatedAt: Date.now(),
+            snapshotStartedAt,
+            // Fraîcheur des prix utilisés — par défaut égale à l'instant où la
+            // résolution a démarré (snapshotStartedAt) faute de mieux ; un
+            // appelant qui connaît l'âge réel des prix (ex: dernier
+            // lastUpdate résolu) peut le préciser.
+            pricesTimestamp: pricesTimestamp ?? snapshotStartedAt,
+            totalValue,
+            cash,
+            invested,
+            totalReturn,
+            totalReturnPct,
+            dayPnl,
+            dayPnlPct,
+            positions,
+            // Traçabilité (ex: {mode:'portfolio'|'asset'|'index', ticker, filtered:bool}) —
+            // jamais lu pour produire une métrique, uniquement pour le debug/logs.
+            meta: meta ? Object.freeze({ ...meta }) : null
+        });
+    }
+
+    // Dérive un PortfolioSnapshot FILTRÉ (sous-ensemble de tickers) à partir
+    // d'un snapshot déjà canonique — jamais en relisant des prix ou en
+    // recalculant depuis les achats bruts. Réutilise EXACTEMENT la même
+    // formule d'agrégation que buildPortfolioSnapshot (Σ positions), sur un
+    // sous-ensemble de positions déjà résolues. Porte `filteredFrom` vers le
+    // snapshotId parent (invariant H : traçabilité de lignage), pour qu'on
+    // puisse toujours vérifier qu'une vue "filtrée" descend bien du même
+    // instant de résolution que le snapshot global affiché ailleurs à l'écran.
+    deriveFilteredPortfolioSnapshot(snapshot, tickerFilterSet) {
+        const positions = (!tickerFilterSet || tickerFilterSet.size === 0)
+            ? snapshot.positions
+            : snapshot.positions.filter(p => tickerFilterSet.has(p.ticker.toUpperCase()));
+
+        // Même formule EXACTE que calculateSummary (celle qui produit
+        // summary.dayChangePct au niveau non-filtré) : dénominateur = valeur
+        // des ACTIFS SEULS à la clôture d'hier, cash exclu — pour que
+        // dayPnlPct d'un snapshot filtré et non-filtré restent calculés de la
+        // même manière.
+        const assetValue = positions.reduce((s, p) => s + (p.currentValue || 0), 0);
+        const totalValue = assetValue + snapshot.cash;
+        const invested = positions.reduce((s, p) => s + (p.invested || 0), 0);
+        const totalReturn = positions.reduce((s, p) => s + (p.totalReturn || 0), 0);
+        const totalReturnPct = invested > 0 ? (totalReturn / invested) * 100 : 0;
+        const dayPnl = positions.reduce((s, p) => s + (p.dayPnl || 0), 0);
+        const previousCloseAssetValue = assetValue - dayPnl;
+        const dayPnlPct = previousCloseAssetValue > 0 ? (dayPnl / previousCloseAssetValue) * 100 : 0;
+
+        return Object.freeze({
+            snapshotId: `${snapshot.snapshotId}:filtered`,
+            filteredFrom: snapshot.snapshotId,
+            generatedAt: snapshot.generatedAt,
+            snapshotStartedAt: snapshot.snapshotStartedAt,
+            pricesTimestamp: snapshot.pricesTimestamp,
+            totalValue,
+            cash: snapshot.cash,
+            invested,
+            totalReturn,
+            totalReturnPct,
+            dayPnl,
+            dayPnlPct,
+            positions: Object.freeze(positions),
+            meta: snapshot.meta
+        });
     }
 
     // === HELPERS DELEGATION (Compatibilité Legacy) ===
@@ -365,6 +520,11 @@ export class DataManager {
         let dayChange = null;
         let dayPct = null;
         let usedYesterdayCloseMap = false;
+        // Quantité de référence effectivement utilisée pour dayChange — exposée
+        // telle quelle (voir PortfolioSnapshot.positions[].yesterdayQuantity) pour
+        // que le canonicalizer n'ait jamais à la redeviner : `null` tant qu'aucun
+        // des deux chemins ci-dessous n'a pu la déterminer.
+        let yesterdayQuantity = null;
 
         // LOGIQUE CORRIGÉE : Utiliser yesterdayCloseMap en priorité.
         // HistoryCalculator calcule finement la vraie clôture de la veille (ou le prix à minuit pour les cryptos)
@@ -373,6 +533,9 @@ export class DataManager {
             const mapEntry = yesterdayCloseMap.get(ticker);
             const yesterdayTotal = (typeof mapEntry === 'object') ? mapEntry.yesterdayClose : mapEntry;
             const todayYestQty = (typeof mapEntry === 'object') ? mapEntry.todayValueOfYesterdayHoldings : null;
+            if (typeof mapEntry === 'object' && mapEntry.quantityYesterday != null) {
+                yesterdayQuantity = mapEntry.quantityYesterday;
+            }
 
             if (yesterdayTotal > 0 && currentValueEUR !== null) {
                 const referenceCurrentValue = (todayYestQty !== null && todayYestQty > 0)
@@ -401,6 +564,13 @@ export class DataManager {
         // déjà rendu comme tel par formatCurrency/formatPercent dans
         // investmentsPage.js) au lieu d'une fausse valeur plausible.
         if (!usedYesterdayCloseMap && currentPrice && currentPrice > 0 && previousClose && previousClose > 0) {
+            // Repli MOINS précis (voir doc ci-dessus) : faute de connaître la
+            // quantité réellement détenue hier, on retombe sur la quantité totale
+            // d'aujourd'hui — un achat/vente intra-journée sur ce ticker précis
+            // gonflera alors dayChange (voir buildTodaySnapshot/buildAssetTodaySnapshot,
+            // qui fournissent tous deux désormais un yesterdayCloseMap précisément
+            // pour éviter d'emprunter ce chemin en pratique).
+            yesterdayQuantity = data.quantity;
             if (previousClose !== currentPrice) {
                 dayPct = ((currentPrice - previousClose) / previousClose) * 100;
                 dayChange = (currentPrice - previousClose) * data.quantity * currentRate;
@@ -418,11 +588,13 @@ export class DataManager {
             avgPrice: avgPriceEUR,
             invested: investedEUR,
             currentPrice: currentPrice ? currentPrice * currentRate : null,
+            previousClose: previousClose ? previousClose * currentRate : null,
             currentValue: currentValueEUR,
             gainEUR,
             gainPct,
             dayChange,
             dayPct,
+            yesterdayQuantity,
             weight: 0,
             purchases: data.purchases
         };
@@ -1268,7 +1440,82 @@ export class DataManager {
         const summary = this.calculateSummary(holdings);
         const cashReserve = this.calculateCashReserve(cashPurchases);
 
-        return { snapshotStartedAt, dynamicRate, historicalFxMap, todayGraphData, holdings, summary, cashReserve };
+        // PortfolioSnapshot canonique (audit architecture SSOT) — ajouté en
+        // plus des champs existants (jamais en remplacement : tous les
+        // appelants/tests déjà écrits contre todayGraphData/holdings/summary/
+        // cashReserve continuent de fonctionner à l'identique). C'est CE
+        // champ que historicalChart.js doit désormais lire pour produire ses
+        // KPI — voir _computeAggregateKPIs.
+        const portfolioSnapshot = this.buildPortfolioSnapshot({
+            holdings, summary, cashReserve, snapshotStartedAt,
+            meta: { mode: 'portfolio' }
+        });
+
+        return { snapshotStartedAt, dynamicRate, historicalFxMap, todayGraphData, holdings, summary, cashReserve, portfolioSnapshot };
+    }
+
+    // ============================================================
+    // MODE ACTIF UNIQUE — extrait de historicalChart.js (audit architecture :
+    // un fichier de VUE ne doit pas produire lui-même un résumé/PortfolioSnapshot
+    // — voir section 4 de l'audit). Prend en entrée un `todayGraphData` DÉJÀ
+    // résolu par l'appelant (via _resolveTodayData, dont la logique de choix
+    // d'appel réseau selon la période affichée n'a PAS été rapatriée ici —
+    // c'est de l'orchestration de fetch, pas un calcul financier, et la
+    // dupliquer ici aurait risqué de subtilement changer son comportement
+    // pour les périodes ≠ 1 jour). Ne fait que canonicaliser :
+    // yesterdayCloseMap (déjà cash-flow-immune, comme pour le portefeuille) →
+    // calculateHoldings → calculateSummary → PortfolioSnapshot (cash toujours
+    // 0 : un actif seul n'a pas de réserve de cash à lui).
+    buildAssetPortfolioSnapshot(ticker, assetPurchases, todayGraphData, historicalFxMap) {
+        const yesterdayCloseMap = this.buildYesterdayCloseMapFromGraphData(todayGraphData);
+        const holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap);
+        const summary = this.calculateSummary(holdings);
+        const cashReserve = { total: 0, byBroker: {} };
+
+        const resolvedTicker = ticker || assetPurchases[0]?.ticker || null;
+        const portfolioSnapshot = this.buildPortfolioSnapshot({
+            holdings, summary, cashReserve, snapshotStartedAt: Date.now(),
+            meta: { mode: 'asset', ticker: resolvedTicker }
+        });
+
+        return { holdings, summary, cashReserve, portfolioSnapshot };
+    }
+
+    // ============================================================
+    // MODE INDICE — extrait de historicalChart.js. Un indice n'a ni position
+    // au sens portefeuille ni "invested" réel ; on le modélise comme une
+    // unique position synthétique (quantité=1) pour qu'il traverse EXACTEMENT
+    // le même canonicalizer (buildPortfolioSnapshot) que les deux autres
+    // modes — jamais une 3e formule ad hoc pour "Var Today d'un indice".
+    // `graphCurrentPrice`/`startPrice` : bornes de la série affichée (utilisées
+    // pour "Total Return" — la période affichée, comme avant). `livePrice` :
+    // prix live résolu séparément (storage.getCurrentPrice) — utilisé pour Var
+    // Today comme avant (les deux pouvaient déjà différer légèrement dans le
+    // code d'origine ; formule reprise à l'identique, pas une nouvelle règle).
+    buildIndexSnapshot(ticker, { graphCurrentPrice, startPrice, previousClose, livePrice }) {
+        const diff = (graphCurrentPrice != null && startPrice != null) ? graphCurrentPrice - startPrice : null;
+        const gainPct = (startPrice > 0 && diff != null) ? (diff / startPrice) * 100 : 0;
+        const dayPnl = (previousClose && livePrice != null) ? livePrice - previousClose : diff;
+        const dayPnlPct = (previousClose > 0 && livePrice != null) ? ((livePrice - previousClose) / previousClose) * 100 : 0;
+
+        const holdings = [{
+            ticker, name: ticker, assetType: 'Index', quantity: 1,
+            avgPrice: startPrice ?? 0, invested: 0, currentPrice: graphCurrentPrice, previousClose,
+            currentValue: graphCurrentPrice, gainEUR: diff, gainPct,
+            dayChange: dayPnl, dayPct: dayPnlPct, yesterdayQuantity: 1,
+            weight: 100, purchases: []
+        }];
+        const summary = {
+            totalCurrentEUR: graphCurrentPrice ?? 0, totalInvestedEUR: 0, gainTotal: diff ?? 0, gainPct,
+            totalDayChangeEUR: dayPnl ?? 0, dayChangePct: dayPnlPct
+        };
+        const cashReserve = { total: 0, byBroker: {} };
+        const portfolioSnapshot = this.buildPortfolioSnapshot({
+            holdings, summary, cashReserve, snapshotStartedAt: Date.now(),
+            meta: { mode: 'index', ticker }
+        });
+
+        return { summary, portfolioSnapshot };
     }
 
     // ============================================================
@@ -1398,9 +1645,22 @@ export class DataManager {
     }
 
     // ============================================================
+    // DIAGNOSTIC ONLY — jamais appelé par l'UI, jamais un producteur de
+    // PortfolioSnapshot (audit architecture SSOT, section 12).
+    // ============================================================
+    // Cette fonction calcule volontairement un "Var Today" alternatif dérivé
+    // de dailyTwr (varTodayAtTarget/varTodayAtLast, voir plus bas) — c'est
+    // EXACTEMENT la formule interdite ailleurs dans l'app (voir
+    // tests/architectureFinancialSsot.test.js). Elle n'existe ici QUE pour
+    // comparer, dans la console développeur, la valeur canonique
+    // (PortfolioSnapshot.dayPnl) à ce que le ratio TWR aurait donné —
+    // détecter un futur écart entre les deux méthodes, jamais pour produire
+    // une valeur affichée. Aucun appelant de production (aucune vue,
+    // aucun composant KPI) n'invoque cette méthode ; ne JAMAIS câbler son
+    // retour vers un composant d'affichage ou vers buildPortfolioSnapshot.
+    //
     // DIAGNOSTIC TEMPORAIRE — audit de l'écart "point 22:00 vs dernier point"
     // (ex: 11 917,01€ @22:00 vs 11 874,85€ au dernier point, -42,16€).
-    // ============================================================
     // Lecture seule, n'altère AUCUNE valeur retournée par le moteur réel : lit
     // le trace `debugCapture` (voir HistoryCalculator._buildSeries) que
     // calculateGenericHistory() remplit UNIQUEMENT quand on le lui demande —
