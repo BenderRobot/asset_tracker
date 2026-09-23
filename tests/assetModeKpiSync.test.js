@@ -134,6 +134,34 @@ describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/
         expect(kpis.totalValue).toBeCloseTo(760.25, 2);
     });
 
+    it('TEST 6 — Var Today = somme exacte du Day P&L du tableau, même avec un cash-flow', () => {
+        const { chart } = buildScenario();
+
+        // Le tableau calcule le Day P&L des actifs hors mouvements de cash.
+        // Ici, on simule un cash-flow qui ferait diverger le dailyTwr de cette
+        // performance : l'ancien code aurait pu publier le ratio TWR reconverti
+        // en euros au lieu du totalDayChangeEUR du tableau.
+        const kpiData = chart._computeAggregateKPIs({
+            targetSummary: {
+                totalCurrentEUR: 36575.56,
+                totalInvestedEUR: 28179.89,
+                gainTotal: 8395.67,
+                totalDayChangeEUR: 362.08,
+                dayChangePct: 1.00
+            },
+            targetCashReserve: { total: 461.67 },
+            todayGraphData: {
+                values: [36915.83, 37037.24],
+                dailyTwr: [1.0, 1.003281]
+            },
+            snapshotStartedAt: 1000
+        });
+
+        expect(kpiData.totalValue).toBeCloseTo(37037.23, 2);
+        expect(kpiData.varTodayAbs).toBeCloseTo(362.08, 2);
+        expect(kpiData.varTodayPct).toBeCloseTo(1.00, 2);
+    });
+
     it('TEST 6 — anti-race : un refresh portefeuille plus ancien ne réécrit jamais les KPI d\'un actif plus récent', async () => {
         const { chart } = buildScenario();
 
