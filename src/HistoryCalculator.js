@@ -171,6 +171,13 @@ export class HistoryCalculator {
             invested: series.invested,
             investedAssetOnly: series.investedAssetOnly,
             values: series.values,
+            // PortfolioSnapshot historique par point (audit architecture SSOT) —
+            // voir _buildSeries : cash[i]/totalReturn[i]/totalReturnPct[i] sont
+            // déjà calculés avec la même formule que le snapshot LIVE, jamais à
+            // recalculer par un consommateur (historicalChart.js).
+            cash: series.cash,
+            totalReturn: series.totalReturn,
+            totalReturnPct: series.totalReturnPct,
             yesterdayClose: series.displayedYesterdayClose,
             dayStartValue: series.dayStartValue,
             todayValueOfYesterdayHoldings,
@@ -736,6 +743,17 @@ export class HistoryCalculator {
     async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
         const twr = [], dailyTwr = [];
+        // PortfolioSnapshot historique, une entrée par point affiché (audit
+        // architecture SSOT) : cash/totalReturn/totalReturnPct calculés ICI,
+        // UNE FOIS, avec la même formule que le snapshot LIVE
+        // (dataManager.buildPortfolioSnapshot : totalReturn = (totalValue -
+        // cash) - investedAssetOnly), jamais recalculés en aval par une vue.
+        // `values[i]` inclut déjà le cash (les tickers CASH-* contribuent à
+        // totalValue comme n'importe quel autre ticker, prix=1) — `cash[i]`
+        // isole la part qui en provient, pour que le tooltip n'ait plus jamais
+        // besoin d'aller chercher un cash "courant" ailleurs pour un point
+        // historique.
+        const cash = [], totalReturn = [], totalReturnPct = [];
 
         const quantities = new Map(tickers.map(t => [t, 0]));
         const investedByTicker = new Map(tickers.map(t => [t, 0]));
@@ -878,7 +896,7 @@ export class HistoryCalculator {
                 }
             }
 
-            let totalValue = 0, totalInvested = 0, totalInvestedAssetOnly = 0, unitPrice = null;
+            let totalValue = 0, totalInvested = 0, totalInvestedAssetOnly = 0, totalCash = 0, unitPrice = null;
             let hasAnyPrice = false, expected = 0, priced = 0;
 
             for (const t of tickers) {
@@ -977,6 +995,7 @@ export class HistoryCalculator {
                         if (currency === 'USD') rate = dynamicRate;
                     }
                     totalValue += price * qty * rate;
+                    if (isCash) totalCash += price * qty * rate;
                     hasAnyPrice = true; priced++;
                     if (isSingleAsset) unitPrice = price;
                     lastKnownPrices.set(t, price);
@@ -1082,11 +1101,21 @@ export class HistoryCalculator {
                 invested.push(totalInvested);
                 investedAssetOnly.push(totalInvestedAssetOnly);
                 values.push(totalValue);
+                cash.push(totalCash);
+                // Même formule EXACTE que dataManager.buildPortfolioSnapshot
+                // (totalReturn = (totalValue - cash) - investedAssetOnly, cash
+                // exclu) — calculée UNE FOIS ici, jamais recalculée par une vue.
+                const pointTotalReturn = (totalValue - totalCash) - totalInvestedAssetOnly;
+                totalReturn.push(pointTotalReturn);
+                totalReturnPct.push(totalInvestedAssetOnly > 0 ? (pointTotalReturn / totalInvestedAssetOnly) * 100 : 0);
                 if (isSingleAsset) unitPrices.push(unitPrice);
             } else {
                 invested.push(null);
                 investedAssetOnly.push(null);
                 values.push(null);
+                cash.push(null);
+                totalReturn.push(null);
+                totalReturnPct.push(null);
                 if (isSingleAsset) unitPrices.push(null);
             }
         }
@@ -1095,7 +1124,7 @@ export class HistoryCalculator {
         // could therefore drift from it — align it on the same single anchor.
         if (days === 1 && periodDenominator > 0) dayStartValue = periodDenominator;
 
-        return { labels, invested, investedAssetOnly, values, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue, resolvedPrices };
+        return { labels, invested, investedAssetOnly, values, cash, totalReturn, totalReturnPct, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue, resolvedPrices };
     }
 
     // ========================================================

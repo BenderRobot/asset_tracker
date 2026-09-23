@@ -66,6 +66,14 @@ const FORBIDDEN_PATTERNS = [
     {
         name: 'conversion ratio TWR -> pourcentage affichée comme une KPI ((xTwr - 1) * 100)',
         regex: /\(\s*\w*[Tt]wr\w*\s*-\s*1\s*\)\s*\*\s*100/
+    },
+    {
+        name: 'variable nommée "investedAO" (bug des 297,18€ : Total Return recalculé localement en mélangeant une valeur historique et un cash/invested courants)',
+        regex: /\binvestedAO\b/
+    },
+    {
+        name: 'Total Return recalculé localement à partir d\'une valeur de graphique et de cash ((val - cash) - invested)',
+        regex: /\(\s*\w+\s*-\s*cash\s*\)\s*-\s*\w*[Ii]nvest/
     }
 ];
 

@@ -511,6 +511,16 @@ export class HistoricalChart {
                 targetSummary = assetSnapshot.summary;
                 portfolioSnapshot = assetSnapshot.portfolioSnapshot;
 
+                // SSOT (audit architecture, bug des 297,18€) : le graphique affiché
+                // (`graphData`, période courante) et le PortfolioSnapshot live
+                // (`portfolioSnapshot`, toujours résolu "aujourd'hui") représentent
+                // le MÊME instant "maintenant" pour leur dernier point respectif —
+                // mais viennent de deux passes de résolution de prix indépendantes.
+                // On force le dernier point du graphique à être EXACTEMENT le
+                // snapshot live (assemblage, pas un recalcul) — voir
+                // dataManager.alignLastPointToLiveSnapshot.
+                graphData = this.dataManager.alignLastPointToLiveSnapshot(graphData, portfolioSnapshot);
+
                 const name = targetAssetPurchases[0]?.name || currentTicker;
                 titleConfig = { mode: 'asset', label: `${currentTicker} • ${name}`, icon: this.dataManager.isCryptoTicker(currentTicker) ? '₿' : '📊' };
 
@@ -587,6 +597,13 @@ export class HistoricalChart {
                 graphData = (this.currentPeriod === 1)
                     ? todayGraphData
                     : await this.dataManager.calculateHistory([...assetPurchases, ...cashPurchases], this.currentPeriod);
+
+                // SSOT (audit architecture, bug des 297,18€) : voir le même appel en
+                // mode actif unique ci-dessus. Appliqué INCONDITIONNELLEMENT (même
+                // pour l'onglet 1D, où graphData === todayGraphData déjà réconcilié
+                // par construction) — un no-op si les deux étaient déjà identiques,
+                // une garantie structurelle si jamais ils ne l'étaient pas.
+                graphData = this.dataManager.alignLastPointToLiveSnapshot(graphData, portfolioSnapshot);
             }
 
             if (benchmarkWrapper) benchmarkWrapper.style.display = (isSingleAsset || isIndexMode) ? 'none' : 'block';
@@ -1032,7 +1049,7 @@ export class HistoricalChart {
     // an index or a single asset's unit price has no "invested" or "cash" to
     // build Total Return from.
     _buildKpiRows(idx, opts) {
-        const { graphData, pctSeries, eurFmt, pctFmt, kpiData, isIndexMode, isUnitView, isPerformanceMode, displayValues, lastIndex } = opts;
+        const { graphData, pctSeries, eurFmt, pctFmt, isIndexMode, isUnitView, isPerformanceMode, displayValues } = opts;
         if (isIndexMode || isUnitView) {
             const v = displayValues?.[idx];
             if (v == null || isNaN(v)) return [];
@@ -1046,56 +1063,35 @@ export class HistoricalChart {
         if (val == null || isNaN(val)) return [];
         const pct = pctSeries?.[idx];
 
-        // GRAPH POINT = TOOLTIP POINT : aucune substitution spéciale sur le
-        // dernier point. graphData EST le snapshot unique construit par
-        // dataManager.buildTodaySnapshot() (voir historicalChart::update()), donc
-        // val (graphData.values[idx]) au dernier index égale déjà kpiData.totalValue
-        // par construction pour le portefeuille en vue 1D — plus besoin de
-        // remplacer l'un par l'autre après coup ici.
-        const cash = kpiData?.cash || 0;
+        // SSOT (audit architecture — bug des 297,18€ : Total Value historique
+        // combiné à un cash/invested "courant" pour fabriquer un Total Return
+        // hybride). Ce tooltip ne calcule plus RIEN : `graphData.totalReturn`/
+        // `totalReturnPct`/`dayPnl`/`dayPnlPct` sont des séries déjà résolues
+        // par le moteur (voir HistoryCalculator._buildSeries — même formule
+        // que le snapshot live, calculée une fois, jamais recalculée ici), et
+        // le dernier point de CES séries est garanti égal au PortfolioSnapshot
+        // live par dataManager.alignLastPointToLiveSnapshot (appelé dans
+        // update(), jamais ici). Aucune condition "idx === lastIndex" dans ce
+        // fichier : la distinction "maintenant vs point passé" est déjà
+        // tranchée EN AMONT, dans la donnée elle-même — ce code lit un index
+        // de tableau, un point c'est tout, jamais deux sources différentes
+        // combinées pour un même nombre.
         const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(val), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
 
-        // BUG FOUND (3e calcul indépendant, même famille que Var Today — audit
-        // architecture SSOT) : "Total Return" était recalculé ICI par
-        // soustraction (val - cash - investedAO) à CHAQUE point, y compris
-        // "maintenant" (idx === lastIndex), au lieu de lire kpiData.totalReturn
-        // (le PortfolioSnapshot canonique). Les deux tombaient d'accord "par
-        // construction" pour le portefeuille en vue 1D — exactement le genre
-        // d'argument qui s'est déjà révélé faux ailleurs dans ce fichier dès
-        // qu'un mode/filtre/cash-flow sort du cas nominal. Fix : au dernier
-        // point, kpiData.totalReturn est la SEULE source ; un point PASSÉ n'a
-        // pas d'équivalent canonique (pas de PortfolioSnapshot historisé) — la
-        // reconstruction locale y reste la seule estimation disponible.
-        if (idx === lastIndex && kpiData?.totalReturn != null && !isNaN(kpiData.totalReturn)) {
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(kpiData.totalReturn), pct: pctFmt(kpiData.totalReturnPct), positive: kpiData.totalReturn >= 0 });
-        } else {
-            const investedAO = graphData.investedAssetOnly?.[idx];
-            if (investedAO != null && !isNaN(investedAO)) {
-                const totalReturn = (val - cash) - investedAO;
-                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
-            }
+        const totalReturn = graphData.totalReturn?.[idx];
+        if (totalReturn != null && !isNaN(totalReturn)) {
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(graphData.totalReturnPct?.[idx]), positive: totalReturn >= 0 });
         }
 
-        // Only on the 1D tab: "Var Today" is specifically about today, and
-        // stops meaning anything once the view spans more than one day (the
-        // 1W tooltip showed it relative to a mid-week close, which just read
-        // as a confusing 4th number rather than "today").
-        //
-        // BUG FOUND (second, independent "Var Today" — audit cohérence
-        // KPI/tableau) : ce point du tooltip recalculait sa propre valeur via
-        // `dailyTwr`, indépendamment de kpiData.varTodayAbs (le PortfolioSnapshot
-        // canonique — voir _computeAggregateKPIs). Règle absolue de l'audit
-        // architecture (section TWR) : Var Today/Day P&L/Total Value/Total
-        // Return ne sont JAMAIS reconstruits depuis TWR, y compris pour un
-        // point passé de la journée — TWR peut alimenter des métriques
-        // d'ANALYSE (la courbe elle-même, "Période"), jamais republier une
-        // valeur portant le libellé d'une métrique canonique. Fix : "Var
-        // Today" n'est donc plus affiché QUE sur le dernier point (maintenant),
-        // exclusivement depuis kpiData.varTodayAbs/Pct — jamais recalculé,
-        // jamais affiché pour un point intermédiaire.
-        if (this.currentPeriod === 1 && idx === lastIndex && kpiData?.varTodayAbs != null && !isNaN(kpiData.varTodayAbs)) {
-            rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(kpiData.varTodayAbs), pct: pctFmt(kpiData.varTodayPct), positive: kpiData.varTodayAbs >= 0 });
+        // "Var Today" n'a de sens que "maintenant" (voir HistoryCalculator :
+        // dayPnl n'est renseigné qu'au dernier point aligné sur le snapshot
+        // live, `null` partout ailleurs) — jamais affiché pour un point passé,
+        // jamais recalculé depuis dailyTwr ici.
+        if (this.currentPeriod === 1) {
+            const dp = graphData.dayPnl?.[idx];
+            if (dp != null && !isNaN(dp)) {
+                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(dp), pct: pctFmt(graphData.dayPnlPct?.[idx]), positive: dp >= 0 });
+            }
         }
 
         this._pushBenchmarkRows(rows, idx, pct, opts);
@@ -1120,30 +1116,21 @@ export class HistoricalChart {
     // the change between the two dragged points — standing in for Var Today
     // (which is specifically about "today", not an arbitrary slice).
     _buildSelectionRows(i0, i1, opts) {
-        const { graphData, pctSeries, eurFmt, pctFmt, kpiData, lastIndex } = opts;
+        const { graphData, pctSeries, eurFmt, pctFmt } = opts;
         const v0 = graphData.values?.[i0], v1 = graphData.values?.[i1];
         if (v0 == null || v1 == null || isNaN(v0) || isNaN(v1)) return [];
 
-        // GRAPH POINT = TOOLTIP POINT ici aussi (voir _buildKpiRows) : v1 au
-        // dernier index égale déjà kpiData.totalValue par construction, plus
-        // besoin de substitution.
-        const cash = kpiData?.cash || 0;
-
+        // SSOT (audit architecture) : lecture pure de graphData.totalReturn —
+        // voir _buildKpiRows pour l'explication complète. i1 au dernier index
+        // est déjà garanti égal au PortfolioSnapshot live par
+        // dataManager.alignLastPointToLiveSnapshot (appelé dans update()) —
+        // rien à recalculer ni à distinguer ici.
         const pct1 = pctSeries?.[i1];
         const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(v1), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
 
-        // Même fix que _buildKpiRows : au dernier point (fin de sélection =
-        // "maintenant"), Total Return vient exclusivement de kpiData.totalReturn
-        // (PortfolioSnapshot canonique), jamais d'une reconstruction locale.
-        if (i1 === lastIndex && kpiData?.totalReturn != null && !isNaN(kpiData.totalReturn)) {
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(kpiData.totalReturn), pct: pctFmt(kpiData.totalReturnPct), positive: kpiData.totalReturn >= 0 });
-        } else {
-            const investedAO = graphData.investedAssetOnly?.[i1];
-            if (investedAO != null && !isNaN(investedAO)) {
-                const totalReturn = (v1 - cash) - investedAO;
-                const totalReturnPct = investedAO > 0 ? (totalReturn / investedAO) * 100 : 0;
-                rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(totalReturnPct), positive: totalReturn >= 0 });
-            }
+        const totalReturn = graphData.totalReturn?.[i1];
+        if (totalReturn != null && !isNaN(totalReturn)) {
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(graphData.totalReturnPct?.[i1]), positive: totalReturn >= 0 });
         }
 
         if (v0 !== 0) {

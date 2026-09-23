@@ -178,6 +178,84 @@ export class DataManager {
         });
     }
 
+    // ============================================================
+    // ALIGNEMENT DU DERNIER POINT SUR LE SNAPSHOT LIVE (audit architecture
+    // SSOT — bug des 297,18€ : KPI "maintenant" ≠ dernier point du graphique
+    // 1W/1M/...).
+    // ============================================================
+    //
+    // RÈGLE (section 6 de l'audit) : toutes les périodes affichées par cette
+    // application ("1D"/"1W"/"1M"/...) sont des fenêtres GLISSANTES se
+    // terminant "maintenant" — leur dernier point représente donc TOUJOURS le
+    // même instant que le PortfolioSnapshot live, jamais un instant du passé.
+    // Deux séries pourtant censées représenter ce même instant (le graphique
+    // multi-jours d'un côté, buildTodaySnapshot/buildAssetPortfolioSnapshot de
+    // l'autre) sont bâties par DEUX passes de résolution de prix
+    // indépendantes (HistoryCalculator._buildSeries, appelé séparément pour
+    // chaque période) — rien ne garantit qu'elles retombent sur le même prix
+    // pour chaque ticker à la milliseconde près (fraîcheur de cotation,
+    // fenêtre de "livePriceSnapshot" différente, etc.). C'est la cause exacte
+    // de l'écart observé : le dernier point d'un graphique 1W/1M n'a jamais
+    // reçu le même traitement "prix live figé" que le point du jour
+    // (buildTodaySnapshot) — voir HistoryCalculator._buildSeries, la
+    // resolution `liveOverride` y est explicitement bornée à `days === 1`.
+    //
+    // Fix structurel (pas un patch sur 297,18€) : le dernier point de N'IMPORTE
+    // QUELLE série affichée est FORCÉMENT remplacé par les valeurs du
+    // PortfolioSnapshot live — jamais recalculé, jamais laissé à la merci
+    // d'une résolution de prix indépendante. Ceci est une décision
+    // d'ASSEMBLAGE ("quel snapshot représente cet index de tableau"), pas un
+    // calcul financier : aucune formule n'est appliquée ici, on remplace des
+    // valeurs déjà canoniques par d'autres valeurs déjà canoniques,
+    // exactement comme changer l'étiquette d'un pointeur. Les points
+    // ANTÉRIEURS (historiques, jamais "maintenant") restent inchangés — ce
+    // sont eux, et eux seuls, que le tooltip continue de lire tels quels.
+    //
+    // Après cet appel, par construction :
+    //   graphData.values[last]         === portfolioSnapshot.totalValue
+    //   graphData.cash[last]           === portfolioSnapshot.cash
+    //   graphData.investedAssetOnly[last] === portfolioSnapshot.invested
+    //   graphData.totalReturn[last]    === portfolioSnapshot.totalReturn
+    //   graphData.totalReturnPct[last] === portfolioSnapshot.totalReturnPct
+    //   graphData.dayPnl[last]         === portfolioSnapshot.dayPnl (partout ailleurs : null)
+    //   graphData.dayPnlPct[last]      === portfolioSnapshot.dayPnlPct (partout ailleurs : null)
+    alignLastPointToLiveSnapshot(graphData, portfolioSnapshot) {
+        if (!graphData?.values?.length || !portfolioSnapshot) return graphData;
+        let lastIdx = graphData.values.length - 1;
+        // Le dernier point PEUT être `null` (aucun prix résolu pour aucun
+        // ticker à cet instant, ex: portefeuille flambant neuf) — dans ce cas
+        // il n'y a rien à représenter "maintenant" par un nombre, on ne force
+        // rien (afficher 0€ serait un mensonge, pas une amélioration).
+        while (lastIdx >= 0 && graphData.values[lastIdx] === null) lastIdx--;
+        if (lastIdx < 0) return graphData;
+
+        const replaceAt = (arr, value) => {
+            if (!Array.isArray(arr)) return arr;
+            const copy = arr.slice();
+            copy[lastIdx] = value;
+            return copy;
+        };
+        // dayPnl/dayPnlPct n'existent pas encore comme séries historiques
+        // (voir HistoryCalculator — "Var Today" n'a de sens qu'à l'instant
+        // présent, jamais pour un point du passé) : on crée un tableau
+        // rempli de `null` PARTOUT SAUF au dernier point, qui reçoit la
+        // valeur live — pour que le tooltip puisse le lire comme n'importe
+        // quelle autre série, sans jamais tester explicitement "suis-je le
+        // dernier point ?" lui-même (voir historicalChart::_buildKpiRows).
+        const onlyAtLast = (value) => graphData.values.map((_, i) => (i === lastIdx ? value : null));
+
+        return {
+            ...graphData,
+            values: replaceAt(graphData.values, portfolioSnapshot.totalValue),
+            cash: replaceAt(graphData.cash, portfolioSnapshot.cash),
+            investedAssetOnly: replaceAt(graphData.investedAssetOnly, portfolioSnapshot.invested),
+            totalReturn: replaceAt(graphData.totalReturn, portfolioSnapshot.totalReturn),
+            totalReturnPct: replaceAt(graphData.totalReturnPct, portfolioSnapshot.totalReturnPct),
+            dayPnl: onlyAtLast(portfolioSnapshot.dayPnl),
+            dayPnlPct: onlyAtLast(portfolioSnapshot.dayPnlPct)
+        };
+    }
+
     // === HELPERS DELEGATION (Compatibilité Legacy) ===
     isCryptoTicker(ticker) { return isCryptoTicker(ticker); }
     formatTicker(ticker) { return formatTicker(ticker); }
