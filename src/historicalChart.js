@@ -630,43 +630,23 @@ export class HistoricalChart {
         const totalReturn = targetSummary.gainTotal || 0;
         const totalReturnPct = investedAssetOnly > 0 ? (totalReturn / investedAssetOnly) * 100 : 0;
 
-        // Var Today is the one figure that still needs the graph engine —
-        // BUG FOUND (kept fixed): a plain cash withdrawal/deposit (no asset
-        // bought or sold) shows up as a fake gain/loss on a raw "today's sum
-        // minus yesterday's sum", because both totals already include cash at
-        // whatever level it happened to be that day. `dailyTwr` doesn't have
-        // this problem — _buildSeries rescales it around every quantity/cash
-        // change precisely so a buy/sell/deposit/withdrawal can't register as
-        // a fake move. dTwr is only a RATIO though, so it's applied to the
-        // NEW (table-based) totalValue above rather than the graph's own —
-        // the displayed € amount stays anchored to the same "Total Value"
-        // shown everywhere else, instead of quietly reverting to a second,
-        // graph-only total for this one number.
-        let varTodayAbs = null, varTodayPct = null;
-        const values = todayGraphData?.values;
-        let lastValidIdx = -1;
-        if (values) {
-            for (let i = values.length - 1; i >= 0; i--) {
-                if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) { lastValidIdx = i; break; }
-            }
-        }
-        const dTwr = (lastValidIdx >= 0) ? todayGraphData?.dailyTwr?.[lastValidIdx] : null;
-        if (dTwr != null && !isNaN(dTwr) && dTwr > 0) {
-            varTodayPct = (dTwr - 1) * 100;
-            varTodayAbs = totalValue - totalValue / dTwr;
-        } else if (todayGraphData?.yesterdayClose > 0 && lastValidIdx >= 0) {
-            // Fallback keeps using the graph's OWN totalValue for this ratio,
-            // since that's what yesterdayClose was resolved against.
-            const graphTotalValue = values[lastValidIdx];
-            varTodayPct = ((graphTotalValue - todayGraphData.yesterdayClose) / todayGraphData.yesterdayClose) * 100;
-            varTodayAbs = (varTodayPct / 100) * totalValue;
-        }
-        if (varTodayAbs === null) {
-            // No graph data at all (index/single-asset modes don't build a
-            // dedicated todayGraphData) — targetSummary is the only source.
-            varTodayAbs = targetSummary.totalDayChangeEUR ?? null;
-            varTodayPct = targetSummary.dayChangePct ?? null;
-        }
+        // Var Today MUST use the exact same asset-level day P&L that feeds the
+        // holdings table. This is the canonical financial definition used by
+        // calculateHoldings/calculateSummary: for each position, compare today's
+        // value of yesterday's quantity with yesterday's close. Cash balances are
+        // deliberately excluded from this performance figure, so a deposit or
+        // withdrawal cannot appear as a gain/loss.
+        //
+        // Do NOT derive this KPI from dailyTwr here. dailyTwr is a useful chart
+        // normalization ratio, but it can have a different reference amount when
+        // cash flows occur around the day boundary. Converting that ratio back to
+        // euros was the direct cause of the table/KPI discrepancy reported in
+        // production (e.g. table ≈ 362€ vs KPI ≈ 121€). Using targetSummary makes
+        // the invariant explicit and algebraic:
+        //     KPI Var Today === Σ(table row DAY P&L)
+        // and keeps the percentage on the same denominator as the table rows.
+        const varTodayAbs = targetSummary.totalDayChangeEUR ?? null;
+        const varTodayPct = targetSummary.dayChangePct ?? null;
 
         return { totalValue, cash, totalReturn, totalReturnPct, varTodayAbs, varTodayPct, investedAssetOnly, snapshotStartedAt };
     }
