@@ -1,0 +1,30 @@
+# CI minimale (audit sécurité/qualité P1 — aucune CI n'existait avant ce
+# fichier). N'exécute QUE ce qui existe réellement dans ce dépôt : pas de
+# lint/typecheck/build fictifs — voir tests/... pour l'audit qui a établi
+# qu'aucun de ces outils n'était configuré.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Suite vitest principale (moteur financier, market calendar, workers, etc.)
+      - run: npm test
+
+      # Règles de sécurité Firestore, contre le vrai émulateur (Java est
+      # préinstallé sur les runners GitHub ubuntu-latest).
+      - run: npm run test:rules

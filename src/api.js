@@ -432,16 +432,25 @@ export class PriceAPI {
                             meta.previousClose;
           }
 
-          // Dernier fallback: utiliser currentPrice si toujours null
-          if (!previousClose || previousClose <= 0) {
-            previousClose = currentPrice;
-          }
+          // SECURITY/INTEGRITY FIX (audit P1) : ce fallback faisait
+          // `previousClose = currentPrice` quand aucune vraie clôture veille
+          // n'était trouvée — indiscernable ensuite d'une clôture réelle qui
+          // vaudrait EXACTEMENT le prix courant. Toute la chaîne "Day P&L"
+          // (dataManager._enrichAggregatedPosition, Var Today) interprète
+          // alors silencieusement "donnée absente" comme "variation de 0%
+          // aujourd'hui" — une affirmation financière fabriquée, pas une
+          // absence de donnée honnête. On laisse désormais `previousClose`
+          // absent et on marque explicitement `previousCloseUnavailable`,
+          // pour que les lecteurs en aval (voir dataManager.js) affichent
+          // "indisponible" plutôt qu'un 0% plausible mais faux.
+          const previousCloseUnavailable = !previousClose || previousClose <= 0;
 
           const currency = meta.currency || 'EUR';
 
           result = {
             price: currentPrice,
-            previousClose,
+            previousClose: previousCloseUnavailable ? null : previousClose,
+            previousCloseUnavailable,
             currency,
             marketState: meta.marketState || 'CLOSED'
           };
@@ -469,6 +478,7 @@ export class PriceAPI {
         this.storage.setCurrentPrice(ticker.toUpperCase(), {
           price: finalPrice,
           previousClose: finalPreviousClose,
+          previousCloseUnavailable: !!result.previousCloseUnavailable,
           currency: result.currency,
           marketState: result.marketState,
           lastUpdate: Date.now(),

@@ -140,9 +140,23 @@ document.addEventListener('DOMContentLoaded', () => {
             newBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 auth.signOut().then(() => {
-                    localStorage.removeItem('isAdmin');
-                    localStorage.removeItem('userModules');
-                    localStorage.removeItem('userBrokers');
+                    // SECURITY FIX (audit P1 — isolation multi-utilisateur) : ne
+                    // vider que isAdmin/userModules/userBrokers laissait TOUTES
+                    // les données financières en cache dans localStorage après
+                    // déconnexion (purchases, currentData, watchlist, historique
+                    // de dividendes, conversations assistant, snapshot
+                    // portefeuille...). Sur un appareil partagé, l'utilisateur
+                    // SUIVANT à se connecter pouvait momentanément voir le
+                    // portefeuille/les données de l'utilisateur précédent — le
+                    // rendu "cache-first" (voir dashboardApp.js::loadCachedData)
+                    // affiche le cache local AVANT que Firestore n'ait eu le
+                    // temps de le remplacer. On vide désormais tout le
+                    // localStorage de l'app à la déconnexion ; seule une
+                    // préférence d'affichage pure, sans donnée financière
+                    // (sidebarState), est explicitement préservée.
+                    const sidebarState = localStorage.getItem('sidebarState');
+                    localStorage.clear();
+                    if (sidebarState !== null) localStorage.setItem('sidebarState', sidebarState);
                     window.location.href = 'login.html';
                 });
             });

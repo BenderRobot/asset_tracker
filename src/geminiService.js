@@ -1,5 +1,6 @@
 // geminiService.js - Service centralisé (Cloudflare Workers Proxy)
 import { GEMINI_PROXY_URL } from './config.js';
+import { getAuthHeader } from './authFetchHeaders.js';
 
 /**
  * Nettoie le texte pour l'utilisation dans les prompts Gemini.
@@ -26,7 +27,7 @@ export async function fetchGeminiSummary(context) {
     try {
         const response = await fetch(GEMINI_PROXY_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
             body: JSON.stringify({ prompt: prompt })
         });
 
@@ -78,7 +79,7 @@ export async function fetchGeminiContext(title, summary, holdingDetails) {
     try {
         const response = await fetch(GEMINI_PROXY_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
             body: JSON.stringify({ prompt: prompt })
         });
 
@@ -159,7 +160,7 @@ Réponds en français, maximum 150 mots.`;
     try {
         const response = await fetch(GEMINI_PROXY_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
             body: JSON.stringify({ prompt: prompt })
         });
 

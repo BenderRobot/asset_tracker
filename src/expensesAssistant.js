@@ -4,6 +4,7 @@
 
 import { auth } from './firebaseConfig.js';
 import { GEMINI_PROXY_URL } from './config.js';
+import { getAuthHeader } from './authFetchHeaders.js';
 import { buildExpensesContext, formatExpensesContextAsText } from './expensesContext.js';
 
 function formatGeminiText(text) {
@@ -43,7 +44,7 @@ Ne donne aucun conseil sur quoi acheter en bourse (aucun ticker, aucun produit) 
 
     const res = await fetch(GEMINI_PROXY_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
       body: JSON.stringify({ prompt }),
     });
     const data = await res.json();

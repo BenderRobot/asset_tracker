@@ -6,6 +6,16 @@ import { getBrokers, getBrokersSync, fillSelect, attachAddBrokerHandler } from '
 import { formatCurrency, formatPercent, formatDate, formatQuantity } from './utils.js';
 import { DividendManager } from './dividendManager.js';
 
+// SECURITY FIX (audit XSS, P1) : `name`/`ticker`/`broker` sont du texte libre
+// (saisi manuellement ou importé depuis un CSV partagé — donc pas uniquement
+// sous le contrôle de l'utilisateur qui consulte cette page) injecté tel quel
+// dans innerHTML — même convention d'échappement que dashboardApp.js/ui.js.
+function escHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str ?? '';
+  return d.innerHTML;
+}
+
 export class AchatsPage {
   constructor(storage, api, ui, filterManager, dataManager) {
     this.storage = storage;
@@ -95,7 +105,7 @@ export class AchatsPage {
         : '<span class="currency-badge currency-eur">EUR</span>';
 
       const assetTypeBadge = `<span class="asset-type-badge asset-type-${p.assetType.toLowerCase().replace(/\s/g, '-')}">${p.assetType}</span>`;
-      const brokerBadge = `<span class="broker-badge">${p.broker}</span>`;
+      const brokerBadge = `<span class="broker-badge">${escHtml(p.broker)}</span>`;
 
       // Affichage du cash
       if (p.assetType === 'Cash') {
@@ -106,8 +116,8 @@ export class AchatsPage {
             <td>${assetTypeBadge}</td>
             <td>${brokerBadge}</td>
             <td>${formatDate(p.date)}</td>
-            <td><strong>${p.ticker}</strong></td>
-            <td>${p.name}</td>
+            <td><strong>${escHtml(p.ticker)}</strong></td>
+            <td>${escHtml(p.name)}</td>
             <td>${currencyBadge}</td>
             <td>-</td> <td>-</td> <td class="${cashColor}">${formatCurrency(p.gainEUR, 'EUR')}</td> <td>-</td> <td class="${cashColor}">${formatCurrency(p.buyPriceOriginal, 'EUR')}</td> <td>-</td> <td>-</td> <td class="action-cell">
               <div class="action-trigger" data-key="${key}">...</div>
@@ -124,8 +134,8 @@ export class AchatsPage {
             <td><span class="asset-type-badge" style="background:#27ae60;">💰 Div</span></td>
             <td>${brokerBadge}</td>
             <td>${formatDate(p.date)}</td>
-            <td><strong>${p.ticker}</strong></td>
-            <td>${p.name}</td>
+            <td><strong>${escHtml(p.ticker)}</strong></td>
+            <td>${escHtml(p.name)}</td>
             <td>${currencyBadge}</td>
             <td>-</td> 
             <td>-</td> 
@@ -152,8 +162,8 @@ export class AchatsPage {
           <td>${assetTypeBadge}</td>
           <td>${brokerBadge}</td>
           <td>${formatDate(p.date)}</td>
-          <td><strong>${p.ticker}</strong></td>
-          <td>${p.name}</td>
+          <td><strong>${escHtml(p.ticker)}</strong></td>
+          <td>${escHtml(p.name)}</td>
           <td>${currencyBadge}</td>
           <td>${formatCurrency(p.currentPriceOriginal, p.currency)}</td>
           <td>${formatQuantity(p.quantity)}</td>

@@ -389,12 +389,21 @@ export class DataManager {
         }
 
         // FALLBACK : Si yesterdayCloseMap n'a rien trouvé, on utilise storage.previousClose
-        if (!usedYesterdayCloseMap && currentPrice && currentPrice > 0) {
-            const effectivePreviousClose = (previousClose && previousClose > 0) ? previousClose : currentPrice;
-
-            if (effectivePreviousClose !== currentPrice) {
-                dayPct = ((currentPrice - effectivePreviousClose) / effectivePreviousClose) * 100;
-                dayChange = (currentPrice - effectivePreviousClose) * data.quantity * currentRate;
+        //
+        // SECURITY/INTEGRITY FIX (audit P1) : cette branche défaultait
+        // silencieusement `effectivePreviousClose` à `currentPrice` quand
+        // `previousClose` était absent — produisant un Day P&L de 0,00€/0,00%
+        // affiché comme un FAIT ("le titre n'a pas bougé") alors que la vraie
+        // situation est "on ne sait pas". Depuis le fix de api.js
+        // (previousCloseUnavailable), `previousClose` est désormais `null`
+        // (pas `currentPrice`) exactement dans ce cas — donc `dayChange`/
+        // `dayPct` restent à leur valeur initiale `null` ("indisponible",
+        // déjà rendu comme tel par formatCurrency/formatPercent dans
+        // investmentsPage.js) au lieu d'une fausse valeur plausible.
+        if (!usedYesterdayCloseMap && currentPrice && currentPrice > 0 && previousClose && previousClose > 0) {
+            if (previousClose !== currentPrice) {
+                dayPct = ((currentPrice - previousClose) / previousClose) * 100;
+                dayChange = (currentPrice - previousClose) * data.quantity * currentRate;
             } else {
                 dayChange = 0;
                 dayPct = 0;

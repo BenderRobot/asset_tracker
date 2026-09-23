@@ -1,3 +1,19 @@
 name = "asset-tracker-gemini"
 main = "worker.js"
 compatibility_date = "2024-01-01"
+
+[vars]
+GEMINI_DAILY_QUOTA = "200"
+
+# KV namespace pour le quota journalier par utilisateur (protection anti-abus,
+# voir worker.js::checkAndIncrementQuota). Namespace PARTAGÉ avec le Worker
+# Prices (même id que cloudflare-workers/prices-worker/wrangler.toml — les
+# clés sont préfixées différemment : "gemini:" ici, "price:" là-bas, donc
+# aucune collision possible). Sans ce binding, le Worker fonctionne quand
+# même (fail-open documenté dans worker.js) mais sans protection de quota.
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "3b25ca1a59a847d693e6e5d933260aa5"
+
+# Secret à définir via la CLI (jamais dans ce fichier / jamais commité) :
+#   wrangler secret put GEMINI_API_KEY --config cloudflare-workers/gemini-worker/wrangler.toml

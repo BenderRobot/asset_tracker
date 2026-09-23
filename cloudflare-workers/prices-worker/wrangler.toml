@@ -1,3 +1,32 @@
 name = "asset-tracker-prices"
 main = "worker.js"
 compatibility_date = "2024-01-01"
+
+[vars]
+PRICE_RATE_LIMIT_PER_MINUTE = "60"
+
+# KV namespace pour la limite de débit par IP (voir worker.js::checkRateLimit).
+# PARTAGÉ avec le Worker Gemini (même id que
+# cloudflare-workers/gemini-worker/wrangler.toml — les noms de namespace KV
+# étant uniques par compte Cloudflare, un seul a été créé et les deux Workers
+# s'y branchent ; clés préfixées différemment : "price:" ici, "gemini:"
+# là-bas, donc aucune collision possible). Sans ce binding, le Worker
+# fonctionne quand même (fail-open documenté dans worker.js) mais sans limite
+# de débit.
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "3b25ca1a59a847d693e6e5d933260aa5"
+
+# Secrets à définir via la CLI (jamais dans ce fichier / jamais committés) :
+#   wrangler secret put YAHOO_FALLBACK_COOKIE --config cloudflare-workers/prices-worker/wrangler.toml
+#   wrangler secret put YAHOO_FALLBACK_CRUMB  --config cloudflare-workers/prices-worker/wrangler.toml
+#
+# SECURITY FIX (audit P1) : ces deux valeurs étaient codées en dur dans
+# worker.js (committées en clair dans git). Elles servent de repli quand
+# l'acquisition dynamique du cookie/crumb Yahoo échoue (voir
+# worker.js::getYahooCrumb) — comportement inchangé, seule leur source a
+# changé. Migrer les valeurs déjà committées avec `wrangler secret put` (leur
+# ancienne présence en clair dans l'historique git reste un risque résiduel :
+# elles doivent être considérées comme potentiellement exposées, même si leur
+# valeur pratique est faible — un cookie/crumb Yahoo public, non lié à un
+# compte utilisateur de l'app).

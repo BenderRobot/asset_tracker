@@ -85,28 +85,37 @@ const YAHOO_HEADERS = {
   'Origin': 'https://finance.yahoo.com',
 };
 
-const FALLBACK_COOKIE = "A3=d=AQABBPHr6WkCEEaGkIeM_yx8FOid40uN4OoFEgEBAQE962nzaeWnJm0A_eMDAA&S=AQAAAkqh87MBpBhIeDBLrVjDJRo";
-const FALLBACK_CRUMB = "u6NX/ugBV38";
-
+// SECURITY FIX (audit P1) : ces valeurs étaient codées en dur dans le code
+// source (donc committées en clair indéfiniment dans git). Elles ne sont pas
+// un secret à haut risque (un cookie/crumb Yahoo public, sans lien avec un
+// compte utilisateur de l'app) mais restent un identifiant de session — elles
+// viennent désormais de secrets Cloudflare (env.YAHOO_FALLBACK_COOKIE/
+// _CRUMB, voir wrangler.toml) au lieu d'être committées. Comportement de
+// repli INCHANGÉ : si l'acquisition dynamique échoue, on retombe sur ces
+// valeurs (désormais externalisées) exactement comme avant — on ne
+// transforme jamais cet échec en un PRIX fabriqué, seulement en un identifiant
+// de session de repli déjà utilisé tel quel par le code précédent.
 let cachedCrumb = null;
 let cachedCookie = null;
 
-async function getYahooCrumb() {
+async function getYahooCrumb(env) {
   if (cachedCrumb && cachedCookie) return { crumb: cachedCrumb, cookie: cachedCookie };
-  
+  const fallbackCookie = env?.YAHOO_FALLBACK_COOKIE || null;
+  const fallbackCrumb = env?.YAHOO_FALLBACK_CRUMB || null;
+
   try {
     const res1 = await fetch('https://fc.yahoo.com', {
       headers: YAHOO_HEADERS,
-      redirect: 'manual' 
+      redirect: 'manual'
     });
     const setCookie = res1.headers.get('set-cookie');
     if (!setCookie) {
-        // Fallback to hardcoded EU consent bypassed crumb/cookie
-        cachedCrumb = FALLBACK_CRUMB;
-        cachedCookie = FALLBACK_COOKIE;
-        return { crumb: FALLBACK_CRUMB, cookie: FALLBACK_COOKIE };
+        // Fallback vers le cookie/crumb de secours (secret Cloudflare)
+        cachedCrumb = fallbackCrumb;
+        cachedCookie = fallbackCookie;
+        return { crumb: fallbackCrumb, cookie: fallbackCookie };
     }
-    
+
     // Extract actual cookies (A3 or B), ignoring Expires containing commas
     const matchList = setCookie.match(/(A3|B)=([^;]+)/g) || [];
     const cookies = matchList.join('; ');
@@ -115,20 +124,20 @@ async function getYahooCrumb() {
       headers: { ...YAHOO_HEADERS, 'Cookie': cookies }
     });
     if (!res2.ok) throw new Error("Crumb request failed");
-    
+
     // Extract text block
     const crumb = await res2.text();
     cachedCrumb = crumb;
     cachedCookie = cookies;
     return { crumb, cookie: cookies };
   } catch (err) {
-    cachedCrumb = FALLBACK_CRUMB;
-    cachedCookie = FALLBACK_COOKIE;
-    return { crumb: FALLBACK_CRUMB, cookie: FALLBACK_COOKIE };
+    cachedCrumb = fallbackCrumb;
+    cachedCookie = fallbackCookie;
+    return { crumb: fallbackCrumb, cookie: fallbackCookie };
   }
 }
 
-async function fetchYahoo(url, origin, opts = {}) {
+async function fetchYahoo(url, origin, env, opts = {}) {
   // If we need crumb, inject it and the cookie
   let fetchUrl = url;
   const headers = {
@@ -142,7 +151,7 @@ async function fetchYahoo(url, origin, opts = {}) {
   };
 
   if (opts.useCrumb) {
-    const { crumb, cookie } = await getYahooCrumb();
+    const { crumb, cookie } = await getYahooCrumb(env);
     if (crumb) {
       fetchUrl += (fetchUrl.includes('?') ? '&' : '?') + `crumb=${crumb}`;
     }
@@ -193,6 +202,40 @@ async function fetchYahoo(url, origin, opts = {}) {
   throw lastErr || new Error('Yahoo fetch failed');
 }
 
+// SECURITY FIX (audit P1) : aucune validation de format n'existait sur
+// `symbol` — n'importe quelle chaîne était encodée puis transmise telle
+// quelle à Yahoo. Restreint aux caractères réellement utilisés par les
+// tickers de l'app (lettres, chiffres, '.', '-', '=', '^' — voir
+// MarketUtils.formatTicker : AAPL, SU.PA, BTC-EUR, ^GSPC, GC=F, EURUSD=X) et
+// à une longueur raisonnable — un identifiant "symbol" qui ne ressemble à
+// aucun ticker plausible est rejeté avant tout appel réseau.
+const SYMBOL_RE = /^[A-Za-z0-9.\-=^]{1,20}$/;
+function isValidSymbol(symbol) {
+  return typeof symbol === 'string' && SYMBOL_RE.test(symbol);
+}
+
+// SECURITY FIX (audit P1) : ce Worker est public par nature (aucune
+// authentification utilisateur n'a de sens pour de simples cotations
+// boursières publiques), mais rien ne bornait le débit de requêtes — un
+// script pouvait l'appeler en boucle et risquer de faire bannir l'IP
+// partagée du Worker par Yahoo, ou consommer les ressources du Worker.
+// Limite par IP (CF-Connecting-IP, fournie gratuitement par Cloudflare) via
+// KV — FAIL-OPEN si le binding n'est pas encore provisionné (voir
+// wrangler.toml), pour ne jamais rendre les prix indisponibles à cause d'une
+// étape d'infrastructure manquante ; ce n'est pas une décision d'identité,
+// juste une protection anti-abus best-effort.
+const DEFAULT_RATE_LIMIT_PER_MINUTE = 60;
+async function checkRateLimit(env, ip) {
+  if (!env.RATE_LIMIT) return { allowed: true };
+  const minuteBucket = Math.floor(Date.now() / 60000);
+  const key = `price:${ip}:${minuteBucket}`;
+  const limit = Number(env.PRICE_RATE_LIMIT_PER_MINUTE) > 0 ? Number(env.PRICE_RATE_LIMIT_PER_MINUTE) : DEFAULT_RATE_LIMIT_PER_MINUTE;
+  const current = Number(await env.RATE_LIMIT.get(key)) || 0;
+  if (current >= limit) return { allowed: false, limit };
+  await env.RATE_LIMIT.put(key, String(current + 1), { expirationTtl: 120 });
+  return { allowed: true };
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
@@ -201,20 +244,30 @@ export default {
         return new Response(null, { status: 204, headers: corsHeaders(origin) });
       }
 
+      const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+      const rateLimit = await checkRateLimit(env, ip);
+      if (!rateLimit.allowed) {
+        return jsonResponse({ error: 'Too many requests' }, 429, origin);
+      }
+
       const url = new URL(request.url);
       const symbol = url.searchParams.get('symbol');
       const type = (url.searchParams.get('type') || 'STOCK').toUpperCase();
+
+      if (symbol && !isValidSymbol(symbol)) {
+        return jsonResponse({ error: 'Invalid symbol format' }, 400, origin);
+      }
 
       // ─── SEARCH ──────────────────────────────────────────────────────────────
       if (type === 'SEARCH') {
         if (!symbol) return jsonResponse({ error: 'symbol required' }, 400, origin);
         try {
           const searchUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&lang=en-US&region=US&quotesCount=8&newsCount=0&enableFuzzyQuery=false&quotesQueryId=tss_match_phrase_query`;
-          const data = await fetchYahoo(searchUrl, origin);
+          const data = await fetchYahoo(searchUrl, origin, env);
           return jsonResponse(data, 200, origin);
         } catch (err) {
           try { console.error(`[PricesProxy][SEARCH] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
-          return jsonResponse({ error: err.message, url: null }, 500, origin);
+          return jsonResponse({ error: 'Upstream provider error' }, 502, origin);
         }
       }
 
@@ -234,11 +287,11 @@ export default {
             'balanceSheetHistory',
           ].join(',');
           const quoteSummaryUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}&lang=en-US&region=US`;
-          const data = await fetchYahoo(quoteSummaryUrl, origin, { useCrumb: true });
+          const data = await fetchYahoo(quoteSummaryUrl, origin, env, { useCrumb: true });
           return jsonResponse(data, 200, origin);
         } catch (err) {
           try { console.error(`[PricesProxy][QUOTE_SUMMARY] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
-          return jsonResponse({ error: err.message, url: null }, 500, origin);
+          return jsonResponse({ error: 'Upstream provider error' }, 502, origin);
         }
       }
 
@@ -249,11 +302,11 @@ export default {
           const nowSec = Math.floor(Date.now() / 1000);
           const period1 = nowSec - 15 * 365 * 24 * 3600; // 15 years of annual history
           const fundamentalsUrl = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?symbol=${encodeURIComponent(symbol)}&type=${FUNDAMENTALS_METRICS.join(',')}&period1=${period1}&period2=${nowSec}`;
-          const data = await fetchYahoo(fundamentalsUrl, origin, { useCrumb: true });
+          const data = await fetchYahoo(fundamentalsUrl, origin, env, { useCrumb: true });
           return jsonResponse(reshapeFundamentalsTimeseries(data, symbol), 200, origin);
         } catch (err) {
           try { console.error(`[PricesProxy][FUNDAMENTALS] Error for ${symbol}.`, err.stack || err.message); } catch (e) { console.error(e); }
-          return jsonResponse({ error: err.message, url: null }, 500, origin);
+          return jsonResponse({ error: 'Upstream provider error' }, 502, origin);
         }
       }
 
@@ -278,17 +331,17 @@ export default {
         }
 
         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${yahooParams}`;
-        const data = await fetchYahoo(yahooUrl, origin);
+        const data = await fetchYahoo(yahooUrl, origin, env);
         return jsonResponse(data, 200, origin);
 
       } catch (err) {
         try { console.error(`[PricesProxy][CHART] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
-        return jsonResponse({ error: err.message, symbol, url: null }, 500, origin);
+        return jsonResponse({ error: 'Upstream provider error', symbol }, 502, origin);
       }
     } catch (err) {
       // Catch any unexpected error and always reply with CORS headers
       try { console.error('[PricesProxy][FATAL] Unhandled error:', err.stack || err); } catch (e) { console.error(e); }
-      return jsonResponse({ error: 'Unhandled error in worker', detail: err?.message || String(err) }, 500, request.headers.get('Origin') || '');
+      return jsonResponse({ error: 'Unhandled error in worker' }, 500, request.headers.get('Origin') || '');
     }
   }
 };

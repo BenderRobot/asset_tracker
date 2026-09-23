@@ -13,6 +13,17 @@ const fmtDate = (iso) => {
   catch { return iso; }
 };
 
+// SECURITY FIX (audit XSS, P1) : `tx.counterparty`/`tx.description` viennent
+// du flux Enable Banking (texte libre fourni par la banque/le marchand, donc
+// non maîtrisé par l'app) et étaient injectés tels quels dans innerHTML —
+// même convention d'échappement que dashboardApp.js/ui.js (escHtml via
+// textContent, jamais de sérialisation HTML manuelle).
+function escHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str ?? '';
+  return d.innerHTML;
+}
+
 class ExpensesApp {
   constructor() {
     this.rawTransactions = [];
@@ -537,8 +548,8 @@ class ExpensesApp {
         <div class="expense-row">
             <div class="expense-row-icon">${tx.category.icon}</div>
             <div class="expense-row-main">
-                <div class="expense-row-title">${tx.counterparty || tx.description || 'Transaction'}</div>
-                <div class="expense-row-meta">${account?.name || 'Compte'} · ${fmtDate(tx.bookingDate)}</div>
+                <div class="expense-row-title">${escHtml(tx.counterparty || tx.description || 'Transaction')}</div>
+                <div class="expense-row-meta">${escHtml(account?.name || 'Compte')} · ${fmtDate(tx.bookingDate)}</div>
             </div>
             <select class="expense-row-category-select" data-tx-id="${tx.id}" title="Changer la catégorie">${categoryOptions}</select>
             <div class="expense-row-amount" style="color:${amountColor};">${sign}${fmtEUR(Math.abs(tx.amount || 0))}</div>

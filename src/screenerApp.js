@@ -8,6 +8,16 @@ import logger from '../utils/logger.js';
 const PROXY = PRICE_PROXY_URL;
 const SP500_SYMBOL = '^GSPC'; // Used for S&P 500 comparison
 
+// SECURITY FIX (audit XSS, P1) : les résultats de recherche Yahoo (symbol/
+// shortname/longname) sont une donnée externe non maîtrisée par l'app et
+// étaient injectés tels quels dans innerHTML — même convention d'échappement
+// que dashboardApp.js/ui.js.
+function escHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str ?? '';
+    return d.innerHTML;
+}
+
 // Row definitions for the Finances tab's 3 statement tables — each `key` maps to a field
 // returned by the worker's FUNDAMENTALS endpoint (Yahoo fundamentals-timeseries).
 const FIN_STATEMENT_DEFS = {
@@ -342,10 +352,10 @@ class ScreenerApp {
             }
 
             suggestions.innerHTML = quotes.map(q => `
-                <div class="suggestion-item" data-ticker="${q.symbol}">
-                    <span class="suggestion-ticker">${q.symbol}</span>
-                    <span class="suggestion-name">${q.shortname || q.longname || '—'}</span>
-                    <span class="suggestion-type">${q.quoteType || ''}</span>
+                <div class="suggestion-item" data-ticker="${escHtml(q.symbol).replace(/"/g, '&quot;')}">
+                    <span class="suggestion-ticker">${escHtml(q.symbol)}</span>
+                    <span class="suggestion-name">${escHtml(q.shortname || q.longname || '—')}</span>
+                    <span class="suggestion-type">${escHtml(q.quoteType || '')}</span>
                 </div>
             `).join('');
             suggestions.classList.add('open');

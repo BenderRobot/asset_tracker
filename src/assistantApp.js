@@ -6,6 +6,7 @@ import { Storage } from './storage.js?v=4';
 import { DataManager } from './dataManager.js';
 import { PriceAPI } from './api.js';
 import { GEMINI_PROXY_URL } from './config.js';
+import { getAuthHeader } from './authFetchHeaders.js';
 import { buildExpensesContext, formatExpensesContextAsText } from './expensesContext.js';
 
 const STORAGE_KEY = 'assistant_conversations_v2';
@@ -475,7 +476,7 @@ Titre:`;
         try {
             const response = await fetch(GEMINI_PROXY_URL, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
                 body: JSON.stringify({ prompt, enableWebSearch: false })
             });
 
@@ -820,7 +821,7 @@ Titre:`;
 
             const response = await fetch(GEMINI_PROXY_URL, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
                 body: JSON.stringify({
                     system: systemPrompt,
                     history: recentHistory,
@@ -1025,8 +1026,19 @@ ${budgetText}`;
         }
     }
 
+    // SECURITY FIX (audit XSS, P1) : `text` (message utilisateur OU réponse
+    // Gemini — cette dernière avec recherche web activée, donc capable de
+    // citer du contenu externe non maîtrisé) était injecté dans innerHTML
+    // après de simples transformations markdown, SANS jamais être échappé —
+    // du HTML/JS littéral dans une réponse IA (ou un message tapé par
+    // l'utilisateur lui-même) s'exécutait tel quel. On échappe D'ABORD tout
+    // le texte (escapeHtml, déjà utilisé ailleurs dans ce fichier pour les
+    // titres de conversation), PUIS on applique les transformations markdown
+    // sur le texte échappé — les marqueurs **/`` /* survivent à l'échappement
+    // (ce sont de simples caractères ASCII), donc le rendu markdown reste
+    // inchangé pour un contenu légitime.
     formatMessage(text) {
-        return text
+        return this.escapeHtml(text)
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
             .replace(/`(.*?)`/g, '<code>$1</code>')
