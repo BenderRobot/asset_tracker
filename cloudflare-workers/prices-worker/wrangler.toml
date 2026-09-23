@@ -5,17 +5,40 @@ compatibility_date = "2024-01-01"
 [vars]
 PRICE_RATE_LIMIT_PER_MINUTE = "60"
 
-# KV namespace pour la limite de débit par IP (voir worker.js::checkRateLimit).
-# PARTAGÉ avec le Worker Gemini (même id que
-# cloudflare-workers/gemini-worker/wrangler.toml — les noms de namespace KV
-# étant uniques par compte Cloudflare, un seul a été créé et les deux Workers
-# s'y branchent ; clés préfixées différemment : "price:" ici, "gemini:"
-# là-bas, donc aucune collision possible). Sans ce binding, le Worker
-# fonctionne quand même (fail-open documenté dans worker.js) mais sans limite
-# de débit.
-[[kv_namespaces]]
-binding = "RATE_LIMIT"
-id = "3b25ca1a59a847d693e6e5d933260aa5"
+# INCIDENT POST-MORTEM (2026-09-23) : ce binding KV a été RETIRÉ. Il était
+# utilisé par worker.js::checkRateLimit() pour compter les requêtes par IP via
+# un `.put()` À CHAQUE requête autorisée — le plan gratuit Cloudflare Workers
+# KV limite les écritures à 1000/jour PAR COMPTE (partagé avec gemini-worker,
+# même id ci-dessous). Ce quota s'est épuisé en cours de journée, l'exception
+# résultante n'était pas interceptée, et TOUTE requête (historique ET live)
+# retournait HTTP 500 pour le reste de la journée — confirmé en direct via
+# `wrangler tail` (voir worker.js pour le détail complet et le correctif).
+#
+# Remplacé par : l'API native Cloudflare Workers Rate Limiting ci-dessous
+# (aucune écriture KV, aucun quota journalier visible), avec un repli en
+# mémoire locale à l'isolate si ce binding est absent — voir
+# worker.js::checkRateLimit/checkRateLimitInMemory.
+#
+# Ancien binding (INACTIF, conservé en commentaire pour mémoire du quota
+# partagé — gemini-worker continue de l'utiliser pour SON propre quota,
+# ne pas confondre) :
+#   [[kv_namespaces]]
+#   binding = "RATE_LIMIT"
+#   id = "3b25ca1a59a847d693e6e5d933260aa5"
+
+# API native Cloudflare Workers Rate Limiting — recommandée par Cloudflare
+# précisément pour ce cas d'usage (compteur par clé, sans écriture KV, sans
+# quota journalier exposé au développeur). `namespace_id` est un identifiant
+# arbitraire PROPRE À CE WORKER (pas une ressource à créer au préalable comme
+# un namespace KV) ; `simple.limit`/`simple.period` reproduisent exactement
+# l'ancienne limite (60 requêtes / 60 secondes / IP). Si ce binding échoue ou
+# n'est pas disponible à l'exécution, worker.js retombe automatiquement sur
+# son compteur en mémoire (voir checkRateLimitInMemory) — jamais un échec dur.
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
 
 # Secrets à définir via la CLI (jamais dans ce fichier / jamais committés) :
 #   wrangler secret put YAHOO_FALLBACK_COOKIE --config cloudflare-workers/prices-worker/wrangler.toml

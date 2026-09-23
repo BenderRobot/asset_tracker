@@ -85,7 +85,12 @@ export class DataManager {
             dayPnl: holding.dayChange,
             dayPnlPct: holding.dayPct,
             weight: holding.weight,
-            purchases: Object.freeze([...(holding.purchases || [])])
+            purchases: Object.freeze([...(holding.purchases || [])]),
+            // FAIL-CLOSED (audit incident 2026-09-23) — voir
+            // _enrichAggregatedPosition : true uniquement pour un échec
+            // RÉSEAU/HTTP confirmé de récupération du prix, jamais une simple
+            // absence de donnée par ailleurs déjà gérée.
+            priceDataUnavailable: !!holding.priceDataUnavailable
         });
     }
 
@@ -102,11 +107,25 @@ export class DataManager {
     buildPortfolioSnapshot({ holdings, summary, cashReserve, snapshotStartedAt = null, pricesTimestamp = null, meta = null }) {
         const cash = cashReserve?.total || 0;
         const invested = summary.totalInvestedEUR || 0;
-        const totalValue = (summary.totalCurrentEUR || 0) + cash;
-        const totalReturn = summary.gainTotal || 0;
-        const totalReturnPct = invested > 0 ? (totalReturn / invested) * 100 : 0;
-        const dayPnl = summary.totalDayChangeEUR ?? 0;
-        const dayPnlPct = summary.dayChangePct ?? 0;
+
+        // FAIL-CLOSED (audit incident 2026-09-23) : summary.dataQuality vient de
+        // calculateSummary — absent uniquement pour les appelants qui construisent
+        // leur propre `summary` à la main sans jamais passer par calculateHoldings/
+        // calculateSummary (mode indice, voir buildIndexSnapshot) : dans ce cas il
+        // n'y a pas de "prix historique manquant" à représenter, valid=true par défaut.
+        const dataQuality = summary.dataQuality || { valid: true, reason: null, failedInstruments: [] };
+        const isValid = dataQuality.valid !== false;
+
+        // Un snapshot INVALID ne publie AUCUN nombre calculé à partir d'un prix —
+        // jamais 0€ (qui est une vraie valeur financière), toujours `null`
+        // ("indisponible", déjà le langage commun de tout le reste du moteur —
+        // voir _enrichAggregatedPosition/formatCurrency). `cash`/`invested` restent
+        // réels : ni l'un ni l'autre ne dépend d'un prix de marché.
+        const totalValue = isValid ? (summary.totalCurrentEUR || 0) + cash : null;
+        const totalReturn = isValid ? (summary.gainTotal || 0) : null;
+        const totalReturnPct = isValid ? (invested > 0 ? (totalReturn / invested) * 100 : 0) : null;
+        const dayPnl = isValid ? (summary.totalDayChangeEUR ?? 0) : null;
+        const dayPnlPct = isValid ? (summary.dayChangePct ?? 0) : null;
 
         const positions = Object.freeze(holdings.map(h => this._mapHoldingToPosition(h)));
 
@@ -119,6 +138,10 @@ export class DataManager {
             // appelant qui connaît l'âge réel des prix (ex: dernier
             // lastUpdate résolu) peut le préciser.
             pricesTimestamp: pricesTimestamp ?? snapshotStartedAt,
+            // FAIL-CLOSED — voir règle ci-dessus. 'valid' | 'invalid'.
+            status: isValid ? 'valid' : 'invalid',
+            invalidReason: isValid ? null : dataQuality.reason,
+            invalidInstruments: Object.freeze([...(dataQuality.failedInstruments || [])]),
             totalValue,
             cash,
             invested,
@@ -146,19 +169,27 @@ export class DataManager {
             ? snapshot.positions
             : snapshot.positions.filter(p => tickerFilterSet.has(p.ticker.toUpperCase()));
 
+        // FAIL-CLOSED (audit incident 2026-09-23) : un sous-ensemble filtré peut
+        // très bien redevenir VALIDE si le(s) ticker(s) en échec ont été
+        // exclus par le filtre — on réévalue sur LES POSITIONS FILTRÉES,
+        // jamais en héritant aveuglément du statut du snapshot parent.
+        const invalidInFilter = positions.filter(p => p.priceDataUnavailable).map(p => p.ticker);
+        const isValid = invalidInFilter.length === 0;
+
         // Même formule EXACTE que calculateSummary (celle qui produit
         // summary.dayChangePct au niveau non-filtré) : dénominateur = valeur
         // des ACTIFS SEULS à la clôture d'hier, cash exclu — pour que
         // dayPnlPct d'un snapshot filtré et non-filtré restent calculés de la
         // même manière.
-        const assetValue = positions.reduce((s, p) => s + (p.currentValue || 0), 0);
-        const totalValue = assetValue + snapshot.cash;
-        const invested = positions.reduce((s, p) => s + (p.invested || 0), 0);
-        const totalReturn = positions.reduce((s, p) => s + (p.totalReturn || 0), 0);
-        const totalReturnPct = invested > 0 ? (totalReturn / invested) * 100 : 0;
-        const dayPnl = positions.reduce((s, p) => s + (p.dayPnl || 0), 0);
-        const previousCloseAssetValue = assetValue - dayPnl;
-        const dayPnlPct = previousCloseAssetValue > 0 ? (dayPnl / previousCloseAssetValue) * 100 : 0;
+        const validPositions = isValid ? positions : positions.filter(p => !p.priceDataUnavailable);
+        const assetValue = validPositions.reduce((s, p) => s + (p.currentValue || 0), 0);
+        const invested = positions.reduce((s, p) => s + (p.invested || 0), 0); // coût de revient : jamais dépendant d'un prix
+        const totalReturn = isValid ? validPositions.reduce((s, p) => s + (p.totalReturn || 0), 0) : null;
+        const totalReturnPct = isValid ? (invested > 0 ? (totalReturn / invested) * 100 : 0) : null;
+        const dayPnl = isValid ? validPositions.reduce((s, p) => s + (p.dayPnl || 0), 0) : null;
+        const previousCloseAssetValue = isValid ? assetValue - dayPnl : null;
+        const dayPnlPct = isValid ? (previousCloseAssetValue > 0 ? (dayPnl / previousCloseAssetValue) * 100 : 0) : null;
+        const totalValue = isValid ? assetValue + snapshot.cash : null;
 
         return Object.freeze({
             snapshotId: `${snapshot.snapshotId}:filtered`,
@@ -166,6 +197,9 @@ export class DataManager {
             generatedAt: snapshot.generatedAt,
             snapshotStartedAt: snapshot.snapshotStartedAt,
             pricesTimestamp: snapshot.pricesTimestamp,
+            status: isValid ? 'valid' : 'invalid',
+            invalidReason: isValid ? null : 'PRICE_DATA_UNAVAILABLE',
+            invalidInstruments: Object.freeze(invalidInFilter),
             totalValue,
             cash: snapshot.cash,
             invested,
@@ -221,6 +255,14 @@ export class DataManager {
     //   graphData.dayPnlPct[last]      === portfolioSnapshot.dayPnlPct (partout ailleurs : null)
     alignLastPointToLiveSnapshot(graphData, portfolioSnapshot) {
         if (!graphData?.values?.length || !portfolioSnapshot) return graphData;
+        // FAIL-CLOSED (audit incident 2026-09-23) : si le snapshot LIVE
+        // lui-même est invalide (échec réseau/HTTP confirmé sur au moins un
+        // instrument), il n'y a AUCUNE valeur canonique fiable à recopier sur
+        // le dernier point — le forcer serait fabriquer un nombre à partir de
+        // `null`. On laisse le graphique tel quel (son propre dernier point,
+        // potentiellement déjà `null` lui aussi si sa propre résolution a
+        // échoué — jamais un 0€ silencieux dans un cas comme dans l'autre).
+        if (portfolioSnapshot.status === 'invalid') return graphData;
         let lastIdx = graphData.values.length - 1;
         // Le dernier point PEUT être `null` (aucun prix résolu pour aucun
         // ticker à cet instant, ex: portefeuille flambant neuf) — dans ce cas
@@ -506,7 +548,31 @@ export class DataManager {
     // prix "courant" à deux instants légèrement différents et donc deux valeurs
     // différentes pour le même ticker au même instant affiché (c'est la cause
     // racine de l'incohérence Fin/Total Value/tooltip — voir audit).
-    _enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap, resolvedPrices = null) {
+    // `invalidTickers` (optionnel, Set<ticker>) : audit "fail-closed" (incident
+    // 2026-09-23, panne du proxy prix) — tickers pour lesquels le moteur
+    // graphique (HistoryCalculator) a constaté un ÉCHEC RÉSEAU/HTTP de
+    // récupération de l'historique (voir dataQuality.failedInstruments), pas
+    // une simple absence de donnée. Pour CES tickers précisément, cette
+    // fonction n'essaie même pas resolvedPrices/storage.getCurrentPrice : un
+    // prix live PEUT très bien être disponible (les deux fetch — historique
+    // et live — sont indépendants) mais l'utiliser ici reviendrait à combler
+    // silencieusement un trou de donnée HISTORIQUE avec une donnée COURANTE —
+    // exactement interdit par l'audit. currentValue/gainEUR/gainPct/dayChange/
+    // dayPct restent `null` ("indisponible", déjà rendu comme tel par
+    // formatCurrency/formatPercent) plutôt qu'une valeur plausible mais fausse.
+    _enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap, resolvedPrices = null, invalidTickers = null) {
+        if (invalidTickers && invalidTickers.has(ticker)) {
+            const avgPriceEUR = (data.quantity > 0) ? data.invested / data.quantity : 0;
+            return {
+                ticker, name: data.name, assetType: data.assetType, quantity: data.quantity,
+                avgPrice: avgPriceEUR, invested: data.invested,
+                currentPrice: null, previousClose: null, currentValue: null,
+                gainEUR: null, gainPct: null, dayChange: null, dayPct: null,
+                yesterdayQuantity: null, weight: 0, purchases: data.purchases,
+                priceDataUnavailable: true
+            };
+        }
+
         const d = resolvedPrices?.get(ticker) || this.storage.getCurrentPrice(ticker) || {};
         const currency = d.currency || 'EUR';
 
@@ -674,7 +740,8 @@ export class DataManager {
             dayPct,
             yesterdayQuantity,
             weight: 0,
-            purchases: data.purchases
+            purchases: data.purchases,
+            priceDataUnavailable: false
         };
     }
 
@@ -709,7 +776,9 @@ export class DataManager {
     // storage à deux instants différents pour le même rendu. Sans snapshot fourni
     // (compatibilité des appelants existants), le comportement est inchangé :
     // lecture directe de storage à l'instant de l'appel.
-    calculateHoldings(assetPurchases, yesterdayCloseMap = null, historicalFxMap = null, priceSnapshot = null) {
+    // `invalidTickers` (optionnel, Set<ticker>) : voir _enrichAggregatedPosition —
+    // propagé tel quel, jamais recalculé ici.
+    calculateHoldings(assetPurchases, yesterdayCloseMap = null, historicalFxMap = null, priceSnapshot = null, invalidTickers = null) {
         const dynamicRate = priceSnapshot?.dynamicRate ?? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE);
         const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate, historicalFxMap);
 
@@ -730,7 +799,7 @@ export class DataManager {
         byTicker.forEach(agg => agg.purchases.sort((a, b) => new Date(a.date) - new Date(b.date)));
 
         return Array.from(byTicker.entries()).map(([ticker, data]) =>
-            this._enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap, priceSnapshot?.prices)
+            this._enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap, priceSnapshot?.prices, invalidTickers)
         );
     }
 
@@ -740,19 +809,32 @@ export class DataManager {
         let totalDayChangeEUR = 0;
         const assetTotalPerformances = [];
         const assetDayPerformances = [];
+        // FAIL-CLOSED (audit incident 2026-09-23) : tickers dont le prix
+        // n'a PAS pu être résolu à cause d'un échec RÉSEAU/HTTP confirmé (voir
+        // _enrichAggregatedPosition/invalidTickers) — jamais une simple absence
+        // de donnée par ailleurs déjà gérée (previousCloseUnavailable etc.).
+        // Un seul suffit à invalider les AGRÉGATS portefeuille : une somme à
+        // laquelle il manque un terme n'est pas "presque juste", elle est
+        // fausse — jamais silencieusement traitée comme si ce terme valait 0.
+        const unavailableInstruments = [];
 
         const sectorStats = {};
 
         holdings.forEach(asset => {
-            totalInvestedEUR += asset.invested || 0;
-            totalCurrentEUR += asset.currentValue || 0;
-            totalDayChangeEUR += asset.dayChange || 0;
+            totalInvestedEUR += asset.invested || 0; // coût de revient : jamais dépendant d'un prix, toujours fiable
 
-            const type = asset.assetType || 'Other';
-            if (!sectorStats[type]) {
-                sectorStats[type] = { value: 0, name: type };
+            if (asset.priceDataUnavailable) {
+                unavailableInstruments.push(asset.ticker);
+            } else {
+                totalCurrentEUR += asset.currentValue || 0;
+                totalDayChangeEUR += asset.dayChange || 0;
+
+                const type = asset.assetType || 'Other';
+                if (!sectorStats[type]) {
+                    sectorStats[type] = { value: 0, name: type };
+                }
+                sectorStats[type].value += (asset.currentValue || 0);
             }
-            sectorStats[type].value += (asset.currentValue || 0);
 
             if (asset.currentValue !== null) {
                 assetTotalPerformances.push({
@@ -773,6 +855,8 @@ export class DataManager {
             }
         });
 
+        const hasUnavailableData = unavailableInstruments.length > 0;
+
         let bestSector = { name: '-', value: 0, pct: 0 };
         if (totalCurrentEUR > 0) {
             let maxVal = -1;
@@ -788,13 +872,13 @@ export class DataManager {
             });
         }
 
-        const gainTotal = totalCurrentEUR - totalInvestedEUR;
-        const gainPct = totalInvestedEUR > 0 ? (gainTotal / totalInvestedEUR) * 100 : 0;
+        const gainTotal = hasUnavailableData ? null : (totalCurrentEUR - totalInvestedEUR);
+        const gainPct = hasUnavailableData ? null : (totalInvestedEUR > 0 ? (gainTotal / totalInvestedEUR) * 100 : 0);
 
         const totalPreviousCloseEUR = totalCurrentEUR - totalDayChangeEUR;
-        const dayChangePct = totalPreviousCloseEUR > 0
+        const dayChangePct = hasUnavailableData ? null : (totalPreviousCloseEUR > 0
             ? (totalDayChangeEUR / totalPreviousCloseEUR) * 100
-            : 0;
+            : 0);
 
         const sortedTotal = assetTotalPerformances.sort((a, b) => b.gainPct - a.gainPct);
         const bestAsset = sortedTotal.length > 0 ? sortedTotal[0] : null;
@@ -806,8 +890,8 @@ export class DataManager {
 
         return {
             totalInvestedEUR,
-            totalCurrentEUR,
-            totalDayChangeEUR,
+            totalCurrentEUR: hasUnavailableData ? null : totalCurrentEUR,
+            totalDayChangeEUR: hasUnavailableData ? null : totalDayChangeEUR,
             gainTotal,
             gainPct,
             dayChangePct,
@@ -821,7 +905,14 @@ export class DataManager {
             worstPerformers: sortedTotal.slice(-3).reverse(),
             topSector: bestSector,
             assetsCount: holdings.length,
-            movementsCount: holdings.reduce((sum, h) => sum + h.purchases.length, 0)
+            movementsCount: holdings.reduce((sum, h) => sum + h.purchases.length, 0),
+            // FAIL-CLOSED — voir buildPortfolioSnapshot, qui traduit ceci en
+            // snapshot.status/invalidReason/invalidInstruments.
+            dataQuality: {
+                valid: !hasUnavailableData,
+                reason: hasUnavailableData ? 'PRICE_DATA_UNAVAILABLE' : null,
+                failedInstruments: unavailableInstruments
+            }
         };
     }
 
@@ -1512,9 +1603,15 @@ export class DataManager {
         // actif unique (historicalChart.js) ; buildTodaySnapshot, qui alimente
         // le mode portefeuille, était le seul appelant à ne pas le brancher.
         const yesterdayCloseMap = this.buildYesterdayCloseMapFromGraphData(todayGraphData);
+        // FAIL-CLOSED (audit incident 2026-09-23) : tickers pour lesquels
+        // todayGraphData a constaté un échec réseau/HTTP confirmé (voir
+        // HistoryCalculator::calculateGenericHistory, dataQuality) — jamais
+        // resolvedPrices/storage.getCurrentPrice pour EUX, voir
+        // _enrichAggregatedPosition.
+        const invalidTickers = new Set(todayGraphData.dataQuality?.failedInstruments || []);
         const holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap, {
             dynamicRate, prices: todayGraphData.resolvedPrices
-        });
+        }, invalidTickers);
         const summary = this.calculateSummary(holdings);
         const cashReserve = this.calculateCashReserve(cashPurchases);
 
@@ -1546,7 +1643,8 @@ export class DataManager {
     // 0 : un actif seul n'a pas de réserve de cash à lui).
     buildAssetPortfolioSnapshot(ticker, assetPurchases, todayGraphData, historicalFxMap) {
         const yesterdayCloseMap = this.buildYesterdayCloseMapFromGraphData(todayGraphData);
-        const holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap);
+        const invalidTickers = new Set(todayGraphData.dataQuality?.failedInstruments || []);
+        const holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap, null, invalidTickers);
         const summary = this.calculateSummary(holdings);
         const cashReserve = { total: 0, byBroker: {} };
 

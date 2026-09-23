@@ -33,7 +33,15 @@ export class UIComponents {
         };
 
         // 1. TOTAL VALUE
-        const totalValueWithCash = (summary.totalCurrentEUR || 0) + cashReserveTotal;
+        // FAIL-CLOSED (audit incident 2026-09-23) : `summary.totalCurrentEUR`
+        // vaut explicitement `null` quand le snapshot est INVALID (au moins un
+        // prix indisponible suite à un échec réseau/HTTP confirmé — voir
+        // dataManager.calculateSummary/buildPortfolioSnapshot). `(null || 0)`
+        // transformerait silencieusement "indisponible" en "0 €" — une vraie
+        // valeur financière, pas un état d'absence. Ne JAMAIS coalescer ici :
+        // propager `null` jusqu'à formatSimple, qui l'affiche déjà comme "-".
+        const hasTotalValue = summary.totalCurrentEUR !== null && summary.totalCurrentEUR !== undefined && !isNaN(summary.totalCurrentEUR);
+        const totalValueWithCash = hasTotalValue ? (summary.totalCurrentEUR + cashReserveTotal) : null;
         updateHTML('total-current', `${formatSimple(totalValueWithCash)}`);
 
         // Click breakdown: Total Value = Invested + Total Return + Cash. Cash
@@ -56,12 +64,17 @@ export class UIComponents {
         }
 
         // 2. TOTAL RETURN
-        const gainColor = summary.gainTotal >= 0 ? '#10b981' : '#ef4444';
+        // FAIL-CLOSED : `null >= 0` vaut `true` en JS (coercion) — sans cette
+        // garde explicite, un rendement INDISPONIBLE se serait affiché "-" en
+        // texte mais colorié en vert comme un vrai gain positif.
+        const hasGainTotal = summary.gainTotal !== null && summary.gainTotal !== undefined && !isNaN(summary.gainTotal);
+        const gainColor = hasGainTotal ? (summary.gainTotal >= 0 ? '#10b981' : '#ef4444') : 'var(--text-secondary)';
         updateHTML('total-gain-loss', `<span style="color: ${gainColor}">${formatSimple(summary.gainTotal)}</span>`);
         updateHTML('total-gain-pct', `<span style="color: ${gainColor}">${formatPctSimple(summary.gainPct)}</span>`);
 
         // 3. VAR TODAY + MARKET STATUS
-        const dayChangeColor = summary.totalDayChangeEUR >= 0 ? '#10b981' : '#ef4444';
+        const hasDayChange = summary.totalDayChangeEUR !== null && summary.totalDayChangeEUR !== undefined && !isNaN(summary.totalDayChangeEUR);
+        const dayChangeColor = hasDayChange ? (summary.totalDayChangeEUR >= 0 ? '#10b981' : '#ef4444') : 'var(--text-secondary)';
         updateHTML('total-invested', `<span style="color: ${dayChangeColor}">${formatSimple(summary.totalDayChangeEUR)}</span>`);
 
         const avgCostEl = document.getElementById('avg-cost-per-share');
@@ -135,7 +148,10 @@ export class UIComponents {
         return modal;
     }
 
-    static _tvColor(v) { return v >= 0 ? '#10b981' : '#ef4444'; }
+    // FAIL-CLOSED : `null >= 0` vaut `true` en JS — sans cette garde, une
+    // valeur INDISPONIBLE (snapshot invalide) se serait affichée "-" en texte
+    // mais coloriée en vert comme un vrai gain positif.
+    static _tvColor(v) { return (v === null || v === undefined || isNaN(v)) ? 'var(--text-secondary)' : (v >= 0 ? '#10b981' : '#ef4444'); }
 
     static _tvRow(label, value, rowColor, formatSimple, formatPctSimple, opts = {}) {
         return `
@@ -154,9 +170,13 @@ export class UIComponents {
     // price-freshness rule — the aggregate itself is resolved through),
     // which is real network work.
     _updateTotalValueModal(summary, totalValueWithCash, formatSimple, formatPctSimple) {
+        // FAIL-CLOSED : invested (coût de revient) n'est jamais dépendant d'un
+        // prix, donc jamais null — mais totalReturn/totalValueWithCash le sont
+        // dès que le snapshot est invalide (voir dataManager.calculateSummary).
+        // `|| 0` masquerait "indisponible" en un 0€ affiché comme réel.
         const invested = summary.totalInvestedEUR || 0;
-        const totalReturn = summary.gainTotal || 0;
-        const cash = totalValueWithCash - invested - totalReturn;
+        const totalReturn = summary.gainTotal ?? null;
+        const cash = (totalValueWithCash == null || totalReturn == null) ? null : (totalValueWithCash - invested - totalReturn);
         const dayChange = summary.totalDayChangeEUR ?? null;
         const dayChangePct = summary.dayChangePct ?? null;
         const color = UIComponents._tvColor;

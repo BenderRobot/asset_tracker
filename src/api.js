@@ -21,6 +21,42 @@ const providerStats = {
   GCP_PROXY: { success: 0, fails: 0, lastError: null }
 };
 
+// FAIL-CLOSED (audit incident 2026-09-23 — Worker prices en panne, HTTP 500 sur
+// toute requête historique) : getHistoricalPricesWithRetry() a toujours renvoyé
+// `{}` aussi bien quand le marché n'a légitimement aucune donnée pour la
+// période (réponse Yahoo valide, juste vide) QUE quand les 3 tentatives ont
+// toutes échoué pour une raison réseau/HTTP (proxy en panne, timeout, 5xx).
+// HistoryCalculator ne pouvait pas distinguer les deux et traitait les deux
+// cas identiquement — en pratique en retombant sur des prix courants/derniers
+// connus, un historique financier COMPLET produit à partir de zéro vraie
+// donnée. Ce marqueur (non-énumérable — invisible à Object.keys()/
+// JSON.stringify(), donc totalement transparent pour tout code qui itère
+// l'objet comme une map timestamp->prix) permet à l'appelant de savoir, de
+// façon explicite, que le résultat vide est une PANNE et non une absence de
+// donnée légitime.
+const FETCH_FAILED_FLAG = '__priceDataFetchFailed';
+
+export function isHistoricalFetchFailure(historicalResult) {
+  return !!(historicalResult && historicalResult[FETCH_FAILED_FLAG]);
+}
+
+function markFetchFailed(result = {}) {
+  Object.defineProperty(result, FETCH_FAILED_FLAG, { value: true, enumerable: false, configurable: true });
+  return result;
+}
+
+// Exposé pour les tests (et tout appelant ayant besoin de construire un
+// résultat "échec confirmé" sans passer par un throw) : le contrat réel de
+// getHistoricalPricesWithRetry() ne lève JAMAIS d'exception (voir plus bas —
+// elle catch systématiquement et renvoie ce marqueur), donc un test qui
+// simule une panne réseau via un simple `throw` dans un double de test ne
+// reproduit PAS fidèlement ce contrat pour un appelant qui ferait sa propre
+// requête sans passer par cette fonction (voir HistoryCalculator::
+// _resolvePortfolioCloseBefore, useDedicatedFetch).
+export function createFailedHistoricalResult() {
+  return markFetchFailed();
+}
+
 export class PriceAPI {
   constructor(storage) {
     this.storage = storage;
@@ -686,7 +722,13 @@ export class PriceAPI {
         await sleep(1000);
       }
     }
-    return {};
+    // Les `retries` tentatives ont TOUTES levé une exception (HTTP non-ok,
+    // timeout, JSON invalide...) — jamais une seule réponse exploitable de
+    // Yahoo/du proxy. Ce n'est PAS "aucune donnée pour la période" (voir
+    // ligne 580 ci-dessus, qui reste un `{}` sans marqueur) — c'est un échec
+    // de récupération. Ne jamais mettre ce résultat en cache (une panne
+    // temporaire ne doit pas être mémorisée comme "il n'y a pas de données").
+    return markFetchFailed();
   }
 
   // ================================================

@@ -219,21 +219,94 @@ function isValidSymbol(symbol) {
 // boursières publiques), mais rien ne bornait le débit de requêtes — un
 // script pouvait l'appeler en boucle et risquer de faire bannir l'IP
 // partagée du Worker par Yahoo, ou consommer les ressources du Worker.
-// Limite par IP (CF-Connecting-IP, fournie gratuitement par Cloudflare) via
-// KV — FAIL-OPEN si le binding n'est pas encore provisionné (voir
-// wrangler.toml), pour ne jamais rendre les prix indisponibles à cause d'une
-// étape d'infrastructure manquante ; ce n'est pas une décision d'identité,
-// juste une protection anti-abus best-effort.
+//
+// INCIDENT DU 2026-09-23 (post-mortem, cause racine du "HTTP 500 sur toutes
+// les requêtes historiques") : la version précédente appelait
+// `env.RATE_LIMIT.put()` — une écriture KV — À CHAQUE requête autorisée, pas
+// seulement à la première d'une fenêtre. Le plan gratuit Cloudflare Workers
+// KV limite les écritures à 1000/jour PAR COMPTE (partagées avec
+// gemini-worker, même namespace). Ce quota s'est épuisé en cours de journée ;
+// `checkRateLimit` n'entourait pas son propre appel `.put()` d'un try/catch,
+// donc l'exception ("KV put() limit exceeded for the day") remontait non
+// interceptée jusqu'au catch-all générique de `fetch()` — un problème de
+// PLOMBERIE anti-abus a fait tomber TOUTE donnée de prix, historique et
+// live, pour le reste de la journée (confirmé en direct via `wrangler tail`).
+//
+// Fix : deux changements INDÉPENDANTS, tous deux nécessaires :
+//   1. Ne plus jamais consommer une écriture KV par requête — le rate
+//      limiter utilise désormais l'API native Cloudflare Workers Rate
+//      Limiting (binding `env.RATE_LIMITER`, voir wrangler.toml) quand elle
+//      est provisionnée : c'est une fonctionnalité de plateforme dédiée,
+//      SANS quota d'écriture exposé au développeur (contrairement à KV),
+//      recommandée par Cloudflare precisément pour ce cas d'usage.
+//   2. Repli en mémoire LOCALE À L'ISOLATE (zéro I/O, donc structurellement
+//      incapable d'échouer pour une raison d'infrastructure) si ce binding
+//      est absent — remplace l'ancien binding KV, qui n'est plus utilisé du
+//      tout par cette fonction (voir wrangler.toml, binding retiré).
+//      Compromis assumé, identique à celui déjà accepté pour le cache
+//      cachedCrumb/cachedCookie plus haut dans ce fichier : approximatif
+//      (une nouvelle requête à une autre instance/colo repart à zéro), mais
+//      c'est déjà l'exigence explicite de cette fonctionnalité depuis
+//      l'origine ("juste une protection anti-abus best-effort" — voir
+//      wrangler.toml). Que CE mécanisme de repli échoue pour une raison
+//      technique est IMPOSSIBLE par construction (aucun appel réseau, aucune
+//      I/O) — il ne peut donc plus jamais transformer une panne de rate
+//      limiting en panne de données financières (règle explicite de l'audit :
+//      "les erreurs du mécanisme de rate limiting ne doivent pas devenir
+//      silencieusement des erreurs de données financières").
 const DEFAULT_RATE_LIMIT_PER_MINUTE = 60;
-async function checkRateLimit(env, ip) {
-  if (!env.RATE_LIMIT) return { allowed: true };
-  const minuteBucket = Math.floor(Date.now() / 60000);
-  const key = `price:${ip}:${minuteBucket}`;
+
+// Repli en mémoire — fenêtre fixe par IP, aucune I/O. `rateLimitBuckets` vit
+// tant que cet isolate Worker reste chaud (comportement identique à
+// cachedCrumb/cachedCookie ci-dessus) ; bornage explicite de la taille pour
+// qu'un isolate longue durée ne puisse pas accumuler indéfiniment de mémoire
+// sous une attaque distribuée (dans ce cas dégradé, on vide tout plutôt que
+// de faire de la gestion LRU précise — un faux négatif occasionnel reste
+// acceptable pour une protection "best-effort").
+const rateLimitBuckets = new Map(); // ip -> { windowStart, count }
+const MAX_TRACKED_IPS = 5000;
+
+// TEST-ONLY : les tests importent ce module UNE FOIS et appellent worker.fetch()
+// dans plusieurs `it()` successifs — sans ce reset, l'état de ce Map (qui vit
+// tant que l'isolate/le process de test reste chaud, exactement comme en
+// production) s'accumulerait entre tests indépendants. Jamais appelé par le
+// Worker lui-même en production.
+export function _resetRateLimiterStateForTests() {
+  rateLimitBuckets.clear();
+}
+
+function checkRateLimitInMemory(env, ip) {
   const limit = Number(env.PRICE_RATE_LIMIT_PER_MINUTE) > 0 ? Number(env.PRICE_RATE_LIMIT_PER_MINUTE) : DEFAULT_RATE_LIMIT_PER_MINUTE;
-  const current = Number(await env.RATE_LIMIT.get(key)) || 0;
-  if (current >= limit) return { allowed: false, limit };
-  await env.RATE_LIMIT.put(key, String(current + 1), { expirationTtl: 120 });
+  const windowMs = 60000;
+  const windowStart = Math.floor(Date.now() / windowMs) * windowMs;
+
+  let bucket = rateLimitBuckets.get(ip);
+  if (!bucket || bucket.windowStart !== windowStart) {
+    if (rateLimitBuckets.size >= MAX_TRACKED_IPS) rateLimitBuckets.clear();
+    bucket = { windowStart, count: 0 };
+    rateLimitBuckets.set(ip, bucket);
+  }
+  if (bucket.count >= limit) return { allowed: false, limit };
+  bucket.count += 1;
   return { allowed: true };
+}
+
+async function checkRateLimit(env, ip) {
+  // API native Cloudflare Rate Limiting (voir wrangler.toml pour l'activer) —
+  // gérée entièrement côté plateforme, aucune écriture KV, aucun quota
+  // journalier visible de ce code. Toute erreur (binding mal configuré,
+  // erreur de plateforme...) retombe sur le repli mémoire ci-dessous — ne
+  // JAMAIS laisser une erreur de ce mécanisme remonter jusqu'au catch-all
+  // de fetch() (c'est exactement ce qui a causé l'incident).
+  if (env.RATE_LIMITER && typeof env.RATE_LIMITER.limit === 'function') {
+    try {
+      const { success } = await env.RATE_LIMITER.limit({ key: ip });
+      return { allowed: success };
+    } catch (err) {
+      try { console.error('[PricesProxy][RateLimiter] Binding natif indisponible, repli mémoire.', err?.message || err); } catch (e) { /* noop */ }
+    }
+  }
+  return checkRateLimitInMemory(env, ip);
 }
 
 export default {
@@ -245,7 +318,18 @@ export default {
       }
 
       const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-      const rateLimit = await checkRateLimit(env, ip);
+      // Défense en profondeur (règle explicite de l'audit) : même si
+      // checkRateLimit() est désormais conçu pour ne jamais lever d'exception
+      // (natif avec son propre try/catch + repli mémoire sans I/O), une
+      // panne du RATE LIMITER LUI-MÊME ne doit jamais empêcher de servir de
+      // VRAIES données financières — on autorise la requête (fail-open) et on
+      // journalise, plutôt que de répéter l'incident du 2026-09-23.
+      let rateLimit = { allowed: true };
+      try {
+        rateLimit = await checkRateLimit(env, ip);
+      } catch (err) {
+        try { console.error('[PricesProxy][RateLimiter] Erreur inattendue, requête autorisée par défaut.', err?.message || err); } catch (e) { /* noop */ }
+      }
       if (!rateLimit.allowed) {
         return jsonResponse({ error: 'Too many requests' }, 429, origin);
       }

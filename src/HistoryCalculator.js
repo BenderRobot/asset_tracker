@@ -39,6 +39,7 @@ import { USD_TO_EUR_FALLBACK_RATE } from './config.js';
 import { parseDate } from './utils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { getGlobalWindow } from './TimeRangeEngine.js';
+import { isHistoricalFetchFailure } from './api.js';
 import {
     getIntervalForPeriod,
     getLabelFormat,
@@ -58,7 +59,10 @@ function emptyResult() {
         labels: [], invested: [], investedAssetOnly: [], values: [], yesterdayClose: null,
         dayStartValue: null, todayValueOfYesterdayHoldings: null,
         perTickerYesterdayClose: new Map(), unitPrices: [], purchasePoints: [],
-        timestamps: [], twr: [], dailyTwr: [], historicalDataMap: new Map(), isMixed: false
+        timestamps: [], twr: [], dailyTwr: [], historicalDataMap: new Map(), isMixed: false,
+        cash: [], totalReturn: [], totalReturnPct: [],
+        // Aucun achat du tout : rien à valoriser, donc rien qui puisse échouer.
+        dataQuality: { valid: true, reason: null, failedInstruments: [] }
     };
 }
 
@@ -124,9 +128,24 @@ export class HistoryCalculator {
         const interval = getIntervalForPeriod(days);
         const labelFormatFunc = getLabelFormat(days);
 
-        const historicalDataMap = await this._fetchHistoricalData(tickers, win.dataStartTs, win.dataEndTs, interval);
+        const { map: historicalDataMap, failedTickers } = await this._fetchHistoricalData(tickers, win.dataStartTs, win.dataEndTs, interval);
         await this._fillCryptoGapsFromBinance(tickers, historicalDataMap, days);
         await this._recoverFromClosedMarket(tickers, historicalDataMap, win, days, isCrypto, interval);
+
+        // Binance (voir _fillCryptoGapsFromBinance) est une VRAIE source de
+        // marché alternative (klines réelles, pas une reconstruction) — un
+        // ticker qu'elle a effectivement rempli n'est plus en échec. Ne
+        // s'applique jamais à lastKnownPrices/midnightValuationSeed
+        // (résolus plus bas) : ceux-là ne sont jamais une vraie donnée
+        // HISTORIQUE, ils ne doivent donc jamais retirer un ticker de cette
+        // liste (voir dataQuality ci-dessous).
+        for (const t of failedTickers) {
+            const hist = historicalDataMap.get(t);
+            if (hist && Object.keys(hist).length > 0) failedTickers.delete(t);
+        }
+        const dataQuality = failedTickers.size > 0
+            ? { valid: false, reason: 'PRICE_DATA_UNAVAILABLE', failedInstruments: [...failedTickers] }
+            : { valid: true, reason: null, failedInstruments: [] };
 
         const lastKnownPrices = this._seedLastKnownPrices(tickers, historicalDataMap, win, days, livePriceSnapshot);
 
@@ -166,21 +185,30 @@ export class HistoryCalculator {
             ? this._buildPurchasePoints(ledger, tickers[0], displayTimestamps, series.labels, days, win, dynamicRate, historicalFxMap)
             : [];
 
+        // FAIL-CLOSED (audit incident 2026-09-23) : quand dataQuality.valid ===
+        // false, les séries qui DÉPENDENT d'un prix de marché sont remplacées
+        // par des points `null` — un graphique affiche alors un trou, jamais un
+        // chiffre silencieusement faux (0€ n'est jamais utilisé : c'est une
+        // vraie valeur financière). `invested`/`investedAssetOnly` restent
+        // réels : ce sont des coûts de revient, jamais dépendants d'un prix.
+        const nullSeries = (arr) => Array.isArray(arr) ? arr.map(() => null) : arr;
+        const gateOnValidity = (arr) => dataQuality.valid ? arr : nullSeries(arr);
+
         return {
             labels: series.labels,
             invested: series.invested,
             investedAssetOnly: series.investedAssetOnly,
-            values: series.values,
+            values: gateOnValidity(series.values),
             // PortfolioSnapshot historique par point (audit architecture SSOT) —
             // voir _buildSeries : cash[i]/totalReturn[i]/totalReturnPct[i] sont
             // déjà calculés avec la même formule que le snapshot LIVE, jamais à
             // recalculer par un consommateur (historicalChart.js).
-            cash: series.cash,
-            totalReturn: series.totalReturn,
-            totalReturnPct: series.totalReturnPct,
-            yesterdayClose: series.displayedYesterdayClose,
-            dayStartValue: series.dayStartValue,
-            todayValueOfYesterdayHoldings,
+            cash: gateOnValidity(series.cash),
+            totalReturn: gateOnValidity(series.totalReturn),
+            totalReturnPct: gateOnValidity(series.totalReturnPct),
+            yesterdayClose: dataQuality.valid ? series.displayedYesterdayClose : null,
+            dayStartValue: dataQuality.valid ? series.dayStartValue : null,
+            todayValueOfYesterdayHoldings: dataQuality.valid ? todayValueOfYesterdayHoldings : null,
             perTickerYesterdayClose,
             unitPrices: series.unitPrices,
             purchasePoints,
@@ -194,7 +222,10 @@ export class HistoryCalculator {
             // buildTodaySnapshot() le réinjecte tel quel dans calculateHoldings
             // pour que Total Value ne puisse jamais lire un prix différent de
             // celui qui a produit le dernier point du graphique.
-            resolvedPrices: series.resolvedPrices
+            resolvedPrices: series.resolvedPrices,
+            // FAIL-CLOSED — voir dataManager.buildPortfolioSnapshot, qui
+            // traduit ceci en snapshot.status/invalidReason/invalidInstruments.
+            dataQuality
         };
     }
 
@@ -366,8 +397,15 @@ export class HistoryCalculator {
     // ========================================================
     // 3. Fetch (batched) + resilience fallbacks
     // ========================================================
+    // FAIL-CLOSED (audit incident 2026-09-23) : `failedTickers` distingue un
+    // échec RÉSEAU/HTTP confirmé (proxy en panne, timeout, 5xx — voir
+    // api.js::isHistoricalFetchFailure) d'une absence de donnée légitime
+    // (marché fermé, aucune bougie pour la période — hist reste `{}` mais
+    // SANS ce marqueur). Sert de base à dataQuality dans
+    // calculateGenericHistory ci-dessous — jamais recalculé ailleurs.
     async _fetchHistoricalData(tickers, startTs, endTs, interval) {
         const map = new Map();
+        const failedTickers = new Set();
         const batchSize = 3;
         for (let i = 0; i < tickers.length; i += batchSize) {
             const batch = tickers.slice(i, i + batchSize);
@@ -376,12 +414,14 @@ export class HistoryCalculator {
                 try {
                     const hist = await this.getHistoryWithCache(formatTicker(t), startTs, endTs, interval);
                     map.set(t, hist || {});
+                    if (isHistoricalFetchFailure(hist)) failedTickers.add(t);
                 } catch (err) {
                     map.set(t, {});
+                    failedTickers.add(t);
                 }
             }));
         }
-        return map;
+        return { map, failedTickers };
     }
 
     // Yahoo sometimes has no intraday data for a crypto ticker — Binance is a

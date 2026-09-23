@@ -28,6 +28,29 @@ $commitMsg = if ($userInput.Trim()) { $userInput.Trim() } else { $defaultMsg }
 # ─────────────────────────────────────────────
 Write-Step "[1/2] Push GitHub -> main"
 
+# Mettre de côté les modifications en cours pour éviter les blocages du pull
+$stashed = $false
+$status = git status --porcelain
+if ($status) {
+    git stash -u
+    $stashed = $true
+}
+
+# Récupérer les dernières modifications du serveur
+git pull origin main --rebase
+if ($LASTEXITCODE -ne 0) { 
+    if ($stashed) { git stash pop }
+    Write-Err "git pull failed. Conflits potentiels à résoudre manuellement."; exit 1 
+}
+
+# Restaurer les modifications mises de côté
+if ($stashed) {
+    git stash pop
+    if ($LASTEXITCODE -ne 0) { 
+        Write-Err "Conflit lors du stash pop. Veuillez résoudre les conflits manuellement."; exit 1 
+    }
+}
+
 git add .
 
 $changed = git status --porcelain
