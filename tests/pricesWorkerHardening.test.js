@@ -205,6 +205,45 @@ describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)
         expect(res.status).toBe(200); // repli mémoire a autorisé la requête, pas de crash
     });
 
+    // ============================================================
+    // VALIDATION ARCHITECTURE (2026-09-24, décision #7) — instrumentation
+    // Browser→Worker vs Worker→Yahoo. Purement diagnostique (en-têtes de
+    // réponse) : ne doit jamais changer le statut ni le corps JSON déjà
+    // couverts par les tests ci-dessus.
+    // ============================================================
+
+    // fetchYahoo essaie query2 puis query1 (voir worker.js) — stubFetch()
+    // ci-dessus ne reconnaît QUE l'URL query1 (CHART_URL_PREFIX), donc une
+    // requête "réussie" avec ce stub consomme déjà 2 tentatives ratées vers
+    // query2 avant de réussir sur query1. Pour vérifier fidèlement le cas
+    // "tout réussit du premier coup", ces deux tests répondent aux DEUX hôtes.
+    function stubFetchBothHosts({ yahooOk = true } = {}) {
+        return vi.stubGlobal('fetch', vi.fn(async (url) => {
+            const u = String(url);
+            if (u.includes('/v8/finance/chart/')) {
+                if (!yahooOk) return { ok: false, status: 503, text: async () => 'yahoo down' };
+                return { ok: true, status: 200, json: async () => ({ chart: { result: [{ meta: { currency: 'EUR' }, timestamp: [1700000000], indicators: { quote: [{ close: [100] }] } }] } }) };
+            }
+            throw new Error(`Unexpected fetch to ${u}`);
+        }));
+    }
+
+    it('une requête réussie du premier coup expose X-Yahoo-Attempts=1 et X-Yahoo-Final-Status=200', async () => {
+        stubFetchBothHosts();
+        const res = await worker.fetch(getRequest('symbol=AAPL'), makeEnv());
+        expect(res.status).toBe(200);
+        expect(res.headers.get('X-Yahoo-Attempts')).toBe('1');
+        expect(res.headers.get('X-Yahoo-Final-Status')).toBe('200');
+    });
+
+    it('un échec upstream Yahoo (503 en boucle sur les 2 hôtes) expose le nombre réel de tentatives internes (4 = 2 hôtes x 2 essais) sans changer le 502 renvoyé au client', async () => {
+        stubFetchBothHosts({ yahooOk: false });
+        const res = await worker.fetch(getRequest('symbol=AAPL'), makeEnv());
+        expect(res.status).toBe(502);
+        expect(res.headers.get('X-Yahoo-Attempts')).toBe('4');
+        expect(res.headers.get('X-Yahoo-Final-Status')).toBe('503');
+    });
+
     it("checkRateLimit() qui lèverait malgré tout une exception ne bloque JAMAIS de vraies données financières (fail-open explicite, défense en profondeur)", async () => {
         stubFetch();
         // Simule un rate limiter totalement cassé, y compris son propre appel —

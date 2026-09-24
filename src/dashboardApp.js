@@ -18,6 +18,7 @@ import { FCMManager } from './fcmManager.js'; // NEW: FCM for Android notificati
 import { GEMINI_PROXY_URL } from './config.js';
 import { auth } from './firebaseConfig.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
+import { marketDataMetrics } from './marketDataMetrics.js';
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -145,6 +146,7 @@ class DashboardApp {
             console.log('✅ Dashboard rendering from cache');
             this.renderWithCachedData(cachedData);
             this.showCacheBadge();
+            marketDataMetrics.recordInitialRender();
         } else {
             // No cache: show loading state
             console.log('⏳ No cache - loading fresh data');
@@ -379,6 +381,7 @@ class DashboardApp {
      */
     async refreshDataInBackground() {
         const renderTicket = this._beginPortfolioRender();
+        marketDataMetrics.recordBackgroundRefresh();
         try {
             console.log('🔄 Refreshing data in background...');
 

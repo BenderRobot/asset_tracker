@@ -5,15 +5,26 @@ import { YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE, PRICE_PROXY_URL } from './config.j
 import { sleep } from './utils.js';
 import { resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
+import { marketDataMetrics } from './marketDataMetrics.js';
 
 // Les anciennes clés et proxys ont été retirés pour la sécurité
 
 const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 
-function _fetchTimeout(url, ms) {
+// requestType est purement diagnostique (voir marketDataMetrics.js) — ne
+// change ni l'URL ni le comportement du fetch, sert seulement à distinguer
+// les compteurs "browserRequests" par nature d'appel.
+function _fetchTimeout(url, ms, requestType = 'unknown') {
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), ms);
-    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(tid));
+    const handle = marketDataMetrics.recordRequestStart(requestType);
+    return fetch(url, { signal: ctrl.signal })
+        .then(res => { marketDataMetrics.recordRequestEnd(handle, res.status, res); return res; })
+        .catch(err => {
+            marketDataMetrics.recordRequestEnd(handle, err.name === 'AbortError' ? 'timeout' : 0);
+            throw err;
+        })
+        .finally(() => clearTimeout(tid));
 }
 
 // Les providerStats sont simplifiés car le proxy est la seule source du Frontend
@@ -155,7 +166,12 @@ export class PriceAPI {
         !this.storage.isCacheValid(ticker, assetType) ||
         (assetType === 'Crypto' && !isWeekend);
 
-      if (shouldRefresh) tickersToFetch.push(ticker);
+      if (shouldRefresh) {
+        tickersToFetch.push(ticker);
+        marketDataMetrics.recordCacheMiss();
+      } else {
+        marketDataMetrics.recordCacheHit();
+      }
     });
 
     if (tickersToFetch.length === 0) return;
@@ -185,7 +201,7 @@ export class PriceAPI {
       const interval = isBitcoin ? '5m' : '1d';
       const url = `${PRICE_PROXY_URL}?symbol=${symbol}&type=${type}&range=5d&interval=${interval}`;
 
-      const res = await _fetchTimeout(url, 8000);
+      const res = await _fetchTimeout(url, 8000, 'index-quote');
       if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
 
       const data = await res.json();
@@ -368,7 +384,7 @@ export class PriceAPI {
         // L'intervalle 5m renvoyait parfois des NAV post-clôture ou des incohérences pour les ETF.
         const url = `${PRICE_PROXY_URL}?symbol=${symbol}&type=${type}&range=5d&interval=1d`;
 
-        const res = await _fetchTimeout(url, 8000);
+        const res = await _fetchTimeout(url, 8000, 'live-price');
         if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
 
         const data = await res.json();
@@ -537,27 +553,22 @@ export class PriceAPI {
         tickersResult.push(ticker);
 
       } catch (err) {
+        // FAIL-CLOSED (validation architecture 2026-09-24, décision #1) : un
+        // échec réseau/HTTP confirmé (429/500/502/timeout — tous remontent
+        // ici de façon identique, voir _fetchTimeout) ne doit JAMAIS produire
+        // un nouveau prix courant ni un nouveau previousClose. L'ancien
+        // comportement substituait le prix d'achat ("Purchase fallback"),
+        // indiscernable en aval d'une vraie cotation (day change à 0% fabriqué
+        // — même défaut que le bug previousClose=currentPrice corrigé plus
+        // haut dans ce fichier, voir financialFallbackIntegrity.test.js).
+        // On ne touche plus storage.currentData ici : si une donnée valide
+        // précédente existe déjà, elle reste affichée telle quelle (avec son
+        // lastUpdate désormais daté — c'est la base du futur état
+        // stale/degraded porté par MarketDataRepository) ; si aucune donnée
+        // n'existe, le ticker reste correctement `priceDataUnavailable` en
+        // aval (dataManager.js), sans valeur fabriquée.
         console.warn(`Price Proxy error for ${ticker}: ${err.message}`);
         providerStats.GCP_PROXY.fails++;
-
-        const tickerUpper = ticker.toUpperCase();
-        const existingPrice = this.storage.getCurrentPrice(tickerUpper);
-        if ((!existingPrice || !existingPrice.price || existingPrice.price <= 0)) {
-          const purchase = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === tickerUpper && p.assetType !== 'Cash' && p.assetType !== 'Dividend');
-          if (purchase && Number(purchase.price) > 0) {
-            this.storage.setCurrentPrice(tickerUpper, {
-              price: Number(purchase.price),
-              previousClose: Number(purchase.price),
-              currency: purchase.currency || 'EUR',
-              marketState: 'CLOSED',
-              lastUpdate: Date.now(),
-              source: 'Purchase fallback'
-            });
-            tickersResult.push(ticker);
-            console.warn(`[Fallback] Stored purchase price for ${ticker} after proxy failure.`);
-          }
-        }
-
         await sleep(1000);
       }
     }
@@ -606,15 +617,22 @@ export class PriceAPI {
       cacheKey += `_${rounded}`;
     }
 
-    if (this.historicalPriceCache[cacheKey]) return this.historicalPriceCache[cacheKey];
+    if (this.historicalPriceCache[cacheKey]) {
+      marketDataMetrics.recordCacheHit();
+      return this.historicalPriceCache[cacheKey];
+    }
 
     // Coalescing (voir commentaire du constructeur) : une requête déjà en vol
     // pour cette clé exacte est réutilisée telle quelle, succès ou échec inclus
     // (isHistoricalFetchFailure() reste vrai pour tous les appelants concernés,
     // aucun fallback silencieux introduit par le partage de la promesse).
     const inFlight = this._inFlightHistoricalRequests.get(cacheKey);
-    if (inFlight) return inFlight;
+    if (inFlight) {
+      marketDataMetrics.recordDedup();
+      return inFlight;
+    }
 
+    marketDataMetrics.recordCacheMiss();
     const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries)
       .finally(() => this._inFlightHistoricalRequests.delete(cacheKey));
     this._inFlightHistoricalRequests.set(cacheKey, requestPromise);
@@ -629,7 +647,7 @@ export class PriceAPI {
 
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
-        const response = await _fetchTimeout(proxyUrl, 10000);
+        const response = await _fetchTimeout(proxyUrl, 10000, 'historical');
         if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
 
         const data = await response.json();
@@ -782,7 +800,7 @@ export class PriceAPI {
     console.log(`[Binance Fallback] Fetching ${ticker} (${symbol}) from Binance...`);
 
     try {
-      const res = await _fetchTimeout(url, 8000);
+      const res = await _fetchTimeout(url, 8000, 'binance');
       if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
 
       const data = await res.json();

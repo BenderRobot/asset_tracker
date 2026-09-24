@@ -70,11 +70,20 @@ function corsHeaders(origin) {
   };
 }
 
-function jsonResponse(data, status = 200, origin = '') {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-  });
+// diag (optionnel) : { attempts, finalStatus } renseigné par fetchYahoo — voir
+// commentaire de fetchYahoo. Purement diagnostique (validation architecture
+// 2026-09-24, décision #7 "mesurer les deux niveaux Browser→Worker et
+// Worker→Yahoo") : n'affecte ni le statut HTTP ni le corps de la réponse,
+// seulement deux en-têtes que le frontend peut lire pour distinguer le coût
+// réseau réellement supporté par le Worker (retries internes inclus) du
+// simple aller-retour Browser→Worker.
+function jsonResponse(data, status = 200, origin = '', diag = null) {
+  const headers = { 'Content-Type': 'application/json', ...corsHeaders(origin) };
+  if (diag) {
+    if (diag.attempts != null) headers['X-Yahoo-Attempts'] = String(diag.attempts);
+    if (diag.finalStatus != null) headers['X-Yahoo-Final-Status'] = String(diag.finalStatus);
+  }
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
 const YAHOO_HEADERS = {
@@ -176,11 +185,19 @@ async function fetchYahoo(url, origin, env, opts = {}) {
     tryUrls.push(fetchUrl);
   }
 
+  // attempts/finalStatus : purs compteurs diagnostiques (voir jsonResponse et
+  // marketDataMetrics.js côté frontend) — ne changent ni le nombre réel de
+  // tentatives ni leur logique de retry, seulement ce qui est rapporté au
+  // frontend une fois la boucle terminée.
   let lastErr = null;
+  let attempts = 0;
+  let finalStatus = null;
   for (const u of tryUrls) {
     for (let attempt = 0; attempt < 2; attempt++) {
+      attempts++;
       try {
         const res = await fetch(u, { headers, cf: { cacheTtl: 60 } });
+        finalStatus = res.status;
         if (!res.ok) {
           lastErr = new Error(`Yahoo HTTP ${res.status}`);
           // On 401, clear crumb cache and retry next loop
@@ -191,15 +208,20 @@ async function fetchYahoo(url, origin, env, opts = {}) {
           await new Promise(r => setTimeout(r, 200 + attempt * 150));
           continue;
         }
-        return await res.json();
+        const json = await res.json();
+        return { json, attempts, finalStatus };
       } catch (err) {
         lastErr = err;
+        finalStatus = 'network_error';
         await new Promise(r => setTimeout(r, 200 + attempt * 150));
         continue;
       }
     }
   }
-  throw lastErr || new Error('Yahoo fetch failed');
+  const finalErr = lastErr || new Error('Yahoo fetch failed');
+  finalErr.attempts = attempts;
+  finalErr.finalStatus = finalStatus;
+  throw finalErr;
 }
 
 // SECURITY FIX (audit P1) : aucune validation de format n'existait sur
@@ -347,11 +369,11 @@ export default {
         if (!symbol) return jsonResponse({ error: 'symbol required' }, 400, origin);
         try {
           const searchUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&lang=en-US&region=US&quotesCount=8&newsCount=0&enableFuzzyQuery=false&quotesQueryId=tss_match_phrase_query`;
-          const data = await fetchYahoo(searchUrl, origin, env);
-          return jsonResponse(data, 200, origin);
+          const { json, attempts, finalStatus } = await fetchYahoo(searchUrl, origin, env);
+          return jsonResponse(json, 200, origin, { attempts, finalStatus });
         } catch (err) {
           try { console.error(`[PricesProxy][SEARCH] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
-          return jsonResponse({ error: 'Upstream provider error' }, 502, origin);
+          return jsonResponse({ error: 'Upstream provider error' }, 502, origin, { attempts: err.attempts, finalStatus: err.finalStatus });
         }
       }
 
@@ -371,11 +393,11 @@ export default {
             'balanceSheetHistory',
           ].join(',');
           const quoteSummaryUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}&lang=en-US&region=US`;
-          const data = await fetchYahoo(quoteSummaryUrl, origin, env, { useCrumb: true });
-          return jsonResponse(data, 200, origin);
+          const { json, attempts, finalStatus } = await fetchYahoo(quoteSummaryUrl, origin, env, { useCrumb: true });
+          return jsonResponse(json, 200, origin, { attempts, finalStatus });
         } catch (err) {
           try { console.error(`[PricesProxy][QUOTE_SUMMARY] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
-          return jsonResponse({ error: 'Upstream provider error' }, 502, origin);
+          return jsonResponse({ error: 'Upstream provider error' }, 502, origin, { attempts: err.attempts, finalStatus: err.finalStatus });
         }
       }
 
@@ -386,11 +408,11 @@ export default {
           const nowSec = Math.floor(Date.now() / 1000);
           const period1 = nowSec - 15 * 365 * 24 * 3600; // 15 years of annual history
           const fundamentalsUrl = `https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?symbol=${encodeURIComponent(symbol)}&type=${FUNDAMENTALS_METRICS.join(',')}&period1=${period1}&period2=${nowSec}`;
-          const data = await fetchYahoo(fundamentalsUrl, origin, env, { useCrumb: true });
-          return jsonResponse(reshapeFundamentalsTimeseries(data, symbol), 200, origin);
+          const { json, attempts, finalStatus } = await fetchYahoo(fundamentalsUrl, origin, env, { useCrumb: true });
+          return jsonResponse(reshapeFundamentalsTimeseries(json, symbol), 200, origin, { attempts, finalStatus });
         } catch (err) {
           try { console.error(`[PricesProxy][FUNDAMENTALS] Error for ${symbol}.`, err.stack || err.message); } catch (e) { console.error(e); }
-          return jsonResponse({ error: 'Upstream provider error' }, 502, origin);
+          return jsonResponse({ error: 'Upstream provider error' }, 502, origin, { attempts: err.attempts, finalStatus: err.finalStatus });
         }
       }
 
@@ -415,12 +437,12 @@ export default {
         }
 
         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${yahooParams}`;
-        const data = await fetchYahoo(yahooUrl, origin, env);
-        return jsonResponse(data, 200, origin);
+        const { json, attempts, finalStatus } = await fetchYahoo(yahooUrl, origin, env);
+        return jsonResponse(json, 200, origin, { attempts, finalStatus });
 
       } catch (err) {
         try { console.error(`[PricesProxy][CHART] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
-        return jsonResponse({ error: 'Upstream provider error', symbol }, 502, origin);
+        return jsonResponse({ error: 'Upstream provider error', symbol }, 502, origin, { attempts: err.attempts, finalStatus: err.finalStatus });
       }
     } catch (err) {
       // Catch any unexpected error and always reply with CORS headers
