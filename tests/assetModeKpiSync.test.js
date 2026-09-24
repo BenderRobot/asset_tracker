@@ -209,7 +209,16 @@ describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/
         expect(finalKpis.totalValue).not.toBeCloseTo(1960.25, 2);
     });
 
-    it('TEST 7 — cohérence graphique/table/KPI en mode actif (aucune substitution, aucun second moteur)', async () => {
+    // RÉVISÉ (validation architecture 2026-09-24, Phase 4 — "Financial Truth
+    // over KPI Reconciliation") : topKpi.totalValue (valorisation LIVE) n'est
+    // plus censé égaler lastGraphValue (dernière OBSERVATION historique du
+    // graphique) — voir dataManager.js, ex-alignLastPointToLiveSnapshot,
+    // supprimée. Dans ce scénario (aucune bougie fournie par le fake api),
+    // le graphique retombe sur la valorisation de clôture veille
+    // (previousClose=154.85€ × 5 titres = 774.25€), tandis que le KPI reste
+    // sur le prix live (152.05€ × 5 = 760.25€, voir TEST 2) — un écart
+    // attendu et correct, pas une incohérence.
+    it('TEST 7 — KPI (live) et graphique (observation historique) restent deux valorisations distinctes en mode actif ; table/KPI restent, eux, cohérents entre eux', async () => {
         const { chart } = buildScenario();
 
         let capturedGraphData = null, capturedSummary = null;
@@ -225,7 +234,15 @@ describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/
         const topKpi = portfolioKPIs.getKPIs();
         const lastGraphValue = capturedGraphData.values[capturedGraphData.values.length - 1];
 
-        expect(topKpi.totalValue).toBeCloseTo(lastGraphValue, 2);
+        // KPI (live) : inchangé, voir TEST 2.
+        expect(topKpi.totalValue).toBeCloseTo(760.25, 2);
+        // Graphique : sa propre observation historique (previousClose, faute
+        // de bougie) — plus jamais alignée sur le KPI live.
+        expect(lastGraphValue).toBeCloseTo(774.25, 2);
+        expect(lastGraphValue).not.toBeCloseTo(topKpi.totalValue, 2);
+
+        // La table (summary) et le KPI, eux, restent cohérents entre eux —
+        // ce sont les deux qui partagent la même résolution live.
         expect(topKpi.invested).toBeCloseTo(capturedSummary.totalInvestedEUR, 2);
         expect(topKpi.totalReturn).toBeCloseTo(capturedSummary.gainTotal, 2);
         expect(topKpi.varToday).toBeCloseTo(-14.00, 2); // day P&L de l'actif, voir TEST 2

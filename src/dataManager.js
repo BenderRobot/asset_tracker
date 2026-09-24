@@ -225,92 +225,22 @@ export class DataManager {
         });
     }
 
-    // ============================================================
-    // ALIGNEMENT DU DERNIER POINT SUR LE SNAPSHOT LIVE (audit architecture
-    // SSOT — bug des 297,18€ : KPI "maintenant" ≠ dernier point du graphique
-    // 1W/1M/...).
-    // ============================================================
+    // alignLastPointToLiveSnapshot() supprimée (validation architecture
+    // 2026-09-24, Phase 4 — "Financial Truth over KPI Reconciliation") : cette
+    // méthode forçait le dernier point de N'IMPORTE QUELLE série affichée
+    // (values/cash/investedAssetOnly/totalReturn/totalReturnPct, plus
+    // dayPnl/dayPnlPct fabriqués de toutes pièces pour l'occasion) à être
+    // remplacé par le PortfolioSnapshot live — l'égalité
+    // `graphData.values[last] === portfolioSnapshot.totalValue` n'est PLUS un
+    // invariant imposé par le code. Le graphique représente désormais
+    // uniquement la vérité des observations disponibles (voir
+    // HistoryCalculator._buildSeries, pointMeta) ; le KPI (portfolioKPIs, via
+    // _computeAggregateKPIs) reste une valorisation live INDÉPENDANTE, lue
+    // directement sur portfolioSnapshot — les deux PEUVENT légitimement
+    // différer (ils ne l'ont d'ailleurs jamais nécessité : _computeAggregateKPIs
+    // ne lit pas graphData, cette suppression ne touche donc AUCUN KPI affiché,
+    // seulement le dernier point du graphique et son tooltip).
     //
-    // RÈGLE (section 6 de l'audit) : toutes les périodes affichées par cette
-    // application ("1D"/"1W"/"1M"/...) sont des fenêtres GLISSANTES se
-    // terminant "maintenant" — leur dernier point représente donc TOUJOURS le
-    // même instant que le PortfolioSnapshot live, jamais un instant du passé.
-    // Deux séries pourtant censées représenter ce même instant (le graphique
-    // multi-jours d'un côté, buildTodaySnapshot/buildAssetPortfolioSnapshot de
-    // l'autre) sont bâties par DEUX passes de résolution de prix
-    // indépendantes (HistoryCalculator._buildSeries, appelé séparément pour
-    // chaque période) — rien ne garantit qu'elles retombent sur le même prix
-    // pour chaque ticker à la milliseconde près (fraîcheur de cotation,
-    // fenêtre de "livePriceSnapshot" différente, etc.). C'est la cause exacte
-    // de l'écart observé : le dernier point d'un graphique 1W/1M n'a jamais
-    // reçu le même traitement "prix live figé" que le point du jour
-    // (buildTodaySnapshot) — voir HistoryCalculator._buildSeries, la
-    // resolution `liveOverride` y est explicitement bornée à `days === 1`.
-    //
-    // Fix structurel (pas un patch sur 297,18€) : le dernier point de N'IMPORTE
-    // QUELLE série affichée est FORCÉMENT remplacé par les valeurs du
-    // PortfolioSnapshot live — jamais recalculé, jamais laissé à la merci
-    // d'une résolution de prix indépendante. Ceci est une décision
-    // d'ASSEMBLAGE ("quel snapshot représente cet index de tableau"), pas un
-    // calcul financier : aucune formule n'est appliquée ici, on remplace des
-    // valeurs déjà canoniques par d'autres valeurs déjà canoniques,
-    // exactement comme changer l'étiquette d'un pointeur. Les points
-    // ANTÉRIEURS (historiques, jamais "maintenant") restent inchangés — ce
-    // sont eux, et eux seuls, que le tooltip continue de lire tels quels.
-    //
-    // Après cet appel, par construction :
-    //   graphData.values[last]         === portfolioSnapshot.totalValue
-    //   graphData.cash[last]           === portfolioSnapshot.cash
-    //   graphData.investedAssetOnly[last] === portfolioSnapshot.invested
-    //   graphData.totalReturn[last]    === portfolioSnapshot.totalReturn
-    //   graphData.totalReturnPct[last] === portfolioSnapshot.totalReturnPct
-    //   graphData.dayPnl[last]         === portfolioSnapshot.dayPnl (partout ailleurs : null)
-    //   graphData.dayPnlPct[last]      === portfolioSnapshot.dayPnlPct (partout ailleurs : null)
-    alignLastPointToLiveSnapshot(graphData, portfolioSnapshot) {
-        if (!graphData?.values?.length || !portfolioSnapshot) return graphData;
-        // FAIL-CLOSED (audit incident 2026-09-23) : si le snapshot LIVE
-        // lui-même est invalide (échec réseau/HTTP confirmé sur au moins un
-        // instrument), il n'y a AUCUNE valeur canonique fiable à recopier sur
-        // le dernier point — le forcer serait fabriquer un nombre à partir de
-        // `null`. On laisse le graphique tel quel (son propre dernier point,
-        // potentiellement déjà `null` lui aussi si sa propre résolution a
-        // échoué — jamais un 0€ silencieux dans un cas comme dans l'autre).
-        if (portfolioSnapshot.status === 'invalid') return graphData;
-        let lastIdx = graphData.values.length - 1;
-        // Le dernier point PEUT être `null` (aucun prix résolu pour aucun
-        // ticker à cet instant, ex: portefeuille flambant neuf) — dans ce cas
-        // il n'y a rien à représenter "maintenant" par un nombre, on ne force
-        // rien (afficher 0€ serait un mensonge, pas une amélioration).
-        while (lastIdx >= 0 && graphData.values[lastIdx] === null) lastIdx--;
-        if (lastIdx < 0) return graphData;
-
-        const replaceAt = (arr, value) => {
-            if (!Array.isArray(arr)) return arr;
-            const copy = arr.slice();
-            copy[lastIdx] = value;
-            return copy;
-        };
-        // dayPnl/dayPnlPct n'existent pas encore comme séries historiques
-        // (voir HistoryCalculator — "Var Today" n'a de sens qu'à l'instant
-        // présent, jamais pour un point du passé) : on crée un tableau
-        // rempli de `null` PARTOUT SAUF au dernier point, qui reçoit la
-        // valeur live — pour que le tooltip puisse le lire comme n'importe
-        // quelle autre série, sans jamais tester explicitement "suis-je le
-        // dernier point ?" lui-même (voir historicalChart::_buildKpiRows).
-        const onlyAtLast = (value) => graphData.values.map((_, i) => (i === lastIdx ? value : null));
-
-        return {
-            ...graphData,
-            values: replaceAt(graphData.values, portfolioSnapshot.totalValue),
-            cash: replaceAt(graphData.cash, portfolioSnapshot.cash),
-            investedAssetOnly: replaceAt(graphData.investedAssetOnly, portfolioSnapshot.invested),
-            totalReturn: replaceAt(graphData.totalReturn, portfolioSnapshot.totalReturn),
-            totalReturnPct: replaceAt(graphData.totalReturnPct, portfolioSnapshot.totalReturnPct),
-            dayPnl: onlyAtLast(portfolioSnapshot.dayPnl),
-            dayPnlPct: onlyAtLast(portfolioSnapshot.dayPnlPct)
-        };
-    }
-
     // === HELPERS DELEGATION (Compatibilité Legacy) ===
     isCryptoTicker(ticker) { return isCryptoTicker(ticker); }
     formatTicker(ticker) { return formatTicker(ticker); }
@@ -1843,174 +1773,11 @@ export class DataManager {
         return { rows, totalPhantomValue, totalDividendAmount, graphBefore, graphAfter, holdingsTotal, predicted, observed, residual };
     }
 
-    // ============================================================
-    // DIAGNOSTIC ONLY — jamais appelé par l'UI, jamais un producteur de
-    // PortfolioSnapshot (audit architecture SSOT, section 12).
-    // ============================================================
-    // Cette fonction calcule volontairement un "Var Today" alternatif dérivé
-    // de dailyTwr (varTodayAtTarget/varTodayAtLast, voir plus bas) — c'est
-    // EXACTEMENT la formule interdite ailleurs dans l'app (voir
-    // tests/architectureFinancialSsot.test.js). Elle n'existe ici QUE pour
-    // comparer, dans la console développeur, la valeur canonique
-    // (PortfolioSnapshot.dayPnl) à ce que le ratio TWR aurait donné —
-    // détecter un futur écart entre les deux méthodes, jamais pour produire
-    // une valeur affichée. Aucun appelant de production (aucune vue,
-    // aucun composant KPI) n'invoque cette méthode ; ne JAMAIS câbler son
-    // retour vers un composant d'affichage ou vers buildPortfolioSnapshot.
-    //
-    // DIAGNOSTIC TEMPORAIRE — audit de l'écart "point 22:00 vs dernier point"
-    // (ex: 11 917,01€ @22:00 vs 11 874,85€ au dernier point, -42,16€).
-    // Lecture seule, n'altère AUCUNE valeur retournée par le moteur réel : lit
-    // le trace `debugCapture` (voir HistoryCalculator._buildSeries) que
-    // calculateGenericHistory() remplit UNIQUEMENT quand on le lui demande —
-    // chaque enregistrement est le prix/la source/la valeur RÉELLEMENT utilisés
-    // par CE calcul pour CE (ticker, timestamp), jamais une reconstruction
-    // séparée. Usage depuis la console du navigateur, sur le Dashboard :
-    //   await dashboardApp.dataManager.debugLastPointDivergence(22, 0)
-    // (targetHour/targetMinute : l'heure du point de comparaison, dans le
-    // fuseau du portefeuille — 22:00 par défaut pour matcher les captures).
-    async debugLastPointDivergence(targetHour = 22, targetMinute = 0) {
-        const purchases = this.storage.getPurchases();
-        const marketPurchases = purchases.filter(p => p.assetType !== 'Real Estate');
-        const assetPurchases = marketPurchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
-        });
-        const cashPurchases = marketPurchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-        });
-
-        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
-        const historicalFxMap = await this.getHistoricalFxMap(assetPurchases);
-
-        const debugCapture = [];
-        const graphData = await this.calculateGenericHistory(
-            [...assetPurchases, ...cashPurchases], 1, false, dynamicRate, historicalFxMap, debugCapture
-        );
-        if (!graphData.labels || graphData.labels.length === 0) {
-            console.warn('[debugLastPointDivergence] Aucune donnée de série — impossible de diagnostiquer.');
-            return null;
-        }
-
-        // Reconstruit la liste ORDONNÉE des timestamps réellement traités par
-        // _buildSeries à partir de debugCapture lui-même (jamais une 2e requête
-        // séparée) : chaque itération i a poussé au moins un enregistrement.
-        const tsOrder = [...new Set(debugCapture.map(r => r.ts))].sort((a, b) => a - b);
-        const lastTs = tsOrder[tsOrder.length - 1];
-        const lastIdx = tsOrder.length - 1;
-
-        const { marketCalendarEngine } = await import('./MarketCalendarEngine.js');
-        const tz = marketCalendarEngine.getPortfolioTimezone();
-        const hourMinuteInTz = (ts) => {
-            const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
-                .formatToParts(ts).reduce((acc, p) => { if (p.type !== 'literal') acc[p.type] = p.value; return acc; }, {});
-            return { h: Number(parts.hour), m: Number(parts.minute) };
-        };
-
-        // Le point de comparaison ("22:00") : le timestamp traité le plus proche
-        // de l'heure demandée, STRICTEMENT avant le dernier point (sinon on
-        // comparerait le dernier point à lui-même si l'heure demandée matche
-        // "maintenant").
-        let targetTs = null, targetIdx = -1, bestDiff = Infinity;
-        tsOrder.forEach((ts, idx) => {
-            if (idx === lastIdx) return;
-            const { h, m } = hourMinuteInTz(ts);
-            const diff = Math.abs((h * 60 + m) - (targetHour * 60 + targetMinute));
-            if (diff < bestDiff) { bestDiff = diff; targetTs = ts; targetIdx = idx; }
-        });
-        if (targetTs === null) {
-            console.warn('[debugLastPointDivergence] Aucun point antérieur au dernier trouvé (série trop courte).');
-            return null;
-        }
-
-        const byTs = new Map();
-        debugCapture.forEach(r => { if (!byTs.has(r.ts)) byTs.set(r.ts, new Map()); byTs.get(r.ts).set(r.ticker, r); });
-        const rowsTarget = byTs.get(targetTs) || new Map();
-        const rowsLast = byTs.get(lastTs) || new Map();
-
-        const allTickers = new Set([...rowsTarget.keys(), ...rowsLast.keys()]);
-        const rows = [];
-        let sumDelta = 0;
-        allTickers.forEach(ticker => {
-            const rt = rowsTarget.get(ticker) || null;
-            const rl = rowsLast.get(ticker) || null;
-            const isCash = ticker.startsWith('CASH-');
-            const live = isCash ? null : this.storage.getCurrentPrice(ticker);
-            const delta = (rl?.value ?? 0) - (rt?.value ?? 0);
-            sumDelta += delta;
-            // Objectif 3 — ne jamais présumer qu'un prix live différent est
-            // légitime : vérifie explicitement le statut marché réel (via la
-            // même autorité que tout le reste du moteur, MarketCalendarEngine)
-            // au moment DU DERNIER POINT — un live-override déclenché alors que
-            // le marché est FERMÉ signale une cotation hors-séance (after-hours),
-            // pas nécessairement fausse, mais PAS la clôture officielle.
-            const marketOpenAtLast = isCash ? null : marketCalendarEngine.isMarketOpen(ticker, lastTs);
-            rows.push({
-                ticker,
-                quantity: rl?.quantity ?? rt?.quantity ?? null,
-                priceAt2200: rt?.price ?? null,
-                valueAt2200: rt?.value != null ? Number(rt.value.toFixed(2)) : null,
-                sourceAt2200: rt?.source ?? null,
-                priceAtLast: rl?.price ?? null,
-                valueAtLast: rl?.value != null ? Number(rl.value.toFixed(2)) : null,
-                sourceAtLast: rl?.source ?? null,
-                deltaEUR: Number(delta.toFixed(2)),
-                livePrice: live?.price ?? null,
-                liveLastUpdate: live?.lastUpdate ? new Date(live.lastUpdate).toISOString() : null,
-                marketOpenAtLastPoint: marketOpenAtLast
-            });
-            if (rl?.source === 'liveOverride' && marketOpenAtLast === false) {
-                console.warn(`[debugLastPointDivergence] ${ticker} : le dernier point utilise un prix LIVE (${rl.price}) alors que MarketCalendarEngine.isMarketOpen indique le marché FERMÉ à cet instant — probable cotation hors-séance (after-hours), PAS la clôture officielle. Delta induit sur ce ticker : ${delta.toFixed(2)}€.`);
-            }
-        });
-        rows.sort((a, b) => Math.abs(b.deltaEUR) - Math.abs(a.deltaEUR));
-        console.table(rows);
-
-        const graphValueAtTarget = graphData.values[targetIdx];
-        const graphValueAtLast = graphData.values[lastIdx];
-        const reportedDelta = graphValueAtLast - graphValueAtTarget;
-        const residual = reportedDelta - sumDelta;
-
-        // --- Objectif 4 : Var Today, dérivé du dailyTwr à chaque point, jamais
-        // d'une valeur KPI injectée pour "faire correspondre" le graphique. ---
-        const dTwrTarget = graphData.dailyTwr?.[targetIdx];
-        const dTwrLast = graphData.dailyTwr?.[lastIdx];
-        const varTodayAtTarget = (dTwrTarget != null) ? { abs: graphValueAtTarget - graphValueAtTarget / dTwrTarget, pct: (dTwrTarget - 1) * 100 } : null;
-        const varTodayAtLast = (dTwrLast != null) ? { abs: graphValueAtLast - graphValueAtLast / dTwrLast, pct: (dTwrLast - 1) * 100 } : null;
-
-        // --- Objectif 5 : le cash utilisé par _buildKpiRows pour CHAQUE point du
-        // tooltip est kpiData.cash — le cash ACTUEL (calculateCashReserve, sans
-        // filtre de date), pas le cash réellement en vigueur à CE point-là. On
-        // le prouve en comparant le cash reconstruit à targetTs (somme des
-        // entrées CASH-* de ce point, via debugCapture) au cash reconstruit au
-        // dernier point.
-        const cashAt = (rowsMap) => [...rowsMap.entries()].filter(([t]) => t.startsWith('CASH-')).reduce((s, [, r]) => s + (r.value || 0), 0);
-        const cashAtTarget = cashAt(rowsTarget);
-        const cashAtLast = cashAt(rowsLast);
-        const cashChanged = Math.abs(cashAtLast - cashAtTarget) > 0.01;
-        const investedAOAtTarget = graphData.investedAssetOnly?.[targetIdx];
-        const totalReturnTooltipShown = (graphValueAtTarget - cashAtLast) - investedAOAtTarget; // formule RÉELLE de _buildKpiRows (cash ACTUEL)
-        const totalReturnConceptuallyCorrect = (graphValueAtTarget - cashAtTarget) - investedAOAtTarget; // assetValue(T) - investedAssetOnly(T)
-
-        console.log(`[debugLastPointDivergence] Point cible ≈ ${targetHour}:${String(targetMinute).padStart(2, '0')} → ts réel le plus proche = ${new Date(targetTs).toISOString()} (écart ${bestDiff} min)`);
-        console.log(`[debugLastPointDivergence] Σ deltaEUR par ticker = ${sumDelta.toFixed(2)}€`);
-        console.log(`[debugLastPointDivergence] Delta graphique réel (dernier - cible) = ${reportedDelta.toFixed(2)}€`);
-        console.log(`[debugLastPointDivergence] Résidu = ${residual.toFixed(2)}€ ${Math.abs(residual) <= 0.01 ? '(entièrement expliqué par les tickers ci-dessus)' : '(⚠️ RÉSIDU NON EXPLIQUÉ — audit à poursuivre)'}`);
-        console.log('[debugLastPointDivergence] Var Today @cible:', varTodayAtTarget, '@dernier:', varTodayAtLast);
-        console.log(`[debugLastPointDivergence] Cash @cible=${cashAtTarget.toFixed(2)}€, @dernier=${cashAtLast.toFixed(2)}€, changé=${cashChanged}`);
-        if (cashChanged) {
-            console.warn(`[debugLastPointDivergence] Le tooltip au point cible afficherait Total Return=${totalReturnTooltipShown.toFixed(2)}€ (formule réelle, cash ACTUEL=${cashAtLast.toFixed(2)}€) au lieu de ${totalReturnConceptuallyCorrect.toFixed(2)}€ (cash DE CE POINT=${cashAtTarget.toFixed(2)}€) — écart de ${(totalReturnTooltipShown - totalReturnConceptuallyCorrect).toFixed(2)}€ dû au cash utilisé de façon non-historisée par _buildKpiRows.`);
-        } else {
-            console.log('[debugLastPointDivergence] Cash inchangé entre les deux points — _buildKpiRows ne peut pas avoir faussé le Total Return du tooltip ici.');
-        }
-
-        return {
-            targetTs, lastTs, rows, sumDelta, reportedDelta, residual,
-            graphValueAtTarget, graphValueAtLast,
-            varTodayAtTarget, varTodayAtLast,
-            cashAtTarget, cashAtLast, cashChanged,
-            totalReturnTooltipShown, totalReturnConceptuallyCorrect
-        };
-    }
+    // debugLastPointDivergence() supprimée (validation architecture
+    // 2026-09-24, Phase 4) — ce diagnostic existait pour investiguer un écart
+    // causé PAR le mécanisme "liveOverride" de HistoryCalculator._buildSeries
+    // (substitution du prix live au dernier point du graphique 1D), lui-même
+    // supprimé dans cette même passe : le graphique ne fait plus jamais cette
+    // substitution, donc il n'y a plus de divergence de ce type à diagnostiquer.
+    // Voir HistoryCalculator.js (pointMeta) pour la provenance de chaque point.
 }

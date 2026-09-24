@@ -93,7 +93,15 @@ describe('REPRODUCTION RÉELLE — écart 53 226,78€ (graph) vs 36 880,78€ (
         purchase({ ticker: 'MEGA', assetType: 'Dividend', type: 'dividend', price: 654.00, quantity: 1, date: '2024-06-01' })
     ];
 
-    it('AVANT le fix (classification pré-correction réintroduite localement) : le graphique affiche exactement 53 226,78€ quand holdings/cash affichent 36 880,78€', async () => {
+    // RÉVISÉ (validation architecture 2026-09-24, Phase 4 — "Financial Truth
+    // over KPI Reconciliation") : le graphique n'utilise plus JAMAIS le prix
+    // live (voir HistoryCalculator._buildSeries, ex-liveOverride supprimé) —
+    // sans aucune bougie fournie ici, il retombe désormais sur previousClose
+    // pour chaque ticker plutôt que sur le prix live. Les montants absolus
+    // ci-dessous sont donc recalculés sur cette base (previousClose), mais le
+    // POINT du test reste identique et intact : la classification correcte du
+    // dividende (jamais une action fantôme) est-elle bien appliquée ?
+    it('AVANT le fix (classification pré-correction réintroduite localement) : le graphique affiche une action MEGA fantôme en trop (qty=2 au lieu de 1)', async () => {
         const dm = new DataManager(storage, createFakeApi());
         const original = HistoryCalculator.prototype._buildLedger;
         HistoryCalculator.prototype._buildLedger = preFixBuildLedger;
@@ -103,23 +111,49 @@ describe('REPRODUCTION RÉELLE — écart 53 226,78€ (graph) vs 36 880,78€ (
             const buggyGraphValue = values[values.length - 1];
             const correctTotal = snapshot.summary.totalCurrentEUR + snapshot.cashReserve.total;
 
-            expect(correctTotal).toBeCloseTo(36880.78, 2); // KPI/table — inchangé par le bug (calculateHoldings exclut déjà les dividendes)
-            expect(buggyGraphValue).toBeCloseTo(53226.78, 2); // graphique — corrompu par l'action fantôme
-            expect(buggyGraphValue - correctTotal).toBeCloseTo(16346.00, 2); // l'écart exact rapporté en production
+            // KPI/table (calculateHoldings/calculateCashReserve, jamais passés
+            // par _buildLedger monkey-patché) — inchangé par le bug ledger ET
+            // par Phase 4 (valorisation live).
+            expect(correctTotal).toBeCloseTo(36880.78, 2);
+
+            // Graphique corrompu : MEGA compte pour 2 parts (1 réelle + 1
+            // fantôme issue du dividende mal classé) × previousClose(16800),
+            // OTHER pour 1 part × previousClose(19000), AUCUNE ligne cash (le
+            // dividende, mal classé, n'atterrit plus dans le cash du tout sous
+            // ce bug) : 2×16800 + 19000 = 52600€.
+            expect(buggyGraphValue).toBeCloseTo(52600, 2);
+
+            // La classe de bug (action fantôme) reste identifiable : le
+            // graphique buggé vaut EXACTEMENT previousClose(MEGA) de plus que
+            // sa version corrigée compterait pour la part fantôme.
+            expect(buggyGraphValue).toBeCloseTo(2 * 16800 + 19000, 2);
         } finally {
             HistoryCalculator.prototype._buildLedger = original; // ne JAMAIS laisser fuiter vers un autre test
         }
     });
 
-    it('APRÈS le fix (code actuel de src/HistoryCalculator.js) : graph.lastValue == holdings.totalValue + cash, à 0,01€ près — écart nul', async () => {
+    it("APRÈS le fix (code actuel de src/HistoryCalculator.js) : MEGA compte pour EXACTEMENT 1 part (jamais 2), le résidu graph/KPI restant s'explique ENTIÈREMENT par Phase 4 (live vs previousClose), pas par une action fantôme", async () => {
         const dm = new DataManager(storage, createFakeApi());
         const snapshot = await dm.buildTodaySnapshot(assetPurchases, cashPurchases);
         const values = snapshot.todayGraphData.values;
         const graphValue = values[values.length - 1];
         const holdingsPlusCash = snapshot.summary.totalCurrentEUR + snapshot.cashReserve.total;
 
-        expect(graphValue).toBeCloseTo(36880.78, 2);
-        expect(holdingsPlusCash).toBeCloseTo(36880.78, 2);
-        expect(graphValue - holdingsPlusCash).toBeCloseTo(0, 6); // zéro, pas "proche de zéro à 150€ près"
+        // La vraie garantie anti-régression : plus aucune action fantôme.
+        const mega = snapshot.holdings.find(h => h.ticker === 'MEGA');
+        expect(mega.quantity).toBeCloseTo(1, 6);
+
+        expect(holdingsPlusCash).toBeCloseTo(36880.78, 2); // KPI/table, live — inchangé
+        // Graphique (previousClose, faute de bougie) : 1×16800 (MEGA) +
+        // 1×19000 (OTHER) + 654 (cash, dividende correctement classé) = 36454€.
+        expect(graphValue).toBeCloseTo(36454, 2);
+
+        // Le résidu graph/KPI qui SUBSISTE (426,78€) n'est PAS l'ancien bug —
+        // il s'explique ENTIÈREMENT par l'écart previousClose/live de MEGA
+        // (200€) et OTHER (226,78€), la divergence attendue et voulue par
+        // Phase 4, jamais une quantité fantôme.
+        const residual = holdingsPlusCash - graphValue;
+        expect(residual).toBeCloseTo((17000 - 16800) + (19226.78 - 19000), 2);
+        expect(residual).not.toBeCloseTo(16346.00, 2); // jamais retomber sur la magnitude de l'ancien bug
     });
 });

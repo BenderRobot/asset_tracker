@@ -33,7 +33,24 @@ describe('TEST A/B/C — marché fermé : valorisation réelle, aucune cotation 
             },
             conversionRate: 0.9
         });
-        const dm = new DataManager(storage, createFakeApi());
+        // RÉVISÉ (validation architecture 2026-09-24, Phase 4) : le graphique
+        // ne se base plus JAMAIS sur le prix live (voir liveOverride
+        // supprimé) — pour que ce scénario continue de démontrer "BTC bouge
+        // pendant le weekend" via de VRAIES observations, on fournit
+        // explicitement plusieurs bougies BTC réelles, à des instants et prix
+        // distincts (jamais pour AAPL, qui doit rester à {} — c'est
+        // précisément ce que ce test vérifie).
+        const dm = new DataManager(storage, createFakeApi({
+            async getHistoricalPricesWithRetry(ticker) {
+                if (ticker !== 'BTC-EUR') return {};
+                const now = Date.now();
+                return {
+                    [now - 3 * 3600000]: 50500,
+                    [now - 2 * 3600000]: 51200,
+                    [now - 1 * 3600000]: 52000
+                };
+            }
+        }));
         const assetPurchases = [
             purchase({ ticker: 'BTC-EUR', assetType: 'Crypto', price: 40000, quantity: 0.1, date: '2024-01-01' }),
             purchase({ ticker: 'AAPL', assetType: 'Stock', price: 150, quantity: 5, date: '2024-01-01' })
@@ -43,7 +60,8 @@ describe('TEST A/B/C — marché fermé : valorisation réelle, aucune cotation 
         const { todayGraphData } = snapshot;
 
         // La série de VALORISATION du portefeuille a bien plusieurs points distincts
-        // (BTC continue de bouger même marché actions fermé/weekend).
+        // (BTC continue de bouger même marché actions fermé/weekend) — via de
+        // VRAIES bougies, jamais un prix live injecté au dernier point.
         const distinctValues = new Set(todayGraphData.values.filter(v => v != null).map(v => Math.round(v * 100)));
         expect(distinctValues.size).toBeGreaterThan(1);
 

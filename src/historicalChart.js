@@ -511,15 +511,16 @@ export class HistoricalChart {
                 targetSummary = assetSnapshot.summary;
                 portfolioSnapshot = assetSnapshot.portfolioSnapshot;
 
-                // SSOT (audit architecture, bug des 297,18€) : le graphique affiché
-                // (`graphData`, période courante) et le PortfolioSnapshot live
-                // (`portfolioSnapshot`, toujours résolu "aujourd'hui") représentent
-                // le MÊME instant "maintenant" pour leur dernier point respectif —
-                // mais viennent de deux passes de résolution de prix indépendantes.
-                // On force le dernier point du graphique à être EXACTEMENT le
-                // snapshot live (assemblage, pas un recalcul) — voir
-                // dataManager.alignLastPointToLiveSnapshot.
-                graphData = this.dataManager.alignLastPointToLiveSnapshot(graphData, portfolioSnapshot);
+                // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
+                // 2026-09-24, Phase 4) : le graphique affiché (`graphData`) et le
+                // PortfolioSnapshot live (`portfolioSnapshot`) restent deux choses
+                // séparées — le dernier point du graphique n'est PLUS forcé à
+                // égaler le snapshot live (voir dataManager.js, ex-
+                // alignLastPointToLiveSnapshot, supprimée). Le graphique représente
+                // la dernière observation historique réellement disponible ; le
+                // KPI (via portfolioKPIs, alimenté indépendamment par
+                // _computeAggregateKPIs -> portfolioSnapshot) reste la valorisation
+                // live "maintenant" — les deux peuvent légitimement différer.
 
                 const name = targetAssetPurchases[0]?.name || currentTicker;
                 titleConfig = { mode: 'asset', label: `${currentTicker} • ${name}`, icon: this.dataManager.isCryptoTicker(currentTicker) ? '₿' : '📊' };
@@ -596,12 +597,10 @@ export class HistoricalChart {
                     ? todayGraphData
                     : await this.dataManager.calculateHistory([...assetPurchases, ...cashPurchases], this.currentPeriod);
 
-                // SSOT (audit architecture, bug des 297,18€) : voir le même appel en
-                // mode actif unique ci-dessus. Appliqué INCONDITIONNELLEMENT (même
-                // pour l'onglet 1D, où graphData === todayGraphData déjà réconcilié
-                // par construction) — un no-op si les deux étaient déjà identiques,
-                // une garantie structurelle si jamais ils ne l'étaient pas.
-                graphData = this.dataManager.alignLastPointToLiveSnapshot(graphData, portfolioSnapshot);
+                // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
+                // 2026-09-24, Phase 4) : voir le même commentaire en mode actif
+                // unique ci-dessus — plus aucun alignement du dernier point sur le
+                // snapshot live, sur AUCUNE période (1D comme 1W/1M/...).
             }
 
             if (benchmarkWrapper) benchmarkWrapper.style.display = (isSingleAsset || isIndexMode) ? 'none' : 'block';
@@ -1277,7 +1276,12 @@ export class HistoricalChart {
             datasets.push({
                 label: 'Total Value (%)', data: perfData, borderColor: mainColor,
                 backgroundColor: (c) => makeGradient(c.chart, 0), borderWidth: 2, fill: true,
-                pointRadius: 0, tension: 0.3, spanGaps: true,
+                // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
+                // 2026-09-24, Phase 4) : tension=0 (jamais de spline qui inventerait
+                // une trajectoire visuelle entre deux observations réelles) et
+                // spanGaps=false (un point `null` doit rester un trou visible,
+                // jamais relié artificiellement à travers une absence de donnée).
+                pointRadius: 0, tension: 0, spanGaps: false,
                 segment: { borderColor: (c) => segmentColor(c, 0) },
                 isMain: true
             });
@@ -1296,7 +1300,7 @@ export class HistoricalChart {
                             for (let j = benchTs.length - 1; j >= 0; j--) { if (benchTs[j] <= ts) { lastKnown = benchmarkData[benchTs[j]]; break; } }
                             return ((lastKnown - startBenchPrice) / startBenchPrice) * 100;
                         });
-                        datasets.push({ label: 'Benchmark (%)', data: benchData, borderColor: '#A855F7', borderWidth: 2, fill: false, pointRadius: 0, spanGaps: true });
+                        datasets.push({ label: 'Benchmark (%)', data: benchData, borderColor: '#A855F7', borderWidth: 2, fill: false, pointRadius: 0, tension: 0, spanGaps: false });
                         benchPctSeries = benchData;
                         benchmarkLabel = document.getElementById('benchmark-select')?.selectedOptions?.[0]?.textContent?.trim() || 'Benchmark';
                     }
@@ -1305,7 +1309,7 @@ export class HistoricalChart {
             datasets.push({ label: 'Base 0%', data: Array(graphData.labels.length).fill(0), borderColor: 'rgba(255,255,255,0.2)', borderWidth: 1, borderDash: [5, 5], fill: false, pointRadius: 0 });
         } else {
             if (!isIndexMode && !isUnitView && graphData.invested) {
-                datasets.push({ label: 'Investi (€)', data: graphData.invested, borderColor: '#3b82f6', borderWidth: 2, fill: false, pointRadius: 0, borderDash: [5, 5], hidden: true, spanGaps: true });
+                datasets.push({ label: 'Investi (€)', data: graphData.invested, borderColor: '#3b82f6', borderWidth: 2, fill: false, pointRadius: 0, borderDash: [5, 5], hidden: true, tension: 0, spanGaps: false });
             }
             let label = isUnitView ? 'Prix unitaire (€)' : (isIndexMode ? 'Cours' : 'Total Value (€)');
             const bicolorRef = (this.currentPeriod === 1 && referenceClose > 0) ? referenceClose : null;
@@ -1313,7 +1317,10 @@ export class HistoricalChart {
             datasets.push({
                 label, data: displayValues, borderColor: mainColor,
                 backgroundColor: (c) => makeGradient(c.chart, bicolorRef || 0),
-                borderWidth: 3, fill: true, tension: 0.3, pointRadius: 0, spanGaps: true,
+                // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
+                // 2026-09-24, Phase 4) : voir commentaire du dataset "Total Value (%)"
+                // plus haut — même règle (tension=0, spanGaps=false).
+                borderWidth: 3, fill: true, tension: 0, pointRadius: 0, spanGaps: false,
                 ...(bicolorRef ? { segment: { borderColor: (c) => segmentColor(c, bicolorRef) } } : {}),
                 isMain: true
             });

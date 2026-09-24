@@ -48,15 +48,23 @@ describe('Snapshot immuable — un flux concurrent qui réécrit storage pendant
         // notamment) — sinon ce test ne prouverait rien.
         expect(callCount).toBeGreaterThan(1);
 
-        // Mais la VALEUR utilisée pour la valorisation reste celle du tout
-        // premier appel (401), jamais une valeur ultérieure du compteur.
+        // La VALEUR utilisée pour resolvedPrices/holdings (valorisation LIVE,
+        // KPI/tableau) reste celle du tout premier appel (401), jamais une
+        // valeur ultérieure du compteur — invariant inchangé par Phase 4.
         expect(resolvedPrice).toBeCloseTo(401, 6);
-        expect(graphLastValue).toBeCloseTo(2 * 401, 6);
         expect(holdingsValue).toBeCloseTo(2 * 401, 6);
 
-        // Et surtout : graphique et holdings restent identiques ENTRE EUX (pas
-        // seulement chacun "plausible" isolément) — c'est ça, l'invariant qui
-        // se serait brisé sans le fix.
-        expect(graphLastValue).toBeCloseTo(holdingsValue, 6);
+        // RÉVISÉ (validation architecture 2026-09-24, Phase 4) : le
+        // graphique, lui, n'utilise plus JAMAIS le prix live — sans aucune
+        // bougie fournie ici (fake api), son seul point est la valorisation
+        // de clôture veille (previousClose=395€, figé dans le fixture, donc
+        // lui aussi immunisé contre le compteur qui "bouge" à chaque lecture,
+        // mais pour une raison différente : il n'y touche simplement plus).
+        expect(graphLastValue).toBeCloseTo(2 * 395, 6);
+        // Le graphique et resolvedPrices/holdings restent chacun STABLES et
+        // déterministes (aucun résidu du compteur qui "bouge"), mais ne sont
+        // plus censés être identiques ENTRE EUX — c'est le nouveau
+        // comportement voulu (graphique = observation, KPI = valorisation live).
+        expect(graphLastValue).not.toBeCloseTo(holdingsValue, 6);
     });
 });

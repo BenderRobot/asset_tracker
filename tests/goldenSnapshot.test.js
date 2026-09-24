@@ -62,10 +62,22 @@ describe('TEST GOLDEN SNAPSHOT — scénario réaliste multi-broker/USD/crypto/c
         const values = todayGraphData.values;
         const lastGraphValue = values[values.length - 1];
 
-        // --- Invariant central : le graphique et les holdings/cash restent LA
-        // MÊME valeur, jamais deux calculs séparés. ---
+        // RÉVISÉ (validation architecture 2026-09-24, Phase 4 — "Financial
+        // Truth over KPI Reconciliation") : le graphique (observation/
+        // valorisation historique) et les holdings/KPI (prix LIVE, via
+        // resolvedPrices) ne sont plus censés coïncider par construction.
+        // Sans aucune bougie fournie ici (fake api), le graphique retombe sur
+        // la clôture veille de chaque ticker (previousClose) — calculé
+        // explicitement ci-dessous pour prouver qu'il s'agit bien d'une
+        // résolution cohérente, pas d'une valeur arbitraire.
         const totalValueFromHoldings = summary.totalCurrentEUR + cashReserve.total;
-        expect(lastGraphValue).toBeCloseTo(totalValueFromHoldings, 2);
+        const totalValueFromPreviousClose =
+            16 * 215 /* AAPL (6 chez A + 10 chez B) previousClose */ +
+            5 * 295 /* MSFT previousClose */ +
+            0.05 * 59000 /* BTC-EUR previousClose */ +
+            cashReserve.total;
+        expect(lastGraphValue).toBeCloseTo(totalValueFromPreviousClose, 2);
+        expect(lastGraphValue).not.toBeCloseTo(totalValueFromHoldings, 2);
 
         // --- Cash : ni oublié, ni doublé (500 - 200 + 1200 (vente) + 25 (dividende)). ---
         expect(cashReserve.total).toBeCloseTo(500 - 200 + 1200 + 25, 2);

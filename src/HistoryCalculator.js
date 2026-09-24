@@ -83,9 +83,12 @@ export class HistoryCalculator {
     // remplace la lecture de storage.getConversionRate — pour que ce moteur et
     // calculateHoldings (Total Value) utilisent EXACTEMENT le même taux de
     // change pour le même rendu, jamais deux lectures indépendantes.
-    // `debugCapture` (INSTRUMENTATION TEMPORAIRE, diagnostic du -42,16€ /
-    // -150€ écarts "22:00 vs dernier point") : optionnel, null par défaut —
-    // n'existe QUE pour dataManager.debugLastPointDivergence(). Quand fourni
+    // `debugCapture` (instrumentation optionnelle, null par défaut) — le
+    // diagnostic ponctuel qui l'utilisait (dataManager.debugLastPointDivergence)
+    // a été supprimé (validation architecture 2026-09-24, Phase 4 : voir
+    // pointMeta plus bas pour la provenance de chaque point désormais exposée
+    // en continu). Mécanisme laissé en place, générique, pour un futur besoin
+    // de traçage fin. Quand fourni
     // (un tableau), _buildSeries y pousse un enregistrement PAR (ticker,
     // timestamp) documentant le prix/la source/la valeur RÉELLEMENT utilisés
     // par ce calcul — sans jamais changer une seule valeur retournée. Aucun
@@ -223,6 +226,11 @@ export class HistoryCalculator {
             // pour que Total Value ne puisse jamais lire un prix différent de
             // celui qui a produit le dernier point du graphique.
             resolvedPrices: series.resolvedPrices,
+            // Provenance par point (validation architecture 2026-09-24, Phase 4)
+            // — voir _buildSeries. Descriptif, pas une valeur financière : jamais
+            // gaté par dataQuality (reste informatif même quand values/cash/
+            // totalReturn sont nullés par gateOnValidity ci-dessus).
+            pointMeta: series.pointMeta,
             // FAIL-CLOSED — voir dataManager.buildPortfolioSnapshot, qui
             // traduit ceci en snapshot.status/invalidReason/invalidInstruments.
             dataQuality
@@ -733,8 +741,16 @@ export class HistoryCalculator {
 
         if (days === 1) {
             if (!filtered.includes(win.displayStartTs)) filtered.unshift(win.displayStartTs);
-            const nowTs = Math.min(Date.now(), win.displayEndTs);
-            if (nowTs > win.displayStartTs && !filtered.includes(nowTs)) filtered.push(nowTs);
+            // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
+            // 2026-09-24, Phase 4) : ce grid ne pousse plus un point synthétique
+            // à `Date.now()` quand aucune vraie observation (bougie/quote) n'y
+            // existe déjà. Un timestamp de graphique ne doit venir que d'un
+            // provider réel, d'un événement de transaction, ou d'une
+            // valorisation explicitement identifiée comme telle (voir
+            // _buildSeries, pointMeta) — jamais de l'horodatage du FETCH lui-même,
+            // qui n'a aucun rapport avec l'instant d'une cotation. Le dernier
+            // point affiché est donc désormais la dernière observation RÉELLE
+            // disponible, jamais "maintenant" par construction.
             filtered = Array.from(new Set(filtered)).sort((a, b) => a - b);
         }
 
@@ -783,6 +799,17 @@ export class HistoryCalculator {
     async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
         const twr = [], dailyTwr = [];
+        // Provenance par point (validation architecture 2026-09-24, Phase 4) :
+        // un enregistrement par index de displayTimestamps, jamais recalculé en
+        // aval (le renderer/tooltip ne fait que LIRE ces champs, voir
+        // historicalChart.js). Sources canoniques autorisées : 'historical_candle'
+        // (bougie réelle du provider), 'valuation' (repli légitime — clôture
+        // veille au tout premier point, carry-forward d'un dernier prix connu
+        // pendant un marché fermé, ou cash à valeur fixe 1.0 — jamais une
+        // nouvelle observation de marché), 'live_quote' et 'transaction' réservés
+        // à un usage futur (voir section G de l'audit, non implémentée dans
+        // cette passe : ce moteur n'ajoute jamais de point live lui-même).
+        const pointMeta = [];
         // PortfolioSnapshot historique, une entrée par point affiché (audit
         // architecture SSOT) : cash/totalReturn/totalReturnPct calculés ICI,
         // UNE FOIS, avec la même formule que le snapshot LIVE
@@ -908,6 +935,7 @@ export class HistoryCalculator {
 
         for (let i = 0; i < displayTimestamps.length; i++) {
             const ts = displayTimestamps[i];
+            const tickerSourcesThisPoint = {};
             const prevTs = (i === 0) ? win.displayStartTs - 1 : displayTimestamps[i - 1];
 
             let cashFlow = 0;
@@ -955,6 +983,20 @@ export class HistoryCalculator {
                 // existant.
                 let priceSource = isCash ? 'cash' : 'none';
 
+                // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
+                // 2026-09-24, Phase 4) : `price` ci-dessous est LE PRIX DU
+                // GRAPHIQUE — la vérité des observations disponibles, jamais
+                // remplacé par un prix live, y compris au tout dernier point.
+                // L'ancien "liveOverride" (days===1 && i===last) substituait ici
+                // un prix live fraîchement fetché à la bougie/repli historique —
+                // ça fabriquait une observation de marché à un timestamp
+                // (celui du dernier point affiché) qui n'était pas réellement
+                // celui de cette cotation. Supprimé : voir plus bas (resolvedPrices)
+                // pour où le prix live continue légitimement d'être utilisé —
+                // la VALORISATION "maintenant" (KPI/tableau), une notion séparée
+                // du graphique, qui PEUT différer de son dernier point affiché
+                // (ce n'est pas un bug, c'est la distinction observation vs
+                // valorisation live).
                 let price = null;
                 if (isCash) {
                     price = 1.0;
@@ -967,60 +1009,8 @@ export class HistoryCalculator {
                     else if (ts === win.displayStartTs && midnightValuationSeed?.has(t)) { price = midnightValuationSeed.get(t); priceSource = 'midnightSeed'; }
                     else if (hist) { price = findClosestPrice(hist, ts, interval, isCryptoTicker(t)); if (price != null) priceSource = 'closestPrice'; }
                     if (price == null && lastKnownPrices.has(t)) { price = lastKnownPrices.get(t); priceSource = 'lastKnown'; }
-
-                    // On the very last plotted point of the 1D view ("now"), the
-                    // intraday candle can be a few minutes behind a freshly-fetched
-                    // live price — same principle as the close resolution above
-                    // (prefer whichever source is actually more recent), applied
-                    // here to the curve's own endpoint instead of the table/KPI
-                    // text only. Guarded to the LAST point specifically (not every
-                    // point) and to a live price fetched within the last 10
-                    // minutes, so this can't reintroduce the old "force the last
-                    // point" bug where a stale/wrong live snapshot for an illiquid
-                    // ticker created a fake cliff.
-                    //
-                    // BUG FOUND (Total Value/Var Today changeant entre deux reloads
-                    // sans mouvement de marché correspondant) : `live` lisait
-                    // storage.getCurrentPrice(t) EN DIRECT, à cet instant précis du
-                    // pipeline — potentiellement plusieurs secondes après le début
-                    // de calculateGenericHistory (fetch de l'historique, résolution
-                    // de la clôture veille...). Pendant cette fenêtre, un autre flux
-                    // concurrent (dashboardApp.loadPortfolioData, qui appelle aussi
-                    // fetchBatchPrices indépendamment, sans coordination) pouvait
-                    // avoir déjà réécrit storage.currentData pour CE ticker — cette
-                    // lecture captait alors un prix plus récent que celui que CE
-                    // calcul avait lui-même résolu, un "snapshot" pas réellement
-                    // figé. `livePriceSnapshot` est capturé une seule fois, tout en
-                    // haut de calculateGenericHistory, avant le moindre await — donc
-                    // immunisé contre toute écriture concurrente survenant PENDANT
-                    // ce calcul (voir son propre commentaire).
-                    if (days === 1 && i === displayTimestamps.length - 1) {
-                        const live = livePriceSnapshot.get(t);
-                        if (live?.price > 0 && live.lastUpdate && (Date.now() - live.lastUpdate) < 10 * 60 * 1000) {
-                            price = live.price;
-                            priceSource = 'liveOverride';
-                        }
-
-                        // DIAGNOSTIC : sur ce tout dernier point (celui qui devient
-                        // "Total Value"/"Total Return" en haut de page), signale tout
-                        // écart notable entre le prix retenu ici (bougie intraday,
-                        // éventuellement remplacé par le live ci-dessus) et le prix
-                        // live actuellement en storage — que le remplacement se soit
-                        // déclenché ou non. Permet de confirmer si un titre précis a
-                        // un prix "figé" dans ce graphique (bougie non rafraîchie ou
-                        // live jugé pas assez frais) pendant que calculateHoldings
-                        // (le tableau) utilise déjà le bon prix live, sans avoir à
-                        // deviner sur le total du portefeuille.
-                        if (live?.price > 0 && price != null) {
-                            const diffPct = Math.abs(price - live.price) / live.price * 100;
-                            if (diffPct > 0.3) {
-                                const usedLive = price === live.price;
-                                const ageMin = live.lastUpdate ? (Date.now() - live.lastUpdate) / 60000 : null;
-                                console.warn(`[HistoryCalc] Écart de prix sur le dernier point pour ${t} : bougie/retenu=${price}, live storage=${live.price} (${diffPct.toFixed(2)}%). Live utilisé=${usedLive} (lastUpdate=${ageMin === null ? 'absent' : ageMin.toFixed(1) + ' min'}). Ce titre contribue à un écart de ${((price - live.price) * qty).toFixed(2)}€ sur Total Value.`);
-                            }
-                        }
-                    }
                 }
+                if (tickerSourcesThisPoint) tickerSourcesThisPoint[t] = priceSource;
 
                 let rate = 1;
                 let currency = 'EUR';
@@ -1040,17 +1030,25 @@ export class HistoryCalculator {
                     if (isSingleAsset) unitPrice = price;
                     lastKnownPrices.set(t, price);
 
-                    // Capture, pour le dernier point SEULEMENT, exactement le prix
-                    // que CE calcul vient d'utiliser — voir resolvedPrices dans le
-                    // retour de calculateGenericHistory : dataManager.
-                    // buildTodaySnapshot() réinjecte cette même Map dans
-                    // calculateHoldings, pour que Total Value ne puisse jamais
-                    // recalculer "maintenant" avec un prix différent. `stored` vient
-                    // du même livePriceSnapshot figé (jamais une relecture tardive).
+                    // resolvedPrices alimente la VALORISATION "maintenant"
+                    // (dataManager.buildTodaySnapshot -> calculateHoldings ->
+                    // Total Value/KPI/tableau), PAS le graphique — voir
+                    // dataManager. buildTodaySnapshot() réinjecte cette même Map
+                    // dans calculateHoldings. Séparé du prix du graphique
+                    // (validation architecture 2026-09-24, Phase 4) : le KPI PEUT
+                    // légitimement préférer un prix live frais (<10 min) à la
+                    // résolution historique ci-dessus — c'est une valorisation
+                    // "maintenant", pas une nouvelle observation de marché à
+                    // l'instant du dernier point du graphique (qui, lui, reste
+                    // TOUJOURS `price` tel que résolu plus haut, jamais ce prix
+                    // live). `stored` vient du même livePriceSnapshot figé
+                    // (jamais une relecture tardive).
                     if (!isSingleAsset && i === displayTimestamps.length - 1) {
                         const stored = livePriceSnapshot.get(t);
+                        const liveIsFresh = stored?.price > 0 && stored.lastUpdate && (Date.now() - stored.lastUpdate) < 10 * 60 * 1000;
+                        const kpiPrice = liveIsFresh ? stored.price : price;
                         resolvedPrices.set(t, {
-                            price,
+                            price: kpiPrice,
                             currency,
                             previousClose: stored?.previousClose ?? null,
                             lastUpdate: stored?.lastUpdate ?? null
@@ -1158,13 +1156,45 @@ export class HistoryCalculator {
                 totalReturnPct.push(null);
                 if (isSingleAsset) unitPrices.push(null);
             }
+
+            // Provenance de CE point (validation architecture 2026-09-24, Phase 4)
+            // — voir déclaration de pointMeta plus haut pour les règles. 'cash'/
+            // 'none' ne comptent pas comme une source de marché : un point dont
+            // seuls des tickers cash ont contribué n'a aucune information de
+            // marché à qualifier ; 'none' signifie qu'aucun prix n'a pu être
+            // résolu du tout pour ce ticker à ce point.
+            const marketSources = Object.entries(tickerSourcesThisPoint).reduce((acc, [t, s]) => {
+                if (s === 'candle' || s === 'closestPrice') acc[t] = 'historical_candle';
+                else if (s === 'midnightSeed' || s === 'lastKnown') acc[t] = 'valuation';
+                return acc;
+            }, {});
+            const distinctSources = new Set(Object.values(marketSources));
+            // Un mélange (certains tickers sur bougie réelle, d'autres en repli)
+            // n'a pas le droit de se faire passer pour une observation pure —
+            // 'valuation' dès qu'AU MOINS un composant n'est pas une bougie réelle.
+            const aggregateSource = distinctSources.size === 0
+                ? null
+                : (distinctSources.size === 1 && distinctSources.has('historical_candle') ? 'historical_candle' : 'valuation');
+
+            pointMeta.push({
+                timestamp: ts,
+                source: aggregateSource,
+                tickerSources: marketSources,
+                isHistoricalObservation: aggregateSource === 'historical_candle',
+                // Ce moteur n'ajoute jamais lui-même de point live (voir section G
+                // de l'audit — capacité optionnelle, non implémentée dans cette
+                // passe) : toujours false ici, réservé à un futur point explicitement
+                // apppendé avec son propre quoteTimestamp réel.
+                isLiveObservation: false,
+                isValuation: aggregateSource === 'valuation'
+            });
         }
 
         // dayStartValue used to be resolved independently of the TWR anchor and
         // could therefore drift from it — align it on the same single anchor.
         if (days === 1 && periodDenominator > 0) dayStartValue = periodDenominator;
 
-        return { labels, invested, investedAssetOnly, values, cash, totalReturn, totalReturnPct, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue, resolvedPrices };
+        return { labels, invested, investedAssetOnly, values, cash, totalReturn, totalReturnPct, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue, resolvedPrices, pointMeta };
     }
 
     // ========================================================

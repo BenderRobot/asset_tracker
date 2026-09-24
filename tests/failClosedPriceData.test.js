@@ -155,22 +155,36 @@ describe('TEST 6/7/8 — aucune source de repli silencieuse ne comble un trou hi
     });
 });
 
-describe('TEST 9/10 — alignLastPointToLiveSnapshot respecte la validité du snapshot live', () => {
-    it('TEST 9 — snapshot live VALIDE : le comportement d\'alignement existant est inchangé', () => {
-        const storage = createFakeStorage({});
-        const dm = new DataManager(storage, createFakeApi());
-        const liveSnapshot = dm.buildPortfolioSnapshot({
-            holdings: [], summary: { totalCurrentEUR: 1000, totalInvestedEUR: 800, gainTotal: 200, totalDayChangeEUR: 10, dayChangePct: 1 },
-            cashReserve: { total: 0 }, snapshotStartedAt: Date.now()
+// TEST 9/10 RÉVISÉS (validation architecture 2026-09-24, Phase 4 —
+// "Financial Truth over KPI Reconciliation") : dataManager.
+// alignLastPointToLiveSnapshot() est supprimée. L'invariant qu'elle imposait
+// (le dernier point du graphique === le snapshot live) n'existe plus DU TOUT
+// — ni quand le snapshot live est valide, ni quand il est invalide. Ces deux
+// tests vérifient désormais l'absence totale d'un tel alignement, dans les
+// deux cas, plutôt que son comportement.
+describe('TEST 9/10 — le graphique n\'est plus jamais aligné sur le snapshot live, valide ou invalide', () => {
+    it('TEST 9 — snapshot live VALIDE mais très différent de la bougie réelle : le graphique garde sa propre observation', async () => {
+        const storage = createFakeStorage({
+            prices: { AAPL: { price: 999, currency: 'EUR', previousClose: 190, lastUpdate: Date.now() } },
+            conversionRate: 0.9
         });
-        const rawGraphData = { values: [900, 950], investedAssetOnly: [800, 800], cash: [0, 0], totalReturn: [100, 150], totalReturnPct: [12.5, 18.75] };
+        const candleTs = Date.now() - 2 * 3600000;
+        const dm = new DataManager(storage, createFakeApi({
+            async getHistoricalPricesWithRetry() { return { [candleTs]: 200 }; }
+        }));
+        const purchases = [purchase({ ticker: 'AAPL', price: 150, quantity: 5, date: '2024-01-01' })];
 
-        const aligned = dm.alignLastPointToLiveSnapshot(rawGraphData, liveSnapshot);
-        expect(aligned.values[1]).toBeCloseTo(1000, 2);
-        expect(aligned.totalReturn[1]).toBeCloseTo(200, 2);
+        const snapshot = await dm.buildTodaySnapshot(purchases, []);
+        expect(snapshot.portfolioSnapshot.status).toBe('valid');
+        expect(snapshot.portfolioSnapshot.totalValue).toBeCloseTo(4995, 2); // live : 999×5
+
+        const lastIdx = snapshot.todayGraphData.values.length - 1;
+        // Le graphique reste sur la bougie réelle (200×5=1000€), jamais
+        // remplacé par le snapshot live valide (4995€).
+        expect(snapshot.todayGraphData.values[lastIdx]).toBeCloseTo(1000, 2);
     });
 
-    it('TEST 10 — snapshot live INVALIDE : aucun alignement artificiel, le graphique reste tel quel', async () => {
+    it('TEST 10 — snapshot live INVALIDE : le graphique reste également inchangé, tel quel (comportement déjà correct, désormais universel)', async () => {
         const storage = createFakeStorage({
             prices: { AAPL: { price: 200, currency: 'EUR', previousClose: 190, lastUpdate: Date.now() } },
             conversionRate: 0.9
@@ -178,15 +192,13 @@ describe('TEST 9/10 — alignLastPointToLiveSnapshot respecte la validité du sn
         const dm = new DataManager(storage, apiThatFailsFor(['AAPL']));
         const purchases = [purchase({ ticker: 'AAPL', price: 150, quantity: 5, date: '2024-01-01' })];
         const snapshot = await dm.buildTodaySnapshot(purchases, []);
+
         expect(snapshot.portfolioSnapshot.status).toBe('invalid');
-
-        const rawGraphData = { values: [123, 456], investedAssetOnly: [1, 1], cash: [0, 0], totalReturn: [1, 2], totalReturnPct: [1, 2] };
-        const aligned = dm.alignLastPointToLiveSnapshot(rawGraphData, snapshot.portfolioSnapshot);
-
-        // Le graphique fourni n'a PAS été modifié pour "ressembler" au live —
-        // aucune valeur du snapshot invalide (null) n'a été recopiée dessus.
-        expect(aligned.values).toEqual([123, 456]);
-        expect(aligned.totalReturn).toEqual([1, 2]);
+        // Le graphique n'a jamais eu besoin d'un alignement pour rester
+        // fail-closed ici : dataQuality.valid=false gate déjà ses séries à
+        // `null` (voir HistoryCalculator.calculateGenericHistory) — aucune
+        // valeur du snapshot invalide n'est recopiée dessus.
+        expect(snapshot.todayGraphData.values.every(v => v === null)).toBe(true);
     });
 });
 

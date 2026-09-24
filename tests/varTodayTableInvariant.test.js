@@ -116,72 +116,44 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
         expect(kpiVarToday).toBeCloseTo(expectedDayChange, 2);
     });
 
-    it('le tooltip au point "maintenant" (lastIndex) réutilise kpiData.varTodayAbs, jamais un second calcul TWR', () => {
+    // RÉVISÉ (validation architecture 2026-09-24, Phase 4 — "Financial Truth
+    // over KPI Reconciliation") : dataManager.alignLastPointToLiveSnapshot()
+    // est supprimée — elle seule fabriquait dayPnl/dayPnlPct comme séries du
+    // graphique (null partout sauf au dernier index). Sans elle, ces deux
+    // champs n'existent structurellement plus DU TOUT sur graphData : "Var
+    // Today" ne peut donc plus jamais apparaître dans le tooltip du
+    // graphique, à AUCUN index, pas même le dernier — la KPI "Var Today" en
+    // haut de page reste disponible séparément via portfolioKPIs (alimentée
+    // par portfolioSnapshot.dayPnl, jamais par graphData). C'est exactement
+    // la règle de la section K de l'audit : "Ne pas afficher Var Today sur un
+    // point historique qui ne possède pas un dayPnl explicitement calculé
+    // pour ce point" — et aucun point du graphique n'en a un.
+    it('le tooltip du graphique n\'affiche plus JAMAIS "Var Today", même au dernier index ("maintenant") — cette KPI reste exclusive à portfolioKPIs', () => {
         const storage = createFakeStorage({});
         const dataManager = new DataManager(storage, createFakeApi());
         const investmentsPage = { filterManager: { getSelectedTickers: () => new Set() }, getChartTitleConfig: () => ({ mode: 'global' }), getFilteredPurchasesFromPage: () => [], renderData: () => {} };
         const chart = new HistoricalChart(storage, dataManager, null, investmentsPage);
         chart.currentPeriod = 1;
 
-        // Le PortfolioSnapshot LIVE (dayPnl=362.08€) et une série "brute" dont le
-        // dernier point représenterait, SANS alignement, un dailyTwr impliquant
-        // ~121.41€ — reproduit exactement la forme du bug initial. On passe par
-        // le VRAI pipeline (dataManager.alignLastPointToLiveSnapshot), jamais un
-        // objet `kpiData` fabriqué à la main : _buildKpiRows ne connaît plus ce
-        // concept, il ne lit QUE graphData.
-        const portfolioSnapshot = dataManager.buildPortfolioSnapshot({
-            holdings: [], summary: { totalCurrentEUR: 1960.25, totalInvestedEUR: 1696.62, gainTotal: 263.63, totalDayChangeEUR: 362.08, dayChangePct: 18.47 },
-            cashReserve: { total: 50 }, snapshotStartedAt: Date.now()
-        });
-        const rawGraphData = {
+        // Série "brute" telle que HistoryCalculator la produit réellement —
+        // aucun champ dayPnl/dayPnlPct (voir _buildSeries : ces séries
+        // n'existent plus du tout, à aucun index).
+        const graphData = {
             values: [2000, 2010.25],
-            dailyTwr: [1.0, 2010.25 / (2010.25 - 121.41)],
-            investedAssetOnly: [1696.62, 1696.62]
+            totalReturn: [250, 263.63],
+            totalReturnPct: [14.7, 15.5]
         };
-        const graphData = dataManager.alignLastPointToLiveSnapshot(rawGraphData, portfolioSnapshot);
         const opts = {
             graphData, pctSeries: [0, 0.5], eurFmt: v => v, pctFmt: v => v,
             isIndexMode: false, isUnitView: false, isPerformanceMode: false,
             displayValues: graphData.values
         };
 
-        const rows = chart._buildKpiRows(1, opts);
-        const varTodayRow = rows.find(r => r.label === 'Var Today');
+        const rowsAtLast = chart._buildKpiRows(1, opts);
+        expect(rowsAtLast.find(r => r.label === 'Var Today')).toBeUndefined();
 
-        expect(varTodayRow).toBeDefined();
-        expect(varTodayRow.eur).toBeCloseTo(362.08, 2);
-        expect(varTodayRow.eur).not.toBeCloseTo(121.41, 1);
-    });
-
-    it('point intermédiaire (hover sur un instant passé, pas "maintenant") : plus aucune ligne "Var Today" affichée (règle absolue TWR ≠ FinancialSnapshot)', () => {
-        const storage = createFakeStorage({});
-        const dataManager = new DataManager(storage, createFakeApi());
-        const investmentsPage = { filterManager: { getSelectedTickers: () => new Set() }, getChartTitleConfig: () => ({ mode: 'global' }), getFilteredPurchasesFromPage: () => [], renderData: () => {} };
-        const chart = new HistoricalChart(storage, dataManager, null, investmentsPage);
-        chart.currentPeriod = 1;
-
-        const portfolioSnapshot = dataManager.buildPortfolioSnapshot({
-            holdings: [], summary: { totalCurrentEUR: 1960.25, totalInvestedEUR: 1696.62, gainTotal: 263.63, totalDayChangeEUR: 362.08, dayChangePct: 18.47 },
-            cashReserve: { total: 50 }, snapshotStartedAt: Date.now()
-        });
-        const rawGraphData = {
-            values: [2000, 2010.25],
-            dailyTwr: [1.0, 2010.25 / (2010.25 - 121.41)],
-            investedAssetOnly: [1696.62, 1696.62]
-        };
-        // alignLastPointToLiveSnapshot ne renseigne dayPnl QU'AU DERNIER index
-        // (index 1 ici) — l'index 0 (point passé) reste donc `null` par
-        // construction, jamais par un test explicite de l'index dans la vue.
-        const graphData = dataManager.alignLastPointToLiveSnapshot(rawGraphData, portfolioSnapshot);
-        const opts = {
-            graphData, pctSeries: [0, 0.5], eurFmt: v => v, pctFmt: v => v,
-            isIndexMode: false, isUnitView: false, isPerformanceMode: false,
-            displayValues: graphData.values
-        };
-
-        const rows = chart._buildKpiRows(0, opts); // hover sur le PREMIER point, pas le dernier
-        const varTodayRow = rows.find(r => r.label === 'Var Today');
-        expect(varTodayRow).toBeUndefined();
+        const rowsAtFirst = chart._buildKpiRows(0, opts);
+        expect(rowsAtFirst.find(r => r.label === 'Var Today')).toBeUndefined();
     });
 
     it('Invariants D/E/F bout-en-bout : KPI, tableau et graphique lisent le MÊME PortfolioSnapshot (même snapshotId)', async () => {
@@ -234,35 +206,27 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
         expect(kpis.varToday).toBeCloseTo(40, 2);
     });
 
-    it('Total Return au point "maintenant" du tooltip lit graphData.totalReturn (aligné sur le snapshot live), jamais une reconstruction locale (val - cash - investedAO)', () => {
+    // RÉVISÉ (validation architecture 2026-09-24, Phase 4) : le tooltip du
+    // graphique lit désormais TOUJOURS graphData.totalReturn tel que résolu
+    // par HistoryCalculator — jamais une valeur substituée depuis le snapshot
+    // live (alignLastPointToLiveSnapshot supprimée). C'est l'inverse exact de
+    // l'ancien invariant : ce test verrouille qu'AUCUNE substitution n'a lieu.
+    it('Total Return au point "maintenant" du tooltip lit la valeur RÉSOLUE PAR LE GRAPHIQUE lui-même, jamais une valeur substituée depuis le snapshot live', () => {
         const storage = createFakeStorage({});
         const dataManager = new DataManager(storage, createFakeApi());
         const investmentsPage = { filterManager: { getSelectedTickers: () => new Set() }, getChartTitleConfig: () => ({ mode: 'global' }), getFilteredPurchasesFromPage: () => [], renderData: () => {} };
         const chart = new HistoricalChart(storage, dataManager, null, investmentsPage);
         chart.currentPeriod = 1;
 
-        // totalReturn LIVE (500€) volontairement DIFFÉRENT de ce que (val - cash -
-        // investedAO) donnerait sur la série brute (2010.25 - 50 - 1696.62 =
-        // 263.63€) pour prouver que c'est bien le PortfolioSnapshot live —
-        // via alignLastPointToLiveSnapshot — qui est lu, jamais une
-        // reconstruction locale par soustraction dans la vue.
-        const portfolioSnapshot = dataManager.buildPortfolioSnapshot({
-            holdings: [], summary: { totalCurrentEUR: 2060.25, totalInvestedEUR: 1560.25, gainTotal: 500, totalDayChangeEUR: 40, dayChangePct: 2 },
-            cashReserve: { total: 50 }, snapshotStartedAt: Date.now()
-        });
-        // Série "brute" telle que HistoryCalculator la produirait réellement
-        // (cash/totalReturn/totalReturnPct sont TOUJOURS des tableaux, même
-        // avant alignement — voir _buildSeries) : la valeur au dernier index
-        // AVANT alignement (263.63) donnerait un résultat FAUX si jamais lue
-        // directement, ce que ce test vérifie justement ne jamais arriver.
-        const rawGraphData = {
+        // Série "brute" telle que HistoryCalculator la produit réellement —
+        // ce tableau n'est plus jamais retouché avant d'atteindre le tooltip.
+        const graphData = {
             values: [2000, 2010.25],
             investedAssetOnly: [1696.62, 1696.62],
             cash: [50, 50],
             totalReturn: [250, 263.63],
             totalReturnPct: [14.7, 15.5]
         };
-        const graphData = dataManager.alignLastPointToLiveSnapshot(rawGraphData, portfolioSnapshot);
         const opts = {
             graphData, pctSeries: [0, 0.5], eurFmt: v => v, pctFmt: v => v,
             isIndexMode: false, isUnitView: false, isPerformanceMode: false,
@@ -272,14 +236,24 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
         const rows = chart._buildKpiRows(1, opts);
         const totalReturnRow = rows.find(r => r.label === 'Total Return');
 
-        expect(totalReturnRow.eur).toBe(500);
-        expect(totalReturnRow.eur).not.toBeCloseTo(263.63, 2);
+        // La valeur du graphique (263.63), pas une valeur live hypothétique
+        // (500€ dans l'ancien test) qui n'a plus aucun moyen d'atteindre ce
+        // tableau.
+        expect(totalReturnRow.eur).toBe(263.63);
     });
 
-    it("BUG des 297,18€ (audit) : le dernier point d'un graphique multi-jours (1W) ne peut plus diverger du PortfolioSnapshot live pour Total Value ET Total Return", async () => {
-        const today = new Date().toISOString().slice(0, 10);
+    // RÉVISÉ (validation architecture 2026-09-24, Phase 4) : "bug des
+    // 297,18€" — le fix original forçait le dernier point d'un graphique
+    // multi-jours (1W/1M/...) à égaler le PortfolioSnapshot live. Ce test
+    // vérifiait cette égalité forcée ; il vérifie désormais l'inverse — le
+    // graphique reste sur sa PROPRE observation historique même quand le
+    // snapshot live (KPI) diverge nettement, ce qui est désormais un
+    // comportement correct, pas un bug.
+    it("le dernier point d'un graphique multi-jours (1W) reste sa propre observation historique, MÊME quand le PortfolioSnapshot live diverge nettement", async () => {
         const storage = createFakeStorage({
-            prices: { AAPL: { price: 200, currency: 'EUR', previousClose: 190, lastUpdate: Date.now() } },
+            // Prix live très différent de la bougie historique unique fournie
+            // ci-dessous — reproduit exactement la forme du rapport original.
+            prices: { AAPL: { price: 999, currency: 'EUR', previousClose: 190, lastUpdate: Date.now() } },
             conversionRate: 0.9
         });
         const purchases = [purchase({ ticker: 'AAPL', name: 'Apple', assetType: 'Stock', price: 150, quantity: 10, date: '2024-01-01' })];
@@ -295,13 +269,17 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
         document.body.innerHTML = '<canvas id="historical-portfolio-chart"></canvas>';
         global.Chart = FakeChartJs;
 
-        const dataManager = new DataManager(storage, createFakeApi());
+        // Une seule bougie réelle sur toute la fenêtre 1W, à 100€ — bien
+        // distincte des 999€ du prix live.
+        const fakeApi = createFakeApi({
+            async getHistoricalPricesWithRetry() {
+                return { [Date.now() - 3 * 24 * 3600000]: 100 };
+            }
+        });
+        const dataManager = new DataManager(storage, fakeApi);
         const chart = new HistoricalChart(storage, dataManager, null, investmentsPage);
         chart.currentPeriod = 7; // vue 1W — exactement le scénario du rapport
 
-        // Le dernier point du graphique DOIT être exactement le snapshot live —
-        // structurellement, via dataManager.alignLastPointToLiveSnapshot, pas
-        // par coïncidence entre deux moteurs de résolution de prix séparés.
         let capturedGraphData = null;
         const originalRenderChart = chart.renderChart.bind(chart);
         chart.renderChart = (canvas, graphData, ...rest) => { capturedGraphData = graphData; return originalRenderChart(canvas, graphData, ...rest); };
@@ -309,8 +287,15 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
         await chart.update(false, false);
         const liveKpis = portfolioKPIs.getKPIs();
 
+        // KPI live : valorisation "maintenant" au prix live (999×10=9990€).
+        expect(liveKpis.totalValue).toBeCloseTo(9990, 0);
+
         const lastIdx = capturedGraphData.values.length - 1;
-        expect(capturedGraphData.values[lastIdx]).toBeCloseTo(liveKpis.totalValue, 6);
-        expect(capturedGraphData.totalReturn[lastIdx]).toBeCloseTo(liveKpis.totalReturn, 6);
+        // Le graphique NE SUIT PLUS le live : son dernier point reste ancré
+        // sur la bougie réelle (100×10=1000€), jamais rapproché des 9990€ du
+        // KPI. C'est la preuve directe qu'aucun code ne force plus cette
+        // égalité.
+        expect(capturedGraphData.values[lastIdx]).toBeCloseTo(1000, 0);
+        expect(capturedGraphData.values[lastIdx]).not.toBeCloseTo(liveKpis.totalValue, 0);
     });
 });

@@ -9,16 +9,34 @@ import { DataManager } from '../src/dataManager.js';
 import { PortfolioKPIs } from '../src/portfolioKPIs.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 
-describe('TEST 1 — Total Value / graphique / tooltip lisent le même snapshot', () => {
-    it('le dernier point du graphique + cash égale Total Value, exactement', async () => {
+// RÉVISÉ (validation architecture 2026-09-24, Phase 4 — "Financial Truth
+// over KPI Reconciliation") : "le dernier point du graphique === Total
+// Value" n'est PLUS un invariant imposé par le code (voir
+// HistoryCalculator._buildSeries, l'ex-"liveOverride" supprimé, et
+// dataManager.js, ex-alignLastPointToLiveSnapshot, supprimée). Le graphique
+// représente la dernière observation historique réellement disponible ; le
+// KPI/tableau (summary.totalCurrentEUR, via resolvedPrices) reste une
+// valorisation LIVE séparée. Les deux PEUVENT coïncider (si la dernière
+// bougie et le prix live sont identiques) mais rien ne les force à le faire.
+describe('TEST 1 — le graphique et le Total Value (KPI/tableau) sont deux valorisations INDÉPENDANTES, jamais forcées à coïncider', () => {
+    it('le dernier point du graphique reflète la dernière bougie réelle ; Total Value (KPI) reflète le prix live — ils peuvent légitimement différer', async () => {
         const storage = createFakeStorage({
             prices: {
-                'BTC-EUR': { price: 50000, currency: 'EUR', previousClose: 49000, lastUpdate: Date.now() },
-                AAPL: { price: 180, currency: 'EUR', previousClose: 178, lastUpdate: Date.now() }
+                'BTC-EUR': { price: 55000, currency: 'EUR', previousClose: 49000, lastUpdate: Date.now() }, // live, différent de la bougie
+                // AAPL : live égal à previousClose exprès — isole tout l'écart
+                // mesuré ci-dessous sur BTC uniquement, AAPL ne contribue à
+                // aucune divergence graphique/live de son côté.
+                AAPL: { price: 178, currency: 'EUR', previousClose: 178, lastUpdate: Date.now() }
             },
             conversionRate: 0.9
         });
-        const dm = new DataManager(storage, createFakeApi());
+        const btcCandleTs = Date.now() - 3600000; // bougie réelle il y a 1h, à 50000 (pas 55000)
+        const dm = new DataManager(storage, createFakeApi({
+            async getHistoricalPricesWithRetry(ticker) {
+                if (ticker === 'BTC-EUR') return { [btcCandleTs]: 50000 };
+                return {};
+            }
+        }));
 
         const assetPurchases = [
             purchase({ ticker: 'BTC-EUR', assetType: 'Crypto', price: 40000, quantity: 0.1, date: '2024-01-01' }),
@@ -29,14 +47,14 @@ describe('TEST 1 — Total Value / graphique / tooltip lisent le même snapshot'
         const snapshot = await dm.buildTodaySnapshot(assetPurchases, cashPurchases);
 
         const graphValues = snapshot.todayGraphData.values;
-        const lastGraphValue = graphValues[graphValues.length - 1]; // inclut le cash (purchases passées ensemble à calculateGenericHistory)
+        const lastGraphValue = graphValues[graphValues.length - 1];
         const totalValueFromHoldings = snapshot.summary.totalCurrentEUR + snapshot.cashReserve.total;
 
-        expect(lastGraphValue).toBeCloseTo(totalValueFromHoldings, 6);
-
-        // Le "tooltip" ne fait qu'afficher graphData.values[lastIndex] (voir
-        // historicalChart::_buildKpiRows, plus aucune substitution) — donc "ce que
-        // lirait le tooltip" EST déjà lastGraphValue, testé ci-dessus.
+        // Total Value (KPI/tableau) utilise le prix LIVE de BTC (55000).
+        // Le graphique, lui, reste sur la bougie réelle (50000) — un écart de
+        // 0.1 BTC × 5000€ = 500€ entre les deux, PARFAITEMENT légitime.
+        expect(lastGraphValue).not.toBeCloseTo(totalValueFromHoldings, 2);
+        expect(totalValueFromHoldings - lastGraphValue).toBeCloseTo(500, 2);
     });
 });
 
@@ -102,14 +120,21 @@ describe('TEST 4 — Clôture hier a une définition unique (série interne dail
         const assetPurchases = [purchase({ ticker: 'BTC-EUR', assetType: 'Crypto', price: 40000, quantity: 0.2, date: '2024-01-01' })];
 
         const snapshot = await dm.buildTodaySnapshot(assetPurchases, []);
-        const { todayGraphData, summary, cashReserve } = snapshot;
+        const { todayGraphData } = snapshot;
 
-        const totalValue = summary.totalCurrentEUR + cashReserve.total;
+        // IMPORTANT (validation architecture 2026-09-24, Phase 4) : dTwr est
+        // un ratio INTERNE au graphique, dérivé de sa PROPRE série `values`
+        // (résolution historique — voir _buildSeries) — désormais distincte
+        // de summary.totalCurrentEUR (valorisation LIVE, via resolvedPrices).
+        // Pour que ce test d'auto-cohérence algébrique reste valide, il doit
+        // comparer dTwr à la valeur qui l'a RÉELLEMENT produit (values[idx]),
+        // jamais à la valorisation live désormais indépendante.
         const values = todayGraphData.values;
         const dailyTwr = todayGraphData.dailyTwr;
         let lastValidIdx = values.length - 1;
         while (lastValidIdx >= 0 && (values[lastValidIdx] == null || isNaN(values[lastValidIdx]))) lastValidIdx--;
 
+        const totalValue = values[lastValidIdx];
         const dTwr = dailyTwr[lastValidIdx];
         // Formule interne du ratio TWR journalier (plus celle de la KPI — voir
         // NOTE ci-dessus).
@@ -179,15 +204,15 @@ describe('TEST 6 — Période reste indépendante de Var Today', () => {
     });
 });
 
-describe('TEST 7 — un prix live qui change entre deux lectures ne doit pas produire deux valorisations', () => {
-    it('calculateHoldings réutilise EXACTEMENT le prix déjà résolu par le graphique, pas une nouvelle lecture', async () => {
+describe('TEST 7 — un prix live qui change entre deux lectures ne doit pas produire deux valorisations KPI/holdings ; le graphique reste sur sa propre résolution historique', () => {
+    it('calculateHoldings réutilise EXACTEMENT resolvedPrices (le prix live figé), pas une nouvelle lecture — le graphique, lui, n\'utilise plus ce prix live du tout', async () => {
         let readCount = 0;
         const storage = createFakeStorage({
             prices: {
                 // BTC "bouge" à chaque lecture de storage.getCurrentPrice — si
-                // calculateHoldings relisait storage indépendamment du graphique
-                // (au lieu d'utiliser priceSnapshot.prices), il obtiendrait un prix
-                // différent de celui utilisé par le dernier point du graphique.
+                // calculateHoldings relisait storage indépendamment de
+                // resolvedPrices, il obtiendrait un prix différent de celui figé
+                // une seule fois pour ce calcul.
                 'BTC-EUR': () => {
                     readCount++;
                     return { price: 50000 + readCount * 1000, currency: 'EUR', previousClose: 49000, lastUpdate: Date.now() };
@@ -204,11 +229,18 @@ describe('TEST 7 — un prix live qui change entre deux lectures ne doit pas pro
         const graphLastValue = snapshot.todayGraphData.values[snapshot.todayGraphData.values.length - 1];
         const holdingsValue = snapshot.holdings[0].currentValue;
 
-        // La valeur du graphique et celle des holdings doivent correspondre au
-        // MÊME prix résolu (resolvedPrice), pas à deux lectures successives de
-        // storage.getCurrentPrice ayant chacune vu un prix différent.
-        expect(graphLastValue).toBeCloseTo(0.1 * resolvedPrice, 6);
+        // holdings/KPI (via resolvedPrices) restent alignés sur le MÊME prix
+        // live figé — jamais une seconde lecture de storage.getCurrentPrice.
         expect(holdingsValue).toBeCloseTo(0.1 * resolvedPrice, 6);
+
+        // Le GRAPHIQUE, lui, n'utilise plus ce prix live du tout (validation
+        // architecture 2026-09-24, Phase 4) : sans aucune bougie réelle pour
+        // ce scénario, son seul point est la valorisation de clôture veille
+        // (previousClose=49000, figé — jamais le prix live qui "bouge" à
+        // chaque lecture). Preuve directe que le graphique et resolvedPrices
+        // sont deux résolutions désormais indépendantes.
+        expect(graphLastValue).toBeCloseTo(0.1 * 49000, 6);
+        expect(graphLastValue).not.toBeCloseTo(0.1 * resolvedPrice, 6);
     });
 });
 

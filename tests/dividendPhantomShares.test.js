@@ -46,19 +46,18 @@ describe('TEST — un dividende ne doit jamais créer une action fantôme dans l
         const snapshot = await dm.buildTodaySnapshot(assetPurchases, cashPurchases);
         const values = snapshot.todayGraphData.values;
         const lastGraphValue = values[values.length - 1];
-        const totalValueFromHoldings = snapshot.summary.totalCurrentEUR + snapshot.cashReserve.total;
 
-        // AVANT LE FIX : lastGraphValue incluait 1 action AAPL fantôme en plus
-        // (200€ de plus que la vérité) — cette assertion échouait par exactement
-        // le prix courant du ticker concerné.
-        expect(lastGraphValue).toBeCloseTo(totalValueFromHoldings, 6);
-
-        // Vérifie explicitement l'absence de la 11e action fantôme : la valeur
-        // des positions (hors cash) doit correspondre à EXACTEMENT 10 actions
-        // AAPL à 200€, pas 11.
+        // RÉVISÉ (validation architecture 2026-09-24, Phase 4) : le graphique
+        // et le Total Value (KPI/holdings, prix LIVE) ne sont plus censés
+        // coïncider par construction — voir financialSnapshot.test.js. Ce
+        // test vérifie désormais l'absence de action fantôme DIRECTEMENT sur
+        // la série du graphique elle-même (aucune bougie fournie par le fake
+        // api ici -> le graphique retombe sur previousClose=195€, jamais le
+        // prix live 200€) : la valeur hors-cash doit correspondre à
+        // EXACTEMENT 10 actions AAPL à 195€, jamais 11.
         const cash = snapshot.cashReserve.total;
         expect(cash).toBeCloseTo(50, 6); // le dividende reste un mouvement de cash
-        expect(lastGraphValue - cash).toBeCloseTo(10 * 200, 6);
+        expect(lastGraphValue - cash).toBeCloseTo(10 * 195, 6);
 
         // Et le coût de revient (Total Return) du graphique ne doit pas non plus
         // inclure le montant du dividende comme un faux "investi" sur AAPL.
@@ -89,6 +88,6 @@ describe('TEST — un dividende ne doit jamais créer une action fantôme dans l
         const cash = snapshot.cashReserve.total;
 
         expect(cash).toBeCloseTo(80, 6);
-        expect(lastGraphValue - cash).toBeCloseTo(10 * 200, 6); // toujours 10 actions, jamais 14
+        expect(lastGraphValue - cash).toBeCloseTo(10 * 195, 6); // toujours 10 actions, jamais 14 (previousClose, faute de bougie — voir Phase 4)
     });
 });

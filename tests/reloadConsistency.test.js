@@ -26,9 +26,13 @@ describe('TEST 5 — reload : deux calculs successifs restent chacun cohérents,
         const snapshotA = await dm.buildTodaySnapshot(assetPurchases, []);
         const totalA = snapshotA.summary.totalCurrentEUR;
         expect(totalA).toBeCloseTo(2 * 405.30, 6);
-        // Cohérence interne : graph == holdings, comme toujours.
+        // RÉVISÉ (validation architecture 2026-09-24, Phase 4) : le
+        // graphique n'est plus censé égaler le Total Value live — sans
+        // aucune bougie fournie ici, il retombe sur previousClose (398.60€,
+        // figé), stable et cohérent AVEC LUI-MÊME d'un calcul à l'autre (voir
+        // ci-dessous), mais plus avec le KPI live.
         const graphLastA = snapshotA.todayGraphData.values[snapshotA.todayGraphData.values.length - 1];
-        expect(graphLastA).toBeCloseTo(totalA, 6);
+        expect(graphLastA).toBeCloseTo(2 * 398.60, 6);
 
         // "Reload" 18 minutes plus tard : le marché a réellement bougé (nouveau
         // prix live, nouveau lastUpdate) — un scénario légitime, pas une course.
@@ -37,10 +41,15 @@ describe('TEST 5 — reload : deux calculs successifs restent chacun cohérents,
         const totalB = snapshotB.summary.totalCurrentEUR;
         expect(totalB).toBeCloseTo(2 * 411.95, 6);
         const graphLastB = snapshotB.todayGraphData.values[snapshotB.todayGraphData.values.length - 1];
-        expect(graphLastB).toBeCloseTo(totalB, 6);
+        // previousClose n'a pas changé entre les deux "reloads" (seul le
+        // prix live a bougé) : le graphique reste donc IDENTIQUE d'un calcul
+        // à l'autre, exactement comme on l'attend d'une observation
+        // historique qui n'a pas changé.
+        expect(graphLastB).toBeCloseTo(graphLastA, 6);
 
-        // L'écart entre les deux calculs est EXACTEMENT le mouvement de prix
-        // (2 actions × 6,65€), ni plus ni moins — aucun résidu de course.
+        // L'écart entre les deux calculs LIVE (KPI) est EXACTEMENT le
+        // mouvement de prix (2 actions × 6,65€), ni plus ni moins — aucun
+        // résidu de course.
         expect(totalB - totalA).toBeCloseTo(2 * (411.95 - 405.30), 6);
     });
 });
@@ -76,9 +85,15 @@ describe('TEST 6 — plusieurs tickers : tous utilisent le même snapshot figé,
         const holdingsTotal = snapshot.summary.totalCurrentEUR;
         const expectedTotal = 2 * amatResolved + 4 * tslaResolved;
 
-        expect(graphLast).toBeCloseTo(expectedTotal, 6);
         expect(holdingsTotal).toBeCloseTo(expectedTotal, 6);
-        expect(graphLast).toBeCloseTo(holdingsTotal, 6);
+
+        // RÉVISÉ (validation architecture 2026-09-24, Phase 4) : le
+        // graphique n'utilise plus resolvedPrices (live) du tout — sans
+        // aucune bougie, il retombe sur previousClose pour CHAQUE ticker
+        // (395 et 315, tous deux figés, jamais le compteur qui "bouge").
+        const expectedGraphFromPreviousClose = 2 * 395 + 4 * 315;
+        expect(graphLast).toBeCloseTo(expectedGraphFromPreviousClose, 6);
+        expect(graphLast).not.toBeCloseTo(holdingsTotal, 6);
 
         // Chaque ticker par ligne du tableau (holdings) utilise aussi EXACTEMENT
         // son prix résolu — pas celui de l'autre ticker, pas un prix "moyenné".
