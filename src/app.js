@@ -980,7 +980,17 @@ class App {
     console.log('Rafraîchissement auto...');
     try {
       if (this.isInvestmentsPage() && this.historicalChart) {
-        await this.historicalChart.silentUpdate();
+        // MarketDataRepository (validation architecture 2026-09-24, "un seul
+        // scheduler central") : ne rien faire ici. this.historicalChart a
+        // déjà son PROPRE minuteur (startAutoRefresh(), démarré à l'init de
+        // cette page — voir plus haut dans ce fichier), lui aussi câblé sur
+        // silentUpdate(). Les deux timers tournaient indépendamment (5 min
+        // ici via ce timer d'App, 10 min via AUTO_REFRESH_INTERVAL côté App)
+        // et déclenchaient chacun leur propre cycle de résolution réseau
+        // pour le même graphique — un doublon confirmé par l'audit, jamais
+        // une redondance voulue. Le timer du chart reste l'unique scheduler
+        // pour cette page ; celui-ci garde son rôle pour les AUTRES pages
+        // (voir le `else` ci-dessous, dont le comportement est inchangé).
       } else {
         const purchases = this.storage.getPurchases();
         // CRITICAL FIX: Exclude DIVIDEND and REAL ESTATE assets to avoid 400/404 errors
