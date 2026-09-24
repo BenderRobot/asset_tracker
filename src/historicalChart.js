@@ -542,36 +542,21 @@ export class HistoricalChart {
                     currentTicker = this.filterManager.getSelectedTickers().values().next().value;
                 }
 
-                const tickers = [...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))];
-                if (forceApi && tickers.length > 0) await this.api.fetchBatchPrices(tickers);
-
-                // BUG FOUND (Total Value/Var Today différents entre deux reloads,
-                // même quand le marché n'a pas réellement bougé) : dataManager.
-                // buildTodaySnapshot()/calculateGenericHistory() capturaient leur
-                // propre "snapshot" de prix live PLUS TARD dans leur pipeline —
-                // après l'await buildTodaySnapshot::getHistoricalFxMap(), lui-même
-                // capable d'un vrai aller-retour réseau pour un portefeuille avec
-                // des actifs USD. Pendant CETTE fenêtre, dashboardApp.
-                // loadPortfolioData() (lancé sans attente, en parallèle, dès
-                // init() — voir son propre fetchBatchPrices) pouvait déjà avoir
-                // réécrit storage.currentData pour certains tickers avec un prix
-                // plus récent que celui que CE fetchBatchPrices venait de
-                // résoudre — un mélange non déterministe entre deux fetch
-                // concurrents, selon lequel arrivait en premier pour quel ticker.
+                // MarketDataRepository (validation architecture 2026-09-24) —
+                // remplace l'ancien fetchBatchPrices()+livePriceSnapshot()+
+                // buildTodaySnapshot() manuels : même résultat (le Repository
+                // fait exactement cette séquence en interne, voir
+                // marketDataRepository.js::_computeSnapshot — fetchBatchPrices
+                // PUIS capture de livePriceSnapshot SANS AUCUN await entre les
+                // deux, garantie anti-race inchangée), mais désormais coalescé
+                // avec les AUTRES appelants concurrents du même portefeuille
+                // (refreshDataInBackground/loadPortfolioData, voir
+                // dashboardApp.js init()) au lieu de relancer sa propre
+                // résolution à chaque cycle. Cache-first/SWR : forceApi=false
+                // -> rendu immédiat depuis le dernier snapshot exploitable
+                // (refresh en tâche de fond si périmé) ; forceApi=true ->
+                // refresh explicite attendu (bouton période, auto-refresh).
                 //
-                // Fix : capturer livePriceSnapshot ICI, à la ligne suivante,
-                // SANS AUCUN AWAIT entre la fin de fetchBatchPrices et cette
-                // capture — puis le transmettre explicitement jusqu'à
-                // calculateGenericHistory/HistoryCalculator, qui l'utilisent
-                // exclusivement (aucune nouvelle lecture de
-                // storage.getCurrentPrice() pour une VALEUR de prix dans tout ce
-                // chemin — voir HistoryCalculator.js, calculateGenericHistory).
-                // Un fetch concurrent ultérieur peut toujours réécrire storage,
-                // mais ne peut plus être vu par CE calcul, déjà figé.
-                const livePriceSnapshot = new Map(
-                    tickers.map(t => [t, this.storage.getCurrentPrice(t)])
-                );
-
                 // SNAPSHOT FINANCIER UNIQUE (cause racine de l'audit : "Fin"/le
                 // tooltip du dernier point/Clôture hier pouvaient différer de "Total
                 // Value"/"Var Today" parce que le graphique (HistoryCalculator) et
@@ -580,12 +565,25 @@ export class HistoricalChart {
                 // résout "aujourd'hui" — todayGraphData ET targetHoldings/
                 // targetSummary en sortent réconciliés par construction (mêmes prix,
                 // même taux), jamais deux jeux de données pour le même instant.
-                const snapshot = await this.dataManager.buildTodaySnapshot(assetPurchases, cashPurchases, livePriceSnapshot);
+                //
+                // IMPORTANT (cache-first) : snapshotStartedAt pour la garde
+                // anti-race de portfolioKPIs doit rester "maintenant" — QUAND
+                // CE CYCLE DE RENDU A COMMENCÉ à demander un snapshot — jamais
+                // l'horodatage interne du snapshot servi par le Repository.
+                // Avec un cache-first, un GET peut légitimement renvoyer des
+                // données calculées il y a plusieurs secondes/minutes : réutiliser
+                // CET horodatage-là ferait passer un rendu pourtant plus récent
+                // pour "plus ancien" aux yeux de la garde anti-race (bug trouvé :
+                // portefeuille → actif → portefeuille pouvait rester bloqué sur
+                // les KPI de l'actif si le cache portefeuille datait d'avant la
+                // sélection de l'actif).
+                snapshotStartedAt = Date.now();
+                const repoResult = await this.dataManager.repository.getSnapshot(assetPurchases, cashPurchases, { forceRefresh: forceApi });
+                const snapshot = repoResult.snapshot._engine;
                 todayGraphData = snapshot.todayGraphData;
                 targetHoldings = snapshot.holdings;
                 targetSummary = snapshot.summary;
                 targetCashReserve = snapshot.cashReserve;
-                snapshotStartedAt = snapshot.snapshotStartedAt;
                 portfolioSnapshot = snapshot.portfolioSnapshot;
 
                 // Sur l'onglet 1D, le graphique affiché EST le snapshot d'aujourd'hui

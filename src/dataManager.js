@@ -5,6 +5,7 @@
 import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
 import { HistoryCalculator } from './HistoryCalculator.js?v=5';
+import { MarketDataRepository } from './marketDataRepository.js';
 import { db, auth } from './firebaseConfig.js';
 import {
     getIntervalForPeriod,
@@ -21,6 +22,12 @@ export class DataManager {
         this.storage = storage;
         this.api = api;
         this.historyCalculator = new HistoryCalculator(storage, api);
+        // MarketDataRepository (validation architecture 2026-09-24) : façade
+        // cache-first/SWR/coalescing au-dessus de buildTodaySnapshot() ci-
+        // dessous — voir marketDataRepository.js. Un seul par DataManager,
+        // donc partagé par tout ce qui tient une référence à CE dataManager
+        // (dashboardApp.js, historicalChart.js) sur la durée de vie de la page.
+        this.repository = new MarketDataRepository(this);
         // Compteur monotone pour snapshotId — voir buildPortfolioSnapshot.
         this._snapshotSeq = 0;
         // Coalescing (audit dédup 2026-09-23, même mécanisme que
