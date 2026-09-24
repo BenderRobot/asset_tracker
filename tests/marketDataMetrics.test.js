@@ -31,7 +31,13 @@ afterEach(() => {
 
 describe('marketDataMetrics — cache hit vs cache miss (historique)', () => {
     it('1er appel = cache miss + 1 requête réseau, 2e appel identique = cache hit + 0 requête réseau supplémentaire', async () => {
-        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => yahooResponse([1, 2]) })));
+        // 4 points couvrant EXACTEMENT les 3 jours de la plage testée
+        // (1790000000 -> 1790259200 = 259200s = 3 jours) : le cache par point
+        // (voir historicalPointStore.js) ne considère la plage comme
+        // entièrement connue que si elle est couverte SANS trou jusqu'à la
+        // fin demandée — un mock ne couvrant que 2 jours sur 3 déclencherait
+        // à raison un delta-fetch légitime pour le jour manquant.
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => yahooResponse([1, 2, 3, 4]) })));
         const storage = createFakeStorage({ assetTypes: { M1: 'STOCK' } });
         const api = new PriceAPI(storage);
 

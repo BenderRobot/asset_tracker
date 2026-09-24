@@ -6,6 +6,7 @@ import { sleep } from './utils.js';
 import { resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { marketDataMetrics } from './marketDataMetrics.js';
+import { historicalPointStore, isDeltaFetchEligible } from './historicalPointStore.js';
 
 // Les anciennes clés et proxys ont été retirés pour la sécurité
 
@@ -639,10 +640,48 @@ export class PriceAPI {
       isGoldSwapped = true;
     }
 
+    // CACHE HISTORIQUE PAR POINT (validation architecture 2026-09-24, voir
+    // historicalPointStore.js) : pour les intervalles daily+ (jamais le
+    // Gold swappé — son ratio est recalculé dynamiquement à chaque fetch
+    // depuis le prix courant, mélanger des points delta à des ratios
+    // différents serait risqué et hors scope de ce fix), un historique déjà
+    // connu et CLÔTURÉ n'est jamais redemandé : seul le delta manquant
+    // (souvent rien, ou quelques jours) part au réseau, au lieu de toute la
+    // fenêtre glissante demandée. `effectiveStartTs`/`effectiveEndTs` ci-
+    // dessous remplacent startTs/endTs UNIQUEMENT pour ce qui part
+    // réellement au réseau — le résultat final couvre toujours la plage
+    // ORIGINALEMENT demandée (voir finalizeResult).
+    const deltaEligible = isDeltaFetchEligible(interval) && !isGoldSwapped;
+    const plan = deltaEligible
+      ? historicalPointStore.planFetch(formatted, interval, startTs, endTs)
+      : { plan: 'full', fetchStartTs: startTs, fetchEndTs: endTs };
+
+    if (plan.plan === 'none') {
+      marketDataMetrics.recordCacheHit(true);
+      return historicalPointStore.getKnownPoints(formatted, interval, startTs, endTs);
+    }
+
+    const effectiveStartTs = plan.fetchStartTs;
+    const effectiveEndTs = plan.fetchEndTs;
+
+    // FAIL-CLOSED : un delta qui échoue (429/500/502/timeout) doit rester un
+    // échec TOTAL pour cet appel — jamais mélangé silencieusement avec les
+    // anciens points déjà connus (ça masquerait la panne en produisant un
+    // historique incomplet mais d'apparence valide). Seul un résultat RÉUSSI
+    // est fusionné dans le store puis complété avec les points déjà connus.
+    const finalizeResult = (result) => {
+      if (isHistoricalFetchFailure(result)) return result;
+      if (deltaEligible) {
+        historicalPointStore.merge(formatted, interval, result);
+        return historicalPointStore.getKnownPoints(formatted, interval, startTs, endTs);
+      }
+      return result;
+    };
+
     // Le cacheKey utilise une v6 pour forcer le rafraîchissement après migration Cloudflare
     // v8: invalide le cache local pour forcer un re-fetch après la correction du bug
     // de ratio Gold (v7 pouvait contenir des historiques Amundi Gold doublés par erreur).
-    let cacheKey = `v8_${formatted}_${startTs}_${endTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
+    let cacheKey = `v8_${formatted}_${effectiveStartTs}_${effectiveEndTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
     if (['5m', '15m', '90m'].includes(interval)) {
       const rounded = Math.floor(Date.now() / 300000) * 300000;
       cacheKey += `_${rounded}`;
@@ -650,7 +689,7 @@ export class PriceAPI {
 
     if (this.historicalPriceCache[cacheKey]) {
       marketDataMetrics.recordCacheHit(true);
-      return this.historicalPriceCache[cacheKey];
+      return finalizeResult(this.historicalPriceCache[cacheKey]);
     }
 
     // Coalescing (voir commentaire du constructeur) : une requête déjà en vol
@@ -660,14 +699,14 @@ export class PriceAPI {
     const inFlight = this._inFlightHistoricalRequests.get(cacheKey);
     if (inFlight) {
       marketDataMetrics.recordDedup();
-      return inFlight;
+      return inFlight.then(finalizeResult);
     }
 
     marketDataMetrics.recordCacheMiss(true);
-    const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries)
+    const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, effectiveStartTs, effectiveEndTs, interval, isGoldSwapped, cacheKey, retries)
       .finally(() => this._inFlightHistoricalRequests.delete(cacheKey));
     this._inFlightHistoricalRequests.set(cacheKey, requestPromise);
-    return requestPromise;
+    return requestPromise.then(finalizeResult);
   }
 
   async _doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries) {
