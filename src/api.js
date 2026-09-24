@@ -86,6 +86,19 @@ export class PriceAPI {
     // repart bien sur le réseau. Ne mémorise aucun résultat au-delà de la durée
     // de l'appel en cours : ce n'est pas une nouvelle source de vérité.
     this._inFlightHistoricalRequests = new Map();
+
+    // VALIDATION ARCHITECTURE (2026-09-24, MarketDataRepository, décision
+    // "coalescing") : même défaut confirmé par l'audit que celui déjà corrigé
+    // ci-dessus pour l'historique, mais pour les prix LIVE — loadPortfolioData()
+    // et HistoricalChart.update() (mode portefeuille) appellent chacun leur
+    // propre fetchBatchPrices(tickers) pour EXACTEMENT le même jeu de tickers,
+    // sans coordination (voir dashboardApp.js/historicalChart.js — aucun
+    // changement requis là-bas, ce fix est purement interne à cette méthode).
+    // Même garantie qu'_inFlightHistoricalRequests : un appel concurrent pour
+    // le même jeu de tickers (+ même forceRefresh) reçoit la MÊME promesse au
+    // lieu de relancer son propre passage réseau ; auto-invalidante, un appel
+    // ultérieur non concurrent relance bien un vrai cycle.
+    this._inFlightBatchPriceRequests = new Map();
   }
 
   isWeekend() {
@@ -133,7 +146,25 @@ export class PriceAPI {
   // ==========================================================
   // RÉCUPÉRATION PRIX EN TEMPS RÉEL (Centralisée)
   // ==========================================================
+  // Point d'entrée public — coalescing (voir commentaire du constructeur).
+  // Le vrai travail est dans _doFetchBatchPrices ; cette méthode ne fait que
+  // partager la promesse en vol pour un jeu de tickers identique.
   async fetchBatchPrices(tickers, forceRefresh = false) {
+    const key = 'live_' + [...new Set((tickers || []).map(t => t.toUpperCase()))].sort().join(',') + (forceRefresh ? '_force' : '');
+
+    const inFlight = this._inFlightBatchPriceRequests.get(key);
+    if (inFlight) {
+      marketDataMetrics.recordDedup();
+      return inFlight;
+    }
+
+    const requestPromise = this._doFetchBatchPrices(tickers, forceRefresh)
+      .finally(() => this._inFlightBatchPriceRequests.delete(key));
+    this._inFlightBatchPriceRequests.set(key, requestPromise);
+    return requestPromise;
+  }
+
+  async _doFetchBatchPrices(tickers, forceRefresh = false) {
     const tickersToFetch = [];
     tickers.forEach(ticker => {
       if (forceRefresh) {
@@ -618,7 +649,7 @@ export class PriceAPI {
     }
 
     if (this.historicalPriceCache[cacheKey]) {
-      marketDataMetrics.recordCacheHit();
+      marketDataMetrics.recordCacheHit(true);
       return this.historicalPriceCache[cacheKey];
     }
 
@@ -632,7 +663,7 @@ export class PriceAPI {
       return inFlight;
     }
 
-    marketDataMetrics.recordCacheMiss();
+    marketDataMetrics.recordCacheMiss(true);
     const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries)
       .finally(() => this._inFlightHistoricalRequests.delete(cacheKey));
     this._inFlightHistoricalRequests.set(cacheKey, requestPromise);

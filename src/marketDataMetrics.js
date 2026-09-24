@@ -30,6 +30,21 @@ const counters = {
   yahoo5xx: null,
   latencies: [],
   initialRenderMs: null,
+  // MarketDataRepository (2026-09-24) — compteurs par couche de cache, plus
+  // fins que cacheHits/cacheMisses/deduplicatedRequests ci-dessus (conservés
+  // tels quels pour ne pas changer le sens des compteurs déjà mesurés dans le
+  // commit de référence 3efb680). snapshotCache* couvre le snapshot canonique
+  // du Repository ; historicalCache* est un alias dédié de cacheHits/
+  // cacheMisses côté historique seulement (le générique continue d'inclure
+  // aussi les prix live) ; inFlightCoalesced couvre TOUTE coalescence, tous
+  // niveaux confondus (historique + prix live + snapshot).
+  snapshotCacheHits: 0,
+  snapshotCacheMisses: 0,
+  historicalCacheHits: 0,
+  historicalCacheMisses: 0,
+  inFlightCoalesced: 0,
+  initialNetworkRequests: 0,
+  backgroundNetworkRequests: 0,
 };
 
 function reset() {
@@ -46,6 +61,13 @@ function reset() {
   counters.yahoo5xx = null;
   counters.latencies = [];
   counters.initialRenderMs = null;
+  counters.snapshotCacheHits = 0;
+  counters.snapshotCacheMisses = 0;
+  counters.historicalCacheHits = 0;
+  counters.historicalCacheMisses = 0;
+  counters.inFlightCoalesced = 0;
+  counters.initialNetworkRequests = 0;
+  counters.backgroundNetworkRequests = 0;
 }
 
 function now() {
@@ -90,9 +112,25 @@ function recordRequestEnd(handle, status, response = null) {
   }
 }
 
-function recordCacheHit() { counters.cacheHits++; }
-function recordCacheMiss() { counters.cacheMisses++; }
-function recordDedup() { counters.deduplicatedRequests++; }
+// historical=true : incrémente aussi historicalCacheHits/Misses (alias plus
+// spécifique — voir commentaire des compteurs). Laissé à false pour les
+// autres couches (prix live) qui ne comptent que dans le générique.
+function recordCacheHit(historical = false) {
+  counters.cacheHits++;
+  if (historical) counters.historicalCacheHits++;
+}
+function recordCacheMiss(historical = false) {
+  counters.cacheMisses++;
+  if (historical) counters.historicalCacheMisses++;
+}
+function recordDedup() {
+  counters.deduplicatedRequests++;
+  counters.inFlightCoalesced++;
+}
+function recordSnapshotCacheHit() { counters.snapshotCacheHits++; }
+function recordSnapshotCacheMiss() { counters.snapshotCacheMisses++; }
+function recordInitialNetworkRequest() { counters.initialNetworkRequests++; }
+function recordBackgroundNetworkRequest() { counters.backgroundNetworkRequests++; }
 function recordBackgroundRefresh() { counters.backgroundRefreshes++; }
 function recordInitialRender() {
   if (counters.initialRenderMs === null) counters.initialRenderMs = Math.round(now() - sessionStart);
@@ -118,6 +156,13 @@ function snapshot() {
     averageLatencyMs,
     initialRenderMs: counters.initialRenderMs,
     sessionAgeSec: Math.round((now() - sessionStart) / 1000),
+    snapshotCacheHits: counters.snapshotCacheHits,
+    snapshotCacheMisses: counters.snapshotCacheMisses,
+    historicalCacheHits: counters.historicalCacheHits,
+    historicalCacheMisses: counters.historicalCacheMisses,
+    inFlightCoalesced: counters.inFlightCoalesced,
+    initialNetworkRequests: counters.initialNetworkRequests,
+    backgroundNetworkRequests: counters.backgroundNetworkRequests,
   };
 }
 
@@ -128,6 +173,10 @@ export const marketDataMetrics = {
   recordCacheHit,
   recordCacheMiss,
   recordDedup,
+  recordSnapshotCacheHit,
+  recordSnapshotCacheMiss,
+  recordInitialNetworkRequest,
+  recordBackgroundNetworkRequest,
   recordBackgroundRefresh,
   recordInitialRender,
   snapshot,

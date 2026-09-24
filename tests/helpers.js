@@ -4,7 +4,13 @@
 // isolation from localStorage/Firestore/network, which is what makes them
 // fast, deterministic and side-effect-free.
 
-export function createFakeStorage({ prices = {}, conversionRate = null, assetTypes = {} } = {}) {
+// isCacheValid par défaut à `false` (toujours "à rafraîchir") — c'est ce dont
+// ont besoin les tests de coalescing de fetchBatchPrices (voir
+// liveBatchPriceDeduplication.test.js) : un cache jamais valide garantit que
+// shouldRefresh reste vrai, donc qu'un fetch a bien lieu, sans quoi la
+// dédup(l'absence de second fetch) serait indiscernable d'un simple "rien à
+// rafraîchir".
+export function createFakeStorage({ prices = {}, conversionRate = null, assetTypes = {}, purchases = [], isCacheValid = false } = {}) {
     const priceStore = new Map(Object.entries(prices));
     return {
         getCurrentPrice(ticker) {
@@ -23,7 +29,14 @@ export function createFakeStorage({ prices = {}, conversionRate = null, assetTyp
         },
         getAssetCategory() {
             return null;
-        }
+        },
+        getPurchases() {
+            return purchases;
+        },
+        isCacheValid() {
+            return isCacheValid;
+        },
+        priceTimestamps: {}
     };
 }
 
