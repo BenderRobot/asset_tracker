@@ -45,7 +45,7 @@ function getColorForSource(sourceName) {
 // --------------------------------------------------------
 
 
-class DashboardApp {
+export class DashboardApp {
     constructor() {
         this.storage = new Storage();
         this.api = new PriceAPI(this.storage);
@@ -138,22 +138,8 @@ class DashboardApp {
         // Show onboarding banner if no transactions yet
         this.checkOnboardingBanner();
 
-        // === CACHE-FIRST STRATEGY ===
-        const cachedData = await this.dataManager.loadCachedData();
-
-        if (cachedData) {
-            // Render immediately with cached data
-            console.log('✅ Dashboard rendering from cache');
-            this.renderWithCachedData(cachedData);
-            this.showCacheBadge();
-            marketDataMetrics.recordInitialRender();
-        } else {
-            // No cache: show loading state
-            console.log('⏳ No cache - loading fresh data');
-        }
-
-        // Load fresh data in background
-        this.refreshDataInBackground();
+        // All dashboard consumers share one canonical snapshot cycle.
+        this._unsubscribeSnapshot = this.dataManager.repository.subscribe(result => this.renderSnapshot(result));
         this.loadPortfolioData();
 
         // Setup controls AVANT l'init du graphique pour que activeView soit déjà lisible
@@ -190,7 +176,7 @@ class DashboardApp {
     subscribeToKPIs() {
         if (this._kpiListener) portfolioKPIs.removeListener(this._kpiListener);
         this._kpiListener = (kpis) => {
-            if (!kpis || kpis.source !== 'graph') {
+            if (!kpis || kpis.source !== 'graph' || (this.chart?.currentMode === 'portfolio' && this._latestPortfolioSnapshotId && kpis.snapshotId !== this._latestPortfolioSnapshotId)) {
                 return;
             }
 
@@ -380,79 +366,29 @@ class DashboardApp {
      * Refresh data in background and update cache
      */
     async refreshDataInBackground() {
-        const renderTicket = this._beginPortfolioRender();
-        marketDataMetrics.recordBackgroundRefresh();
-        try {
-            console.log('🔄 Refreshing data in background...');
+        return this.loadPortfolioData();
+    }
 
-            const purchases = this.storage.getPurchases();
-            const marketPurchases = purchases.filter(p => p.assetType !== 'Real Estate');
-
-            // Taux USD/EUR figé à la date de chaque transaction (invariant 9).
-            const historicalFxMap = await this.dataManager.getHistoricalFxMap(marketPurchases);
-
-            // BUG FOUND (même classe que buildTodaySnapshot — audit cohérence
-            // KPI/tableau) : `null` ici faisait retomber le Day P&L de ce
-            // rapport (cache Firestore lu par le mode "follower"/secondaire) sur
-            // le repli previousClose × quantité TOTALE d'aujourd'hui, cash-flow
-            // intra-journée inclus. Même fix que buildTodaySnapshot/analyticsApp.
-            const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(marketPurchases);
-
-            // Generate fresh report
-            const freshReport = this.dataManager.generateFullReport(marketPurchases, yesterdayCloseMap, historicalFxMap);
-
-            // Update UI with fresh data
-            const holdings = freshReport.assets || [];
-            const reportSummary = freshReport.summary || {};
-            const cash = this.dataManager.calculateCashReserve(marketPurchases);
-
-            // Recalculate full summary with all secondary KPIs
-            const fullSummary = this.dataManager.calculateSummary(holdings);
-
-            // Merge summaries
-            const summary = {
-                totalCurrentEUR: reportSummary.totalValue || 0,
-                totalInvestedEUR: reportSummary.totalInvested || 0,
-                gainTotal: reportSummary.totalGain || 0,
-                gainPct: reportSummary.totalGainPct || 0,
-                totalDayChangeEUR: reportSummary.dayChange || 0,
-                dayChangePct: reportSummary.dayChangePct || 0,
-                assetsCount: holdings.length,
-                movementsCount: fullSummary.movementsCount || 0,
-                bestAsset: fullSummary.bestAsset,
-                worstAsset: fullSummary.worstAsset,
-                bestDayAsset: fullSummary.bestDayAsset,
-                worstDayAsset: fullSummary.worstDayAsset,
-                topSector: fullSummary.topSector
-            };
-
-            // Render secondary KPIs (TOP GAINER, TOP LOSER, TOP ASSET, ASSET ALLOCATION)
-            if (this._isLatestPortfolioRender(renderTicket)) {
-                this.renderKPIs(fullSummary, cash.total, holdings);
-                this.renderAllocation(holdings, summary.totalCurrentEUR);
-            }
-
-            // Save to cache for next time
-            // WRAPPED IN TRY/CATCH to prevent blocking the UI if Firestore Quota is exceeded
-            try {
-                await this.dataManager.saveCacheSnapshot(freshReport);
-            } catch (storageError) {
-                console.warn('⚠️ Could not save updated cache (likely Quota Exceeded):', storageError);
-            }
-
-            console.log('✅ Dashboard updated with fresh data (KPIs from graph)');
-
-            // === TRIGGER NOTIFICATIONS ===
-            // Check rules against the fresh data we just fetched/calculated
-            // Now passing 'summary' for global portfolio checks
-            this.notificationManager.checkAll(this.storage.currentData, summary);
-
-        } catch (error) {
-            console.error('❌ Error refreshing data:', error);
-            // UI stays with cached data (better than nothing)
-        } finally {
-            // ALWAYS hide the badge, success or failure
-            this.hideCacheBadge();
+    renderSnapshot(result) {
+        const { snapshot, stale, degraded, previousSession } = result;
+        const { holdings, cashReserve } = snapshot._engine;
+        const summary = previousSession
+            ? { ...snapshot._engine.summary, totalDayChangeEUR: null, dayChangePct: null }
+            : snapshot._engine.summary;
+        this._latestPortfolioSnapshotId = snapshot.snapshotId;
+        this.lastHoldings = holdings;
+        this.renderKPIs(summary, cashReserve.total, holdings);
+        this.renderAllocation(holdings, summary.totalCurrentEUR);
+        if (this.chart?.currentMode !== 'asset') this.ui.updatePortfolioSummary(summary, summary.movementsCount || 0, cashReserve.total, this.marketStatus);
+        if (stale || degraded) {
+            this.showCacheBadge();
+            const badge = document.getElementById('cache-badge');
+            if (badge) badge.textContent = `Dernier état connu · ${new Date(snapshot.generatedAt).toLocaleString()}${degraded ? ' · actualisation indisponible' : ''}`;
+        } else this.hideCacheBadge();
+        if (snapshot.portfolioSnapshot.status === 'valid') marketDataMetrics.recordInitialRender();
+        if (!stale && !degraded && snapshot.portfolioSnapshot.status === 'valid' && this._notifiedSnapshotId !== snapshot.snapshotId) {
+            this._notifiedSnapshotId = snapshot.snapshotId;
+            this.notificationManager?.checkAll(this.storage.currentData, summary);
         }
     }
 
@@ -666,6 +602,10 @@ class DashboardApp {
     // et leur absence est corrigée par la nouvelle implémentation de mockPageInterface.renderData
 
     setupEventListeners() {
+        window.addEventListener('purchases-updated', () => {
+            this.loadPortfolioData();
+            this.chart?.update(false, false);
+        });
         const closeBtn = document.getElementById('close-news-modal');
         const modal = document.getElementById('news-modal');
         const analyzeContextBtn = document.getElementById('analyze-context-btn');
@@ -722,7 +662,7 @@ class DashboardApp {
 
                         const rawPeriod = e.target.dataset.period;
                         this.chart.currentPeriod = (rawPeriod === 'all' || rawPeriod === 'ytd') ? rawPeriod : parseInt(rawPeriod);
-                        this.chart.update(true, true);
+                        this.chart.update(true, false);
                     });
                 });
             }
@@ -740,155 +680,25 @@ class DashboardApp {
             }
 
             this.chart.currentPeriod = 1;
-            this.chart.update(true, true);
+            this.chart.update(true, false);
         } catch (e) { console.error("Erreur init graph:", e); }
     }
 
     async loadPortfolioData() {
-        const renderTicket = this._beginPortfolioRender();
+        const purchases = this.storage.getPurchases();
+        const cash = purchases.filter(p => ['cash', 'dividend'].includes((p.assetType || '').toLowerCase()) || p.type === 'dividend');
+        const assets = purchases.filter(p => !cash.includes(p) && (p.assetType || '').toLowerCase() !== 'real estate');
         try {
-            const purchases = this.storage.getPurchases();
-            if (purchases.length === 0) {
-                const zeroSummary = { totalCurrentEUR: 0, totalInvestedEUR: 0, gainTotal: 0, gainPct: 0, totalDayChangeEUR: 0, dayChangePct: 0, movementsCount: 0, assetsCount: 0 };
-                if (this._isLatestPortfolioRender(renderTicket)) {
-                    this.renderKPIs(zeroSummary, 0, []);
-                    this.renderAllocation([], 0);
-                    this.ui.updatePortfolioSummary(zeroSummary, 0, 0, null);
-                }
-                return;
+            const result = await this.dataManager.repository.getSnapshot(assets, cash);
+            this.renderSnapshot(result);
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                console.warn('[Dashboard snapshot]', error);
+                this.showCacheBadge();
+                const badge = document.getElementById('cache-badge');
+                if (badge) badge.textContent = 'Données de marché indisponibles';
             }
-
-            const tickers = [...new Set(purchases
-                .filter(p => {
-                    const type = (p.assetType || 'Stock').toLowerCase();
-                    return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-                })
-                .map(p => p.ticker.toUpperCase()))];
-
-            // === FIRESTORE SYNC LOGIC ===
-            // Check if we should refresh from API or use Firestore cache
-            const shouldRefresh = await this.storage.marketDataSync.shouldRefreshPrices();
-
-            if (!shouldRefresh) {
-                // Follower mode: Load from Firestore
-                console.log('[Dashboard] Loading prices from Firestore (follower mode)');
-                const cachedPrices = await this.storage.loadCurrentPrices();
-                if (cachedPrices && cachedPrices.size > 0) {
-                    this.storage.applyCachedPrices(cachedPrices);
-                    // Skip API fetch
-                } else {
-                    console.warn('[Dashboard] No Firestore cache found, falling back to API');
-                    await this.api.fetchBatchPrices(tickers);
-                }
-            } else {
-                // Leader mode: Fetch from API and save to Firestore
-                console.log('[Dashboard] Fetching from API (leader mode)');
-                await this.api.fetchBatchPrices(tickers);
-            }
-
-            const assetPurchases = purchases.filter(p => {
-                const type = (p.assetType || 'Stock').toLowerCase();
-                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-            });
-            const cashPurchases = purchases.filter(p => {
-                const type = (p.assetType || 'Stock').toLowerCase();
-                return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-            });
-
-            // [MODIFICATION] Pré-calculer les clôtures veille alignées sur le graphique pour cohérence P&L
-            const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(assetPurchases);
-            // Taux USD/EUR figé à la date de chaque transaction (invariant 9).
-            const historicalFxMap = await this.dataManager.getHistoricalFxMap(assetPurchases);
-
-            let holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap);
-
-            // CRITICAL FIX: Filter out zero-quantity holdings (fully sold positions)
-            // Use threshold to account for floating-point precision
-            holdings = holdings.filter(h => h.quantity > 0.0001);
-
-            // === LOAD OR CALCULATE SUMMARY ===
-            let summary;
-            if (!shouldRefresh) {
-                // Follower mode: Try to load KPIs from Firestore
-                const cachedSummary = await this.storage.marketDataSync.loadSummaryKPIs();
-                if (cachedSummary && cachedSummary.timestamp) {
-                    console.log('[Dashboard] Using cached summary KPIs from Firestore');
-                    // Start with local calculations, then override main KPIs with cached values
-                    summary = {
-                        ...this.dataManager.calculateSummary(holdings),
-                        // Override with cached KPIs (these take priority)
-                        totalCurrentEUR: cachedSummary.totalValue,
-                        gainTotal: cachedSummary.totalReturn,
-                        gainPct: cachedSummary.totalReturnPct,
-                        totalDayChangeEUR: cachedSummary.varToday,
-                        dayChangePct: cachedSummary.varTodayPct,
-                        totalInvestedEUR: cachedSummary.invested
-                    };
-                } else {
-                    // Fallback: calculate locally
-                    console.log('[Dashboard] No cached KPIs, calculating locally');
-                    summary = this.dataManager.calculateSummary(holdings);
-                }
-            } else {
-                // Leader mode: Calculate fresh summary
-                summary = this.dataManager.calculateSummary(holdings);
-            }
-
-            const cashReserve = this.dataManager.calculateCashReserve(cashPurchases);
-
-            // === DEBUG: Log calculation details ===
-            console.log('=== DASHBOARD CALCULATION DEBUG ===');
-            console.log('Total purchases:', purchases.length);
-            console.log('Asset purchases (filtered):', assetPurchases.length);
-            console.log('Cash purchases:', cashPurchases.length);
-            console.log('Holdings calculated:', holdings.length);
-            console.log('Summary:', {
-                totalValue: summary.totalCurrentEUR,
-                totalReturn: summary.gainTotal,
-                invested: summary.totalInvestedEUR,
-                varToday: summary.totalDayChangeEUR
-            });
-            console.log('Cash reserve:', cashReserve.total);
-            console.log('===================================');
-
-            // Diagnostic lecture seule des invariants comptables (voir audit) — ne
-            // modifie jamais les données, ne bloque jamais le rendu même en cas
-            // d'erreur interne. Volontairement limité à un warn console : la
-            // détection d'un écart doit être immédiate pour qui développe, sans
-            // ajouter de surface UI pour ce qui reste un outil de diagnostic.
-            try {
-                const consistency = this.dataManager.validatePortfolioConsistency(assetPurchases, cashPurchases, historicalFxMap);
-                if (!consistency.valid) {
-                    console.warn('[validatePortfolioConsistency] Invariants violés :', consistency.differences, consistency);
-                }
-            } catch (diagErr) {
-                console.warn('[validatePortfolioConsistency] Diagnostic indisponible:', diagErr);
-            }
-
-            // === SAVE KPIs TO FIRESTORE (Leader Mode) ===
-            if (shouldRefresh) {
-                const pricesMap = new Map();
-                tickers.forEach(ticker => {
-                    const priceData = this.storage.getCurrentPrice(ticker);
-                    if (priceData) pricesMap.set(ticker, priceData);
-                });
-                if (pricesMap.size > 0) {
-                    // Save prices WITH summary KPIs
-                    await this.storage.marketDataSync.saveCurrentPrices(pricesMap, summary);
-                }
-            }
-
-            // NE PAS mettre à jour les KPI ici - le graphique s'en chargera avec les données historiques
-            // pour éviter d'afficher des valeurs incorrectes qui seront écrasées
-            // this.ui.updatePortfolioSummary(summary, summary.movementsCount, cashReserve.total, this.marketStatus);
-
-            // NOTE: renderKPIs s'occupe des cartes secondaires (Top Gainer, Top Loser, Allocation)
-            if (this._isLatestPortfolioRender(renderTicket)) {
-                this.renderKPIs(summary, cashReserve.total, holdings);
-                this.renderAllocation(holdings, summary.totalCurrentEUR);
-            }
-
-        } catch (error) { console.error("Erreur chargement portfolio:", error); }
+        }
     }
 
     renderAllocation(holdings, totalValue) { // totalValue here is Global Portfolio Value
@@ -1372,7 +1182,7 @@ class DashboardApp {
                         previousClose: dashboardData.previousClose,
                         currency: dashboardData.currency,
                         marketState: dashboardData.marketState, // Sera probablement 'REGULAR' pour les Futures
-                        lastUpdate: Date.now()
+                        lastUpdate: dashboardData.fetchedAt || Date.now()
                     });
                     console.log(`[Dashboard] ✓ ${idx.ticker}: ${dashboardData.price}`);
                 }
@@ -1387,8 +1197,9 @@ class DashboardApp {
                     dashboardData = {
                         price: cached.price,
                         previousClose: cached.previousClose,
-                        lastTradingDayClose: cached.previousClose, // Best guess
-                        marketState: 'CLOSED'
+                        lastTradingDayClose: cached.lastTradingDayClose ?? null,
+                        marketState: cached.marketState || 'UNKNOWN',
+                        stale: true
                     };
                 }
             }
@@ -2196,8 +2007,9 @@ class DashboardApp {
             // courir deux fetchBatchPrices concurrents sur les mêmes tickers, ce qui pouvait
             // faire échouer/retarder silencieusement la mise à jour des prix live et donc
             // désynchroniser les KPI du haut par rapport au graphique.
-            if (this.chart) await this.chart.update(false, true);
+            if (document.hidden) return;
             await Promise.all([this.loadPortfolioData(), this.loadMarketIndices()]);
+            if (this.chart) await this.chart.update(false, false);
         } finally {
             this._refreshing = false;
         }

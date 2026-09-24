@@ -1,3 +1,6 @@
+import { beforeEach } from 'vitest';
+import { clearMarketTransportCache } from '../src/marketDataTransport.js';
+beforeEach(() => clearMarketTransportCache());
 // Minimal stub of the Firebase v8-compat global expected by src/firebaseConfig.js.
 // The real app loads Firebase via a <script> CDN tag in the browser; under the
 // test runner (Node, no DOM) that global doesn't exist, so we fake just enough

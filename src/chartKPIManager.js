@@ -67,7 +67,7 @@ export class ChartKPIManager {
         try {
             // Fetch last 7 days of daily data
             const dailyStartTs = startTs - (7 * 24 * 60 * 60);
-            dailyHist = await this.dataManager.getHistoryWithCache(
+            dailyHist = this.api.getCachedIndexDaily?.(ticker) || await this.dataManager.getHistoryWithCache(
                 ticker,
                 dailyStartTs,
                 Math.floor(Date.now() / 1000), // Up to NOW to capture today's candle

@@ -74,7 +74,7 @@ describe('marketDataMetrics — déduplication (requêtes concurrentes)', () => 
 });
 
 describe('marketDataMetrics — codes HTTP', () => {
-    it('HTTP 429 est compté dans worker429, HTTP 500 dans worker5xx (tentatives distinctes d\'un même appel)', async () => {
+    it('counts 429 once and stops immediate retries', async () => {
         let call = 0;
         vi.stubGlobal('fetch', vi.fn(async () => {
             call++;
@@ -87,8 +87,8 @@ describe('marketDataMetrics — codes HTTP', () => {
 
         const s = marketDataMetrics.snapshot();
         expect(s.worker429).toBe(1);
-        expect(s.worker5xx).toBe(1);
-        expect(s.browserRequests).toBe(2);
+        expect(s.worker5xx).toBe(0);
+        expect(s.browserRequests).toBe(1);
     });
 
     it('un timeout (AbortError) est compté dans timeouts, pas dans worker5xx', async () => {

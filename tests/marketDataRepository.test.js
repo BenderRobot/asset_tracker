@@ -215,7 +215,110 @@ describe('MarketDataRepository — invalidation', () => {
         yesterday.setDate(yesterday.getDate() - 1);
         repo._memory.computedAt = yesterday.getTime(); // "il y a quelques secondes hier"
 
-        await repo.getSnapshot(purchases);
+        const previousSession = await repo.getSnapshot(purchases);
+        expect(previousSession.previousSession).toBe(true);
+        expect(previousSession.stale).toBe(true);
+        await repo._inFlight?.promise;
         expect(calls).toBe(2); // recalculé malgré un âge < TTL frais, à cause du changement de jour
     });
+});
+
+
+describe('Snapshot persistence and invalidation boundaries', () => {
+    it('restores all Maps after a reload without recalculating', async () => {
+        const dm = fakeDataManager(() => validSnapshot(100));
+        const ledger = [purchase({ ticker: 'AAA' })];
+        const original = await new MarketDataRepository(dm).getSnapshot(ledger);
+        const restored = await new MarketDataRepository(dm).getSnapshot(ledger);
+        expect(dm.buildTodaySnapshot).toHaveBeenCalledTimes(1);
+        expect(restored.snapshot._engine.historicalFxMap).toBeInstanceOf(Map);
+        expect(restored.snapshot.prices).toBeInstanceOf(Map);
+        expect(restored.snapshot.snapshotId).toBe(original.snapshot.snapshotId);
+    });
+    it('invalidates currency and transaction type edits', async () => {
+        const dm = fakeDataManager(() => validSnapshot(100));
+        const repo = new MarketDataRepository(dm);
+        const row = purchase({ ticker: 'AAA', currency: 'EUR' });
+        await repo.getSnapshot([row]);
+        await repo.getSnapshot([{ ...row, currency: 'USD' }]);
+        await repo.getSnapshot([{ ...row, currency: 'USD', type: 'dividend' }]);
+        expect(dm.buildTodaySnapshot).toHaveBeenCalledTimes(3);
+    });
+    it('does not publish or persist a result completed after invalidate', async () => {
+        let resolve;
+        const dm = fakeDataManager(() => new Promise(r => { resolve = r; }));
+        const repo = new MarketDataRepository(dm);
+        const listener = vi.fn();
+        repo.subscribe(listener);
+        const pending = repo.getSnapshot([purchase({ ticker: 'AAA' })]);
+        const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+        await Promise.resolve();
+        repo.invalidate();
+        resolve(validSnapshot(100));
+        await rejected;
+        expect(listener).not.toHaveBeenCalled();
+        expect(repo._memory).toBeNull();
+    });
+    it('isolates persisted snapshots by authenticated user', async () => {
+        const dm = fakeDataManager(() => validSnapshot(100));
+        dm.storage.marketDataSync = { auth: { currentUser: { uid: 'alice' } } };
+        const repo = new MarketDataRepository(dm);
+        const rows = [purchase({ ticker: 'AAA' })];
+        await repo.getSnapshot(rows);
+        dm.storage.marketDataSync.auth.currentUser = { uid: 'bob' };
+        await repo.getSnapshot(rows);
+        expect(dm.buildTodaySnapshot).toHaveBeenCalledTimes(2);
+        expect(repo._memory.userId).toBe('bob');
+    });
+    it('notifies subscribers when stale data is replaced in the background', async () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(new Date('2026-09-24T12:00:00Z'));
+            const dm = fakeDataManager(() => validSnapshot(100));
+            const repo = new MarketDataRepository(dm);
+            const rows = [purchase({ ticker: 'AAA' })];
+            await repo.getSnapshot(rows);
+            const listener = vi.fn();
+            repo.subscribe(listener);
+            vi.advanceTimersByTime(31000);
+            const stale = await repo.getSnapshot(rows);
+            expect(stale.stale).toBe(true);
+            await repo._inFlight?.promise;
+            expect(listener).toHaveBeenCalledWith(expect.objectContaining({ background: true, stale: false }));
+        } finally { vi.useRealTimers(); }
+    });
+});
+
+
+it('keeps the last valid snapshot unchanged and dated after a live-price refresh failure', async () => {
+    const dm = fakeDataManager(() => validSnapshot(100));
+    dm.api.liveFailures = new Map();
+    const repo = new MarketDataRepository(dm);
+    const rows = [purchase({ticker:'AAA'})];
+    const good = await repo.getSnapshot(rows);
+    dm.api.liveFailures.set('AAA',{reason:'HTTP 429'});
+    const failed = await repo.refresh(rows);
+    expect(failed.snapshot.snapshotId).toBe(good.snapshot.snapshotId);
+    expect(failed.snapshot.generatedAt).toBe(good.snapshot.generatedAt);
+    expect(failed.degraded).toBe(true);
+    expect(dm.buildTodaySnapshot).toHaveBeenCalledTimes(1);
+});
+
+it('holds the tab lock through publication and shares the result with a second repository', async () => {
+    let tail = Promise.resolve();
+    const locks = { request: vi.fn((_key, task) => {
+        const result = tail.then(task);
+        tail = result.catch(() => {});
+        return result;
+    }) };
+    Object.defineProperty(navigator,'locks',{value:locks,configurable:true});
+    try {
+        const dm = fakeDataManager(() => validSnapshot(100));
+        const rows = [purchase({ticker:'AAA'})];
+        const a = new MarketDataRepository(dm), b = new MarketDataRepository(dm);
+        const [first,second] = await Promise.all([a.getSnapshot(rows),b.getSnapshot(rows)]);
+        expect(dm.buildTodaySnapshot).toHaveBeenCalledTimes(1);
+        expect(first.snapshot.snapshotId).toBe(second.snapshot.snapshotId);
+        expect(first.snapshot.generatedAt).toBe(second.snapshot.generatedAt);
+    } finally { delete navigator.locks; }
 });

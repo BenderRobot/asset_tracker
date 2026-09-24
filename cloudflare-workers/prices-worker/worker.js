@@ -146,7 +146,25 @@ async function getYahooCrumb(env) {
   }
 }
 
+const chartResponses = new Map();
+const chartRequests = new Map();
 async function fetchYahoo(url, origin, env, opts = {}) {
+  if (!url.includes('/v8/finance/chart/')) return fetchYahooUncached(url, origin, env, opts);
+  const cached = chartResponses.get(url);
+  if (cached && Date.now() - cached.fetchedAt < 60000) return { ...cached.result, attempts: 0 };
+  if (chartRequests.has(url)) return chartRequests.get(url).then(result => ({ ...result, attempts: 0 }));
+  const promise = fetchYahooUncached(url, origin, env, opts).then(result => {
+    if (!result.json?.chart?.error && result.json?.chart?.result?.length) {
+      chartResponses.set(url, { result, fetchedAt: Date.now() });
+      if (chartResponses.size > 200) chartResponses.delete(chartResponses.keys().next().value);
+    }
+    return result;
+  }).finally(() => chartRequests.delete(url));
+  chartRequests.set(url, promise);
+  return promise;
+}
+
+async function fetchYahooUncached(url, origin, env, opts = {}) {
   // If we need crumb, inject it and the cookie
   let fetchUrl = url;
   const headers = {
@@ -200,6 +218,7 @@ async function fetchYahoo(url, origin, env, opts = {}) {
         finalStatus = res.status;
         if (!res.ok) {
           lastErr = new Error(`Yahoo HTTP ${res.status}`);
+          if (res.status === 429) throw Object.assign(lastErr, { stopRetry: true });
           // On 401, clear crumb cache and retry next loop
           if (res.status === 401) {
             cachedCrumb = null;
@@ -211,6 +230,7 @@ async function fetchYahoo(url, origin, env, opts = {}) {
         const json = await res.json();
         return { json, attempts, finalStatus };
       } catch (err) {
+        if (err.stopRetry) { err.attempts = attempts; err.finalStatus = finalStatus; throw err; }
         lastErr = err;
         finalStatus = 'network_error';
         await new Promise(r => setTimeout(r, 200 + attempt * 150));
@@ -294,6 +314,8 @@ const MAX_TRACKED_IPS = 5000;
 // production) s'accumulerait entre tests indépendants. Jamais appelé par le
 // Worker lui-même en production.
 export function _resetRateLimiterStateForTests() {
+  chartResponses.clear();
+  chartRequests.clear();
   rateLimitBuckets.clear();
 }
 

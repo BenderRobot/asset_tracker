@@ -4,7 +4,7 @@
 // investmentsPage.js - (v11 - Chargement Non-Bloquant)
 // ========================================
 
-import { PAGE_SIZE, USD_TO_EUR_FALLBACK_RATE } from './config.js';
+import { PAGE_SIZE } from './config.js';
 import { formatCurrency, formatPercent, formatQuantity } from './utils.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
@@ -380,13 +380,16 @@ export class InvestmentsPage {
           ? resolveHistoricalUsdToEurRate(
               purchase.date,
               this.dataManager.getCachedHistoricalFxMap(),
-              this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE,
+              this.storage.getConversionRate('USD_TO_EUR'),
               { ticker: p.ticker, broker: purchase.broker }
             )
           : 1;
-        const purchaseCostEUR = (purchase.price || 0) * (purchase.quantity || 0) * buyRate;
+        // FAIL-CLOSED : pas de coût inventé si FX USD→EUR indisponible.
+        const purchaseCostEUR = (buyCurrency === 'USD' && !(buyRate > 0))
+          ? null
+          : (purchase.price || 0) * (purchase.quantity || 0) * buyRate;
         const purchaseCurrentValue = p.currentPrice != null ? p.currentPrice * (purchase.quantity || 0) : null;
-        const purchaseGainEUR = purchaseCurrentValue !== null
+        const purchaseGainEUR = (purchaseCurrentValue !== null && purchaseCostEUR !== null)
           ? purchaseCurrentValue - purchaseCostEUR
           : null;
         const purchaseGainPct = purchaseCostEUR && purchaseGainEUR !== null

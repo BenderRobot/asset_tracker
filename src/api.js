@@ -1,7 +1,8 @@
+import { fetchMarketResponse } from './marketDataTransport.js';
 // ========================================
 // api.js - Cloudflare Workers Proxy
 // ========================================
-import { YAHOO_MAP, USD_TO_EUR_FALLBACK_RATE, PRICE_PROXY_URL } from './config.js?v=2';
+import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js?v=2';
 import { sleep } from './utils.js';
 import { resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
@@ -16,16 +17,7 @@ const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 // change ni l'URL ni le comportement du fetch, sert seulement à distinguer
 // les compteurs "browserRequests" par nature d'appel.
 function _fetchTimeout(url, ms, requestType = 'unknown') {
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), ms);
-    const handle = marketDataMetrics.recordRequestStart(requestType);
-    return fetch(url, { signal: ctrl.signal })
-        .then(res => { marketDataMetrics.recordRequestEnd(handle, res.status, res); return res; })
-        .catch(err => {
-            marketDataMetrics.recordRequestEnd(handle, err.name === 'AbortError' ? 'timeout' : 0);
-            throw err;
-        })
-        .finally(() => clearTimeout(tid));
+  return fetchMarketResponse(url, ms, requestType);
 }
 
 // Les providerStats sont simplifiés car le proxy est la seule source du Frontend
@@ -100,6 +92,19 @@ export class PriceAPI {
     // lieu de relancer son propre passage réseau ; auto-invalidante, un appel
     // ultérieur non concurrent relance bien un vrai cycle.
     this._inFlightBatchPriceRequests = new Map();
+    this.liveFailures = new Map();
+    this._indexDaily = new Map();
+    this.historicalFetchedAt = {};
+  }
+
+  async ensureConversionRate() {
+    if (!this.storage.setConversionRate) return;
+    const cached = this.storage.conversionRates?.USD_TO_EUR;
+    if (cached?.rate > 0 && Date.now() - cached.timestamp < 86400000) return;
+    const response = await fetchMarketResponse('https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR', 10000, 'fx-reference', 86400000);
+    const data = await response.json();
+    if (!(data.rates?.EUR > 0)) throw new Error('FX_DATA_UNAVAILABLE');
+    this.storage.setConversionRate('USD_TO_EUR', data.rates.EUR);
   }
 
   isWeekend() {
@@ -176,13 +181,6 @@ export class PriceAPI {
       const assetType = this.storage.getAssetType(ticker);
       const isWeekend = this.isWeekend();
 
-      if (isWeekend && cached && cached.price) {
-        const ageMs = Date.now() - (this.storage.priceTimestamps[ticker.toUpperCase()] || 0);
-        const ageDays = ageMs / (24 * 60 * 60 * 1000);
-        if (ageDays < 7) return;
-      }
-
-      // Détecte les fallbacks d'achat après aller-retour Firestore (source effacée)
       const isPotentialFallback = cached && !cached.source &&
         cached.price > 0 &&
         cached.price === cached.previousClose &&
@@ -191,12 +189,11 @@ export class PriceAPI {
           Math.abs(Number(p.price) - cached.price) < 0.01
         );
 
-      const shouldRefresh = !cached ||
+      const shouldRefresh = this.liveFailures.has(ticker.toUpperCase()) || !cached ||
         !cached.price ||
         cached.source === 'Purchase fallback' ||
         isPotentialFallback ||
-        !this.storage.isCacheValid(ticker, assetType) ||
-        (assetType === 'Crypto' && !isWeekend);
+        !this.storage.isCacheValid(ticker, assetType);
 
       if (shouldRefresh) {
         tickersToFetch.push(ticker);
@@ -223,6 +220,11 @@ export class PriceAPI {
   }
 
   // NOUVELLE MÉTHODE SPÉCIFIQUE DASHBOARD: Récupère les données d'indices avec previousClose et lastTradingDayClose
+  getCachedIndexDaily(ticker) {
+    const entry = this._indexDaily.get(ticker);
+    return entry && Date.now() - entry.fetchedAt < 60000 ? entry.points : null;
+  }
+
   async fetchIndexDataForDashboard(ticker) {
     const symbol = this.formatTicker(ticker);
     const type = 'STOCK'; // Les indices sont toujours de type STOCK
@@ -231,7 +233,7 @@ export class PriceAPI {
       // Déterminer l'intervalle selon le type d'actif
       const isBitcoin = ticker.includes('BTC');
       const interval = isBitcoin ? '5m' : '1d';
-      const url = `${PRICE_PROXY_URL}?symbol=${symbol}&type=${type}&range=5d&interval=${interval}`;
+      const url = `${PRICE_PROXY_URL}?symbol=${symbol}&type=${type}&range=7d&interval=${interval}`;
 
       const res = await _fetchTimeout(url, 8000, 'index-quote');
       if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
@@ -248,6 +250,11 @@ export class PriceAPI {
       const quote = chartData.indicators?.quote?.[0] || {};
       const timestamps = chartData.timestamp || [];
       const closes = quote.close || [];
+      if (interval === '1d') {
+        const points = Object.fromEntries(timestamps.flatMap((ts,i) =>
+          Number.isFinite(closes[i]) && closes[i] > 0 ? [[ts*1000, closes[i]]] : []));
+        this._indexDaily.set(ticker, { points, fetchedAt: Date.now() });
+      }
 
       // Prix actuel
       let currentPrice = meta.regularMarketPrice || closes[closes.length - 1];
@@ -283,7 +290,7 @@ export class PriceAPI {
           histRange = nowSec - (5 * 24 * 60 * 60);
         }
 
-        const hist = await this.getHistoricalPricesWithRetry(
+        const hist = (histInterval === '1d' && this.getCachedIndexDaily(ticker)) || await this.getHistoricalPricesWithRetry(
           ticker,
           histRange,
           nowSec,
@@ -375,17 +382,22 @@ export class PriceAPI {
       const isUSD = (currency === 'USD') && !ticker.startsWith('^') && !ticker.endsWith('=F') && !ticker.endsWith('=X');
 
       if (isUSD) {
-        const rate = (this.storage.getConversionRate('USD_TO_EUR') || 0.925);
+        const rate = this.storage.getConversionRate('USD_TO_EUR');
+        if (!(rate > 0)) {
+          // FAIL-CLOSED : pas de conversion inventée (ex. ancien 0.925).
+          console.warn(`[IndexDashboard ${ticker}] USD_TO_EUR indisponible — refus de convertir.`);
+          return null;
+        }
         currentPrice = currentPrice * rate;
         if (truePreviousClose) truePreviousClose = truePreviousClose * rate;
         if (lastTradingDayClose) lastTradingDayClose = lastTradingDayClose * rate;
       }
 
       // S'assurer qu'on ne retourne jamais 0 ou null - FALLBACK FINAL
-      const finalPreviousClose = truePreviousClose || previousClose || currentPrice;
-      const finalLastTradingDayClose = lastTradingDayClose || truePreviousClose || previousClose || currentPrice;
+      const finalPreviousClose = truePreviousClose || previousClose || null;
+      const finalLastTradingDayClose = lastTradingDayClose || truePreviousClose || previousClose || null;
 
-      console.log(`[IndexDashboard ${ticker}] FINAL: price=${currentPrice.toFixed(2)}, previousClose=${finalPreviousClose.toFixed(2)}, lastTradingDayClose=${finalLastTradingDayClose.toFixed(2)}`);
+      console.log(`[IndexDashboard ${ticker}] FINAL: price=${currentPrice.toFixed(2)}, previousClose=${finalPreviousClose?.toFixed(2)}, lastTradingDayClose=${finalLastTradingDayClose?.toFixed(2)}`);
 
       return {
         price: currentPrice,
@@ -393,6 +405,7 @@ export class PriceAPI {
         lastTradingDayClose: finalLastTradingDayClose,
         currency: 'EUR',
         marketState: meta.marketState || 'CLOSED',
+        fetchedAt: res.fetchedAt || Date.now(),
         lastQuoteTime: meta.regularMarketTime ? meta.regularMarketTime * 1000 : null
       };
 
@@ -447,7 +460,7 @@ export class PriceAPI {
           else if (data.lastPrice) {
             result = {
               price: parseFloat(data.lastPrice),
-              previousClose: parseFloat(data.prevClosePrice || data.lastPrice),
+              previousClose: data.prevClosePrice ? parseFloat(data.prevClosePrice) : null,
               currency: 'EUR',
               marketState: 'OPEN'
             };
@@ -457,7 +470,7 @@ export class PriceAPI {
           else if (data.price) {
             result = {
               price: parseFloat(data.price),
-              previousClose: parseFloat(data.previousClose || data.price),
+              previousClose: data.previousClose ? parseFloat(data.previousClose) : null,
               currency: 'EUR',
               marketState: 'OPEN'
             };
@@ -555,22 +568,9 @@ export class PriceAPI {
         }
 
         // --- DÉBUT DU FAILBACK DE SÉCURITÉ CONTRE LE PRIX ZÉRO (Conservé de l'original) ---
-        let finalPrice = result.price;
-        let finalPreviousClose = result.previousClose;
-        const tickerUpper = ticker.toUpperCase();
-        const oldData = this.storage.getCurrentPrice(tickerUpper);
-        const oldPrice = oldData ? oldData.price : null;
-
-        if (finalPrice <= 0 || isNaN(finalPrice)) {
-          if (oldPrice > 0 && !isNaN(oldPrice)) {
-            finalPrice = oldPrice;
-            finalPreviousClose = oldData.previousClose;
-            console.warn(`[FAILBACK] Prix de ${ticker} invalide. Utilisation du prix en cache: ${finalPrice}`);
-          } else {
-            throw new Error(`Prix reçu à zéro/invalide pour ${ticker} et pas de failback en cache.`);
-          }
-        }
-        // --- FIN DU FAILBACK DE SÉCURITÉ ---
+        const finalPrice = result.price;
+        const finalPreviousClose = result.previousClose;
+        if (!Number.isFinite(finalPrice) || finalPrice <= 0) throw new Error('Invalid provider price');
 
         this.storage.setCurrentPrice(ticker.toUpperCase(), {
           price: finalPrice,
@@ -578,10 +578,11 @@ export class PriceAPI {
           previousCloseUnavailable: !!result.previousCloseUnavailable,
           currency: result.currency,
           marketState: result.marketState,
-          lastUpdate: Date.now(),
+          lastUpdate: res.fetchedAt || Date.now(),
           source: source
         });
 
+        this.liveFailures.delete(ticker.toUpperCase());
         tickersResult.push(ticker);
 
       } catch (err) {
@@ -599,6 +600,7 @@ export class PriceAPI {
         // stale/degraded porté par MarketDataRepository) ; si aucune donnée
         // n'existe, le ticker reste correctement `priceDataUnavailable` en
         // aval (dataManager.js), sans valeur fabriquée.
+        this.liveFailures.set(ticker.toUpperCase(), { reason: err.message, at: Date.now() });
         console.warn(`Price Proxy error for ${ticker}: ${err.message}`);
         providerStats.GCP_PROXY.fails++;
         await sleep(1000);
@@ -613,6 +615,7 @@ export class PriceAPI {
   // HISTORIQUE (Centralisé)
   // ================================================
   async getHistoricalPricesWithRetry(ticker, startTs, endTs, interval, retries = 3) {
+    if (Math.abs(endTs * 1000 - Date.now()) < 60000) endTs = Math.floor(endTs / 60) * 60;
     let formatted = this.formatTicker(ticker);
     let assetType = this.storage.getAssetType(ticker) ? this.storage.getAssetType(ticker).toUpperCase() : 'STOCK';
 
@@ -652,13 +655,16 @@ export class PriceAPI {
     // réellement au réseau — le résultat final couvre toujours la plage
     // ORIGINALEMENT demandée (voir finalizeResult).
     const deltaEligible = isDeltaFetchEligible(interval) && !isGoldSwapped;
+    const conversionRate = this.storage.getConversionRate('USD_TO_EUR');
+    const goldReference = isGoldSwapped ? this.storage.getCurrentPrice('GOLD-EUR.PA')?.price : null;
+    const pointKey = `${formatted}|fx:${conversionRate ?? 'none'}|gold:${goldReference ?? 'none'}`;
     const plan = deltaEligible
-      ? historicalPointStore.planFetch(formatted, interval, startTs, endTs)
+      ? historicalPointStore.planFetch(pointKey, interval, startTs, endTs)
       : { plan: 'full', fetchStartTs: startTs, fetchEndTs: endTs };
 
     if (plan.plan === 'none') {
       marketDataMetrics.recordCacheHit(true);
-      return historicalPointStore.getKnownPoints(formatted, interval, startTs, endTs);
+      return historicalPointStore.getKnownPoints(pointKey, interval, startTs, endTs);
     }
 
     const effectiveStartTs = plan.fetchStartTs;
@@ -671,9 +677,10 @@ export class PriceAPI {
     // est fusionné dans le store puis complété avec les points déjà connus.
     const finalizeResult = (result) => {
       if (isHistoricalFetchFailure(result)) return result;
+      if (plan.plan === 'delta' && Object.keys(result).length === 0) return markFetchFailed();
       if (deltaEligible) {
-        historicalPointStore.merge(formatted, interval, result);
-        return historicalPointStore.getKnownPoints(formatted, interval, startTs, endTs);
+        historicalPointStore.merge(pointKey, interval, result, { startTs: effectiveStartTs, endTs: effectiveEndTs });
+        return historicalPointStore.getKnownPoints(pointKey, interval, startTs, endTs);
       }
       return result;
     };
@@ -681,13 +688,14 @@ export class PriceAPI {
     // Le cacheKey utilise une v6 pour forcer le rafraîchissement après migration Cloudflare
     // v8: invalide le cache local pour forcer un re-fetch après la correction du bug
     // de ratio Gold (v7 pouvait contenir des historiques Amundi Gold doublés par erreur).
-    let cacheKey = `v8_${formatted}_${effectiveStartTs}_${effectiveEndTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
+    let cacheKey = `v9_${pointKey}_${effectiveStartTs}_${effectiveEndTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
     if (['5m', '15m', '90m'].includes(interval)) {
       const rounded = Math.floor(Date.now() / 300000) * 300000;
       cacheKey += `_${rounded}`;
     }
 
-    if (this.historicalPriceCache[cacheKey]) {
+    const historicalTtl = ['5m', '15m', '90m'].includes(interval) ? 60000 : (endTs * 1000 > Date.now() - 86400000 ? 900000 : 604800000);
+    if (this.historicalPriceCache[cacheKey] && Date.now() - (this.historicalFetchedAt[cacheKey] || 0) < historicalTtl) {
       marketDataMetrics.recordCacheHit(true);
       return finalizeResult(this.historicalPriceCache[cacheKey]);
     }
@@ -703,13 +711,13 @@ export class PriceAPI {
     }
 
     marketDataMetrics.recordCacheMiss(true);
-    const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, effectiveStartTs, effectiveEndTs, interval, isGoldSwapped, cacheKey, retries)
+    const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, effectiveStartTs, effectiveEndTs, interval, isGoldSwapped, cacheKey, retries, conversionRate, goldReference)
       .finally(() => this._inFlightHistoricalRequests.delete(cacheKey));
     this._inFlightHistoricalRequests.set(cacheKey, requestPromise);
     return requestPromise.then(finalizeResult);
   }
 
-  async _doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries) {
+  async _doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries, conversionRate, goldReference) {
     // L'appel se fait vers le Proxy Cloud Function pour l'historique
     // Nous passons tous les paramètres nécessaires au proxy
     let proxyUrl = `${PRICE_PROXY_URL}?symbol=${formatted}&type=${assetType}&interval=${interval}&period1=${startTs}&period2=${endTs}`;
@@ -730,7 +738,8 @@ export class PriceAPI {
 
         if (!chartData.chart?.result?.[0]?.timestamp) {
           console.warn(`[DEBUG ${ticker}] No timestamp data - market closed or no data for period`);
-          return {}; // Retourner vide au lieu de throw - le code utilisera les fallbacks
+          if (chartData.chart?.result?.[0] && !chartData.chart?.error) return {};
+          throw new Error('Invalid historical response');
         }
 
         const result = chartData.chart.result[0];
@@ -744,7 +753,7 @@ export class PriceAPI {
         // fonction (voir audit Phase 2.5, section "éviter les changements API inutiles").
         marketCalendarEngine.ingestProviderMetadata(ticker, result.meta);
 
-        if (!timestamps || timestamps.length < 2) {
+        if (!timestamps || timestamps.length < 1) {
           console.warn(`[DEBUG ${ticker}] Insufficient data (${timestamps?.length || 0} points)`);
           return {};
         }
@@ -760,7 +769,13 @@ export class PriceAPI {
 
         const apiCurrency = result.meta?.currency || 'EUR';
         const isUSD = !shouldNotConvert && apiCurrency === 'USD';
-        const rate = isUSD ? (this.storage.getConversionRate('USD_TO_EUR') || 0.925) : 1;
+        const liveFx = conversionRate;
+        if (isUSD && !(liveFx > 0)) {
+          // FAIL-CLOSED : historique USD sans taux FX réel → pas de série EUR inventée.
+          console.warn(`[FX] USD_TO_EUR indisponible — historique ${ticker} non converti (vide).`);
+          return {};
+        }
+        const rate = isUSD ? liveFx : 1;
 
         // CALCUL DU RATIO GOLD SI NÉCESSAIRE
         let goldRatio = 1;
@@ -768,7 +783,8 @@ export class PriceAPI {
           const targetPriceObj = this.storage.getCurrentPrice('GOLD-EUR.PA');
           // Si on n'a pas le prix cible en cache, on utilise un ratio fixe approximatif (146/74 ~ 1.97)
           // Ce cas est rare car l'app fetch d'abord le snapshot
-          const targetPrice = targetPriceObj ? targetPriceObj.price : 146.8;
+          const targetPrice = goldReference;
+          if (!(targetPrice > 0)) throw new Error('Gold conversion reference unavailable');
 
           // BUG TROUVÉ (vérifié en interrogeant directement l'API Yahoo) : le dernier
           // élément de "quotes" peut être `null` (bougie du jour pas encore clôturée) —
@@ -810,7 +826,7 @@ export class PriceAPI {
         }
 
         timestamps.forEach((ts, idx) => {
-          if (quotes[idx] !== null) {
+          if (Number.isFinite(Number(quotes[idx])) && quotes[idx] != null && Number(quotes[idx]) > 0) {
             let val = parseFloat(quotes[idx]);
 
             // Appliquer le Ratio Gold
@@ -829,12 +845,14 @@ export class PriceAPI {
         });
 
         this.historicalPriceCache[cacheKey] = prices;
+        this.historicalFetchedAt[cacheKey] = Date.now();
         this.saveHistoricalCache();
         return prices;
 
       } catch (error) {
         console.warn(`Historical Proxy attempt ${attempt + 1} failed: ${error.message}`);
-        await sleep(1000);
+        if (error.status === 429 || error.status >= 500) break;
+        if (attempt + 1 < retries) await sleep(Math.min(1000 * 2 ** attempt, 8000));
       }
     }
     // Les `retries` tentatives ont TOUTES levé une exception (HTTP non-ok,
@@ -876,8 +894,12 @@ export class PriceAPI {
       const data = await res.json();
       if (!Array.isArray(data) || data.length === 0) return {};
 
-      // Convertir USDT → EUR
-      const usdToEur = this.storage.getConversionRate('USD_TO_EUR') || 0.925;
+      // Convertir USDT → EUR uniquement avec un taux FX réel.
+      const usdToEur = this.storage.getConversionRate('USD_TO_EUR');
+      if (!(usdToEur > 0)) {
+        console.warn(`[Binance Fallback] USD_TO_EUR indisponible — refus de fabriquer des prix EUR pour ${ticker}.`);
+        return {};
+      }
       const prices = {};
 
       for (const candle of data) {
@@ -899,37 +921,17 @@ export class PriceAPI {
 
   // --- Fonctions de Cache (Inchagées) ---
 
-  loadHistoricalCache() {
-    try {
-      const cached = localStorage.getItem('historicalPriceCache');
-      if (!cached) return {};
-      const parsed = JSON.parse(cached);
-      if (parsed.timestamp && (Date.now() - parsed.timestamp < 604800000)) return parsed.data || {};
-    } catch (e) { }
-    return {};
-  }
-
+  loadHistoricalCache() { return {}; }
   saveHistoricalCache() {
-    try {
-      this.cleanIntradayCache();
-      localStorage.setItem('historicalPriceCache', JSON.stringify({ timestamp: Date.now(), data: this.historicalPriceCache }));
-    } catch (e) {
-      if (e.name === 'QuotaExceededError') {
-        this.historicalPriceCache = {};
-        localStorage.removeItem('historicalPriceCache');
+    const keys = Object.keys(this.historicalPriceCache);
+    for (const key of keys) {
+      if (Date.now() - (this.historicalFetchedAt[key] || 0) > 604800000 || Object.keys(this.historicalPriceCache).length > 200) {
+        delete this.historicalPriceCache[key];
+        delete this.historicalFetchedAt[key];
       }
     }
   }
-
-  cleanIntradayCache() {
-    const limit = Date.now() - 7200000; // 2h
-    for (const key in this.historicalPriceCache) {
-      if (key.split('_').length > 4) {
-        const ts = parseInt(key.split('_').pop());
-        if (!isNaN(ts) && ts < limit) delete this.historicalPriceCache[key];
-      }
-    }
-  }
+  cleanIntradayCache() { this.saveHistoricalCache(); }
 
   getPriceSourceStats() { return {}; }
   logProviderStats() { console.log(providerStats); }

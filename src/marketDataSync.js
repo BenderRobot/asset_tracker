@@ -19,6 +19,9 @@ export class MarketDataSync {
 
         // Initialize userId from storage auth
         this.auth.onAuthStateChanged((user) => {
+            this.userId = user?.uid || null;
+            this._read = null;
+            this._cachedDocument = null;
             if (user) {
                 this.userId = user.uid;
                 console.log(`[MarketDataSync] Initialized for user: ${this.userId}`);
@@ -36,6 +39,32 @@ export class MarketDataSync {
      * @param {Map<string, Object>} pricesMap - Map of ticker → {price, ...}
      * @param {Object} summary - Optional summary KPIs
      */
+    async getSnapshotDocument() {
+        const uid = this.userId;
+        if (!uid) return null;
+        if (this._cachedDocument?.uid === uid && Date.now() - this._cachedDocument.at < 30000) return this._cachedDocument.doc;
+        if (this._read?.uid === uid) return this._read.promise;
+        const promise = this.db.collection('users').doc(uid).collection('marketData').doc('snapshot').get()
+            .then(doc => { if (this.userId === uid) this._cachedDocument = { uid, doc, at: Date.now() }; return doc; })
+            .finally(() => { if (this._read?.promise === promise) this._read = null; });
+        this._read = { uid, promise };
+        return promise;
+    }
+
+    async loadCanonicalSnapshot() {
+        if (!this.userId) return null;
+        const doc = await this.db.collection('users').doc(this.userId).collection('cache').doc('canonicalSnapshotV2').get();
+        return doc.exists ? doc.data().payload : null;
+    }
+    async saveCanonicalSnapshot(payload) {
+        if (!this.userId || payload.userId !== this.userId) return;
+        // Store one serialized envelope: Map encoding and all dependency versions
+        // travel atomically. Keep large graph payloads local when over the budget.
+        const serialized = JSON.stringify(payload);
+        if (new TextEncoder().encode(serialized).length > 700000) return;
+        await this.db.collection('users').doc(this.userId).collection('cache').doc('canonicalSnapshotV2').set({ payload: serialized });
+    }
+
     async saveCurrentPrices(pricesMap, summary = null) {
         if (!this.userId) return;
 
@@ -45,12 +74,12 @@ export class MarketDataSync {
             pricesMap.forEach((data, ticker) => {
                 pricesObj[ticker] = {
                     price: data.price || 0,
-                    previousClose: data.previousClose || 0,
-                    dayChange: data.dayChange || 0,
-                    dayChangePct: data.dayChangePct || 0,
+                    previousClose: data.previousClose ?? null,
+                    dayChange: data.dayChange ?? null,
+                    dayChangePct: data.dayChangePct ?? null,
                     currency: data.currency || 'EUR',
                     source: data.source || 'API',
-                    lastUpdated: Date.now()
+                    lastUpdated: data.lastUpdate || data.lastUpdated || 0
                 };
             });
 
@@ -69,6 +98,7 @@ export class MarketDataSync {
             await this.db.collection('users').doc(this.userId)
                 .collection('marketData').doc('snapshot').set(payload);
 
+            this._cachedDocument = null;
             console.log(`[MarketDataSync] Saved snapshot (${pricesMap.size} tickers) to Firestore (1 Write)`);
         } catch (error) {
             console.error('[MarketDataSync] Error saving snapshot:', error);
@@ -99,9 +129,8 @@ export class MarketDataSync {
     async loadSummaryKPIs() {
         if (!this.userId) return null;
         try {
-            const doc = await this.db.collection('users').doc(this.userId)
-                .collection('marketData').doc('snapshot').get();
-            if (doc.exists && doc.data().summary) {
+            const doc = await this.getSnapshotDocument();
+            if (doc?.exists && doc.data().summary) {
                 return doc.data().summary;
             }
             return null;
@@ -118,10 +147,9 @@ export class MarketDataSync {
         if (!this.userId) return null;
 
         try {
-            const doc = await this.db.collection('users').doc(this.userId)
-                .collection('marketData').doc('snapshot').get();
+            const doc = await this.getSnapshotDocument();
 
-            if (!doc.exists || !doc.data().prices) {
+            if (!doc?.exists || !doc.data().prices) {
                 console.log('[MarketDataSync] No snapshot found');
                 return null;
             }
@@ -147,10 +175,9 @@ export class MarketDataSync {
         if (!this.userId) return true;
 
         try {
-            const doc = await this.db.collection('users').doc(this.userId)
-                .collection('marketData').doc('snapshot').get();
+            const doc = await this.getSnapshotDocument();
 
-            if (!doc.exists || !doc.data().metadata) {
+            if (!doc?.exists || !doc.data().metadata) {
                 console.log('[MarketDataSync] No metadata - becoming leader');
                 return true;
             }
@@ -178,7 +205,7 @@ export class MarketDataSync {
         this.unsubscribe = this.db.collection('users').doc(this.userId)
             .collection('marketData').doc('snapshot')
             .onSnapshot(doc => {
-                if (doc.exists) {
+                if (doc?.exists) {
                     const data = doc.data();
                     if (!data.metadata) return;
 

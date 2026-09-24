@@ -66,6 +66,9 @@ export class HistoricalChart {
             pru: this._loadRefLinePref('pru')
         };
 
+        this._unsubscribeSnapshot = this.dataManager.repository?.subscribe(result => {
+            if (result.background && this.currentMode === 'portfolio') this.update(false, false);
+        });
         this.isLoading = false;
         this._pendingUpdate = null;
         this._pendingPeriod = undefined;
@@ -84,6 +87,7 @@ export class HistoricalChart {
     }
 
     destroy() {
+        this._unsubscribeSnapshot?.();
         this.stopAutoRefresh();
         eventBus.removeEventListener('showAssetChart', this._onShowAsset);
         eventBus.removeEventListener('clearAssetChart', this._onClearAsset);
@@ -161,7 +165,7 @@ export class HistoricalChart {
         if (this.isLoading) { this._pendingPeriod = days; return; }
         this.currentPeriod = days;
         this.stopAutoRefresh();
-        await this.update(true, true);
+        await this.update(true, false);
         this.startAutoRefresh();
         if (this._pendingPeriod !== undefined) {
             const next = this._pendingPeriod;
@@ -581,6 +585,13 @@ export class HistoricalChart {
                 snapshotStartedAt = Date.now();
                 const repoResult = await this.dataManager.repository.getSnapshot(assetPurchases, cashPurchases, { forceRefresh: forceApi });
                 const snapshot = repoResult.snapshot._engine;
+                if (repoResult.previousSession) {
+                    this.investmentsPage.renderData?.(snapshot.holdings,
+                        { ...snapshot.summary, totalDayChangeEUR: null, dayChangePct: null }, snapshot.cashReserve.total);
+                    this.showMessage(`Dernier portefeuille connu : ${new Date(repoResult.snapshot.generatedAt).toLocaleString()}. Actualisation en cours.`);
+                    return;
+                }
+                this.snapshotFreshness = { stale: repoResult.stale, degraded: repoResult.degraded, generatedAt: repoResult.snapshot.generatedAt };
                 todayGraphData = snapshot.todayGraphData;
                 targetHoldings = snapshot.holdings;
                 targetSummary = snapshot.summary;

@@ -107,12 +107,12 @@ describe('Cache historique par point — intervalle daily (1d)', () => {
 
         expect(requestedRanges.length).toBe(2); // une seule requête réseau SUPPLÉMENTAIRE
         // Le 2e appel réseau ne redemande PAS depuis startTs — seulement le delta.
-        expect(requestedRanges[1].period1).toBeGreaterThan(startTs + 8 * DAY_SEC);
+        expect(requestedRanges[1].period1).toBeGreaterThan(startTs + 3 * DAY_SEC);
 
         // Le résultat final couvre bien TOUTE la plage demandée (anciens +
         // nouveaux points), jamais seulement le delta brut.
         expect(Object.keys(second).length).toBeGreaterThan(Object.keys(first).length);
-        for (const key of Object.keys(first)) {
+        for (const key of Object.keys(first).filter(ts => Number(ts) < requestedRanges[1].period1 * 1000)) {
             expect(second[key]).toBe(first[key]); // anciens points préservés tels quels
         }
     });

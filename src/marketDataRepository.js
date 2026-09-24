@@ -1,237 +1,216 @@
-// ========================================
-// marketDataRepository.js — MarketDataRepository (validation architecture
-// 2026-09-24). Façade cache-first / stale-while-revalidate au-dessus du
-// moteur financier existant :
-//
-//     UI → MarketDataRepository → memory cache → persistent cache → réseau (Worker)
-//
-// Ne recalcule AUCUNE formule financière — dataManager.buildTodaySnapshot()
-// (qui délègue à HistoryCalculator) reste l'unique producteur du
-// PortfolioSnapshot canonique. Ce module se contente de :
-//   1. mémoïser ce résultat en mémoire + localStorage, par signature de
-//      portefeuille, avec un TTL différencié (frais / stale-mais-affichable) ;
-//   2. coalescer les appels concurrents (3 chemins d'init du dashboard) sur
-//      UNE seule exécution de buildTodaySnapshot ;
-//   3. appliquer la règle fail-closed de la validation d'architecture : un
-//      refresh qui revient invalide (échec réseau confirmé) ne dégrade
-//      JAMAIS un snapshot déjà valide pour le même portefeuille — l'ancien
-//      reste servi tel quel, marqué "degraded".
-//
-// Objet canonique renvoyé : { snapshotId, generatedAt, prices, fx,
-// portfolioSnapshot, dataQuality }, plus quelques champs internes (holdings/
-// summary/todayGraphData) pour les consommateurs existants qui en ont besoin
-// au-delà du PortfolioSnapshot (ex: le graphique lui-même).
-// ========================================
-
+// Cache orchestration only. DataManager remains the financial engine.
 import { marketDataMetrics } from './marketDataMetrics.js';
 
-const FRESH_TTL_MS = 30 * 1000;        // cache valide -> rendu immédiat, AUCUN refresh déclenché
-const STALE_MARK_MS = 5 * 60 * 1000;   // au-delà, le snapshot stale servi est en plus marqué "degraded"
-const PERSIST_KEY = 'marketDataRepository_snapshot_v1';
-
-function purchaseSignatureLine(p) {
-  return `${p.ticker}|${p.quantity}|${p.price}|${p.date}|${p.broker || ''}|${p.assetType || ''}`;
+const VERSION = 2;
+const FRESH_TTL_MS = 30_000;
+const RETRY_MS = 30_000;
+const encode = (_, value) => value instanceof Map ? { $marketMap: [...value] } : value;
+const decode = (_, value) => value?.$marketMap ? new Map(value.$marketMap) : value;
+const copy = value => JSON.parse(JSON.stringify(value, encode), decode);
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])]));
+  return value;
 }
-
-// Signature bon marché et stable : change dès que le portefeuille change
-// RÉELLEMENT (achat/vente/édition), indépendante de l'ordre de
-// storage.getPurchases(). Ne dépend d'aucun prix de marché — une variation de
-// prix ne doit jamais, à elle seule, invalider le cache par "changement de
-// portefeuille" (c'est le rôle du TTL, pas de la signature).
-function purchasesSignature(assetPurchases, cashPurchases) {
-  const sig = (arr) => (arr || []).map(purchaseSignatureLine).sort().join(';');
-  return `${sig(assetPurchases)}||${sig(cashPurchases)}`;
+function signature(assets, cash) {
+  const rows = values => values.map(p => JSON.stringify(canonical(p))).sort();
+  return JSON.stringify([rows(assets), rows(cash)]);
 }
-
-function sameCalendarDay(tsA, tsB) {
-  if (!tsA || !tsB) return false;
-  return new Date(tsA).toDateString() === new Date(tsB).toDateString();
-}
+function sameDay(a, b) { return new Date(a).toDateString() === new Date(b).toDateString(); }
+function superseded() { return Object.assign(new Error('Snapshot superseded'), { name: 'AbortError' }); }
 
 export class MarketDataRepository {
   constructor(dataManager) {
     this.dataManager = dataManager;
-    this._memory = null; // { snapshot, computedAt, purchasesSignature, degraded, lastRefreshFailure }
-    this._inFlight = null; // { signature, promise }
-    this._loadPersisted();
+    this._memory = null;
+    this._inFlight = null;
+    this._generation = 0;
+    this._listeners = new Set();
+    this._scope = undefined;
+    this._remoteLoad = null;
   }
 
-  // ============================================================
-  // PERSISTANCE (couche localStorage — voir en-tête). Best-effort : toute
-  // erreur (quota, mode privé, JSON corrompu) dégrade silencieusement vers
-  // "pas de cache persistant", jamais vers une exception qui bloquerait le
-  // rendu.
-  // ============================================================
-  _loadPersisted() {
+  _ensureScope() {
+    const sync = this.dataManager.storage.marketDataSync;
+    const uid = sync ? (sync.auth ? sync.auth.currentUser?.uid : sync.userId) || 'anonymous' : 'local';
+    if (uid === this._scope) return;
+    this._scope = uid;
+    this._remoteLoad = null;
+    this._generation++;
+    this._inFlight = null;
+    this._memory = null;
+    this._key = `marketDataRepository_snapshot_v${VERSION}:${uid}`;
     try {
-      const raw = localStorage.getItem(PERSIST_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.snapshot && parsed.computedAt && parsed.purchasesSignature) {
-        this._memory = parsed;
-      }
-    } catch (e) {
-      // Cache persistant illisible : on repart simplement sans lui.
-    }
+      const value = JSON.parse(localStorage.getItem(this._key), decode);
+      if (value?.schemaVersion === VERSION && value.userId === uid &&
+          value.snapshot?.portfolioSnapshot?.status === 'valid' &&
+          value.snapshot?._engine?.historicalFxMap instanceof Map &&
+          value.snapshot?._engine?.todayGraphData?.resolvedPrices instanceof Map &&
+          Number.isFinite(value.computedAt) && value.computedAt <= Date.now()) this._memory = value;
+    } catch { /* Corrupt or incompatible cache is a miss. */ }
   }
 
   _persist() {
     try {
-      if (this._memory) localStorage.setItem(PERSIST_KEY, JSON.stringify(this._memory));
-    } catch (e) {
-      // Quota dépassé / mode privé : le cache mémoire reste valide pour cette
-      // session, seule la persistance inter-sessions est perdue.
+      if (this._scope !== 'anonymous' && this._memory?.snapshot.portfolioSnapshot.status === 'valid')
+        localStorage.setItem(this._key, JSON.stringify(this._memory, encode));
+    } catch { /* Memory cache remains available on quota/storage failure. */ }
+  }
+
+  subscribe(listener) { this._listeners.add(listener); return () => this._listeners.delete(listener); }
+  _result(fromCache = true) {
+    const entry = this._memory;
+    return { snapshot: entry.snapshot, fromCache,
+      previousSession: !sameDay(entry.computedAt, Date.now()),
+      stale: !sameDay(entry.computedAt, Date.now()) || Date.now() - entry.computedAt >= FRESH_TTL_MS || !!entry.degraded,
+      degraded: !!entry.degraded, lastRefreshFailure: entry.lastRefreshFailure };
+  }
+  _publish(background) {
+    const result = { ...this._result(false), background };
+    for (const listener of this._listeners) {
+      try { listener(result); } catch (error) { console.warn('[Snapshot subscriber]', error); }
     }
   }
 
-  // ============================================================
-  // INVALIDATION
-  // ============================================================
   invalidate(reason = 'manual') {
+    this._ensureScope();
+    this._generation++;
+    this._inFlight = null;
     this._memory = null;
-    try { localStorage.removeItem(PERSIST_KEY); } catch (e) { /* noop */ }
-    console.log(`[MarketDataRepository] invalidate(${reason})`);
+    try { localStorage.removeItem(this._key); } catch { /* best effort */ }
   }
 
-  // ============================================================
-  // CŒUR CACHE-FIRST / STALE-WHILE-REVALIDATE
-  // ============================================================
-  // Retourne toujours { snapshot, fromCache, stale, degraded }. Ne bloque
-  // JAMAIS sur un refresh background : un appelant qui a déjà un snapshot
-  // exploitable (même périmé) le reçoit immédiatement, le refresh se termine
-  // en tâche de fond et met à jour le cache pour le PROCHAIN appel.
-  async getSnapshot(assetPurchases, cashPurchases = [], { forceRefresh = false } = {}) {
-    const signature = purchasesSignature(assetPurchases, cashPurchases);
-    const now = Date.now();
+  async getPrice(ticker, options = {}) {
+    await this.dataManager.api.fetchBatchPrices([ticker], !!options.forceRefresh);
+    const price = this.dataManager.storage.getCurrentPrice(ticker);
+    if (!price) return null;
+    return { ...price, degraded: !!this.dataManager.api.liveFailures?.has(ticker.toUpperCase()) };
+  }
+  getHistorical(ticker, start, end, interval) {
+    return this.dataManager.api.getHistoricalPricesWithRetry(ticker, start, end, interval);
+  }
+  refresh(assets, cash = []) { return this.getSnapshot(assets, cash, { forceRefresh: true }); }
 
-    // Changement de jour de bourse depuis le dernier calcul : la clôture
-    // veille qu'il porte a été résolue POUR HIER par rapport à ce moment-là —
-    // la réafficher sans réévaluation serait franchement fausse pour
-    // aujourd'hui (contrairement à un prix qui a juste vieilli de quelques
-    // minutes). Traité comme une invalidation avant même de regarder le TTL.
-    if (this._memory && !sameCalendarDay(this._memory.computedAt, now)) {
-      this.invalidate('trading-day-changed');
-    }
-
-    const cached = this._memory;
-    const cacheUsable = cached && cached.purchasesSignature === signature;
-
-    if (!forceRefresh && cacheUsable) {
-      const age = now - cached.computedAt;
-      if (age < FRESH_TTL_MS) {
-        marketDataMetrics.recordSnapshotCacheHit();
-        return { snapshot: cached.snapshot, fromCache: true, stale: false, degraded: !!cached.degraded };
+  async getSnapshot(assets, cash = [], { forceRefresh = false } = {}) {
+    this._ensureScope();
+    const key = signature(assets, cash);
+    const scope = this._scope;
+    if (!this._memory && this.dataManager.storage.marketDataSync?.loadCanonicalSnapshot) {
+      if (!this._remoteLoad) {
+        let timer;
+        const read = this.dataManager.storage.marketDataSync.loadCanonicalSnapshot();
+        this._remoteLoad = Promise.race([read, new Promise(resolve => { timer = setTimeout(() => resolve(null), 1500); })])
+          .then(raw => {
+            this._ensureScope();
+            if (scope !== this._scope || this._memory || !raw) return;
+            const parsed = JSON.parse(raw, decode);
+            if (parsed.schemaVersion === VERSION && parsed.userId === scope && parsed.snapshot?.portfolioSnapshot.status === 'valid' &&
+                parsed.snapshot?._engine?.historicalFxMap instanceof Map && parsed.snapshot?._engine?.todayGraphData?.resolvedPrices instanceof Map &&
+                Number.isFinite(parsed.computedAt) && parsed.computedAt <= Date.now()) this._memory = parsed;
+          }).catch(() => {}).finally(() => clearTimeout(timer));
       }
-      // Stale mais exploitable : on le sert IMMÉDIATEMENT (jamais de blocage
-      // sur le réseau ici) et on déclenche un refresh en tâche de fond,
-      // sans l'attendre.
-      marketDataMetrics.recordSnapshotCacheHit();
-      this._refresh(assetPurchases, cashPurchases, signature, { background: true }).catch(() => { /* voir _refresh : ne rejette jamais réellement */ });
-      return {
-        snapshot: cached.snapshot,
-        fromCache: true,
-        stale: true,
-        degraded: !!cached.degraded || age > STALE_MARK_MS
-      };
+      await this._remoteLoad;
+      this._ensureScope();
+      if (scope !== this._scope) throw superseded();
     }
-
-    // Aucun cache exploitable pour CE portefeuille (absent, signature
-    // différente, ou forceRefresh explicite) : on doit attendre un premier
-    // calcul avant de pouvoir répondre.
+    const now = Date.now();
+    // A previous day's day-P&L must never be labelled as today's result.
+    // A previous session remains visible as a dated snapshot; consumers hide today's P&L.
+    const usable = this._memory?.purchasesSignature === key &&
+      this._memory.fxRate === (this.dataManager.storage.getConversionRate?.('USD_TO_EUR') ?? null);
+    if (!forceRefresh && usable) {
+      marketDataMetrics.recordSnapshotCacheHit();
+      const result = this._result();
+      if (result.stale && now >= (this._memory.retryAt || 0))
+        this._refresh(assets, cash, key, true).catch(() => {});
+      return result;
+    }
     marketDataMetrics.recordSnapshotCacheMiss();
-    const snapshot = await this._refresh(assetPurchases, cashPurchases, signature, { background: false });
-    const stillCached = this._memory && this._memory.purchasesSignature === signature;
-    return {
-      snapshot,
-      fromCache: false,
-      stale: false,
-      degraded: stillCached ? !!this._memory.degraded : false
-    };
+    const snapshot = await this._refresh(assets, cash, key, false);
+    if (this._memory?.snapshot !== snapshot || this._memory.purchasesSignature !== key) throw superseded();
+    return this._result(false);
   }
 
-  // Coalescing : un refresh déjà en vol pour la MÊME signature est partagé,
-  // jamais relancé (même garantie qu'api.js::_inFlightHistoricalRequests /
-  // _inFlightBatchPriceRequests).
-  _refresh(assetPurchases, cashPurchases, signature, { background }) {
-    if (this._inFlight && this._inFlight.signature === signature) {
+  _refresh(assets, cash, key, background) {
+    if (this._inFlight?.signature === key) {
       marketDataMetrics.recordDedup();
       return this._inFlight.promise;
     }
-
-    if (background) marketDataMetrics.recordBackgroundNetworkRequest();
-    else marketDataMetrics.recordInitialNetworkRequest();
-    marketDataMetrics.recordBackgroundRefresh();
-
-    const promise = this._computeSnapshot(assetPurchases, cashPurchases)
-      .then(newSnapshot => this._applyRefreshResult(signature, newSnapshot))
-      .catch(err => {
-        this._inFlight = null;
-        // Un bug interne (pas un échec réseau — voir _computeSnapshot, qui ne
-        // rejette jamais pour une raison réseau/HTTP, voir HistoryCalculator/
-        // api.js) : même règle fail-closed que pour un résultat "invalid" —
-        // si un snapshot valide existe déjà pour ce portefeuille, on le
-        // garde plutôt que de propager une exception jusqu'à l'appelant.
-        if (this._memory && this._memory.purchasesSignature === signature && this._memory.snapshot.portfolioSnapshot.status === 'valid') {
-          this._memory = { ...this._memory, degraded: true, lastRefreshFailure: err?.message || String(err) };
+    const generation = ++this._generation;
+    const scope = this._scope;
+    const current = () => {
+      this._ensureScope();
+      return generation === this._generation && scope === this._scope;
+    };
+    if (background) marketDataMetrics.recordBackgroundRefresh();
+    // Freeze ledger inputs before any await; edits during refresh cannot mix revisions.
+    const assetInput = copy(assets);
+    const cashInput = copy(cash);
+    const compute = async () => {
+      if (!current()) throw superseded();
+      if (!globalThis.navigator?.locks) return this._computeSnapshot(assetInput, cashInput);
+      try {
+        const shared = JSON.parse(localStorage.getItem(this._key), decode);
+        if (shared?.schemaVersion === VERSION && shared.userId === scope && shared.purchasesSignature === key &&
+            shared.snapshot?.portfolioSnapshot?.status === 'valid' &&
+            shared.snapshot?._engine?.historicalFxMap instanceof Map &&
+            shared.snapshot?._engine?.todayGraphData?.resolvedPrices instanceof Map &&
+            shared.fxRate === (this.dataManager.storage.getConversionRate?.('USD_TO_EUR') ?? null) &&
+            shared.computedAt > (this._memory?.computedAt || 0) && Date.now() - shared.computedAt < FRESH_TTL_MS &&
+            sameDay(shared.computedAt,Date.now())) return shared.snapshot;
+      } catch { /* Other tabs may not support persistent storage. */ }
+      return this._computeSnapshot(assetInput, cashInput);
+    };
+    const run = () => compute()
+      .then(snapshot => {
+        if (!current()) throw superseded();
+        const valid = snapshot.portfolioSnapshot.status === 'valid';
+        const previous = this._memory;
+        if (!valid && previous?.purchasesSignature === key && previous.snapshot.portfolioSnapshot.status === 'valid') {
+          this._memory = { ...previous, degraded: true, retryAt: Date.now() + RETRY_MS,
+            lastRefreshFailure: snapshot.portfolioSnapshot.invalidReason || 'PRICE_DATA_UNAVAILABLE' };
+        } else {
+          this._memory = { schemaVersion: VERSION, engineVersion: 1, userId: scope,
+            snapshot, computedAt: snapshot.generatedAt, purchasesSignature: key, degraded: !valid,
+            fxRate: snapshot._engine?.dynamicRate ?? this.dataManager.storage.getConversionRate?.('USD_TO_EUR') ?? null,
+            retryAt: valid ? 0 : Date.now() + RETRY_MS,
+            lastRefreshFailure: valid ? null : snapshot.portfolioSnapshot.invalidReason };
+        }
+        this._persist();
+        if (valid) {
+          const sync = this.dataManager.storage.marketDataSync;
+          void sync?.saveCanonicalSnapshot?.(JSON.parse(JSON.stringify(this._memory, encode)))?.catch(error => console.warn('[Snapshot replication]', error));
+        }
+        this._publish(background);
+        return this._memory.snapshot;
+      }).catch(error => {
+        if (!current()) throw superseded();
+        if (this._memory?.purchasesSignature === key && this._memory.snapshot.portfolioSnapshot.status === 'valid') {
+          this._memory = { ...this._memory, degraded: true, retryAt: Date.now() + RETRY_MS, lastRefreshFailure: error.message };
           this._persist();
+          this._publish(background);
           return this._memory.snapshot;
         }
-        throw err;
+        throw error;
       });
-
-    this._inFlight = { signature, promise };
+    const operation = globalThis.navigator?.locks
+      ? navigator.locks.request(`asset-tracker:snapshot:${scope}`, run)
+      : run();
+    const promise = operation.finally(() => {
+        if (this._inFlight?.promise === promise) this._inFlight = null;
+      });
+    this._inFlight = { signature: key, promise };
     return promise;
   }
 
-  _applyRefreshResult(signature, newSnapshot) {
-    this._inFlight = null;
-    const isValid = newSnapshot.portfolioSnapshot.status === 'valid';
-    const hadValidCacheForSameSignature =
-      this._memory &&
-      this._memory.purchasesSignature === signature &&
-      this._memory.snapshot.portfolioSnapshot.status === 'valid';
-
-    // RÈGLE FINANCIÈRE CRITIQUE (validation architecture 2026-09-24) : un
-    // refresh qui revient invalide (échec réseau/HTTP confirmé pour au moins
-    // un ticker — voir HistoryCalculator.dataQuality) ne doit JAMAIS
-    // dégrader un snapshot déjà valide pour ce même portefeuille. On garde
-    // l'ancien tel quel, marqué "degraded" pour que l'UI puisse le signaler,
-    // et on ne touche PAS son `computedAt` (son âge réel reste visible).
-    if (!isValid && hadValidCacheForSameSignature) {
-      this._memory = { ...this._memory, degraded: true, lastRefreshFailure: newSnapshot.portfolioSnapshot.invalidReason || 'PRICE_DATA_UNAVAILABLE' };
-      this._persist();
-      return this._memory.snapshot;
-    }
-
-    this._memory = {
-      snapshot: newSnapshot,
-      computedAt: Date.now(),
-      purchasesSignature: signature,
-      degraded: !isValid, // pas de cache antérieur à protéger : on expose l'échec tel quel (priceDataUnavailable en aval)
-      lastRefreshFailure: isValid ? null : (newSnapshot.portfolioSnapshot.invalidReason || 'PRICE_DATA_UNAVAILABLE')
-    };
-    this._persist();
-    return newSnapshot;
-  }
-
-  // dataManager.buildTodaySnapshot() ne lève JAMAIS d'exception pour une
-  // raison réseau/HTTP (voir HistoryCalculator/api.js — toute panne confirmée
-  // se traduit par dataQuality.valid=false / portfolioSnapshot.status=
-  // 'invalid', jamais un throw) : la formule/le calcul restent inchangés,
-  // cette méthode ne fait qu'emballer le résultat dans l'objet canonique du
-  // Repository.
-  //
-  // Récupère aussi les prix live elle-même (fetchBatchPrices, déjà coalescé
-  // — voir api.js) et capture livePriceSnapshot IMMÉDIATEMENT après, SANS
-  // AUCUN await entre les deux — même garantie anti-race que l'ancien
-  // HistoricalChart.update() (voir dataManager.buildTodaySnapshot, doc
-  // "Option C"), désormais partagée par TOUS les appelants coalescés sur ce
-  // même refresh plutôt que capturée séparément par chacun.
   async _computeSnapshot(assetPurchases, cashPurchases) {
     const tickers = [...new Set((assetPurchases || []).map(p => p.ticker.toUpperCase()))];
+    if (assetPurchases.some(p => p.currency === 'USD')) await this.dataManager.api.ensureConversionRate?.();
     if (tickers.length > 0) {
       await this.dataManager.api.fetchBatchPrices(tickers);
     }
+    const failures = tickers.filter(t => this.dataManager.api.liveFailures?.has(t));
+    if (failures.length) throw new Error(`PRICE_DATA_UNAVAILABLE: ${failures.join(', ')}`);
     const livePriceSnapshot = new Map(tickers.map(t => [t, this.dataManager.storage.getCurrentPrice(t)]));
 
     const result = await this.dataManager.buildTodaySnapshot(assetPurchases, cashPurchases, livePriceSnapshot);

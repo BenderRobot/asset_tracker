@@ -1,3 +1,4 @@
+import { marketCalendarEngine } from './MarketCalendarEngine.js';
 // ========================================
 // storage.js - (v6 - Firestore Integration)
 // ========================================
@@ -549,7 +550,7 @@ export class Storage {
         const parsedLastTradingDayClose = Number(data?.lastTradingDayClose);
 
         // Vérifier si le nouveau prix est valide (nombre > 0)
-        const isNewPriceValid = data && !Number.isNaN(parsedPrice) && parsedPrice > 0;
+        const isNewPriceValid = data && Number.isFinite(parsedPrice) && parsedPrice > 0;
 
         if (isNewPriceValid) {
             data = {
@@ -567,32 +568,38 @@ export class Storage {
             const shouldNotConvert = isIndex || isFuture || isForex;
 
             if (data.currency === 'USD' && !shouldNotConvert) {
-                const rate = this.getConversionRate('USD_TO_EUR') || 0.925;
-                data = {
-                    ...data,
-                    price: data.price * rate,
-                    previousClose: data.previousClose ? data.previousClose * rate : null,
-                    lastTradingDayClose: data.lastTradingDayClose ? data.lastTradingDayClose * rate : null,
-                    originalCurrency: 'USD',
-                    currency: 'EUR'
-                };
+                const rate = this.getConversionRate('USD_TO_EUR');
+                if (!(rate > 0)) {
+                    // FAIL-CLOSED : pas de taux FX réel → on ne convertit PAS avec un
+                    // taux inventé (ex. ancien 0.925). Le prix reste en USD ; les
+                    // consommateurs (dataManager) doivent traiter l'absence de taux
+                    // via priceDataUnavailable, jamais une conversion silencieuse.
+                    console.warn(`[FX] USD_TO_EUR indisponible — refus de convertir ${upperTicker} (devise reste USD).`);
+                } else {
+                    data = {
+                        ...data,
+                        price: data.price * rate,
+                        previousClose: data.previousClose ? data.previousClose * rate : null,
+                        lastTradingDayClose: data.lastTradingDayClose ? data.lastTradingDayClose * rate : null,
+                        originalCurrency: 'USD',
+                        currency: 'EUR'
+                    };
+                }
             }
 
             // Cas 1 : Nouveau prix valide. On écrase l'ancienne donnée.
             this.currentData[upperTicker] = data;
         } else if (existingData) {
             // Cas 2 : Nouveau prix invalide (API down), mais on a un prix en cache.
-            // On conserve l'ancienne donnée existante, mais on met à jour le timestamp 
-            // pour ne pas tenter un nouveau rafraîchissement immédiat.
-            this.priceTimestamps[upperTicker] = Date.now();
-            this.savePricesCache();
+            // Keep the original value AND timestamp. Transport owns retry backoff.
             return;
         } else {
             // Cas 3 : Ni données existantes ni nouveau prix. On ne fait rien.
             return;
         }
 
-        this.priceTimestamps[upperTicker] = Date.now();
+        const observedAt = data.lastUpdate ?? data.lastUpdated ?? Date.now();
+        this.priceTimestamps[upperTicker] = Number.isFinite(observedAt) ? observedAt : 0;
         this.savePricesCache();
     }
 
@@ -639,6 +646,8 @@ export class Storage {
             return false;
         }
 
+        const close = marketCalendarEngine.getSessionClose(upperTicker, new Date());
+        if (close && Date.now() >= close && ts < close + 5 * 60000) return false;
         return age < CACHE_EXPIRY_STOCKS_MARKET_CLOSED;
     }
 

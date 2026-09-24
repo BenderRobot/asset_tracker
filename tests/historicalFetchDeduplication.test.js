@@ -96,11 +96,11 @@ describe('TEST 1 — coalescing au niveau réseau (api.js::getHistoricalPricesWi
 // partagé : la coalescence est auto-invalidante (la promesse sort de la map
 // dès qu'elle se résout, succès ou échec).
 describe('TEST 5 — un appel ultérieur (hors concurrence) relance bien une vraie requête réseau', () => {
-    it('après résolution du 1er échec réseau, un 2e appel séparé retente sur le réseau', async () => {
+    it('retries a failed request once its cooldown has expired', async () => {
         let fetchCalls = 0;
         vi.stubGlobal('fetch', vi.fn(async () => {
             fetchCalls++;
-            if (fetchCalls <= 3) return { ok: false, status: 429 }; // 3 tentatives internes échouent
+            if (fetchCalls === 1) return { ok: false, status: 429 }; // 3 tentatives internes échouent
             return { ok: true, json: async () => yahooResponse([50, 51]) };
         }));
 
@@ -109,11 +109,13 @@ describe('TEST 5 — un appel ultérieur (hors concurrence) relance bien une vra
 
         const first = await api.getHistoricalPricesWithRetry('DEDUP5', 1790000000, 1790259200, '1d');
         expect(isHistoricalFetchFailure(first)).toBe(true);
-        expect(fetchCalls).toBe(3); // les 3 retries internes, jamais mis en cache (voir api.js)
+        expect(fetchCalls).toBe(1); // one failed request; no immediate retry during cooldown
 
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 31000);
         const second = await api.getHistoricalPricesWithRetry('DEDUP5', 1790000000, 1790259200, '1d');
         expect(isHistoricalFetchFailure(second)).toBe(false);
-        expect(fetchCalls).toBe(4); // une vraie nouvelle requête réseau, pas un résultat d'échec réutilisé
+        clock.mockRestore();
+        expect(fetchCalls).toBe(2); // une vraie nouvelle requête réseau, pas un résultat d'échec réutilisé
     });
 });
 
@@ -141,7 +143,7 @@ describe('TEST 6/7 — HTTP 429/500/502/timeout restent fail-closed sous coalesc
             api.getHistoricalPricesWithRetry('DEDUPFAIL', 1790000000, 1790259200, '1d'),
         ]);
 
-        expect(fetchCalls).toBe(3); // 3 tentatives (retries) de la SEULE exécution coalescée, pas 9
+        expect(fetchCalls).toBe(1); // one failed request; no immediate retry during cooldown
         results.forEach(r => expect(isHistoricalFetchFailure(r)).toBe(true));
     });
 

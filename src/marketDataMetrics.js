@@ -18,6 +18,9 @@
 
 const counters = {
   browserRequests: 0,
+  historicalCalculations: 0,
+  historicalCalculationMs: 0,
+  requestsByType: {},
   workerUpstreamRequests: null,
   cacheHits: 0,
   cacheMisses: 0,
@@ -48,7 +51,11 @@ const counters = {
 };
 
 function reset() {
+  sessionStart = now();
   counters.browserRequests = 0;
+  counters.historicalCalculations = 0;
+  counters.historicalCalculationMs = 0;
+  counters.requestsByType = {};
   counters.workerUpstreamRequests = null;
   counters.cacheHits = 0;
   counters.cacheMisses = 0;
@@ -78,6 +85,10 @@ function now() {
 // retourné doit être passé à recordRequestEnd une fois la réponse (ou
 // l'erreur) connue.
 function recordRequestStart(requestType) {
+  counters.browserRequests++;
+  counters.requestsByType[requestType] = (counters.requestsByType[requestType] || 0) + 1;
+  if (counters.initialRenderMs === null) counters.initialNetworkRequests++;
+  else counters.backgroundNetworkRequests++;
   return { start: now(), requestType };
 }
 
@@ -85,14 +96,13 @@ function recordRequestStart(requestType) {
 // response : objet Response (optionnel) — utilisé pour lire les en-têtes
 // diagnostiques du Worker quand présents (voir commentaire d'en-tête).
 function recordRequestEnd(handle, status, response = null) {
-  counters.browserRequests++;
   counters.latencies.push(now() - handle.start);
 
   if (status === 'timeout') {
     counters.timeouts++;
-  } else if (status === 429) {
+  } else if (!['binance', 'fx-reference'].includes(handle.requestType) && status === 429) {
     counters.worker429++;
-  } else if (typeof status === 'number' && status >= 500) {
+  } else if (!['binance', 'fx-reference'].includes(handle.requestType) && typeof status === 'number' && status >= 500) {
     counters.worker5xx++;
   } else if (typeof status === 'number' && status >= 400) {
     counters.workerOtherError++;
@@ -129,19 +139,23 @@ function recordDedup() {
 }
 function recordSnapshotCacheHit() { counters.snapshotCacheHits++; }
 function recordSnapshotCacheMiss() { counters.snapshotCacheMisses++; }
-function recordInitialNetworkRequest() { counters.initialNetworkRequests++; }
-function recordBackgroundNetworkRequest() { counters.backgroundNetworkRequests++; }
 function recordBackgroundRefresh() { counters.backgroundRefreshes++; }
 function recordInitialRender() {
   if (counters.initialRenderMs === null) counters.initialRenderMs = Math.round(now() - sessionStart);
 }
 
-const sessionStart = now();
+let sessionStart = now();
 
 function snapshot() {
   const lat = counters.latencies;
   const averageLatencyMs = lat.length ? Math.round(lat.reduce((a, b) => a + b, 0) / lat.length) : null;
   return {
+    historicalCalculations: counters.historicalCalculations,
+    historicalCalculationMs: counters.historicalCalculationMs,
+    requestsByType: { ...counters.requestsByType },
+    networkRequests: counters.browserRequests,
+    initialLoadDuration: counters.initialRenderMs,
+    averageLatency: averageLatencyMs,
     browserRequests: counters.browserRequests,
     workerUpstreamRequests: counters.workerUpstreamRequests,
     cacheHits: counters.cacheHits,
@@ -167,6 +181,11 @@ function snapshot() {
 }
 
 export const marketDataMetrics = {
+  startCalculation() {
+    counters.historicalCalculations++;
+    const started = now();
+    return () => { counters.historicalCalculationMs += now() - started; };
+  },
   reset,
   recordRequestStart,
   recordRequestEnd,
@@ -175,8 +194,6 @@ export const marketDataMetrics = {
   recordDedup,
   recordSnapshotCacheHit,
   recordSnapshotCacheMiss,
-  recordInitialNetworkRequest,
-  recordBackgroundNetworkRequest,
   recordBackgroundRefresh,
   recordInitialRender,
   snapshot,

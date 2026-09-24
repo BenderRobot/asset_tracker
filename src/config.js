@@ -11,9 +11,9 @@ export const ENABLE_BANKING_PROXY_URL = 'https://asset-tracker-enable-banking.bl
 export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 // CACHE : Durées différentes selon type d'actif
-export const CACHE_EXPIRY_STOCKS_MARKET_OPEN = 10 * 60 * 1000; // 10 minutes (marché ouvert)
+export const CACHE_EXPIRY_STOCKS_MARKET_OPEN = 60 * 1000; // 60 seconds
 export const CACHE_EXPIRY_STOCKS_MARKET_CLOSED = 7 * 24 * 60 * 60 * 1000; // 7 jours (marché fermé/weekend)
-export const CACHE_EXPIRY_CRYPTO = 5 * 60 * 1000; // 5 minutes (marché 24/7)
+export const CACHE_EXPIRY_CRYPTO = 60 * 1000; // 24/7
 
 // REFRESH AUTOMATIQUE
 export const AUTO_REFRESH_INTERVAL = 10 * 60 * 1000; // Rafraîchir toutes les 10 minutes
@@ -21,8 +21,9 @@ export const AUTO_REFRESH_ENABLED = true; // Activer/désactiver le refresh auto
 
 export const PAGE_SIZE = 25;
 
-// MODIFICATION : Ceci est maintenant un taux de SECOURS
-export const USD_TO_EUR_FALLBACK_RATE = 0.925;
+// INTERDIT : tout taux FX hardcodé (ex. ancien USD_TO_EUR_FALLBACK_RATE = 0.925).
+// Une conversion USD→EUR n'est autorisée que si storage.getConversionRate('USD_TO_EUR')
+// (ou une map FX historique réelle) fournit un taux valide — sinon fail-closed.
 
 export const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 

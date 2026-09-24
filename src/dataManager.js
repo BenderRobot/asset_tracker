@@ -1,8 +1,10 @@
+import { marketDataMetrics } from './marketDataMetrics.js';
+import { fetchMarketResponse } from './marketDataTransport.js';
 // ========================================
 // dataManager.js - (v8 - Ajout support Indices)
 // ========================================
 
-import { USD_TO_EUR_FALLBACK_RATE, YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
+import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
 import { HistoryCalculator } from './HistoryCalculator.js?v=5';
 import { MarketDataRepository } from './marketDataRepository.js';
@@ -321,7 +323,7 @@ export class DataManager {
             const ctrl = new AbortController();
             const timeoutId = setTimeout(() => ctrl.abort(), 15000);
             const url = `${PRICE_PROXY_URL}?symbol=${encodeURIComponent(pair)}&type=STOCK&range=${rangeYears}y&interval=1d`;
-            const res = await fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timeoutId));
+            const res = await fetchMarketResponse(url, 15000, 'fx-history', 86400000).finally(() => clearTimeout(timeoutId));
             if (!res.ok) return rates;
 
             const data = await res.json();
@@ -331,7 +333,7 @@ export class DataManager {
 
             if (timestamps && quotes) {
                 timestamps.forEach((ts, i) => {
-                    if (quotes[i]) {
+                    if (Number.isFinite(quotes[i]) && quotes[i] > 0) {
                         const date = new Date(ts * 1000).toISOString().split('T')[0];
                         rates.set(date, quotes[i]);
                     }
@@ -374,7 +376,7 @@ export class DataManager {
         }
 
         const promise = this.fetchHistoricalFxRateMap('EURUSD=X', yearsNeeded).then(map => {
-            this._historicalFxMapCache = { map, rangeYears: yearsNeeded, fetchedAt: Date.now() };
+            if (map.size) this._historicalFxMapCache = { map, rangeYears: yearsNeeded, fetchedAt: Date.now() };
             return map;
         }).finally(() => { this._historicalFxMapInFlight = null; });
         this._historicalFxMapInFlight = { rangeYears: yearsNeeded, promise };
@@ -458,9 +460,18 @@ export class DataManager {
             if (p.quantity > 0) {
                 // ACHAT — le coût EUR est figé au taux du JOUR DE L'ACHAT (invariant 9),
                 // jamais au taux courant : voir _resolveHistoricalUsdToEurRate.
+                // FAIL-CLOSED : si aucun taux historique NI live valide → pas d'investi
+                // inventé (fxUnavailable) ; la quantité est suivie pour diagnostic.
                 const rate = currency === 'USD'
                     ? this._resolveHistoricalUsdToEurRate(p.date, historicalFxMap, dynamicRate, { ticker, broker })
                     : 1;
+                if (currency === 'USD' && !(rate > 0)) {
+                    console.warn(`[FX] Taux USD→EUR indisponible pour achat ${ticker}/${broker} du ${p.date} — fail-closed.`);
+                    pos.fxUnavailable = true;
+                    pos.quantity += p.quantity;
+                    pos.purchases.push(p);
+                    return;
+                }
                 pos.quantity += p.quantity;
                 pos.invested += p.price * p.quantity * rate;
             } else {
@@ -528,6 +539,23 @@ export class DataManager {
 
         const d = resolvedPrices?.get(ticker) || this.storage.getCurrentPrice(ticker) || {};
         const currency = d.currency || 'EUR';
+
+        // FAIL-CLOSED FX : un prix encore en USD sans taux réel valide ne doit
+        // jamais être multiplié par un taux inventé — même chemin que
+        // priceDataUnavailable (agrégats portefeuille invalidés). Idem si le
+        // coût de revient USD n'a pas pu être converti (fxUnavailable).
+        if (data.fxUnavailable || (currency === 'USD' && !(dynamicRate > 0))) {
+            const avgPriceEUR = (data.quantity > 0 && data.invested > 0) ? data.invested / data.quantity : 0;
+            console.warn(`[FX] USD_TO_EUR indisponible pour ${ticker} — position marquée priceDataUnavailable.`);
+            return {
+                ticker, name: data.name, assetType: data.assetType, quantity: data.quantity,
+                avgPrice: avgPriceEUR, invested: data.invested,
+                currentPrice: null, previousClose: null, currentValue: null,
+                gainEUR: null, gainPct: null, dayChange: null, dayPct: null,
+                yesterdayQuantity: null, weight: 0, purchases: data.purchases,
+                priceDataUnavailable: true
+            };
+        }
 
         // currentRate convertit le prix de marché courant pour les actifs USD
         // (ex: BKSY) — data.invested est déjà en EUR (converti achat par achat).
@@ -705,7 +733,7 @@ export class DataManager {
     // `+= p.price * p.quantity` qui ne gérait ni la conversion FX, ni la
     // réduction proportionnelle du coût de revient sur une vente (voir audit).
     getInvestedByBroker(assetPurchases, historicalFxMap = null) {
-        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR'); // null = FX indisponible
         const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate, historicalFxMap)
             .filter(pos => (pos.quantity || 0) > 0.0001);
 
@@ -732,7 +760,8 @@ export class DataManager {
     // `invalidTickers` (optionnel, Set<ticker>) : voir _enrichAggregatedPosition —
     // propagé tel quel, jamais recalculé ici.
     calculateHoldings(assetPurchases, yesterdayCloseMap = null, historicalFxMap = null, priceSnapshot = null, invalidTickers = null) {
-        const dynamicRate = priceSnapshot?.dynamicRate ?? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE);
+        // FAIL-CLOSED FX : jamais de taux hardcodé — null si indisponible.
+        const dynamicRate = priceSnapshot?.dynamicRate ?? this.storage.getConversionRate('USD_TO_EUR');
         const positions = this._buildPositionsByBrokerTicker(assetPurchases, dynamicRate, historicalFxMap);
 
         // Agrégation par TICKER (une ligne par actif, tous courtiers
@@ -742,12 +771,13 @@ export class DataManager {
         const byTicker = new Map();
         positions.forEach(pos => {
             if (!byTicker.has(pos.ticker)) {
-                byTicker.set(pos.ticker, { name: pos.name, assetType: pos.assetType, quantity: 0, invested: 0, purchases: [] });
+                byTicker.set(pos.ticker, { name: pos.name, assetType: pos.assetType, quantity: 0, invested: 0, purchases: [], fxUnavailable: false });
             }
             const agg = byTicker.get(pos.ticker);
             agg.quantity += pos.quantity;
             agg.invested += pos.invested;
             agg.purchases.push(...pos.purchases);
+            if (pos.fxUnavailable) agg.fxUnavailable = true;
         });
         byTicker.forEach(agg => agg.purchases.sort((a, b) => new Date(a.date) - new Date(b.date)));
 
@@ -870,7 +900,7 @@ export class DataManager {
     }
 
     calculateEnrichedPurchases(filteredPurchases, historicalFxMap = null) {
-        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR'); // null = FX indisponible
 
         return filteredPurchases.map(p => {
             if (p.assetType === 'Cash') {
@@ -920,6 +950,23 @@ export class DataManager {
             const buyRate = p.currency === 'USD'
                 ? this._resolveHistoricalUsdToEurRate(p.date, historicalFxMap, dynamicRate, { ticker: t, broker: p.broker })
                 : 1;
+            // FAIL-CLOSED FX : pas d'investi EUR inventé.
+            if (p.currency === 'USD' && !(buyRate > 0)) {
+                return {
+                    ...p,
+                    assetType: p.assetType || 'Stock',
+                    broker: p.broker || 'RV-CT',
+                    currency: assetCurrency,
+                    currentPriceOriginal,
+                    buyPriceOriginal,
+                    currentPriceEUR: null,
+                    investedEUR: null,
+                    currentValueEUR: null,
+                    gainEUR: null,
+                    gainPct: null,
+                    fxUnavailable: true
+                };
+            }
             const buyPriceEUR = buyPriceOriginal * buyRate;
 
             const investedEUR = buyPriceEUR * p.quantity;
@@ -1322,7 +1369,7 @@ export class DataManager {
     // voir investmentsPage.getFilteredPurchasesFromPage) : le retour reflète alors
     // les invariants POUR CE SOUS-ENSEMBLE, pas nécessairement le portefeuille entier.
     validatePortfolioConsistency(assetPurchases, cashPurchases = [], historicalFxMap = null, tolerance = 0.01) {
-        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR'); // null = FX indisponible
 
         const holdings = this.calculateHoldings(assetPurchases, null, historicalFxMap)
             .filter(h => (h.quantity || 0) > 0.0001);
@@ -1488,7 +1535,8 @@ export class DataManager {
         // tooltip peut afficher un "Investi" différent du KPI "Investi" affiché juste
         // au-dessus, pour la même date, à cause du seul taux de change (invariant 9).
         const historicalFxMap = historicalFxMapOverride ?? await this.getHistoricalFxMap(purchases);
-        return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset, historicalFxMap, dynamicRateOverride, debugCapture, livePriceSnapshot);
+        const finish = marketDataMetrics.startCalculation();
+        return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset, historicalFxMap, dynamicRateOverride, debugCapture, livePriceSnapshot).finally(finish);
     }
 
     // ============================================================
@@ -1532,7 +1580,8 @@ export class DataManager {
     // le comportement précédent est conservé à l'identique.
     async buildTodaySnapshot(assetPurchases, cashPurchases = [], livePriceSnapshot = null) {
         const snapshotStartedAt = Date.now();
-        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE;
+        // FAIL-CLOSED FX : jamais de taux hardcodé (ex. ancien 0.925).
+        const dynamicRate = this.storage.getConversionRate('USD_TO_EUR');
         const historicalFxMap = await this.getHistoricalFxMap(assetPurchases);
 
         const todayGraphData = await this.calculateGenericHistory(

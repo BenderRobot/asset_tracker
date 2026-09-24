@@ -35,7 +35,6 @@
 //     market is valorized at its last real price (lastKnownPrices carry-
 //     forward / midnightValuationSeed), never given a fabricated candle.
 
-import { USD_TO_EUR_FALLBACK_RATE } from './config.js';
 import { parseDate } from './utils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { getGlobalWindow } from './TimeRangeEngine.js';
@@ -114,7 +113,8 @@ export class HistoryCalculator {
         const ledger = this._buildLedger(purchases, isSingleAsset);
         if (!ledger.firstPurchaseDate) return emptyResult();
 
-        const dynamicRate = dynamicRateOverride ?? (this.storage.getConversionRate('USD_TO_EUR') || USD_TO_EUR_FALLBACK_RATE);
+        // FAIL-CLOSED FX : null si aucun taux réel — jamais de fallback hardcodé (0.925).
+        const dynamicRate = dynamicRateOverride ?? this.storage.getConversionRate('USD_TO_EUR');
         const tickers = Array.from(ledger.byTicker.keys());
 
         const livePriceSnapshot = livePriceSnapshotOverride
@@ -636,14 +636,28 @@ export class HistoryCalculator {
                 }
 
                 if (closePrice > 0) {
-                    prices.set(t, closePrice);
                     let rate = 1;
                     if (!isSingleAsset) {
                         const currency = livePriceSnapshot.get(t)?.currency || 'EUR';
-                        if (currency === 'USD') rate = dynamicRate;
+                        if (currency === 'USD') {
+                            if (!(dynamicRate > 0)) {
+                                // FAIL-CLOSED : pas de clôture EUR inventée
+                            } else {
+                                rate = dynamicRate;
+                                prices.set(t, closePrice);
+                                total += closePrice * rate * qty;
+                                assetsFound++;
+                            }
+                        } else {
+                            prices.set(t, closePrice);
+                            total += closePrice * rate * qty;
+                            assetsFound++;
+                        }
+                    } else {
+                        prices.set(t, closePrice);
+                        total += closePrice * rate * qty;
+                        assetsFound++;
                     }
-                    total += closePrice * rate * qty;
-                    assetsFound++;
                 }
             }));
         }
@@ -778,7 +792,13 @@ export class HistoryCalculator {
             const priceData = livePriceSnapshot.get(t);
             const currency = priceData?.currency || 'EUR';
             let rate = 1;
-            if (!isSingleAsset && currency === 'USD') rate = dynamicRate;
+            if (!isSingleAsset && currency === 'USD') {
+                if (!(dynamicRate > 0)) {
+                    map.set(t, { yesterdayCloseTotal: null, todayValueOfYesterdayHoldingsTotal: null, quantityYesterday: qtyYesterday, currency });
+                    continue;
+                }
+                rate = dynamicRate;
+            }
 
             const currentPrice = priceData?.price > 0 ? priceData.price : null;
             const closePrice = yesterday.prices.get(t) || null;
@@ -803,12 +823,11 @@ export class HistoryCalculator {
         // un enregistrement par index de displayTimestamps, jamais recalculé en
         // aval (le renderer/tooltip ne fait que LIRE ces champs, voir
         // historicalChart.js). Sources canoniques autorisées : 'historical_candle'
-        // (bougie réelle du provider), 'valuation' (repli légitime — clôture
-        // veille au tout premier point, carry-forward d'un dernier prix connu
-        // pendant un marché fermé, ou cash à valeur fixe 1.0 — jamais une
-        // nouvelle observation de marché), 'live_quote' et 'transaction' réservés
-        // à un usage futur (voir section G de l'audit, non implémentée dans
-        // cette passe : ce moteur n'ajoute jamais de point live lui-même).
+        // UNIQUEMENT si hist[ts] exact (bougie provider à CE timestamp),
+        // 'valuation' / carry-forward (closestPrice, lastKnown, midnightSeed —
+        // valeur réutilisée d'une observation antérieure, JAMAIS une nouvelle
+        // observation à ce timestamp), 'live_quote' et 'transaction' réservés
+        // à un usage futur (ce moteur n'ajoute jamais de point live lui-même).
         const pointMeta = [];
         // PortfolioSnapshot historique, une entrée par point affiché (audit
         // architecture SSOT) : cash/totalReturn/totalReturnPct calculés ICI,
@@ -858,8 +877,14 @@ export class HistoryCalculator {
                 const costRate = entry.currency === 'USD'
                     ? resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker: t, broker: entry.broker })
                     : 1;
-                pos.qty += entry.quantity;
-                pos.cost += entry.price * entry.quantity * costRate;
+                // FAIL-CLOSED : pas de coût EUR inventé si FX indisponible.
+                if (entry.currency === 'USD' && !(costRate > 0)) {
+                    console.warn(`[FX] Coût de revient USD non convertible pour ${t} — quantité suivie sans coût inventé.`);
+                    pos.qty += entry.quantity;
+                } else {
+                    pos.qty += entry.quantity;
+                    pos.cost += entry.price * entry.quantity * costRate;
+                }
             } else {
                 const sellQty = Math.abs(entry.quantity);
                 if (pos.qty > 0) {
@@ -910,11 +935,17 @@ export class HistoryCalculator {
                 if (entry.date.getTime() <= cutoff) {
                     quantities.set(t, quantities.get(t) + entry.quantity);
                     let rate = 1;
+                    let canConvert = true;
                     if (!isSingleAsset) {
                         const currency = livePriceSnapshot.get(t)?.currency || entry.currency || 'EUR';
-                        if (currency === 'USD') rate = dynamicRate;
+                        if (currency === 'USD') {
+                            if (!(dynamicRate > 0)) canConvert = false;
+                            else rate = dynamicRate;
+                        }
                     }
-                    investedByTicker.set(t, investedByTicker.get(t) + entry.price * entry.quantity * rate);
+                    if (canConvert) {
+                        investedByTicker.set(t, investedByTicker.get(t) + entry.price * entry.quantity * rate);
+                    }
                     applyCostBasisEntry(t, entry);
                 }
             }
@@ -951,13 +982,19 @@ export class HistoryCalculator {
                     if (entryTs > lowerBound && entryTs <= ts) {
                         quantities.set(t, quantities.get(t) + entry.quantity);
                         let rate = 1;
+                        let canConvert = true;
                         if (!isSingleAsset) {
                             const currency = livePriceSnapshot.get(t)?.currency || entry.currency || 'EUR';
-                            if (currency === 'USD') rate = dynamicRate;
+                            if (currency === 'USD') {
+                                if (!(dynamicRate > 0)) canConvert = false;
+                                else rate = dynamicRate;
+                            }
                         }
-                        const flow = entry.price * entry.quantity * rate;
-                        investedByTicker.set(t, investedByTicker.get(t) + flow);
-                        cashFlow += flow;
+                        if (canConvert) {
+                            const flow = entry.price * entry.quantity * rate;
+                            investedByTicker.set(t, investedByTicker.get(t) + flow);
+                            cashFlow += flow;
+                        }
                         quantityChanged = true;
                         applyCostBasisEntry(t, entry);
                     }
@@ -1022,8 +1059,19 @@ export class HistoryCalculator {
                         // `livePriceSnapshot` ici par cohérence avec la ligne
                         // ci-dessous (même ticker, même objet).
                         currency = livePriceSnapshot.get(t)?.currency || 'EUR';
-                        if (currency === 'USD') rate = dynamicRate;
+                        // FAIL-CLOSED FX : jamais rate=1 silencieux ni taux inventé
+                        // pour un actif encore coté en USD.
+                        if (currency === 'USD') {
+                            if (!(dynamicRate > 0)) {
+                                price = null;
+                                priceSource = 'none';
+                            } else {
+                                rate = dynamicRate;
+                            }
+                        }
                     }
+                }
+                if (price != null) {
                     totalValue += price * qty * rate;
                     if (isCash) totalCash += price * qty * rate;
                     hasAnyPrice = true; priced++;
@@ -1157,15 +1205,16 @@ export class HistoryCalculator {
                 if (isSingleAsset) unitPrices.push(null);
             }
 
-            // Provenance de CE point (validation architecture 2026-09-24, Phase 4)
-            // — voir déclaration de pointMeta plus haut pour les règles. 'cash'/
-            // 'none' ne comptent pas comme une source de marché : un point dont
-            // seuls des tickers cash ont contribué n'a aucune information de
-            // marché à qualifier ; 'none' signifie qu'aucun prix n'a pu être
-            // résolu du tout pour ce ticker à ce point.
+            // Provenance de CE point (validation architecture 2026-09-24, Phase 4
+            // + correction audit Cursor 2026-09-24) — 'historical_candle' UNIQUEMENT
+            // pour une bougie provider exactement à `ts`. closestPrice / lastKnown /
+            // midnightSeed = valuation (carry-forward), jamais historical_candle :
+            // réutiliser une observation à 09:35 pour un point grille 09:40 n'est
+            // PAS une nouvelle observation historique à 09:40. 'cash'/'none' ne
+            // comptent pas comme source de marché.
             const marketSources = Object.entries(tickerSourcesThisPoint).reduce((acc, [t, s]) => {
-                if (s === 'candle' || s === 'closestPrice') acc[t] = 'historical_candle';
-                else if (s === 'midnightSeed' || s === 'lastKnown') acc[t] = 'valuation';
+                if (s === 'candle') acc[t] = 'historical_candle';
+                else if (s === 'closestPrice' || s === 'midnightSeed' || s === 'lastKnown') acc[t] = 'valuation';
                 return acc;
             }, {});
             const distinctSources = new Set(Object.values(marketSources));

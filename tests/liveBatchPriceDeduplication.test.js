@@ -58,7 +58,7 @@ describe('fetchBatchPrices — coalescing des requêtes concurrentes pour le mê
         expect(storage.getCurrentPrice('MSFT').price).toBe(100);
     });
 
-    it('un jeu de tickers différent (même partiellement) déclenche sa propre requête, jamais coalescé avec un autre', async () => {
+    it('overlapping batches share each instrument request', async () => {
         let fetchCalls = 0;
         vi.stubGlobal('fetch', vi.fn(async () => {
             fetchCalls++;
@@ -73,7 +73,7 @@ describe('fetchBatchPrices — coalescing des requêtes concurrentes pour le mê
             api.fetchBatchPrices(['AAPL', 'MSFT', 'NVDA']),
         ]);
 
-        expect(fetchCalls).toBe(5); // 2 + 3, aucune coalescence entre jeux différents
+        expect(fetchCalls).toBe(3); // three distinct instruments, not five downloads
     });
 
     it("l'ordre des tickers dans le tableau n'affecte pas la coalescence (même jeu, ordre différent)", async () => {
@@ -94,7 +94,7 @@ describe('fetchBatchPrices — coalescing des requêtes concurrentes pour le mê
         expect(fetchCalls).toBe(2); // toujours coalescé malgré l'ordre différent
     });
 
-    it('un appel ultérieur (hors concurrence, après résolution) relance bien un vrai cycle réseau', async () => {
+    it('subsequent calls reuse the fresh provider cache', async () => {
         let fetchCalls = 0;
         vi.stubGlobal('fetch', vi.fn(async () => {
             fetchCalls++;
@@ -111,6 +111,6 @@ describe('fetchBatchPrices — coalescing des requêtes concurrentes pour le mê
         expect(fetchCalls).toBe(1);
 
         await api.fetchBatchPrices(['AAPL']);
-        expect(fetchCalls).toBe(2); // pas de réutilisation d'une promesse déjà résolue
+        expect(fetchCalls).toBe(1); // provider cache is still fresh
     });
 });

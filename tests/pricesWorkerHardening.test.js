@@ -262,3 +262,24 @@ describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)
         expect(res.status).toBe(200);
     });
 });
+
+
+describe('Prices Worker shared chart cache', () => {
+    beforeEach(() => _resetRateLimiterStateForTests());
+    afterEach(() => vi.unstubAllGlobals());
+    it('coalesces identical chart requests and reuses only successful data', async () => {
+        vi.stubGlobal('fetch',vi.fn(async () => ({ok:true,status:200,json:async()=>({chart:{result:[{
+            meta:{currency:'EUR'}, timestamp:[1700000000], indicators:{quote:[{close:[100]}]}
+        }]}})})));
+        const env = makeEnv({PRICE_RATE_LIMIT_PER_MINUTE:'100'});
+        const results = await Promise.all([
+            worker.fetch(getRequest('symbol=CACHEAAA'),env),
+            worker.fetch(getRequest('symbol=CACHEAAA'),env)
+        ]);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(results.map(r=>r.status)).toEqual([200,200]);
+        const cached = await worker.fetch(getRequest('symbol=CACHEAAA'),env);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(cached.headers.get('X-Yahoo-Attempts')).toBe('0');
+    });
+});
