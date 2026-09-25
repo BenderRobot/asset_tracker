@@ -258,6 +258,10 @@ export class ChartKPIManager {
      * @param {Object} config - Configuration contenant toutes les données nécessaires
      */
     updateKPIs(config) {
+        // Responsive/cache-first rendering may replace the chart DOM. Refresh
+        // references so a detached stats block cannot receive the new values
+        // while the visible block stays at its initial 0.00 values.
+        this.elements = this._cacheElements();
         const {
             isIndexMode,
             isSingleAsset,

@@ -728,7 +728,11 @@ export class PriceAPI {
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
         const response = await _fetchTimeout(proxyUrl, 10000, 'historical');
-        if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
+        if (!response.ok) {
+          const httpError = new Error(`Proxy HTTP ${response.status}`);
+          httpError.status = response.status;
+          throw httpError;
+        }
 
         const data = await response.json();
 

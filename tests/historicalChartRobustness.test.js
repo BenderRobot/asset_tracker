@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HistoricalChart } from '../src/historicalChart.js';
 import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+import { getIntervalForPeriod } from '../src/MarketUtils.js';
 
 function makeChart() {
     const storage = createFakeStorage();
@@ -71,6 +72,26 @@ describe('Historical chart robustness and cache', () => {
         expect(c).toBe(a);
     });
 
+    it('rejects a label-only or fail-closed series instead of painting a zero chart', () => {
+        const chart = makeChart();
+        chart.currentPeriod = 2;
+
+        expect(chart._hasRenderableFinancialSeries({
+            labels: ['a', 'b'], values: [null, null], dataQuality: { valid: true }
+        })).toBe(false);
+        expect(chart._hasRenderableFinancialSeries({
+            labels: ['a', 'b'], values: [100, 101], dataQuality: { valid: false }
+        })).toBe(false);
+        expect(chart._hasRenderableFinancialSeries({
+            labels: ['a', 'b'], values: [100, 101], dataQuality: { valid: true }
+        })).toBe(true);
+    });
+
+    it('uses 15-minute candles for 2D to keep the request volume bounded', () => {
+        expect(getIntervalForPeriod(1)).toBe('5m');
+        expect(getIntervalForPeriod(2)).toBe('15m');
+    });
+
     it('keeps the loader visible and never paints a superseded period', async () => {
         const chart = makeChart();
         const dm = chart.dataManager;
@@ -89,7 +110,7 @@ describe('Historical chart robustness and cache', () => {
             .mockImplementationOnce(() => first)
             .mockResolvedValue({ snapshot: { generatedAt: 1, portfolioSnapshot, _engine: engine }, previousSession: false });
         dm.calculateHistory = vi.fn().mockResolvedValue({
-            labels: ['6m'], timestamps: [2], values: [120], invested: [100], twr: [1.2], dataQuality: { valid: true }
+            labels: ['6m-a', '6m-b'], timestamps: [2, 3], values: [110, 120], invested: [100, 100], twr: [1.1, 1.2], dataQuality: { valid: true }
         });
         chart.renderChart = vi.fn();
 
@@ -103,7 +124,7 @@ describe('Historical chart robustness and cache', () => {
         await vi.waitFor(() => expect(chart.renderChart).toHaveBeenCalledTimes(1));
 
         expect(chart.currentPeriod).toBe(180);
-        expect(chart.renderChart.mock.calls[0][1].labels).toEqual(['6m']);
+        expect(chart.renderChart.mock.calls[0][1].labels).toEqual(['6m-a', '6m-b']);
         expect(document.getElementById('chart-loading').style.display).toBe('none');
         expect(document.querySelector('canvas').style.visibility).toBe('visible');
     });
