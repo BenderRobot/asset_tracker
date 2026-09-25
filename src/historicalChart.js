@@ -34,10 +34,10 @@ import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js?v=2';
 
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-// v2 invalidates snapshots built with the former long-range
-// value/current-cost-basis curve. Those cached arrays are financially
-// incompatible with the canonical flow-neutral TWR series.
-const HISTORY_CHART_CACHE_VERSION = 6;
+// Bump whenever the financial meaning of a persisted series changes. Version 7
+// invalidates charts whose visible performance was sourced from chained TWR
+// instead of the canonical position return.
+const HISTORY_CHART_CACHE_VERSION = 7;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
@@ -100,6 +100,29 @@ export class HistoricalChart {
         };
         eventBus.addEventListener('showAssetChart', this._onShowAsset);
         eventBus.addEventListener('clearAssetChart', this._onClearAsset);
+    }
+
+    // Canonical portfolio performance: unrealised security return divided by
+    // the remaining security cost basis. HistoryCalculator excludes cash.
+    // Curve, tooltip and period KPIs all consume this exact array.
+    _getPortfolioPerformanceSeries(graphData) {
+        const raw = this.includeDividends && Array.isArray(graphData.totalReturnPctWithDividends)
+            ? graphData.totalReturnPctWithDividends
+            : graphData.totalReturnPct;
+        if (!Array.isArray(raw) || this.currentPeriod === 'all') return raw;
+
+        const start = raw.find(value => Number.isFinite(value));
+        if (!Number.isFinite(start) || start <= -100) return raw;
+        const startFactor = 1 + start / 100;
+        return raw.map(value => Number.isFinite(value)
+            ? (((1 + value / 100) / startFactor) - 1) * 100
+            : null);
+    }
+
+    _getPortfolioReturnSeries(graphData) {
+        return this.includeDividends && Array.isArray(graphData.totalReturnWithDividends)
+            ? graphData.totalReturnWithDividends
+            : graphData.totalReturn;
     }
 
     destroy() {
@@ -1064,20 +1087,16 @@ export class HistoricalChart {
         if (priceHigh === -Infinity) priceHigh = priceEnd;
         if (priceLow === Infinity) priceLow = priceStart;
 
-        // PÉRIODE follows the canonical time-weighted series. Cash flows are
-        // neutralised by HistoryCalculator; dividends remain investment return.
+        // PÉRIODE follows the canonical security return shown by the curve.
+        // Cash is excluded; dividends are included only when explicitly enabled.
         let perfAbs = 0, perfPct = 0;
-        const selectedTwr = this.includeDividends && Array.isArray(graphData.twrWithDividends)
-            ? graphData.twrWithDividends : graphData.twr;
-        if (!isIndexMode && !isUnitView && selectedTwr?.length > lastIndex) {
-            const twrStart = (this.currentPeriod === 1) ? 1.0 : (selectedTwr[firstIndex] || 1.0);
-            const twrEnd = selectedTwr[lastIndex];
-            perfPct = twrStart !== 0 ? ((twrEnd - twrStart) / twrStart) * 100 : 0;
-            // Monetary period performance uses the same security-only capital
-            // base as TWR. Cash remains available in the Value view, but cannot
-            // leak into this performance amount.
-            const baseValue = Number(graphData.assetValues?.[firstIndex]) || priceStart;
-            perfAbs = (perfPct / 100) * baseValue;
+        const portfolioPctSeries = this._getPortfolioPerformanceSeries(graphData);
+        const portfolioReturnSeries = this._getPortfolioReturnSeries(graphData);
+        if (!isIndexMode && !isUnitView && portfolioPctSeries?.length > lastIndex) {
+            perfPct = Number(portfolioPctSeries[lastIndex]) || 0;
+            const endReturn = Number(portfolioReturnSeries?.[lastIndex]) || 0;
+            const startReturn = Number(portfolioReturnSeries?.[firstIndex]) || 0;
+            perfAbs = this.currentPeriod === 'all' ? endReturn : endReturn - startReturn;
         } else {
             perfAbs = priceEnd - priceStart;
             perfPct = priceStart !== 0 ? (perfAbs / priceStart) * 100 : 0;
@@ -1093,7 +1112,7 @@ export class HistoricalChart {
         // (displayValues[lastIndex]) et referenceClose (graphData.yesterdayClose)
         // ci-dessus proviennent DÉJÀ des mêmes prix/taux que kpiData.totalValue —
         // il n'y a plus deux snapshots à réconcilier après coup. PÉRIODE (perfAbs/
-        // perfPct, calculé plus haut depuis graphData.twr) reste volontairement
+        // perfPct, lu plus haut depuis graphData.totalReturnPct) reste volontairement
         // indépendant de Var Today : sur l'onglet 1D les deux coïncident parce que
         // periodDenominator == dayDenominator pour une fenêtre d'un seul jour, pas
         // parce que l'un écrase l'autre.
@@ -1299,9 +1318,12 @@ export class HistoricalChart {
         // combinées pour un même nombre.
         const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(val), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
 
-        const totalReturn = graphData.totalReturn?.[idx];
+        const totalReturn = this._getPortfolioReturnSeries(graphData)?.[idx];
+        const canonicalPct = this.includeDividends && Array.isArray(graphData.totalReturnPctWithDividends)
+            ? graphData.totalReturnPctWithDividends[idx]
+            : graphData.totalReturnPct?.[idx];
         if (totalReturn != null && !isNaN(totalReturn)) {
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(graphData.totalReturnPct?.[idx]), positive: totalReturn >= 0 });
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(canonicalPct), positive: totalReturn >= 0 });
         }
 
         // "Var Today" n'a de sens que "maintenant" (voir HistoryCalculator :
@@ -1349,9 +1371,12 @@ export class HistoricalChart {
         const pct1 = pctSeries?.[i1];
         const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(v1), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
 
-        const totalReturn = graphData.totalReturn?.[i1];
+        const totalReturn = this._getPortfolioReturnSeries(graphData)?.[i1];
+        const canonicalPct = this.includeDividends && Array.isArray(graphData.totalReturnPctWithDividends)
+            ? graphData.totalReturnPctWithDividends[i1]
+            : graphData.totalReturnPct?.[i1];
         if (totalReturn != null && !isNaN(totalReturn)) {
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(graphData.totalReturnPct?.[i1]), positive: totalReturn >= 0 });
+            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(canonicalPct), positive: totalReturn >= 0 });
         }
 
         if (v0 !== 0) {
@@ -1480,16 +1505,8 @@ export class HistoricalChart {
         // Computed unconditionally (not just in performance mode) so the
         // tooltip can always show €+% together on the main line, whichever
         // mode is currently displayed.
-        const selectedTwr = this.includeDividends && Array.isArray(graphData.twrWithDividends)
-            ? graphData.twrWithDividends : graphData.twr;
-        const selectedDailyTwr = this.includeDividends && Array.isArray(graphData.dailyTwrWithDividends)
-            ? graphData.dailyTwrWithDividends : graphData.dailyTwr;
-        const hasDailyTwr = this.currentPeriod === 1 && Array.isArray(selectedDailyTwr) &&
-            selectedDailyTwr.length === selectedTwr?.length && selectedDailyTwr.some(v => v !== null);
-        const twrSeries = hasDailyTwr ? selectedDailyTwr : selectedTwr;
-        const twrStart = hasDailyTwr ? 1.0 : (twrSeries?.[firstIndex] || 1.0);
-        const pctSeries = Array.isArray(twrSeries)
-            ? twrSeries.map(v => (v === null || v === undefined) ? null : ((v - twrStart) / twrStart) * 100)
+        const pctSeries = (!isIndexMode && !isUnitView)
+            ? this._getPortfolioPerformanceSeries(graphData)
             : null;
 
         // Hoisted out of the `if (benchmarkData...)` block below so the

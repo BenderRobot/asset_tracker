@@ -58,7 +58,7 @@ function emptyResult() {
         dayStartValue: null, todayValueOfYesterdayHoldings: null,
         perTickerYesterdayClose: new Map(), unitPrices: [], purchasePoints: [],
         timestamps: [], twr: [], twrWithDividends: [], dailyTwr: [], dailyTwrWithDividends: [], historicalDataMap: new Map(), isMixed: false,
-        cash: [], totalReturn: [], totalReturnPct: [], periodPnl: [],
+        cash: [], totalReturn: [], totalReturnPct: [], totalReturnWithDividends: [], totalReturnPctWithDividends: [], periodPnl: [],
         // Aucun achat du tout : rien à valoriser, donc rien qui puisse échouer.
         dataQuality: { valid: true, reason: null, failedInstruments: [] }
     };
@@ -217,6 +217,8 @@ export class HistoryCalculator {
             cash: gateOnValidity(series.cash),
             totalReturn: gateOnValidity(series.totalReturn),
             totalReturnPct: gateOnValidity(series.totalReturnPct),
+            totalReturnWithDividends: gateOnValidity(series.totalReturnWithDividends),
+            totalReturnPctWithDividends: gateOnValidity(series.totalReturnPctWithDividends),
             periodPnl: gateOnValidity(series.periodPnl),
             yesterdayClose: dataQuality.valid ? series.displayedYesterdayClose : null,
             dayStartValue: dataQuality.valid ? series.dayStartValue : null,
@@ -887,7 +889,8 @@ export class HistoryCalculator {
         // isole la part qui en provient, pour que le tooltip n'ait plus jamais
         // besoin d'aller chercher un cash "courant" ailleurs pour un point
         // historique.
-        const cash = [], totalReturn = [], totalReturnPct = [], periodPnl = [];
+        const cash = [], totalReturn = [], totalReturnPct = [];
+        const totalReturnWithDividends = [], totalReturnPctWithDividends = [], periodPnl = [];
 
         const quantities = new Map(tickers.map(t => [t, 0]));
         const investedByTicker = new Map(tickers.map(t => [t, 0]));
@@ -1032,6 +1035,7 @@ export class HistoryCalculator {
         let cumulativeTwr = 1.0;
         let cumulativeTwrWithDividends = 1.0;
         let cumulativePeriodPnl = 0;
+        let cumulativeDividendIncome = 0;
         let previousTwrValue = null;
 
         for (let i = 0; i < displayTimestamps.length; i++) {
@@ -1280,6 +1284,7 @@ export class HistoryCalculator {
             twr.push(pointTwr);
             twrWithDividends.push(pointTwrWithDividends);
             periodPnl.push((hasAnyPrice || quantityChanged) ? cumulativePeriodPnl : null);
+            cumulativeDividendIncome += dividendIncome;
 
             // Only a fully valued point may become the next interval's capital.
             // dataQuality will fail-close the returned market series when an
@@ -1305,6 +1310,9 @@ export class HistoryCalculator {
                 const pointTotalReturn = (totalValue - totalCash) - totalInvestedAssetOnly;
                 totalReturn.push(pointTotalReturn);
                 totalReturnPct.push(totalInvestedAssetOnly > 0 ? (pointTotalReturn / totalInvestedAssetOnly) * 100 : 0);
+                const pointTotalReturnWithDividends = pointTotalReturn + cumulativeDividendIncome;
+                totalReturnWithDividends.push(pointTotalReturnWithDividends);
+                totalReturnPctWithDividends.push(totalInvestedAssetOnly > 0 ? (pointTotalReturnWithDividends / totalInvestedAssetOnly) * 100 : 0);
                 if (isSingleAsset) unitPrices.push(unitPrice);
             } else {
                 invested.push(null);
@@ -1314,6 +1322,8 @@ export class HistoryCalculator {
                 cash.push(null);
                 totalReturn.push(null);
                 totalReturnPct.push(null);
+                totalReturnWithDividends.push(null);
+                totalReturnPctWithDividends.push(null);
                 if (isSingleAsset) unitPrices.push(null);
             }
 
@@ -1355,7 +1365,7 @@ export class HistoryCalculator {
         // could therefore drift from it — align it on the same single anchor.
         if (days === 1 && periodDenominator > 0) dayStartValue = periodDenominator;
 
-        return { labels, invested, investedAssetOnly, values, assetValues, cash, totalReturn, totalReturnPct, periodPnl, unitPrices, twr, twrWithDividends, dailyTwr, dailyTwrWithDividends, displayedYesterdayClose, dayStartValue, resolvedPrices, pointMeta };
+        return { labels, invested, investedAssetOnly, values, assetValues, cash, totalReturn, totalReturnPct, totalReturnWithDividends, totalReturnPctWithDividends, periodPnl, unitPrices, twr, twrWithDividends, dailyTwr, dailyTwrWithDividends, displayedYesterdayClose, dayStartValue, resolvedPrices, pointMeta };
     }
 
     // ========================================================

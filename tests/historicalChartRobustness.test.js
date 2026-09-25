@@ -47,7 +47,7 @@ describe('Historical chart robustness and cache', () => {
 
         chart.renderChart(
             document.querySelector('canvas'),
-            { labels: ['empty', 'start', 'end'], timestamps: [1, 2, 3], values: [0, 100, 120], invested: [0, 100, 100], twr: [1, 1, 1.2] },
+            { labels: ['empty', 'start', 'end'], timestamps: [1, 2, 3], values: [0, 100, 120], invested: [0, 100, 100], totalReturn: [null, 0, 20], totalReturnPct: [null, 0, 20], twr: [1, 1, 1.2] },
             {}, { mode: 'global', label: 'Portfolio' }, null, null, null,
             { portfolioSnapshot: snapshot, snapshotStartedAt: 1, varTodayAbs: 0, varTodayPct: 0 }
         );
@@ -74,7 +74,7 @@ describe('Historical chart robustness and cache', () => {
         expect(c).toBe(a);
     });
 
-    it('defaults to price-only TWR and enables dividends only through the explicit toggle', () => {
+    it('defaults to price-only return and enables dividends only through the explicit toggle', () => {
         const chart = makeChart();
         chart.update = vi.fn();
         chart._syncViewToggle(false, false);
@@ -88,6 +88,34 @@ describe('Historical chart robustness and cache', () => {
         expect(chart.includeDividends).toBe(true);
         expect(button.classList.contains('active')).toBe(true);
         expect(localStorage.getItem('chart_include_dividends')).toBe('1');
+    });
+
+    it('plots the canonical position return instead of the divergent chained TWR', () => {
+        const chart = makeChart();
+        chart.currentPeriod = 'all';
+        const graphData = {
+            totalReturn: [0, -93.24, 8238.02],
+            totalReturnPct: [0, -0.57, 29.23],
+            totalReturnWithDividends: [0, -80, 8300],
+            totalReturnPctWithDividends: [0, -0.49, 29.45],
+            twr: [1, 1.4794, 2.0669]
+        };
+
+        expect(chart._getPortfolioPerformanceSeries(graphData)).toEqual([0, -0.57, 29.23]);
+        expect(chart._getPortfolioReturnSeries(graphData)).toEqual([0, -93.24, 8238.02]);
+        expect(chart._getPortfolioPerformanceSeries(graphData)).not.toContain(106.69);
+
+        chart.includeDividends = true;
+        expect(chart._getPortfolioPerformanceSeries(graphData)).toEqual([0, -0.49, 29.45]);
+        expect(chart._getPortfolioReturnSeries(graphData)).toEqual([0, -80, 8300]);
+
+        chart.currentPeriod = 180;
+        graphData.totalReturnPct = [10, 15, 21];
+        chart.includeDividends = false;
+        const bounded = chart._getPortfolioPerformanceSeries(graphData);
+        expect(bounded[0]).toBeCloseTo(0, 8);
+        expect(bounded[1]).toBeCloseTo(4.5454545, 6);
+        expect(bounded[2]).toBeCloseTo(10, 8);
     });
 
     it('persists a validated complete graph and restores it without rebuilding', async () => {

@@ -24,14 +24,14 @@
 // account — this test cannot substitute for that, and does not claim to.
 import { describe, it, expect } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
-// dataManager.js imports HistoryCalculator via './HistoryCalculator.js?v=5'
+// dataManager.js imports HistoryCalculator with a cache-busting query string
 // (a cache-busting query string) — Vite/Vitest treats that as a DISTINCT
 // module record from a plain '../src/HistoryCalculator.js' import, so patching
 // the class from an unsuffixed import would silently patch the wrong copy and
 // have zero effect on what DataManager actually calls. Import with the exact
 // same specifier dataManager.js uses to guarantee we patch the one instance in
 // play.
-import { HistoryCalculator } from '../src/HistoryCalculator.js?v=11';
+import { HistoryCalculator } from '../src/HistoryCalculator.js?v=12';
 import { parseDate } from '../src/utils.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 

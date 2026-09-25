@@ -91,6 +91,8 @@ describe('Long-range portfolio performance', () => {
 
         expect(graph.twr.filter(Number.isFinite).at(-1)).toBeCloseTo(1.00, 8);
         expect(graph.twrWithDividends.filter(Number.isFinite).at(-1)).toBeCloseTo(1.10, 8);
+        expect(graph.totalReturnPct.filter(Number.isFinite).at(-1)).toBeCloseTo(0, 8);
+        expect(graph.totalReturnPctWithDividends.filter(Number.isFinite).at(-1)).toBeCloseTo(10, 8);
     });
 
     it('values USD holdings with historical daily FX instead of today’s FX', async () => {
