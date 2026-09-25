@@ -4,7 +4,7 @@
 // Total Return/Var Today/Invested) restaient figées sur le dernier snapshot
 // PORTEFEUILLE affiché quand l'utilisateur passait en mode "actif unique"
 // (drill-down sur une ligne du tableau, ex. Soitec) — parce que
-// historicalChart.js::renderChart() n'appelait portfolioKPIs.updateFromGraph()
+// historicalChart.js::renderChart() ne publiait pas le PortfolioSnapshot
 // QUE `if (!isSingleAssetMode && !isIndexMode)`. kpiData (Total Value/Return/
 // VarToday) était pourtant DÉJÀ calculé correctement pour l'actif seul par
 // _computeAggregateKPIs, mode-agnostique — le bug était purement un verrou de
@@ -84,7 +84,7 @@ describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/
         // 760,25 (SOI) + 1200 (OTHER) + 50 (cash) = 2010,25
         expect(kpis.totalValue).toBeCloseTo(2010.25, 2);
         expect(kpis.invested).toBeCloseTo(1696.62, 2); // 696,62 + 1000
-        expect(kpis.source).toBe('graph');
+        expect(kpis.source).toBe('snapshot');
     });
 
     it('TEST 2 — mode actif (Soitec) : KPI top = KPI de l\'actif, pas du portefeuille', async () => {

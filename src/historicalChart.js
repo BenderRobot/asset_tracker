@@ -480,11 +480,11 @@ export class HistoricalChart {
                 currentTicker = this.selectedAssets[0];
                 // Capturé AVANT tout await de ce cycle (même règle que
                 // dataManager.buildTodaySnapshot pour le mode portefeuille) — sans
-                // ça, portfolioKPIs.updateFromGraph() n'a aucun moyen de rejeter un
+                // ça, portfolioKPIs.updateFromSnapshot() n'a aucun moyen de rejeter un
                 // refresh PORTEFEUILLE plus ancien qui répondrait APRÈS que cet
                 // actif ait été sélectionné (voir le bug KPI-non-synchronisé).
                 snapshotStartedAt = Date.now();
-                if (forceApi) await this.api.fetchBatchPrices([currentTicker]);
+                if (forceApi) await this.dataManager.repository.getPrice(currentTicker, { forceRefresh: true });
 
                 const pagePurchases = this.getFilteredPurchasesFromPage(false);
                 const targetAssetPurchases = pagePurchases.filter(p => {
@@ -690,6 +690,7 @@ export class HistoricalChart {
             return { totalValue: 0, cash: 0, totalReturn: 0, totalReturnPct: 0, varTodayAbs: null, varTodayPct: null, investedAssetOnly: 0, snapshotStartedAt, snapshotId: null };
         }
         return {
+            portfolioSnapshot,
             totalValue: portfolioSnapshot.totalValue,
             cash: portfolioSnapshot.cash,
             totalReturn: portfolioSnapshot.totalReturn,
@@ -880,7 +881,7 @@ export class HistoricalChart {
         const isPositive = (vsYesterdayAbs !== null ? vsYesterdayAbs : perfAbs) >= 0;
         const mainColor = isPositive ? '#2ecc71' : '#e74c3c';
 
-        const avgPrice = this._computeAvgPrice(currentTicker, isIndexMode);
+        const avgPrice = this._computeAvgPrice(currentTicker, isIndexMode, kpiData?.portfolioSnapshot);
 
         this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData, avgPrice);
 
@@ -909,43 +910,20 @@ export class HistoricalChart {
         // portefeuille" à afficher — comportement inchangé pour lui).
         if (!isIndexMode) {
             const periodMap = { 1: '1d', 2: '2d', 7: '1w', 30: '1m', 90: '3m', 180: '6m', 365: '1y', 730: '2y' };
-            portfolioKPIs.updateFromGraph({
-                values: graphData.values,
-                invested: kpiData?.investedAssetOnly ?? summary.totalInvestedEUR,
-                vsYesterdayAbs, vsYesterdayPct,
+            portfolioKPIs.updateFromSnapshot(kpiData?.portfolioSnapshot, {
                 period: periodMap[this.currentPeriod] || String(this.currentPeriod),
-                cashDetails: { total: kpiData ? kpiData.cash : 0 },
-                liveTotalValue: kpiData ? kpiData.totalValue : null,
-                liveTotalReturn: kpiData ? kpiData.totalReturn : null,
-                liveTotalReturnPct: kpiData ? kpiData.totalReturnPct : null,
-                // Garde anti-race (voir portfolioKPIs.updateFromGraph) : capturé
-                // avant tout await de ce cycle, par dataManager.buildTodaySnapshot
-                // en mode portefeuille, ou directement dans update() en mode actif
-                // (voir plus haut) — jamais absent, pour qu'un refresh d'un AUTRE
-                // mode/actif ne puisse jamais écraser celui-ci après coup.
-                snapshotStartedAt: kpiData?.snapshotStartedAt ?? null,
-                // Invariant H (audit SSOT) : identifiant du PortfolioSnapshot
-                // canonique dont TOUS ces champs proviennent — permet de vérifier
-                // que Total Value/Total Return/Var Today affichés ensemble
-                // descendent bien du même instant de résolution, jamais un mélange.
-                snapshotId: kpiData?.snapshotId ?? null
+                snapshotStartedAt: kpiData?.snapshotStartedAt ?? null
             });
         }
 
         return { historicalDayChange: vsYesterdayAbs, historicalDayChangePct: vsYesterdayPct };
     }
 
-    _computeAvgPrice(currentTicker, isIndexMode) {
+    _computeAvgPrice(currentTicker, isIndexMode, portfolioSnapshot) {
         if (!currentTicker || isIndexMode) return 0;
-        const purchases = this.storage.getPurchases()
-            .filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase())
-            .filter(p => { const type = (p.assetType || 'Stock').toLowerCase(); return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend'; });
-        if (!purchases.length) return 0;
-        // Lecture synchrone du cache FX déjà chargé par ce même update() (voir
-        // dataManager.getCachedHistoricalFxMap) — cette méthode ne peut pas
-        // attendre un nouvel appel réseau, elle est appelée depuis renderChart.
-        const holdings = this.dataManager.calculateHoldings(purchases, null, this.dataManager.getCachedHistoricalFxMap());
-        return holdings?.[0]?.avgPrice || 0;
+        return portfolioSnapshot?.positions
+            ?.find(position => position.ticker.toUpperCase() === currentTicker.toUpperCase())
+            ?.avgPrice || 0;
     }
 
     _renderTitle(titleConfig, currentTicker, isSingleAssetMode) {

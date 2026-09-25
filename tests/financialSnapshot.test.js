@@ -61,19 +61,25 @@ describe('TEST 1 — le graphique et le Total Value (KPI/tableau) sont deux valo
 describe('TEST 2 — une réponse plus ancienne ne peut pas écraser un état plus récent', () => {
     let kpis;
     beforeEach(() => { kpis = new PortfolioKPIs(); });
+    const snapshot = (snapshotStartedAt, totalValue, invested, dayPnl) => ({
+        status: 'valid', snapshotStartedAt, snapshotId: `test-${snapshotStartedAt}`,
+        totalValue, invested, totalReturn: totalValue - invested,
+        totalReturnPct: invested > 0 ? ((totalValue - invested) / invested) * 100 : 0,
+        dayPnl, dayPnlPct: totalValue > 0 ? (dayPnl / totalValue) * 100 : 0
+    });
 
     it('ignore un snapshotStartedAt antérieur au dernier appliqué', () => {
-        kpis.updateFromGraph({ values: [1000], invested: 900, vsYesterdayAbs: 10, vsYesterdayPct: 1, period: '1d', snapshotStartedAt: 2000 });
+        kpis.updateFromSnapshot(snapshot(2000, 1000, 900, 10));
         expect(kpis.getKPIs().totalValue).toBe(1000);
 
         // Une requête démarrée AVANT (1000 < 2000) répond APRÈS — doit être ignorée.
-        kpis.updateFromGraph({ values: [500], invested: 400, vsYesterdayAbs: -5, vsYesterdayPct: -1, period: '1d', snapshotStartedAt: 1000 });
+        kpis.updateFromSnapshot(snapshot(1000, 500, 400, -5));
         expect(kpis.getKPIs().totalValue).toBe(1000);
     });
 
     it('applique bien un snapshot plus récent quand il arrive après', () => {
-        kpis.updateFromGraph({ values: [1000], invested: 900, vsYesterdayAbs: 10, vsYesterdayPct: 1, period: '1d', snapshotStartedAt: 1000 });
-        kpis.updateFromGraph({ values: [1200], invested: 900, vsYesterdayAbs: 30, vsYesterdayPct: 3, period: '1d', snapshotStartedAt: 2000 });
+        kpis.updateFromSnapshot(snapshot(1000, 1000, 900, 10));
+        kpis.updateFromSnapshot(snapshot(2000, 1200, 900, 30));
         expect(kpis.getKPIs().totalValue).toBe(1200);
     });
 });
@@ -86,18 +92,18 @@ describe('TEST 3 — deux refresh simultanés ne mélangent jamais leurs champs'
         // DERNIER (race réseau) ; Refresh B démarre après (2000) mais répond en
         // premier. Le résultat doit être intégralement celui de B (le plus récent
         // par snapshotStartedAt), jamais un mélange de champs des deux.
-        const refreshB = { values: [2222], invested: 2000, vsYesterdayAbs: 22, vsYesterdayPct: 2.2, period: '1d', snapshotStartedAt: 2000, liveTotalValue: 2222, liveTotalReturn: 222, liveTotalReturnPct: 11 };
-        const refreshA = { values: [1111], invested: 1000, vsYesterdayAbs: 11, vsYesterdayPct: 1.1, period: '1d', snapshotStartedAt: 1000, liveTotalValue: 1111, liveTotalReturn: 111, liveTotalReturnPct: 11 };
+        const refreshB = { status: 'valid', snapshotStartedAt: 2000, snapshotId: 'B', totalValue: 2222, invested: 2000, totalReturn: 222, totalReturnPct: 11, dayPnl: 22, dayPnlPct: 2.2 };
+        const refreshA = { status: 'valid', snapshotStartedAt: 1000, snapshotId: 'A', totalValue: 1111, invested: 1000, totalReturn: 111, totalReturnPct: 11, dayPnl: 11, dayPnlPct: 1.1 };
 
-        kpis.updateFromGraph(refreshB); // répond en premier
-        kpis.updateFromGraph(refreshA); // répond en second mais plus ANCIEN -> ignoré
+        kpis.updateFromSnapshot(refreshB); // répond en premier
+        kpis.updateFromSnapshot(refreshA); // répond en second mais plus ANCIEN -> ignoré
 
         const result = kpis.getKPIs();
-        expect(result.totalValue).toBe(refreshB.liveTotalValue);
-        expect(result.totalReturn).toBe(refreshB.liveTotalReturn);
-        expect(result.varToday).toBe(refreshB.vsYesterdayAbs);
+        expect(result.totalValue).toBe(refreshB.totalValue);
+        expect(result.totalReturn).toBe(refreshB.totalReturn);
+        expect(result.varToday).toBe(refreshB.dayPnl);
         // Aucun champ ne doit provenir de refreshA.
-        expect(result.totalValue).not.toBe(refreshA.liveTotalValue);
+        expect(result.totalValue).not.toBe(refreshA.totalValue);
     });
 });
 

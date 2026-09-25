@@ -72,18 +72,8 @@ export class DashboardApp {
             // fournir la même méthode (sans filtre = tous les achats).
             getFilteredPurchasesFromPage: (ignoreTickerFilter) => this.storage.getPurchases(),
             renderData: (holdings, summary, cash) => {
-                // CRITICAL: DO NOT update main KPIs here anymore!
-                // Main KPIs (Total Value, Return, Var Today) are now managed by portfolioKPIs
-                // which is updated by the graph (single source of truth)
-                // This renderData is now only for loading/cache state, not KPI display
-
-                // Show cache KPIs ONLY if graph hasn't updated yet
-                if (summary && portfolioKPIs.kpis.source !== 'graph') {
-                    this.ui.updatePortfolioSummary(summary, summary.movementsCount || 0, cash, null);
-                    console.log('[renderData] Showing cache KPIs (waiting for graph...)');
-                } else if (summary && portfolioKPIs.kpis.source === 'graph') {
-                    console.log('[renderData] Skipped - graph KPIs already active');
-                }
+                // HistoricalChart publishes the canonical PortfolioSnapshot.
+                // This compatibility callback must never write headline KPIs.
             }
         };
 
@@ -170,7 +160,7 @@ export class DashboardApp {
     subscribeToKPIs() {
         if (this._kpiListener) portfolioKPIs.removeListener(this._kpiListener);
         this._kpiListener = (kpis) => {
-            if (!kpis || kpis.source !== 'graph' || (this.chart?.currentMode === 'portfolio' && this._latestPortfolioSnapshotId && kpis.snapshotId !== this._latestPortfolioSnapshotId)) {
+            if (!kpis || kpis.source !== 'snapshot' || (this.chart?.currentMode === 'portfolio' && this._latestPortfolioSnapshotId && kpis.snapshotId !== this._latestPortfolioSnapshotId)) {
                 return;
             }
 
@@ -186,9 +176,10 @@ export class DashboardApp {
                 gainTotal: kpis.totalReturn,
                 gainPct: kpis.totalReturnPct,
                 totalDayChangeEUR: kpis.varToday,
-                dayChangePct: kpis.varTodayPct
+                dayChangePct: kpis.varTodayPct,
+                cash: kpis.cash
             };
-            this.ui.updateTopKPIs(adaptedSummary, 0, this.marketStatus);
+            this.ui.updateTopKPIs(adaptedSummary, kpis.cash, this.marketStatus);
 
             console.log('[Dashboard] ✅ KPIs displayed successfully via IDs');
         };
@@ -278,18 +269,6 @@ export class DashboardApp {
         return /^[A-Z]+-[A-Z]{3}$/.test(ticker);
     }
 
-    async loadPortfolioDataLight() {
-        try {
-            const purchases = this.storage.getPurchases();
-            const marketPurchases = purchases.filter(p => p.assetType !== 'Real Estate');
-            const holdings = this.dataManager.calculateHoldings(marketPurchases);
-            const summary = this.dataManager.calculateSummary(holdings);
-            console.log('Dashboard Data Loaded (light):', { holdingsCount: holdings.length, totalValue: summary.totalValue });
-        } catch (error) {
-            console.error('Error loading portfolio data (light):', error);
-        }
-    }
-
     // Voir _portfolioRenderGen dans le constructeur : à appeler au tout début
     // d'un calcul KPI secondaire (avant tout await), puis _isLatestPortfolioRender
     // juste avant d'écrire le résultat.
@@ -302,58 +281,6 @@ export class DashboardApp {
             return false;
         }
         return true;
-    }
-
-    /**
-     * Render dashboard with cached data
-     */
-    renderWithCachedData(cachedData) {
-        const renderTicket = this._beginPortfolioRender();
-        try {
-            // Extract data from cache structure
-            const cacheSum = cachedData.summary || {};
-            const assets = cachedData.assets || [];
-
-            // Recalculate summary with all bestAsset/worstAsset fields
-            const holdings = assets;
-            const fullSummary = this.dataManager.calculateSummary(holdings);
-
-            // Merge cached summary with recalculated one
-            const summary = {
-                totalCurrentEUR: cacheSum.totalValue || 0,
-                totalInvestedEUR: cacheSum.totalInvested || 0,
-                gainTotal: cacheSum.totalGain || 0,
-                gainPct: cacheSum.totalGainPct || 0,
-                totalDayChangeEUR: cacheSum.dayChange || 0,
-                dayChangePct: cacheSum.dayChangePct || 0,
-                assetsCount: assets.length,
-                movementsCount: fullSummary.movementsCount || 0,
-                bestAsset: fullSummary.bestAsset,
-                worstAsset: fullSummary.worstAsset,
-                bestDayAsset: fullSummary.bestDayAsset,
-                worstDayAsset: fullSummary.worstDayAsset,
-                topSector: fullSummary.topSector
-            };
-
-            const cashReserve = cacheSum.cashReserve || 0;
-
-            // Use the same rendering as loadPortfolioData
-            this.mockPageInterface.renderData(assets, summary, cashReserve);
-
-            // CRITICAL FIX: Filter out zero-quantity holdings before rendering KPIs
-            // This prevents sold assets from appearing in Top Gainer/Loser/Asset cards
-            const activeHoldings = assets.filter(h => (h.quantity || 0) > 0.0001);
-
-            // Render secondary KPIs (TOP GAINER, TOP LOSER, TOP ASSET, ASSET ALLOCATION)
-            if (this._isLatestPortfolioRender(renderTicket)) {
-                this.renderKPIs(fullSummary, cashReserve, activeHoldings);
-                this.renderAllocation(activeHoldings, summary.totalCurrentEUR);
-            }
-
-            console.log('📊 Dashboard rendered from cache');
-        } catch (error) {
-            console.error('Error rendering cached data:', error);
-        }
     }
 
     /**
@@ -380,13 +307,14 @@ export class DashboardApp {
             gainPct: snapshot.portfolioSnapshot.totalReturnPct,
             totalDayChangeEUR: previousSession ? null : snapshot.portfolioSnapshot.dayPnl,
             dayChangePct: previousSession ? null : snapshot.portfolioSnapshot.dayPnlPct,
+            cash: snapshot.portfolioSnapshot.cash,
             movementsCount: engineSummary.movementsCount || 0
         };
         this._latestPortfolioSnapshotId = snapshot.snapshotId;
         this.lastHoldings = holdings;
         this.renderKPIs(engineSummary, cashReserve.total, holdings);
         this.renderAllocation(holdings, engineSummary.totalCurrentEUR);
-        if (this.chart?.currentMode !== 'asset') this.ui.updatePortfolioSummary(canonicalSummary, canonicalSummary.movementsCount, 0, this.marketStatus);
+        if (this.chart?.currentMode !== 'asset') this.ui.updatePortfolioSummary(canonicalSummary, canonicalSummary.movementsCount, canonicalSummary.cash, this.marketStatus);
         if (stale || degraded) {
             this.showCacheBadge();
             const badge = document.getElementById('cache-badge');
@@ -1050,9 +978,7 @@ export class DashboardApp {
     }
 
     getHoldingDetailsForNews(newsItem) {
-        // FILTER: Exclure Cash et Dividendes pour ne garder que les vrais actifs
-        const allPurchases = this.storage.getPurchases().filter(p => p.assetType !== 'Cash' && p.assetType !== 'Dividend');
-        const allHoldings = this.dataManager.calculateHoldings(allPurchases);
+        const allHoldings = this.lastHoldings || [];
 
         // 1. Déterminer le nom de la société à partir du titre de la news (ex: "AST SpaceMobile")
         // La structure de la news est: TITRE (ex: "AST SpaceMobile, Inc. étend...")
@@ -1451,7 +1377,7 @@ export class DashboardApp {
             }
 
             // Event listener (toujours à jour)
-            cardElement.onclick = () => {
+            cardElement.onclick = async () => {
                 // Recliquer sur la carte déjà active désélectionne l'indice et
                 // revient à la vue portefeuille — jusqu'ici il n'existait aucun
                 // moyen de revenir en arrière une fois un indice sélectionné.
@@ -1463,7 +1389,7 @@ export class DashboardApp {
                 }
                 cardElement.classList.add('active-index');
 
-                this.api.fetchBatchPrices([targetTicker], true); // Use targetTicker (Futures if applicable)
+                await this.dataManager.repository.getPrice(targetTicker, { forceRefresh: true });
                 if (this.chart) {
                     this.chart.showIndex(targetTicker, idx.name); // Use targetTicker (Futures if applicable)
                 }

@@ -1128,12 +1128,16 @@ export class DataManager {
             .filter(p => (p.assetType || '').toLowerCase() === 'dividend' || p.type === 'dividend')
             .reduce((sum, p) => sum + (p.price || 0) * (p.quantity || 1), 0);
 
-        // Calculate performance before creating summary to get winRate
-        const performance = this.analyzePerformance(holdings);
+        return this.generateReportFromResolvedState(holdings, summary, cashReserve, dividendsReceived);
+    }
 
-        holdings.forEach(asset => {
-            asset.weight = summary.totalCurrentEUR > 0 ? (asset.currentValue / summary.totalCurrentEUR) * 100 : 0;
-        });
+    generateReportFromResolvedState(holdings, summary, cashReserve, dividendsReceived = 0) {
+        // Reporting metadata must never mutate the repository's cached snapshot.
+        const reportHoldings = holdings.map(asset => ({
+            ...asset,
+            weight: summary.totalCurrentEUR > 0 ? (asset.currentValue / summary.totalCurrentEUR) * 100 : 0
+        }));
+        const performance = this.analyzePerformance(reportHoldings);
         return {
             summary: {
                 totalValue: summary.totalCurrentEUR,
@@ -1146,12 +1150,50 @@ export class DataManager {
                 dividendsReceived,
                 winRate: performance.winRate  // Add winRate to summary
             },
-            diversification: this.calculateDiversification(holdings),
+            diversification: this.calculateDiversification(reportHoldings),
             performance: performance,  // Use already calculated performance
-            risk: this.calculateRisk(holdings),
-            assets: holdings,
+            risk: this.calculateRisk(reportHoldings),
+            assets: reportHoldings,
             generatedAt: new Date().toISOString()
         };
+    }
+
+    splitCanonicalPurchases(purchases) {
+        const rows = purchases || [];
+        const cash = rows.filter(p => {
+            const type = (p.assetType || 'Stock').toLowerCase();
+            return type === 'cash' || type === 'dividend' || p.type === 'dividend';
+        });
+        const realEstate = rows.filter(p => (p.assetType || '').toLowerCase() === 'real estate');
+        const assets = rows.filter(p => {
+            const type = (p.assetType || 'Stock').toLowerCase();
+            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
+        });
+        return { assets, cash, realEstate };
+    }
+
+    getCanonicalMarketSnapshot(purchases, options = {}) {
+        const { assets, cash } = this.splitCanonicalPurchases(purchases);
+        return this.repository.getSnapshot(assets, cash, options);
+    }
+
+    async buildAnalyticsSnapshot(purchases, marketResult) {
+        const { realEstate } = this.splitCanonicalPurchases(purchases);
+        const marketEngine = marketResult.snapshot._engine;
+        const realEstateFx = realEstate.length ? await this.getHistoricalFxMap(realEstate) : new Map();
+        const realEstateHoldings = realEstate.length
+            ? this.calculateHoldings(realEstate, null, realEstateFx).filter(h => (h.quantity || 0) > 0.0001)
+            : [];
+        const holdings = [...marketEngine.holdings, ...realEstateHoldings];
+        const summary = this.calculateSummary(holdings);
+        const cashReserve = marketEngine.cashReserve;
+        const portfolioSnapshot = this.buildPortfolioSnapshot({
+            holdings, summary, cashReserve,
+            snapshotStartedAt: marketResult.snapshot.portfolioSnapshot.snapshotStartedAt,
+            pricesTimestamp: marketResult.snapshot.portfolioSnapshot.pricesTimestamp,
+            meta: { mode: 'analytics', includesRealEstate: true, marketSnapshotId: marketResult.snapshot.snapshotId }
+        });
+        return { holdings, summary, cashReserve, portfolioSnapshot, realEstateHoldings };
     }
 
     // Net quantity of each ticker held THROUGH each broker (buys minus sells,

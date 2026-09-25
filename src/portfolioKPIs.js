@@ -20,6 +20,7 @@ export class PortfolioKPIs {
             varToday: 0,
             varTodayPct: 0,
             invested: 0,
+            cash: 0,
             source: null,      // 'graph' or null
             timestamp: null,
             snapshotStartedAt: null, // voir garde anti-race ci-dessous
@@ -34,93 +35,25 @@ export class PortfolioKPIs {
         console.log('[PortfolioKPIs] Initialized');
     }
 
-    /**
-     * Update KPIs from graph data
-     * CRITICAL: This should ONLY be called by historicalChart.js
-     *
-     * ANTI-RACE : deux instances de HistoricalChart (Dashboard ET Investments
-     * ont chacune la leur) peuvent écrire ici, et un refresh peut se
-     * chevaucher avec le suivant (bouton période cliqué pendant qu'un appel
-     * réseau précédent est encore en vol, auto-refresh 30s de dashboardApp.js,
-     * etc.). `graphData.snapshotStartedAt` doit être capturé par l'appelant
-     * AVANT tout await (voir dataManager.buildTodaySnapshot) : si une requête
-     * plus ANCIENNE répond APRÈS une plus récente, elle est ignorée ici plutôt
-     * que d'écraser un état plus frais avec un état périmé — sans ça, Total
-     * Value pourrait revenir en arrière quand deux refresh se chevauchent.
-     *
-     * @param {Object} graphData - Data from the graph
-     * @param {Array} graphData.values - Array of portfolio values over time
-     * @param {Number} graphData.invested - Total amount invested
-     * @param {Number} graphData.vsYesterdayAbs - Absolute variation vs yesterday
-     * @param {Number} graphData.vsYesterdayPct - Percentage variation vs yesterday
-     * @param {String} graphData.period - Period ('1d', '1w', etc.)
-     * @param {Number} [graphData.snapshotStartedAt] - Date.now() capturé par
-     *   l'appelant avant le moindre await de ce cycle de calcul.
-     */
-    updateFromGraph(graphData) {
-        if (
-            graphData.snapshotStartedAt != null &&
-            this.kpis.snapshotStartedAt != null &&
-            graphData.snapshotStartedAt < this.kpis.snapshotStartedAt
-        ) {
-            console.warn(
-                `[PortfolioKPIs] Snapshot périmé ignoré (démarré à ${graphData.snapshotStartedAt}, ` +
-                `plus récent déjà affiché depuis ${this.kpis.snapshotStartedAt}) — évite qu'une réponse ` +
-                `réseau plus ancienne n'écrase un état plus récent.`
-            );
-            return;
-        }
-
-        const lastValue = this.getLastValidValue(graphData.values);
-        if (lastValue === null) {
-            console.warn('[PortfolioKPIs] No valid last value in graph data');
-            return;
-        }
-
-        let finalCash = 0;
-        if (graphData.cashDetails) {
-            finalCash = graphData.cashDetails.total || 0;
-        }
-        
-        let finalTotalValue = graphData.liveTotalValue !== undefined && graphData.liveTotalValue !== null 
-            ? graphData.liveTotalValue 
-            : lastValue + finalCash;
-            
-        const assetValueOnly = finalTotalValue - finalCash;
-        
-        let totalReturn = graphData.liveTotalReturn !== undefined && graphData.liveTotalReturn !== null
-            ? graphData.liveTotalReturn
-            : assetValueOnly - graphData.invested;
-            
-        let totalReturnPct = graphData.liveTotalReturnPct !== undefined && graphData.liveTotalReturnPct !== null
-            ? graphData.liveTotalReturnPct
-            : (graphData.invested > 0 ? (totalReturn / graphData.invested) * 100 : 0);
-
+    updateFromSnapshot(snapshot, { period = '1d', snapshotStartedAt = null } = {}) {
+        if (!snapshot || snapshot.status !== 'valid') return;
+        const startedAt = snapshotStartedAt ?? snapshot.snapshotStartedAt ?? snapshot.generatedAt ?? null;
+        if (startedAt != null && this.kpis.snapshotStartedAt != null && startedAt < this.kpis.snapshotStartedAt) return;
         this.kpis = {
-            totalValue: finalTotalValue,  // Assets + Cash (Matches Investments Page Snapshot)
-            totalReturn: totalReturn,     // Assets Only (Matches Investments Page Snapshot)
-            totalReturnPct: totalReturnPct,
-            varToday: graphData.vsYesterdayAbs || 0,
-            varTodayPct: graphData.vsYesterdayPct || 0,
-            invested: graphData.invested,
-            source: 'graph',
+            totalValue: snapshot.totalValue,
+            totalReturn: snapshot.totalReturn,
+            totalReturnPct: snapshot.totalReturnPct,
+            varToday: snapshot.dayPnl,
+            varTodayPct: snapshot.dayPnlPct,
+            invested: snapshot.invested,
+            cash: snapshot.cash,
+            source: 'snapshot',
             timestamp: Date.now(),
-            snapshotStartedAt: graphData.snapshotStartedAt ?? this.kpis.snapshotStartedAt ?? null,
-            snapshotId: graphData.snapshotId ?? null,
-            period: graphData.period || 'unknown'
+            snapshotStartedAt: startedAt,
+            snapshotId: snapshot.snapshotId,
+            period
         };
-
-        console.log(`[PortfolioKPIs] ✅ Updated from graph (${this.kpis.period}):`, {
-            totalValue: this.kpis.totalValue.toFixed(2),
-            totalReturn: this.kpis.totalReturn.toFixed(2),
-            varToday: this.kpis.varToday.toFixed(2),
-            invested: this.kpis.invested.toFixed(2)
-        });
-
-        // Notify all listeners (Dashboard, Investments, etc.)
         this.notifyListeners();
-
-        // Sync to Firestore for Bender Assistant
         this.syncToBender();
     }
 
@@ -164,20 +97,6 @@ export class PortfolioKPIs {
     }
 
     /**
-     * Get last valid (non-null, non-NaN) value from array
-     */
-    getLastValidValue(values) {
-        if (!values || values.length === 0) return null;
-
-        for (let i = values.length - 1; i >= 0; i--) {
-            if (values[i] !== null && !isNaN(values[i])) {
-                return values[i];
-            }
-        }
-        return null;
-    }
-
-    /**
      * Get current KPIs
      * @returns {Object} Copy of current KPIs
      */
@@ -190,7 +109,7 @@ export class PortfolioKPIs {
      * @returns {Boolean}
      */
     isReady() {
-        return this.kpis.source === 'graph';
+        return this.kpis.source === 'snapshot';
     }
 
     /**
@@ -249,6 +168,7 @@ export class PortfolioKPIs {
             varToday: 0,
             varTodayPct: 0,
             invested: 0,
+            cash: 0,
             source: null,
             timestamp: null,
             snapshotStartedAt: null,

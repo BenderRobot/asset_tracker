@@ -196,14 +196,20 @@ export class AchatsPage {
     // 6. Calculer le résumé et le cash
     // SINGLE SOURCE OF TRUTH pour la clôture de la veille (même moteur que
     // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
-    const yesterdayCloseAssetPurchases = assetPurchases.filter(p => p.type !== 'dividend');
-    const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(yesterdayCloseAssetPurchases);
-    const holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap);
-    const summary = this.dataManager.calculateSummary(holdings);
-    const globalCashReserve = this.dataManager.calculateCashReserve(this.storage.getPurchases());
+    const marketResult = await this.dataManager.getCanonicalMarketSnapshot(this.storage.getPurchases());
+    const canonical = marketResult.snapshot.portfolioSnapshot;
+    const summary = {
+      totalCurrentEUR: canonical.totalValue,
+      totalInvestedEUR: canonical.invested,
+      gainTotal: canonical.totalReturn,
+      gainPct: canonical.totalReturnPct,
+      totalDayChangeEUR: marketResult.previousSession ? null : canonical.dayPnl,
+      dayChangePct: marketResult.previousSession ? null : canonical.dayPnlPct,
+      cash: canonical.cash
+    };
 
     // 7. Mettre à jour l'UI
-    this.ui.updatePortfolioSummary(summary, allEnriched.length, globalCashReserve.total);
+    this.ui.updatePortfolioSummary(summary, allEnriched.length, canonical.cash);
 
     this.ui.renderPagination(this.currentPage, totalPages, (newPage) => {
       this.currentPage = newPage;

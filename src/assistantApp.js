@@ -565,18 +565,15 @@ Titre:`;
     async preparePortfolioContext() {
         try {
             const purchases = this.storage.getPurchases();
-            const assetPurchases = purchases.filter(p => {
-                const type = (p.assetType || 'Stock').toLowerCase();
-                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
-            });
+            const { assets: assetPurchases } = this.dataManager.splitCanonicalPurchases(purchases);
 
             // SINGLE SOURCE OF TRUTH pour la clôture de la veille (même moteur que
             // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
-            const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(assetPurchases);
+            const marketResult = await this.dataManager.getCanonicalMarketSnapshot(purchases);
             // Taux USD/EUR figé à la date de chaque transaction (invariant 9).
-            const historicalFxMap = await this.dataManager.getHistoricalFxMap(assetPurchases);
-            const holdings = this.dataManager.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap);
-            const summary = this.dataManager.calculateSummary(holdings);
+            const historicalFxMap = marketResult.snapshot._engine.historicalFxMap;
+            const holdings = marketResult.snapshot._engine.holdings;
+            const canonical = marketResult.snapshot.portfolioSnapshot;
             const performance = this.dataManager.analyzePerformance(holdings);
             const diversification = this.dataManager.calculateDiversification(holdings);
             const risk = this.dataManager.calculateRisk(holdings);
@@ -610,40 +607,14 @@ Titre:`;
             // yesterdayCloseMap unifié (comme Dashboard/Investments) — le filet de
             // secours Firestore liveMetrics ci-dessous ne sert plus qu'en dernier
             // recours (ex: le graphique n'a jamais tourné dans cette session).
-            let accurateDayChange = summary.totalDayChangeEUR;
-            let accurateDayChangePct = summary.dayChangePct;
-            try {
-                const sync = this.storage.marketDataSync;
-                // Wait up to 1.5s for auth to resolve if not ready
-                const userId = sync.userId || await new Promise(resolve => {
-                    const unsub = sync.auth.onAuthStateChanged(u => { unsub(); resolve(u ? u.uid : null); });
-                    setTimeout(() => resolve(null), 1500);
-                });
-                if (userId && sync.db) {
-                    const doc = await sync.db.collection('users').doc(userId)
-                        .collection('liveMetrics').doc('current').get();
-                    if (doc.exists) {
-                        const live = doc.data();
-                        if (typeof live.varToday === 'number' && live.varToday !== 0) {
-                            accurateDayChange = live.varToday;
-                            const totalYesterday = summary.totalCurrentEUR - live.varToday;
-                            accurateDayChangePct = totalYesterday > 0
-                                ? (live.varToday / totalYesterday) * 100 : 0;
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn('[Assistant] Could not load liveMetrics:', e);
-            }
-
             this.portfolioContext = {
                 summary: {
-                    totalValue: summary.totalCurrentEUR,
-                    totalInvested: summary.totalInvestedEUR,
-                    totalGain: summary.gainTotal,
-                    gainPercentage: summary.gainPct,
-                    dayChange: accurateDayChange,
-                    dayChangePercentage: accurateDayChangePct,
+                    totalValue: canonical.totalValue,
+                    totalInvested: canonical.invested,
+                    totalGain: canonical.totalReturn,
+                    gainPercentage: canonical.totalReturnPct,
+                    dayChange: canonical.dayPnl,
+                    dayChangePercentage: canonical.dayPnlPct,
                     assetsCount: holdings.length,
                     transactionsCount: assetPurchases.length
                 },

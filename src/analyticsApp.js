@@ -34,27 +34,6 @@ class AnalyticsApp {
         // AJOUT : Démarrer l'auto-refresh du statut marché
         this.marketStatus.startAutoRefresh('market-status-container', 'full');
 
-        // === CHANGEMENT 3 : Rafraîchir les prix avant de rendre ===
-        // (Optionnel, mais garantit des données à jour à l'ouverture)
-        try {
-            const purchases = this.storage.getPurchases();
-            // FILTER: Real Estate assets don't have market prices
-            const tickers = [...new Set(purchases
-                .filter(p => {
-                    const type = (p.assetType || 'Stock').toLowerCase();
-                    return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-                })
-                .map(p => p.ticker.toUpperCase()))];
-
-            if (tickers.length > 0) {
-                console.log('📊 Rafraîchissement des prix pour les analyses...');
-                await this.api.fetchBatchPrices(tickers);
-            }
-        } catch (e) {
-            console.error("Erreur de rafraîchissement initial des prix:", e);
-        }
-        // =======================================================
-
         await this.render();
         this.setupEventListeners();
 
@@ -79,12 +58,17 @@ class AnalyticsApp {
         const purchases = this.storage.getPurchases();
         // SINGLE SOURCE OF TRUTH pour la clôture de la veille (même moteur que
         // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
-        const assetPurchases = purchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
-        });
-        const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(assetPurchases);
-        const report = this.dataManager.generateFullReport(purchases, yesterdayCloseMap);
+        const marketResult = await this.dataManager.getCanonicalMarketSnapshot(purchases);
+        const analyticsSnapshot = await this.dataManager.buildAnalyticsSnapshot(purchases, marketResult);
+        const { cash } = this.dataManager.splitCanonicalPurchases(purchases);
+        const dividendsReceived = cash
+            .filter(p => (p.assetType || '').toLowerCase() === 'dividend' || p.type === 'dividend')
+            .reduce((sum, p) => sum + (p.price || 0) * (p.quantity || 1), 0);
+        const report = this.dataManager.generateReportFromResolvedState(
+            analyticsSnapshot.holdings, analyticsSnapshot.summary,
+            analyticsSnapshot.cashReserve, dividendsReceived
+        );
+        report.portfolioSnapshot = analyticsSnapshot.portfolioSnapshot;
 
         // Store report for modals to access
         this.lastReport = report;
@@ -92,7 +76,7 @@ class AnalyticsApp {
         console.log('📊 Rapport:', report);
 
         // Résumé
-        this.updateSummary(report.summary);
+        this.updateSummary(report.summary, analyticsSnapshot.portfolioSnapshot);
         // ... (le reste de la fonction est inchangé)
         this.updatePerformance(report.performance);
         this.updateDiversification(report.diversification);
@@ -111,7 +95,7 @@ class AnalyticsApp {
 
     // ... (TOUT LE RESTE DU FICHIER : updateSummary, updatePerformance, ... est INCHANGÉ) ...
 
-    updateSummary(summary) {
+    updateSummary(summary, portfolioSnapshot = this.lastReport?.portfolioSnapshot) {
         const setValue = (id, value) => {
             const el = document.getElementById(id);
             if (el) el.textContent = value;
@@ -120,22 +104,22 @@ class AnalyticsApp {
         // Total Value / Total Return : SINGLE SOURCE OF TRUTH, même formule que
         // Dashboard/Investments/Achats (pas de soustraction des dividendes reçus —
         // ancien comportement identifié comme un bug lors de l'audit, corrigé ici).
-        const displayValue = summary.totalValue + (summary.cashReserve || 0);
+        const displayValue = portfolioSnapshot?.totalValue ?? null;
         setValue('total-value', this.formatEUR(displayValue));
         setValue('total-invested', `Invested: ${this.formatEUR(summary.totalInvested)}`);
 
-        const displayReturn = summary.totalGain;
+        const displayReturn = portfolioSnapshot?.totalReturn ?? null;
         const returnEl = document.getElementById('total-return');
         if (returnEl) {
             returnEl.textContent = this.formatEUR(displayReturn);
-            returnEl.style.color = displayReturn >= 0 ? '#10b981' : '#ef4444';
+            returnEl.style.color = displayReturn == null ? 'var(--text-secondary)' : (displayReturn >= 0 ? '#10b981' : '#ef4444');
         }
 
         const pctEl = document.getElementById('return-pct');
         if (pctEl) {
-            const displayReturnPct = summary.totalInvested > 0 ? (displayReturn / summary.totalInvested) * 100 : 0;
+            const displayReturnPct = portfolioSnapshot?.totalReturnPct ?? null;
             pctEl.textContent = this.formatPct(displayReturnPct);
-            pctEl.style.color = displayReturnPct >= 0 ? '#10b981' : '#ef4444';
+            pctEl.style.color = displayReturnPct == null ? 'var(--text-secondary)' : (displayReturnPct >= 0 ? '#10b981' : '#ef4444');
         }
 
         // Update Win Rate from summary
@@ -615,10 +599,10 @@ class AnalyticsApp {
         // Avec un filtre (type/courtier) OU une désélection dans la légende, le
         // cash ne se rattache à aucun actif précis : on reste sur la somme des
         // actifs actuellement sélectionnés/visibles.
-        const officialTotalValue = reportSummary
-            ? (reportSummary.totalValue || 0) + (reportSummary.cashReserve || 0)
+        const officialTotalValue = this.lastReport?.portfolioSnapshot
+            ? this.lastReport.portfolioSnapshot.totalValue
             : assets.reduce((s, a) => s + (a.currentValue || 0), 0);
-        const officialTotalReturn = reportSummary ? (reportSummary.totalGain || 0) : null;
+        const officialTotalReturn = this.lastReport?.portfolioSnapshot?.totalReturn ?? null;
         const portfolioTotalValue = officialTotalValue;
         const portfolioTotalInvested = reportSummary
             ? (reportSummary.totalInvested || 0)
@@ -1586,17 +1570,9 @@ class AnalyticsApp {
                 refreshBtn.textContent = '🔄 Rafraîchissement...';
 
                 try {
-                    // === Fetch Prices ===
                     const purchases = this.storage.getPurchases();
-                    const tickers = [...new Set(purchases
-                        .filter(p => !['Real Estate', 'Cash', 'Dividend'].includes(p.assetType))
-                        .map(p => p.ticker))];
-
-                    if (tickers.length > 0) {
-                        await this.api.fetchBatchPrices(tickers);
-                    }
-
-                    // === Render ===
+                    const { assets, cash } = this.dataManager.splitCanonicalPurchases(purchases);
+                    await this.dataManager.repository.refresh(assets, cash);
                     await this.render();
                     this.showNotification('✅ Analytics mis à jour', 'success');
                 } catch (error) {

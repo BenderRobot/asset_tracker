@@ -43,7 +43,12 @@ const GUARDED_FILES = [
     'investmentsPage.js',
     'dashboardApp.js',
     'chartKPIManager.js',
-    'app.js'
+    'app.js',
+    'portfolioKPIs.js',
+    'ui.js',
+    'analyticsApp.js',
+    'assistantApp.js',
+    'achatsPage.js'
 ];
 
 const FORBIDDEN_PATTERNS = [

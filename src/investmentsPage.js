@@ -54,7 +54,7 @@ export class InvestmentsPage {
   subscribeToKPIs() {
     if (this._kpiListener) portfolioKPIs.removeListener(this._kpiListener);
     this._kpiListener = (kpis) => {
-      if (!kpis || kpis.source !== 'graph') {
+      if (!kpis || kpis.source !== 'snapshot') {
         return;
       }
 
@@ -83,9 +83,10 @@ export class InvestmentsPage {
         gainPct: kpis.totalReturnPct,
         totalDayChangeEUR: kpis.varToday,
         dayChangePct: kpis.varTodayPct,
+        cash: kpis.cash,
         hasActiveFilter
       };
-      this.ui.updateTopKPIs(adaptedSummary, 0, this.marketStatus);
+      this.ui.updateTopKPIs(adaptedSummary, kpis.cash, this.marketStatus);
 
       console.log('[Investments] ✅ KPIs displayed successfully via IDs');
     };
@@ -155,36 +156,6 @@ export class InvestmentsPage {
     tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Loading...</td></tr>';
 
     if (fetchPrices) {
-      // En mode bloquant, nous devons récupérer les prix avant de charger le graphique
-      const purchases = this.storage.getPurchases();
-      const tickers = [...new Set(purchases
-        .filter(p => {
-          const type = (p.assetType || 'Stock').toLowerCase();
-          return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-        })
-        .map(p => p.ticker.toUpperCase()))];
-
-      if (tickers.length > 0) {
-        // === FIRESTORE SYNC LOGIC ===
-        const shouldRefresh = await this.storage.marketDataSync.shouldRefreshPrices();
-
-        if (!shouldRefresh) {
-          // Follower mode: Load from Firestore
-          console.log('[Investments] Loading prices from Firestore (follower mode)');
-          const cachedPrices = await this.storage.loadCurrentPrices();
-          if (cachedPrices && cachedPrices.size > 0) {
-            this.storage.applyCachedPrices(cachedPrices);
-          } else {
-            console.warn('[Investments] No Firestore cache, falling back to API');
-            await this.api.fetchBatchPrices(tickers);
-          }
-        } else {
-          // Leader mode: Fetch from API and save to Firestore
-          console.log('[Investments] Fetching from API (leader mode)');
-          await this.api.fetchBatchPrices(tickers);
-        }
-      }
-
       if (this.historicalChart) {
         await this.historicalChart.loadPageWithCacheFirst();
       }
@@ -194,80 +165,10 @@ export class InvestmentsPage {
         // Afficher le graphique avec le cache (paramètres non-bloquants)
         await this.historicalChart.update(false, false);
       } else {
-        // Rendre les données du tableau immédiatement
         const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
-        const targetAssetPurchases = targetAllPurchases.filter(p => {
-          const type = (p.assetType || 'Stock').toLowerCase();
-          return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-        });
-        const yesterdayCloseMap = await this.dataManager.calculateAllAssetsYesterdayClose(targetAssetPurchases);
-        const targetHoldings = this.dataManager.calculateHoldings(targetAssetPurchases, yesterdayCloseMap);
-        const targetCashPurchases = targetAllPurchases.filter(p => {
-          const type = (p.assetType || 'Stock').toLowerCase();
-          return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-        });
-
-        // === LOAD OR CALCULATE SUMMARY ===
-        const shouldRefresh = await this.storage.marketDataSync.shouldRefreshPrices();
-        let currentSummary;
-
-        if (!shouldRefresh) {
-          // Follower mode: Try to load KPIs from Firestore
-          const cachedSummary = await this.storage.marketDataSync.loadSummaryKPIs();
-          if (cachedSummary && cachedSummary.timestamp) {
-            console.log('[Investments] Using cached summary KPIs from Firestore');
-            // Start with local calculations, then override main KPIs with cached values
-            currentSummary = {
-              ...this.dataManager.calculateSummary(targetHoldings),
-              // Override with cached KPIs (these take priority)
-              totalCurrentEUR: cachedSummary.totalValue,
-              gainTotal: cachedSummary.totalReturn,
-              gainPct: cachedSummary.totalReturnPct,
-              totalDayChangeEUR: cachedSummary.varToday,
-              dayChangePct: cachedSummary.varTodayPct,
-              totalInvestedEUR: cachedSummary.invested
-            };
-          } else {
-            // Fallback: calculate locally
-            console.log('[Investments] No cached KPIs, calculating locally');
-            currentSummary = this.dataManager.calculateSummary(targetHoldings);
-          }
-        } else {
-          // Leader mode: Calculate fresh summary
-          currentSummary = this.dataManager.calculateSummary(targetHoldings);
-        }
-
-        const targetCashReserve = this.dataManager.calculateCashReserve(targetCashPurchases);
-
-        // === DEBUG: Log calculation details ===
-        console.log('=== INVESTMENTS CALCULATION DEBUG ===');
-        console.log('Total purchases:', targetAllPurchases.length);
-        console.log('Asset purchases (filtered):', targetAssetPurchases.length);
-        console.log('Cash purchases:', targetCashPurchases.length);
-        console.log('Holdings calculated:', targetHoldings.length);
-        console.log('Summary:', {
-          totalValue: currentSummary.totalCurrentEUR,
-          totalReturn: currentSummary.gainTotal,
-          invested: currentSummary.totalInvestedEUR,
-          varToday: currentSummary.totalDayChangeEUR
-        });
-        console.log('Cash reserve:', targetCashReserve.total);
-        console.log('======================================');
-
-        // === SAVE KPIs TO FIRESTORE (Leader Mode) ===
-        if (shouldRefresh && tickers.length > 0) {
-          const pricesMap = new Map();
-          tickers.forEach(ticker => {
-            const priceData = this.storage.getCurrentPrice(ticker);
-            if (priceData) pricesMap.set(ticker, priceData);
-          });
-          if (pricesMap.size > 0) {
-            // Save prices WITH summary KPIs
-            await this.storage.marketDataSync.saveCurrentPrices(pricesMap, currentSummary);
-          }
-        }
-
-        this.renderData(targetHoldings, currentSummary, targetCashReserve.total);
+        const result = await this.dataManager.getCanonicalMarketSnapshot(targetAllPurchases);
+        const { holdings, summary, cashReserve } = result.snapshot._engine;
+        this.renderData(holdings, summary, cashReserve.total);
       }
     }
 

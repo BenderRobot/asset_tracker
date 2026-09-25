@@ -41,17 +41,10 @@ export class UIComponents {
         // valeur financière, pas un état d'absence. Ne JAMAIS coalescer ici :
         // propager `null` jusqu'à formatSimple, qui l'affiche déjà comme "-".
         const hasTotalValue = summary.totalCurrentEUR !== null && summary.totalCurrentEUR !== undefined && !isNaN(summary.totalCurrentEUR);
-        const totalValueWithCash = hasTotalValue ? (summary.totalCurrentEUR + cashReserveTotal) : null;
+        const totalValueWithCash = hasTotalValue ? summary.totalCurrentEUR : null;
         updateHTML('total-current', `${formatSimple(totalValueWithCash)}`);
 
-        // Click breakdown: Total Value = Invested + Total Return + Cash. Cash
-        // isn't available here as its own number (cashReserveTotal is always 0
-        // from both callers — totalCurrentEUR already includes it, see their
-        // own comments) — derive it instead of plumbing a new parameter, so the
-        // modal can never disagree with the number it explains: this equation
-        // is exact by construction (historicalChart.js _computeAggregateKPIs
-        // defines totalReturn = totalValue - cash - investedAssetOnly).
-        this._updateTotalValueModal(summary, totalValueWithCash, formatSimple, formatPctSimple);
+        this._updateTotalValueModal(summary, totalValueWithCash, cashReserveTotal, formatSimple, formatPctSimple);
 
         // FIX UNIFIÉ: Met à jour la valeur "Invested" sur les deux pages
         const investedSubtitleEl = document.getElementById('invested');
@@ -169,14 +162,14 @@ export class UIComponents {
     // both need dataManager.calculateHistory (the SAME engine — and SAME
     // price-freshness rule — the aggregate itself is resolved through),
     // which is real network work.
-    _updateTotalValueModal(summary, totalValueWithCash, formatSimple, formatPctSimple) {
+    _updateTotalValueModal(summary, totalValueWithCash, cashReserveTotal, formatSimple, formatPctSimple) {
         // FAIL-CLOSED : invested (coût de revient) n'est jamais dépendant d'un
         // prix, donc jamais null — mais totalReturn/totalValueWithCash le sont
         // dès que le snapshot est invalide (voir dataManager.calculateSummary).
         // `|| 0` masquerait "indisponible" en un 0€ affiché comme réel.
         const invested = summary.totalInvestedEUR || 0;
         const totalReturn = summary.gainTotal ?? null;
-        const cash = (totalValueWithCash == null || totalReturn == null) ? null : (totalValueWithCash - invested - totalReturn);
+        const cash = cashReserveTotal ?? summary.cash ?? null;
         const dayChange = summary.totalDayChangeEUR ?? null;
         const dayChangePct = summary.dayChangePct ?? null;
         const color = UIComponents._tvColor;
