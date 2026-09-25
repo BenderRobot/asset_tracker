@@ -58,6 +58,34 @@ describe('Historical chart robustness and cache', () => {
         expect(config.perfPct).toBeCloseTo(20, 8);
     });
 
+    it('uses canonical historical Total Return instead of TWR on long portfolio ranges', () => {
+        const chart = makeChart();
+        chart.currentPeriod = 'all';
+        chart._renderChartJs = vi.fn();
+        chart._syncViewToggle = vi.fn();
+        chart._syncReferenceLineToggles = vi.fn();
+        chart._renderTitle = vi.fn();
+        chart.kpiManager.updateKPIs = vi.fn();
+
+        chart.renderChart(
+            document.querySelector('canvas'),
+            {
+                labels: ['start', '8 avr. 2025'], timestamps: [1, 2],
+                values: [102.40, 16214.62], invested: [102.40, 16307.86],
+                // Reproduces the reported contradiction: TWR said +47.94%
+                // while the canonical historical snapshot said -0.57%.
+                twr: [1, 1.4794], totalReturn: [0, -93.24],
+                totalReturnPct: [0, -0.57]
+            },
+            {}, { mode: 'global', label: 'Portfolio' }, null, null, null,
+            { portfolioSnapshot: { status: 'valid', positions: [] }, varTodayAbs: 0, varTodayPct: 0 }
+        );
+
+        const config = chart.kpiManager.updateKPIs.mock.calls[0][0];
+        expect(config.perfPct).toBeCloseTo(-0.57, 8);
+        expect(config.perfAbs).toBeCloseTo(-93.24, 8);
+    });
+
     it('coalesces concurrent builds and reuses a completed long-period series', async () => {
         const chart = makeChart();
         const producer = vi.fn(async () => ({ labels: ['x'], values: [1] }));

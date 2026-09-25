@@ -37,7 +37,7 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // v2 invalidates snapshots built with the former long-range
 // value/current-cost-basis curve. Those cached arrays are financially
 // incompatible with the canonical flow-neutral TWR series.
-const HISTORY_CHART_CACHE_VERSION = 2;
+const HISTORY_CHART_CACHE_VERSION = 3;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
@@ -1035,20 +1035,29 @@ export class HistoricalChart {
         if (priceHigh === -Infinity) priceHigh = priceEnd;
         if (priceLow === Infinity) priceLow = priceStart;
 
-        // PÉRIODE: from the TWR series when available (true previous-close anchor),
-        // matching exactly what the plotted curve shows.
+        // For portfolio ranges longer than one day, plot the canonical Total
+        // Return snapshots. TWR remains available for analytics, but it can stay
+        // strongly positive after a small early position gained even while most
+        // capital invested later is losing money. It previously produced an
+        // impossible screen: tooltip -0.57%, curve +47.94% at the same point.
         let perfAbs = 0, perfPct = 0;
-        if (!isIndexMode && !isUnitView && graphData.twr?.length > lastIndex) {
+        const hasCanonicalPortfolioReturns = !isIndexMode && !isUnitView && this.currentPeriod !== 1 &&
+            Array.isArray(graphData.totalReturnPct) && graphData.totalReturnPct.length > lastIndex;
+        if (hasCanonicalPortfolioReturns) {
+            const firstReturnPct = Number(graphData.totalReturnPct[firstIndex]) || 0;
+            const lastReturnPct = Number(graphData.totalReturnPct[lastIndex]) || 0;
+            const startFactor = 1 + firstReturnPct / 100;
+            perfPct = startFactor > 0 ? (((1 + lastReturnPct / 100) / startFactor) - 1) * 100 : 0;
+            perfAbs = (Number(graphData.totalReturn?.[lastIndex]) || 0) -
+                (Number(graphData.totalReturn?.[firstIndex]) || 0);
+        } else if (!isIndexMode && !isUnitView && graphData.twr?.length > lastIndex) {
             const twrStart = (this.currentPeriod === 1) ? 1.0 : (graphData.twr[firstIndex] || 1.0);
             const twrEnd = graphData.twr[lastIndex];
             perfPct = twrStart !== 0 ? ((twrEnd - twrStart) / twrStart) * 100 : 0;
             const baseValue = (this.currentPeriod === 1)
                 ? (referenceCloseIn || graphData.yesterdayClose || priceStart)
                 : priceStart;
-            const canonicalPeriodPnl = graphData.periodPnl?.[lastIndex];
-            perfAbs = this.currentPeriod !== 1 && Number.isFinite(canonicalPeriodPnl)
-                ? canonicalPeriodPnl
-                : (perfPct / 100) * baseValue;
+            perfAbs = (perfPct / 100) * baseValue;
         } else {
             perfAbs = priceEnd - priceStart;
             perfPct = priceStart !== 0 ? (perfAbs / priceStart) * 100 : 0;
@@ -1455,9 +1464,21 @@ export class HistoricalChart {
             graphData.dailyTwr.length === graphData.twr.length && graphData.dailyTwr.some(v => v !== null);
         const twrSeries = hasDailyTwr ? graphData.dailyTwr : graphData.twr;
         const twrStart = hasDailyTwr ? 1.0 : (twrSeries?.[firstIndex] || 1.0);
-        const pctSeries = Array.isArray(twrSeries)
-            ? twrSeries.map(v => (v === null || v === undefined) ? null : ((v - twrStart) / twrStart) * 100)
-            : null;
+        // renderChart() and _renderChartJs() deliberately have separate scopes;
+        // resolve the selected canonical series here as well for the actual
+        // Chart.js dataset (the first resolution feeds only the stats panel).
+        const hasCanonicalPortfolioReturns = !isIndexMode && !isUnitView && this.currentPeriod !== 1 &&
+            Array.isArray(graphData.totalReturnPct) && graphData.totalReturnPct.length > lastIndex;
+        const canonicalStartPct = Number(graphData.totalReturnPct?.[firstIndex]) || 0;
+        const canonicalStartFactor = 1 + canonicalStartPct / 100;
+        const pctSeries = hasCanonicalPortfolioReturns
+            ? graphData.totalReturnPct.map(v => {
+                if (v === null || v === undefined || !Number.isFinite(Number(v)) || canonicalStartFactor <= 0) return null;
+                return (((1 + Number(v) / 100) / canonicalStartFactor) - 1) * 100;
+            })
+            : (Array.isArray(twrSeries)
+                ? twrSeries.map(v => (v === null || v === undefined) ? null : ((v - twrStart) / twrStart) * 100)
+                : null);
 
         // Hoisted out of the `if (benchmarkData...)` block below so the
         // tooltip (hover AND drag-selection) can show the benchmark's own
