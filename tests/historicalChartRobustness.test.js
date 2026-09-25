@@ -168,6 +168,31 @@ describe('Historical chart robustness and cache', () => {
 });
 
 describe('Long-period request plan', () => {
+    it('reuses the buffered intraday candles for 2D anchors without daily refetches', async () => {
+        const intervals = [];
+        const api = createFakeApi({
+            async getHistoricalPricesWithRetry(ticker, start, end, interval) {
+                intervals.push(interval);
+                const now = Date.now();
+                return { [now - 86400000]: ticker === 'AAPL' ? 100 : 50, [now]: ticker === 'AAPL' ? 101 : 51 };
+            }
+        });
+        const storage = createFakeStorage({
+            prices: {
+                AAPL: { price: 101, previousClose: 100, currency: 'EUR', lastUpdate: Date.now() },
+                MSFT: { price: 51, previousClose: 50, currency: 'EUR', lastUpdate: Date.now() }
+            }
+        });
+        const dm = new DataManager(storage, api);
+
+        await dm.calculateHistory([
+            purchase({ ticker: 'AAPL', date: '2024-01-01' }),
+            purchase({ ticker: 'MSFT', date: '2024-01-01' })
+        ], 2);
+
+        expect(intervals).toEqual(['5m', '5m']);
+    });
+
     it('does not issue per-ticker daily close requests for All', async () => {
         const intervals = [];
         const api = createFakeApi({

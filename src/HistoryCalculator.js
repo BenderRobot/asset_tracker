@@ -168,7 +168,12 @@ export class HistoryCalculator {
         const needsCloseAnchors = days === 1 || days === 2 || (typeof days === 'number' && days <= 7);
         const yesterdayRefDate = (days === 1) ? win.displayStart : new Date();
         const yesterday = needsCloseAnchors
-            ? await resolveCloseBefore(yesterdayRefDate, 'yesterdayClose', true)
+            // 2D/1W already fetched a buffered intraday window containing the
+            // previous closes. Re-querying one daily history per ticker here
+            // doubled the request count and exhausted the Worker quota. 1D
+            // keeps its dedicated official close; longer intraday views reuse
+            // their real downloaded candles.
+            ? await resolveCloseBefore(yesterdayRefDate, 'yesterdayClose', days === 1)
             : { total: 0, quantities: new Map(), prices: new Map() };
 
         const midnightValuationSeed = (days === 1)
@@ -1135,7 +1140,7 @@ export class HistoryCalculator {
                         // that could independently succeed or fail.
                         resolved = initialYesterdayClose;
                     } else {
-                        const r = await resolveCloseBefore(new Date(ts), `day ${dayKey}`, true);
+                        const r = await resolveCloseBefore(new Date(ts), `day ${dayKey}`, days === 1);
                         if (r.total > 0) resolved = r.total;
                     }
 

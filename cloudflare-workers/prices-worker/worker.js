@@ -296,7 +296,10 @@ function isValidSymbol(symbol) {
 //      limiting en panne de données financières (règle explicite de l'audit :
 //      "les erreurs du mécanisme de rate limiting ne doivent pas devenir
 //      silencieusement des erreurs de données financières").
-const DEFAULT_RATE_LIMIT_PER_MINUTE = 60;
+// A complete dashboard load can legitimately request live quotes, index cards
+// and one history for 20-30 instruments. Client caches and coalescing remain
+// the primary controls; this ceiling is only abuse protection.
+const DEFAULT_RATE_LIMIT_PER_MINUTE = 180;
 
 // Repli en mémoire — fenêtre fixe par IP, aucune I/O. `rateLimitBuckets` vit
 // tant que cet isolate Worker reste chaud (comportement identique à

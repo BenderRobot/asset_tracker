@@ -3,7 +3,7 @@ main = "worker.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-PRICE_RATE_LIMIT_PER_MINUTE = "60"
+PRICE_RATE_LIMIT_PER_MINUTE = "180"
 
 # INCIDENT POST-MORTEM (2026-09-23) : ce binding KV a été RETIRÉ. Il était
 # utilisé par worker.js::checkRateLimit() pour compter les requêtes par IP via
@@ -30,15 +30,15 @@ PRICE_RATE_LIMIT_PER_MINUTE = "60"
 # précisément pour ce cas d'usage (compteur par clé, sans écriture KV, sans
 # quota journalier exposé au développeur). `namespace_id` est un identifiant
 # arbitraire PROPRE À CE WORKER (pas une ressource à créer au préalable comme
-# un namespace KV) ; `simple.limit`/`simple.period` reproduisent exactement
-# l'ancienne limite (60 requêtes / 60 secondes / IP). Si ce binding échoue ou
+# un namespace KV). La limite de 180 couvre un chargement complet de 20-30
+# actifs tout en conservant une protection par IP. Si ce binding échoue ou
 # n'est pas disponible à l'exécution, worker.js retombe automatiquement sur
 # son compteur en mémoire (voir checkRateLimitInMemory) — jamais un échec dur.
 [[unsafe.bindings]]
 name = "RATE_LIMITER"
 type = "ratelimit"
 namespace_id = "1001"
-simple = { limit = 60, period = 60 }
+simple = { limit = 180, period = 60 }
 
 # Secrets à définir via la CLI (jamais dans ce fichier / jamais committés) :
 #   wrangler secret put YAHOO_FALLBACK_COOKIE --config cloudflare-workers/prices-worker/wrangler.toml
