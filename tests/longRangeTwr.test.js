@@ -1,10 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
+import { HistoryCalculator } from '../src/HistoryCalculator.js?v=13';
 import { createFakeApi, createFakeStorage, purchase } from './helpers.js';
 
 const utcNoon = (isoDate) => new Date(`${isoDate}T12:00:00.000Z`).getTime();
 
 describe('Long-range portfolio performance', () => {
+    it('never seeds a long-range valuation with a future candle or a live quote', () => {
+        const calc = new HistoryCalculator(createFakeStorage(), createFakeApi());
+        const start = utcNoon('2026-01-05');
+        const past = utcNoon('2026-01-04');
+        const future = utcNoon('2026-01-06');
+        const live = new Map([['AAPL', { price: 500, previousClose: 490 }]]);
+
+        const futureOnly = calc._seedLastKnownPrices(
+            ['AAPL'], new Map([['AAPL', { [future]: 100 }]]),
+            { displayStartTs: start }, 'all', live
+        );
+        expect(futureOnly.has('AAPL')).toBe(false);
+
+        const withPast = calc._seedLastKnownPrices(
+            ['AAPL'], new Map([['AAPL', { [past]: 90, [future]: 100 }]]),
+            { displayStartTs: start }, 'all', live
+        );
+        expect(withPast.get('AAPL')).toBe(90);
+    });
+
     it('uses daily observations for 2Y and All so transactions are not shifted to a later week', () => {
         // Official broker TWR statements are daily. Weekly candles assign a
         // transaction to the next weekly point and create artificial jumps.

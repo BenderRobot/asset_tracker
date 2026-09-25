@@ -39,7 +39,12 @@ describe('TEST A/B/C — auto-cohérence de chaque point historique (totalReturn
             },
             conversionRate: 0.9
         });
-        const dm = new DataManager(storage, createFakeApi());
+        const candleTs = Date.now() - 86400000;
+        const dm = new DataManager(storage, createFakeApi({
+            async getHistoricalPricesWithRetry(ticker) {
+                return { [candleTs]: ticker === 'AAPL' ? 200 : 60000 };
+            }
+        }));
         const assetPurchases = [
             purchase({ ticker: 'AAPL', price: 150, quantity: 5, date: '2024-01-01' }),
             purchase({ ticker: 'BTC-EUR', assetType: 'Crypto', price: 40000, quantity: 0.05, date: '2024-01-01' })

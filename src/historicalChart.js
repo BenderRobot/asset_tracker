@@ -34,10 +34,9 @@ import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js?v=2';
 
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-// Bump whenever the financial meaning of a persisted series changes. Version 7
-// invalidates charts whose visible performance was sourced from chained TWR
-// instead of the canonical position return.
-const HISTORY_CHART_CACHE_VERSION = 7;
+// Bump whenever the financial meaning of a persisted series changes. Version 8
+// invalidates charts built before complete-valuation TWR was enforced.
+const HISTORY_CHART_CACHE_VERSION = 8;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
@@ -102,21 +101,14 @@ export class HistoricalChart {
         eventBus.addEventListener('clearAssetChart', this._onClearAsset);
     }
 
-    // Canonical portfolio performance: unrealised security return divided by
-    // the remaining security cost basis. HistoryCalculator excludes cash.
-    // Curve, tooltip and period KPIs all consume this exact array.
+    // Broker-comparable performance: security-only TWR. HistoryCalculator
+    // excludes cash and emits null for every incomplete portfolio valuation.
     _getPortfolioPerformanceSeries(graphData) {
-        const raw = this.includeDividends && Array.isArray(graphData.totalReturnPctWithDividends)
-            ? graphData.totalReturnPctWithDividends
-            : graphData.totalReturnPct;
-        if (!Array.isArray(raw) || this.currentPeriod === 'all') return raw;
-
-        const start = raw.find(value => Number.isFinite(value));
-        if (!Number.isFinite(start) || start <= -100) return raw;
-        const startFactor = 1 + start / 100;
-        return raw.map(value => Number.isFinite(value)
-            ? (((1 + value / 100) / startFactor) - 1) * 100
-            : null);
+        const twr = this.includeDividends && Array.isArray(graphData.twrWithDividends)
+            ? graphData.twrWithDividends
+            : graphData.twr;
+        if (!Array.isArray(twr)) return null;
+        return twr.map(value => Number.isFinite(value) ? (value - 1) * 100 : null);
     }
 
     _getPortfolioReturnSeries(graphData) {
@@ -1087,7 +1079,7 @@ export class HistoricalChart {
         if (priceHigh === -Infinity) priceHigh = priceEnd;
         if (priceLow === Infinity) priceLow = priceStart;
 
-        // PÉRIODE follows the canonical security return shown by the curve.
+        // PÉRIODE follows the canonical security TWR shown by the curve.
         // Cash is excluded; dividends are included only when explicitly enabled.
         let perfAbs = 0, perfPct = 0;
         const portfolioPctSeries = this._getPortfolioPerformanceSeries(graphData);
@@ -1112,7 +1104,7 @@ export class HistoricalChart {
         // (displayValues[lastIndex]) et referenceClose (graphData.yesterdayClose)
         // ci-dessus proviennent DÉJÀ des mêmes prix/taux que kpiData.totalValue —
         // il n'y a plus deux snapshots à réconcilier après coup. PÉRIODE (perfAbs/
-        // perfPct, lu plus haut depuis graphData.totalReturnPct) reste volontairement
+        // perfPct, lu plus haut depuis graphData.twr) reste volontairement
         // indépendant de Var Today : sur l'onglet 1D les deux coïncident parce que
         // periodDenominator == dayDenominator pour une fenêtre d'un seul jour, pas
         // parce que l'un écrase l'autre.

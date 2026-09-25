@@ -90,7 +90,7 @@ describe('Historical chart robustness and cache', () => {
         expect(localStorage.getItem('chart_include_dividends')).toBe('1');
     });
 
-    it('plots the canonical position return instead of the divergent chained TWR', () => {
+    it('plots broker-comparable TWR while keeping the position return in its own KPI', () => {
         const chart = makeChart();
         chart.currentPeriod = 'all';
         const graphData = {
@@ -98,24 +98,20 @@ describe('Historical chart robustness and cache', () => {
             totalReturnPct: [0, -0.57, 29.23],
             totalReturnWithDividends: [0, -80, 8300],
             totalReturnPctWithDividends: [0, -0.49, 29.45],
-            twr: [1, 1.4794, 2.0669]
+            twr: [1, 0.94, 1.35],
+            twrWithDividends: [1, 0.95, 1.36]
         };
 
-        expect(chart._getPortfolioPerformanceSeries(graphData)).toEqual([0, -0.57, 29.23]);
+        const priceOnly = chart._getPortfolioPerformanceSeries(graphData);
+        expect(priceOnly[0]).toBe(0);
+        expect(priceOnly[1]).toBeCloseTo(-6, 8);
+        expect(priceOnly[2]).toBeCloseTo(35, 8);
         expect(chart._getPortfolioReturnSeries(graphData)).toEqual([0, -93.24, 8238.02]);
-        expect(chart._getPortfolioPerformanceSeries(graphData)).not.toContain(106.69);
+        expect(chart._getPortfolioPerformanceSeries(graphData).at(-1)).not.toBe(29.23);
 
         chart.includeDividends = true;
-        expect(chart._getPortfolioPerformanceSeries(graphData)).toEqual([0, -0.49, 29.45]);
+        expect(chart._getPortfolioPerformanceSeries(graphData).at(-1)).toBeCloseTo(36, 8);
         expect(chart._getPortfolioReturnSeries(graphData)).toEqual([0, -80, 8300]);
-
-        chart.currentPeriod = 180;
-        graphData.totalReturnPct = [10, 15, 21];
-        chart.includeDividends = false;
-        const bounded = chart._getPortfolioPerformanceSeries(graphData);
-        expect(bounded[0]).toBeCloseTo(0, 8);
-        expect(bounded[1]).toBeCloseTo(4.5454545, 6);
-        expect(bounded[2]).toBeCloseTo(10, 8);
     });
 
     it('persists a validated complete graph and restores it without rebuilding', async () => {
