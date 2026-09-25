@@ -34,6 +34,10 @@ import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js';
 
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const HISTORY_CHART_CACHE_VERSION = 1;
+const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
+const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
+const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
 
 export class HistoricalChart {
     constructor(storage, dataManager, ui, investmentsPage) {
@@ -67,7 +71,11 @@ export class HistoricalChart {
         };
 
         this._unsubscribeSnapshot = this.dataManager.repository?.subscribe(result => {
-            if (result.background && this.currentMode === 'portfolio') this.update(false, false);
+            // A live snapshot refresh can change the 1D valuation. It must not
+            // rebuild and repaint an already complete historical period: that
+            // was the source of the first, wrong 6M curve being replaced a few
+            // seconds later by another curve.
+            if (result.background && this.currentMode === 'portfolio' && this.currentPeriod === 1) this.update(false, false);
         });
         this.isLoading = false;
         this._pendingUpdate = null;
@@ -134,20 +142,120 @@ export class HistoricalChart {
         return JSON.stringify([scope, period, ledger]);
     }
 
+    _historyCacheTtl(period) {
+        if (period === 1) return 30_000;
+        if (period === 2) return 2 * 60_000;
+        if (typeof period === 'number' && period <= 7) return 5 * 60_000;
+        if (typeof period === 'number' && period <= 30) return 30 * 60_000;
+        if (typeof period === 'number' && period <= 365) return 6 * 60 * 60_000;
+        return 24 * 60 * 60_000;
+    }
+
+    _historyStorageKey() {
+        const sync = this.storage.marketDataSync;
+        const uid = sync ? (sync.auth ? sync.auth.currentUser?.uid : sync.userId) || 'anonymous' : 'local';
+        return `historicalChart_snapshots_v${HISTORY_CHART_CACHE_VERSION}:${uid}`;
+    }
+
+    _historyCacheId(key) {
+        // Compact deterministic id; the complete signature is retained in the
+        // entry and checked as collision protection.
+        let hash = 2166136261;
+        for (let i = 0; i < key.length; i++) {
+            hash ^= key.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(36);
+    }
+
+    _readPersistentHistory(key) {
+        try {
+            const store = JSON.parse(localStorage.getItem(this._historyStorageKey()), historyDecode) || {};
+            const entry = store[this._historyCacheId(key)];
+            if (entry?.signature === key && this._isValidHistoryData(entry.data) &&
+                Number.isFinite(entry.createdAt) && entry.createdAt <= Date.now()) return entry;
+        } catch { /* corrupt/unavailable storage is a normal cache miss */ }
+        return null;
+    }
+
+    _persistHistory(key, entry, period) {
+        // 1D belongs to the canonical live snapshot cache. Persisting it here
+        // would duplicate volatile financial state in a visual cache.
+        if (period === 1) return;
+        try {
+            const storageKey = this._historyStorageKey();
+            const store = JSON.parse(localStorage.getItem(storageKey), historyDecode) || {};
+            // Raw per-ticker candles and diagnostic provenance are already
+            // persisted by the market-data layer and can be very large. The
+            // chart snapshot stores only the final canonical series needed to
+            // paint the graph and its period KPIs.
+            const {
+                historicalDataMap: _rawCandles,
+                resolvedPrices: _resolvedPrices,
+                perTickerYesterdayClose: _perTickerClose,
+                pointMeta: _pointMeta,
+                ...renderData
+            } = entry.data;
+            store[this._historyCacheId(key)] = { signature: key, createdAt: entry.createdAt, data: renderData };
+            const ids = Object.keys(store).sort((a, b) => (store[b]?.createdAt || 0) - (store[a]?.createdAt || 0));
+            ids.slice(HISTORY_CHART_CACHE_MAX_ENTRIES).forEach(id => delete store[id]);
+            localStorage.setItem(storageKey, JSON.stringify(store, historyEncode));
+        } catch {
+            // Quota/storage failure never invalidates the in-memory graph.
+        }
+    }
+
+    _isValidHistoryData(data) {
+        if (!data || data.dataQuality?.valid === false || !Array.isArray(data.labels) || !data.labels.length) return false;
+        const values = this.currentMode === 'asset' && Array.isArray(data.unitPrices) && data.unitPrices.length
+            ? data.unitPrices
+            : data.values;
+        return Array.isArray(values) && values.some(value => value !== null && value !== undefined && Number.isFinite(Number(value)));
+    }
+
+    _commitHistory(key, data, period) {
+        if (!this._isValidHistoryData(data)) return false;
+        const entry = { createdAt: Date.now(), data };
+        this._historyCache.set(key, entry);
+        while (this._historyCache.size > 12) this._historyCache.delete(this._historyCache.keys().next().value);
+        this._persistHistory(key, entry, period);
+        return true;
+    }
+
+    _refreshCachedHistory(key, period, producer) {
+        if (this._historyInFlight.has(key)) return this._historyInFlight.get(key);
+        const periodAtStart = this.currentPeriod;
+        const promise = producer().then(data => {
+            if (this._commitHistory(key, data, period) && this.currentPeriod === periodAtStart) {
+                // Repaint only after the complete replacement has been committed.
+                // update() will read it synchronously from memory; no second build.
+                queueMicrotask(() => this.update(false, false));
+            }
+            return data;
+        }).catch(error => {
+            console.warn('[HistoricalChart] background history refresh failed:', error);
+            return null;
+        }).finally(() => this._historyInFlight.delete(key));
+        this._historyInFlight.set(key, promise);
+        return promise;
+    }
+
     async _getCachedHistory(scope, purchases, period, producer) {
         const key = this._historyKey(scope, purchases, period);
-        const cached = this._historyCache.get(key);
-        const ttl = period === 1 ? 30_000 : 5 * 60_000;
-        if (cached && Date.now() - cached.createdAt < ttl) return cached.data;
+        const ttl = this._historyCacheTtl(period);
+        let cached = this._historyCache.get(key);
+        if (!cached && period !== 1) {
+            cached = this._readPersistentHistory(key);
+            if (cached) this._historyCache.set(key, cached);
+        }
+        if (cached) {
+            if (Date.now() - cached.createdAt >= ttl) this._refreshCachedHistory(key, period, producer);
+            return cached.data;
+        }
         if (this._historyInFlight.has(key)) return this._historyInFlight.get(key);
 
         const promise = producer().then(data => {
-            if (data?.labels?.length && data?.dataQuality?.valid !== false) {
-                this._historyCache.set(key, { createdAt: Date.now(), data });
-                while (this._historyCache.size > 12) {
-                    this._historyCache.delete(this._historyCache.keys().next().value);
-                }
-            }
+            this._commitHistory(key, data, period);
             return data;
         }).finally(() => this._historyInFlight.delete(key));
         this._historyInFlight.set(key, promise);
@@ -704,8 +812,10 @@ export class HistoricalChart {
             // flight owns the next paint. Never expose this superseded result.
             if (requestId !== this._updateRequestId || this._pendingPeriod !== undefined) return;
 
-            if (!graphData || !graphData.labels || graphData.labels.length === 0) {
-                this.showMessage('Pas de données disponibles pour cette période');
+            if (!this._isValidHistoryData(graphData)) {
+                this.showMessage(graphData?.dataQuality?.valid === false
+                    ? 'Données de marché indisponibles pour cette période. Le dernier graphique validé sera conservé.'
+                    : 'Pas de données disponibles pour cette période');
             } else {
                 const kpiData = this._computeAggregateKPIs({ portfolioSnapshot, snapshotStartedAt });
                 this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData);

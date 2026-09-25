@@ -19,6 +19,7 @@ function makeChart() {
 
 describe('Historical chart robustness and cache', () => {
     beforeEach(() => {
+        localStorage.clear();
         document.body.innerHTML = `
             <div id="view-toggle"><button class="toggle-btn active" data-view="performance"></button></div>
             <div class="chart-title"><span id="chart-title-text"></span><span id="chart-title-icon"></span></div>
@@ -70,6 +71,57 @@ describe('Historical chart robustness and cache', () => {
         expect(producer).toHaveBeenCalledTimes(1);
         expect(a).toBe(b);
         expect(c).toBe(a);
+    });
+
+    it('persists a validated complete graph and restores it without rebuilding', async () => {
+        const rows = [purchase({ ticker: 'AAPL' })];
+        const data = {
+            labels: ['a', 'b'], timestamps: [1, 2], values: [100, 110], twr: [1, 1.1],
+            dataQuality: { valid: true, failedInstruments: [] }
+        };
+        const first = makeChart();
+        const firstProducer = vi.fn(async () => data);
+        await first._getCachedHistory('portfolio', rows, 180, firstProducer);
+
+        const restored = makeChart();
+        const secondProducer = vi.fn(async () => { throw new Error('must not rebuild'); });
+        const result = await restored._getCachedHistory('portfolio', rows, 180, secondProducer);
+
+        expect(firstProducer).toHaveBeenCalledTimes(1);
+        expect(secondProducer).not.toHaveBeenCalled();
+        expect(result.values).toEqual([100, 110]);
+    });
+
+    it('serves a stale validated graph immediately and swaps only after a complete refresh', async () => {
+        const rows = [purchase({ ticker: 'AAPL' })];
+        const oldData = {
+            labels: ['old-a', 'old-b'], timestamps: [1, 2], values: [100, 105], twr: [1, 1.05],
+            dataQuality: { valid: true, failedInstruments: [] }
+        };
+        const newData = {
+            labels: ['new-a', 'new-b'], timestamps: [3, 4], values: [110, 120], twr: [1, 1.09],
+            dataQuality: { valid: true, failedInstruments: [] }
+        };
+        const seed = makeChart();
+        await seed._getCachedHistory('portfolio', rows, 2, async () => oldData);
+        const storageKey = seed._historyStorageKey();
+        const persisted = JSON.parse(localStorage.getItem(storageKey));
+        Object.values(persisted)[0].createdAt = Date.now() - 10 * 60_000;
+        localStorage.setItem(storageKey, JSON.stringify(persisted));
+
+        let release;
+        const refresh = new Promise(resolve => { release = () => resolve(newData); });
+        const restored = makeChart();
+        restored.currentPeriod = 2;
+        restored.update = vi.fn();
+        const immediate = await restored._getCachedHistory('portfolio', rows, 2, () => refresh);
+        expect(immediate.values).toEqual([100, 105]);
+        expect(restored.update).not.toHaveBeenCalled();
+
+        release();
+        await vi.waitFor(() => expect(restored.update).toHaveBeenCalledTimes(1));
+        const refreshed = await restored._getCachedHistory('portfolio', rows, 2, vi.fn());
+        expect(refreshed.values).toEqual([110, 120]);
     });
 
     it('keeps 2D on the existing five-minute cache family', () => {
