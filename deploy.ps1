@@ -26,7 +26,7 @@ $commitMsg = if ($userInput.Trim()) { $userInput.Trim() } else { $defaultMsg }
 # ─────────────────────────────────────────────
 # STEP 1 - GITHUB (branche main)
 # ─────────────────────────────────────────────
-Write-Step "[1/2] Push GitHub -> main"
+Write-Step "[1/3] Push GitHub -> main"
 
 # Mettre de côté les modifications en cours pour éviter les blocages du pull
 $stashed = $false
@@ -54,22 +54,48 @@ if ($stashed) {
 git add .
 
 $changed = git status --porcelain
-if (-not $changed) {
-    Write-Warn "No changes to commit - skipping push."
-} else {
+if ($changed) {
     git commit -m $commitMsg
     if ($LASTEXITCODE -ne 0) { Write-Err "git commit failed."; exit 1 }
+} else {
+    Write-Warn "No changes to commit."
+}
 
-    git push --force-with-lease origin main
+# Déterminer avant le push si les commits à publier modifient le Worker prix.
+# Après le push, origin/main pointerait déjà sur HEAD et cette information serait perdue.
+$workerChanges = git diff --name-only origin/main..HEAD -- cloudflare-workers/prices-worker
+if ($LASTEXITCODE -ne 0) { Write-Err "Unable to inspect Worker changes."; exit 1 }
+$workerChanged = [bool]$workerChanges
+
+$commitsAhead = [int](git rev-list --count origin/main..HEAD)
+if ($LASTEXITCODE -ne 0) { Write-Err "Unable to compare main with origin/main."; exit 1 }
+
+if ($commitsAhead -gt 0) {
+    git push origin main
     if ($LASTEXITCODE -ne 0) { Write-Err "git push failed."; exit 1 }
-
     Write-Ok "Pushed to GitHub (main)."
+} else {
+    Write-Warn "GitHub main is already up to date."
 }
 
 # ─────────────────────────────────────────────
-# STEP 2 - FIREBASE PROD
+# STEP 2 - CLOUDFLARE WORKER PRIX
 # ─────────────────────────────────────────────
-Write-Step "[2/2] Firebase deploy -> PROD (asset-tracker.fr)"
+Write-Step "[2/3] Cloudflare Worker prix"
+
+if ($workerChanged) {
+    Write-Warn "Worker changes detected - deploying asset-tracker-prices..."
+    npm exec -- wrangler deploy --config .\cloudflare-workers\prices-worker\wrangler.toml
+    if ($LASTEXITCODE -ne 0) { Write-Err "Cloudflare Worker deploy failed."; exit 1 }
+    Write-Ok "Cloudflare Worker deployed."
+} else {
+    Write-Ok "No Worker changes - deployment skipped."
+}
+
+# ─────────────────────────────────────────────
+# STEP 3 - FIREBASE PROD
+# ─────────────────────────────────────────────
+Write-Step "[3/3] Firebase deploy -> PROD (asset-tracker.fr)"
 
 if (-not (Test-Path ".\functions\node_modules")) {
     Write-Warn "functions/node_modules not found - running npm install..."

@@ -122,16 +122,16 @@ export class MarketDataRepository {
       marketDataMetrics.recordSnapshotCacheHit();
       const result = this._result();
       if (result.stale && now >= (this._memory.retryAt || 0))
-        this._refresh(assets, cash, key, true).catch(() => {});
+        this._refresh(assets, cash, key, true, false).catch(() => {});
       return result;
     }
     marketDataMetrics.recordSnapshotCacheMiss();
-    const snapshot = await this._refresh(assets, cash, key, false);
+    const snapshot = await this._refresh(assets, cash, key, false, forceRefresh);
     if (this._memory?.snapshot !== snapshot || this._memory.purchasesSignature !== key) throw superseded();
     return this._result(false);
   }
 
-  _refresh(assets, cash, key, background) {
+  _refresh(assets, cash, key, background, forceLive = false) {
     if (this._inFlight?.signature === key) {
       marketDataMetrics.recordDedup();
       return this._inFlight.promise;
@@ -148,7 +148,7 @@ export class MarketDataRepository {
     const cashInput = copy(cash);
     const compute = async () => {
       if (!current()) throw superseded();
-      if (!globalThis.navigator?.locks) return this._computeSnapshot(assetInput, cashInput);
+      if (!globalThis.navigator?.locks) return this._computeSnapshot(assetInput, cashInput, forceLive);
       try {
         const shared = JSON.parse(localStorage.getItem(this._key), decode);
         if (shared?.schemaVersion === VERSION && shared.userId === scope && shared.purchasesSignature === key &&
@@ -159,7 +159,7 @@ export class MarketDataRepository {
             shared.computedAt > (this._memory?.computedAt || 0) && Date.now() - shared.computedAt < FRESH_TTL_MS &&
             sameDay(shared.computedAt,Date.now())) return shared.snapshot;
       } catch { /* Other tabs may not support persistent storage. */ }
-      return this._computeSnapshot(assetInput, cashInput);
+      return this._computeSnapshot(assetInput, cashInput, forceLive);
     };
     const run = () => compute()
       .then(snapshot => {
@@ -203,11 +203,11 @@ export class MarketDataRepository {
     return promise;
   }
 
-  async _computeSnapshot(assetPurchases, cashPurchases) {
+  async _computeSnapshot(assetPurchases, cashPurchases, forceLive = false) {
     const tickers = [...new Set((assetPurchases || []).map(p => p.ticker.toUpperCase()))];
     if (assetPurchases.some(p => p.currency === 'USD')) await this.dataManager.api.ensureConversionRate?.();
     if (tickers.length > 0) {
-      await this.dataManager.api.fetchBatchPrices(tickers);
+      await this.dataManager.api.fetchBatchPrices(tickers, forceLive);
     }
     const failures = tickers.filter(t => this.dataManager.api.liveFailures?.has(t));
     if (failures.length) throw new Error(`PRICE_DATA_UNAVAILABLE: ${failures.join(', ')}`);

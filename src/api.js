@@ -16,8 +16,8 @@ const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 // requestType est purement diagnostique (voir marketDataMetrics.js) — ne
 // change ni l'URL ni le comportement du fetch, sert seulement à distinguer
 // les compteurs "browserRequests" par nature d'appel.
-function _fetchTimeout(url, ms, requestType = 'unknown') {
-  return fetchMarketResponse(url, ms, requestType);
+function _fetchTimeout(url, ms, requestType = 'unknown', ttl = 60000) {
+  return fetchMarketResponse(url, ms, requestType, ttl);
 }
 
 // Les providerStats sont simplifiés car le proxy est la seule source du Frontend
@@ -214,7 +214,7 @@ export class PriceAPI {
       if (i > 0) await sleep(pauseTime);
 
       // Appel unifié pour tous les actifs
-      await this.fetchPricesViaProxy(batch);
+      await this.fetchPricesViaProxy(batch, forceRefresh);
     }
     this.logProviderStats();
   }
@@ -416,7 +416,7 @@ export class PriceAPI {
   }
 
   // NOUVELLE FONCTION CORE: Appelle le Cloud Function Proxy pour les prix en temps réel
-  async fetchPricesViaProxy(tickers) {
+  async fetchPricesViaProxy(tickers, forceRefresh = false) {
     const tickersResult = [];
     for (const ticker of tickers) {
       const assetType = this.storage.getAssetType(ticker);
@@ -429,7 +429,9 @@ export class PriceAPI {
         // L'intervalle 5m renvoyait parfois des NAV post-clôture ou des incohérences pour les ETF.
         const url = `${PRICE_PROXY_URL}?symbol=${symbol}&type=${type}&range=5d&interval=1d`;
 
-        const res = await _fetchTimeout(url, 8000, 'live-price');
+        // An explicit refresh crosses every cache layer. A zero TTL preserves
+        // in-flight coalescing while bypassing memory and IndexedDB entries.
+        const res = await _fetchTimeout(url, 8000, 'live-price', forceRefresh ? 0 : 60000);
         if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
 
         const data = await res.json();

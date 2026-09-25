@@ -113,4 +113,21 @@ describe('fetchBatchPrices — coalescing des requêtes concurrentes pour le mê
         await api.fetchBatchPrices(['AAPL']);
         expect(fetchCalls).toBe(1); // provider cache is still fresh
     });
+
+    it('forceRefresh bypasses both the storage TTL and the provider response cache', async () => {
+        let fetchCalls = 0;
+        vi.stubGlobal('fetch', vi.fn(async () => {
+            fetchCalls++;
+            return { ok: true, json: async () => yahooChartResponse(20 + fetchCalls, 19) };
+        }));
+
+        const storage = createFakeStorage({ assetTypes: { AAPL: 'Stock' } });
+        const api = new PriceAPI(storage);
+
+        await api.fetchBatchPrices(['AAPL']);
+        await api.fetchBatchPrices(['AAPL'], true);
+
+        expect(fetchCalls).toBe(2);
+        expect(storage.getCurrentPrice('AAPL').price).toBe(22);
+    });
 });

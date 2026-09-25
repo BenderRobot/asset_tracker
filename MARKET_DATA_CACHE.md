@@ -52,6 +52,8 @@ An end bound representing now is normalized to the minute. Other historical boun
 are kept unchanged. Provider errors are not cached as prices: 429 respects a cooldown
 and Retry-After seconds; 5xx uses a short failure cooldown. Historical callers stop
 immediate retries for 429/5xx and share the failure marker. Timeouts use bounded retry.
+An explicit repository refresh bypasses both the live-price storage TTL and the raw
+memory/IndexedDB TTL, while still joining an identical request already in flight.
 Worker chart requests have a bounded isolate cache and coalescence (60 seconds).
 This does not guarantee coalescence across separate Cloudflare isolates. Worker
 changes require deployment before they affect production.

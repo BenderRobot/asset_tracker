@@ -224,6 +224,23 @@ describe('MarketDataRepository — invalidation', () => {
 });
 
 
+it('explicit refresh bypasses live cache while SWR refresh keeps the live TTL', async () => {
+    const dm = fakeDataManager(async () => validSnapshot(1000));
+    const repo = new MarketDataRepository(dm);
+    const purchases = [purchase({ ticker: 'AAPL' })];
+
+    await repo.getSnapshot(purchases);
+    await repo.refresh(purchases);
+
+    expect(dm.api.fetchBatchPrices).toHaveBeenNthCalledWith(1, ['AAPL'], false);
+    expect(dm.api.fetchBatchPrices).toHaveBeenNthCalledWith(2, ['AAPL'], true);
+
+    repo._memory.computedAt = Date.now() - 60 * 1000;
+    await repo.getSnapshot(purchases);
+    await repo._inFlight?.promise;
+    expect(dm.api.fetchBatchPrices).toHaveBeenNthCalledWith(3, ['AAPL'], false);
+});
+
 describe('Snapshot persistence and invalidation boundaries', () => {
     it('restores all Maps after a reload without recalculating', async () => {
         const dm = fakeDataManager(() => validSnapshot(100));
