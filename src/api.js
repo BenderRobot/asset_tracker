@@ -857,7 +857,14 @@ export class PriceAPI {
 
       } catch (error) {
         console.warn(`Historical Proxy attempt ${attempt + 1} failed: ${error.message}`);
-        if (error.status === 429 || error.status >= 500) break;
+        // A 429 must stop immediately: retrying it only worsens the rate limit.
+        // A transient Worker/upstream 5xx remains retryable; aborting on its
+        // first occurrence made a single temporary 502 invalidate the complete
+        // portfolio history.
+        if (error.status === 429) break;
+        // One shared retry is sufficient for a transient 5xx. A persistent
+        // outage must not become three network calls for every portfolio line.
+        if (error.status >= 500 && attempt >= 1) break;
         if (attempt + 1 < retries) await sleep(Math.min(1000 * 2 ** attempt, 8000));
       }
     }

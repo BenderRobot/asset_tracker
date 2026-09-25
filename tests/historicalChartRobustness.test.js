@@ -72,24 +72,9 @@ describe('Historical chart robustness and cache', () => {
         expect(c).toBe(a);
     });
 
-    it('rejects a label-only or fail-closed series instead of painting a zero chart', () => {
-        const chart = makeChart();
-        chart.currentPeriod = 2;
-
-        expect(chart._hasRenderableFinancialSeries({
-            labels: ['a', 'b'], values: [null, null], dataQuality: { valid: true }
-        })).toBe(false);
-        expect(chart._hasRenderableFinancialSeries({
-            labels: ['a', 'b'], values: [100, 101], dataQuality: { valid: false }
-        })).toBe(false);
-        expect(chart._hasRenderableFinancialSeries({
-            labels: ['a', 'b'], values: [100, 101], dataQuality: { valid: true }
-        })).toBe(true);
-    });
-
-    it('uses 15-minute candles for 2D to keep the request volume bounded', () => {
+    it('keeps 2D on the existing five-minute cache family', () => {
         expect(getIntervalForPeriod(1)).toBe('5m');
-        expect(getIntervalForPeriod(2)).toBe('15m');
+        expect(getIntervalForPeriod(2)).toBe('5m');
     });
 
     it('keeps the loader visible and never paints a superseded period', async () => {

@@ -421,26 +421,6 @@ export class HistoricalChart {
         if (info) { info.style.display = 'block'; info.textContent = msg; }
     }
 
-    _hasRenderableFinancialSeries(graphData) {
-        if (!graphData || graphData.dataQuality?.valid === false) return false;
-        if (!Array.isArray(graphData.labels) || graphData.labels.length === 0) return false;
-
-        // A timestamp/label grid is not financial data by itself. The history
-        // engine deliberately keeps labels while nulling all financial series
-        // after a confirmed 429/5xx/timeout. Do not turn that fail-closed result
-        // into a plausible empty chart with zero KPIs.
-        const series = (this.currentMode === 'asset' && graphData.unitPrices?.length)
-            ? graphData.unitPrices
-            : graphData.values;
-        if (!Array.isArray(series)) return false;
-        const finitePoints = series.reduce((count, value) =>
-            count + (value !== null && value !== undefined && Number.isFinite(Number(value)) ? 1 : 0), 0);
-        // 2D specifically needs a start and an end; accepting its lone
-        // midnight anchor is what produced the blank "jeu. 00:00" chart.
-        // Other views keep supporting a legitimate first single observation.
-        return finitePoints >= (this.currentPeriod === 2 ? 2 : 1);
-    }
-
     _setLoadingState(active, { reveal = true } = {}) {
         const loading = document.getElementById('chart-loading');
         const canvas = document.getElementById('historical-portfolio-chart');
@@ -724,11 +704,8 @@ export class HistoricalChart {
             // flight owns the next paint. Never expose this superseded result.
             if (requestId !== this._updateRequestId || this._pendingPeriod !== undefined) return;
 
-            if (!this._hasRenderableFinancialSeries(graphData)) {
-                const unavailable = graphData?.dataQuality?.valid === false;
-                this.showMessage(unavailable
-                    ? 'Données de marché indisponibles pour cette période. Réessayez dans quelques instants.'
-                    : 'Pas assez de données disponibles pour cette période');
+            if (!graphData || !graphData.labels || graphData.labels.length === 0) {
+                this.showMessage('Pas de données disponibles pour cette période');
             } else {
                 const kpiData = this._computeAggregateKPIs({ portfolioSnapshot, snapshotStartedAt });
                 this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData);

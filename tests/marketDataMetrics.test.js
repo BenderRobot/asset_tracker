@@ -106,4 +106,19 @@ describe('marketDataMetrics — codes HTTP', () => {
         expect(s.timeouts).toBe(1);
         expect(s.worker5xx).toBe(0);
     });
+
+    it('retente un 502 temporaire et conserve la réponse suivante valide', async () => {
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 502 })
+            .mockResolvedValueOnce({ ok: true, json: async () => yahooResponse([10, 11]) });
+        vi.stubGlobal('fetch', fetchMock);
+        const storage = createFakeStorage({ assetTypes: { M5: 'STOCK' } });
+        const api = new PriceAPI(storage);
+
+        const result = await api.getHistoricalPricesWithRetry('M5', 1790000000, 1790259200, '5m', 2);
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(Object.values(result)).toEqual([10, 11]);
+        expect(marketDataMetrics.snapshot().worker5xx).toBe(1);
+    });
 });

@@ -80,8 +80,8 @@ export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 
       if (!res.ok) {
         const error = Object.assign(new Error(`Market HTTP ${res.status}`), { status: res.status });
         const retry = Number(res.headers?.get?.('Retry-After'));
-        if (res.status === 429 || res.status >= 500) {
-          const delay = res.status === 429 ? Math.max(30000, Number.isFinite(retry) ? retry * 1000 : 0) : 5000;
+        if (res.status === 429) {
+          const delay = Math.max(30000, Number.isFinite(retry) ? retry * 1000 : 0);
           failures.set(key, { error, until: Date.now() + delay });
         }
         throw error;

@@ -17,10 +17,10 @@ export function getIntervalForPeriod(days) {
     if (days === 'all') return '1wk';  // All: hebdomadaire
     // Cas numériques
     if (days === 1) return '5m';
-    // A two-day view does not need five-minute candles. On a portfolio with
-    // 20-30 instruments, 15m keeps useful intraday detail while cutting the
-    // payload and Worker pressure by roughly two thirds.
-    if (days === 2) return '15m';
+    // Keep 2D on the same intraday series as 1D. Besides preserving the
+    // expected detail, this reuses the historical caches already populated by
+    // the application instead of forcing a cold 15m fetch for every ticker.
+    if (days === 2) return '5m';
     if (days <= 7) return '15m';
     if (days <= 30) return '90m';
     if (days <= 365) return '1d';

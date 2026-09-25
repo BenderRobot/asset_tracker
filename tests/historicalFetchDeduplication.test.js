@@ -127,7 +127,7 @@ describe('TEST 6/7 — HTTP 429/500/502/timeout restent fail-closed sous coalesc
         ['HTTP 429', () => ({ ok: false, status: 429 })],
         ['HTTP 500', () => ({ ok: false, status: 500 })],
         ['HTTP 502', () => ({ ok: false, status: 502 })],
-    ])('%s coalescé sur 3 appelants concurrents -> les 3 reçoivent un échec marqué, 1 seul fetch()', async (_label, makeResponse) => {
+    ])('%s coalescé sur 3 appelants concurrents -> les 3 reçoivent le même échec marqué', async (label, makeResponse) => {
         let fetchCalls = 0;
         vi.stubGlobal('fetch', vi.fn(async () => {
             fetchCalls++;
@@ -143,7 +143,7 @@ describe('TEST 6/7 — HTTP 429/500/502/timeout restent fail-closed sous coalesc
             api.getHistoricalPricesWithRetry('DEDUPFAIL', 1790000000, 1790259200, '1d'),
         ]);
 
-        expect(fetchCalls).toBe(1); // one failed request; no immediate retry during cooldown
+        expect(fetchCalls).toBe(label === 'HTTP 429' ? 1 : 2);
         results.forEach(r => expect(isHistoricalFetchFailure(r)).toBe(true));
     });
 
