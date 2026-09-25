@@ -657,7 +657,6 @@ export class PriceAPI {
     // réellement au réseau — le résultat final couvre toujours la plage
     // ORIGINALEMENT demandée (voir finalizeResult).
     const deltaEligible = isDeltaFetchEligible(interval) && !isGoldSwapped;
-    const conversionRate = this.storage.getConversionRate('USD_TO_EUR');
     // GOLD-ETFP is the storage/business key. Yahoo formatting subsequently
     // turns it into GOLD-EUR.PA and, for long periods, GOLD.PA. Preserve that
     // original identity when resolving the live EUR calibration reference.
@@ -667,7 +666,11 @@ export class PriceAPI {
         ?? this.storage.getCurrentPrice('GOLD-EUR.PA')?.price
         ?? null)
       : null;
-    const pointKey = `${formatted}|fx:${conversionRate ?? 'none'}|gold:${goldReference ?? 'none'}`;
+    // Historical market points are cached in their provider/native currency.
+    // Currency conversion belongs to HistoryCalculator, which has the FX rate
+    // for each historical date. Keeping a live-FX value in this layer caused a
+    // second conversion downstream and distorted portfolio TWR.
+    const pointKey = `native-v1:${formatted}|gold:${goldReference ?? 'none'}`;
     const plan = deltaEligible
       ? historicalPointStore.planFetch(pointKey, interval, startTs, endTs)
       : { plan: 'full', fetchStartTs: startTs, fetchEndTs: endTs };
@@ -698,7 +701,7 @@ export class PriceAPI {
     // Le cacheKey utilise une v6 pour forcer le rafraîchissement après migration Cloudflare
     // v8: invalide le cache local pour forcer un re-fetch après la correction du bug
     // de ratio Gold (v7 pouvait contenir des historiques Amundi Gold doublés par erreur).
-    let cacheKey = `v9_${pointKey}_${effectiveStartTs}_${effectiveEndTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
+    let cacheKey = `v10_${pointKey}_${effectiveStartTs}_${effectiveEndTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
     if (['5m', '15m', '90m'].includes(interval)) {
       const rounded = Math.floor(Date.now() / 300000) * 300000;
       cacheKey += `_${rounded}`;
@@ -721,13 +724,13 @@ export class PriceAPI {
     }
 
     marketDataMetrics.recordCacheMiss(true);
-    const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, effectiveStartTs, effectiveEndTs, interval, isGoldSwapped, cacheKey, retries, conversionRate, goldReference)
+    const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, effectiveStartTs, effectiveEndTs, interval, isGoldSwapped, cacheKey, retries, goldReference)
       .finally(() => this._inFlightHistoricalRequests.delete(cacheKey));
     this._inFlightHistoricalRequests.set(cacheKey, requestPromise);
     return requestPromise.then(finalizeResult);
   }
 
-  async _doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries, conversionRate, goldReference) {
+  async _doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries, goldReference) {
     // L'appel se fait vers le Proxy Cloud Function pour l'historique
     // Nous passons tous les paramètres nécessaires au proxy
     let proxyUrl = `${PRICE_PROXY_URL}?symbol=${formatted}&type=${assetType}&interval=${interval}&period1=${startTs}&period2=${endTs}`;
@@ -773,23 +776,6 @@ export class PriceAPI {
         }
 
         const prices = {};
-
-        // Les indices (^GSPC), futures (GC=F), et forex (EURUSD=X) ne doivent PAS être convertis
-        // On respecte la logique "points" / valeurs natives
-        const isIndex = ticker.startsWith('^');
-        const isFuture = ticker.endsWith('=F');
-        const isForex = ticker.endsWith('=X');
-        const shouldNotConvert = isIndex || isFuture || isForex;
-
-        const apiCurrency = result.meta?.currency || 'EUR';
-        const isUSD = !shouldNotConvert && apiCurrency === 'USD';
-        const liveFx = conversionRate;
-        if (isUSD && !(liveFx > 0)) {
-          // FAIL-CLOSED : historique USD sans taux FX réel → pas de série EUR inventée.
-          console.warn(`[FX] USD_TO_EUR indisponible — historique ${ticker} non converti (vide).`);
-          return {};
-        }
-        const rate = isUSD ? liveFx : 1;
 
         // CALCUL DU RATIO GOLD SI NÉCESSAIRE
         let goldRatio = 1;
@@ -844,12 +830,8 @@ export class PriceAPI {
             if (isGoldSwapped) {
               val = val * goldRatio;
             }
-            // Appliquer la conversion USD standard (sauf si déjà traité par goldRatio? Non, GoldRatio fait tout)
-            // Si on a appliqué goldRatio (TargetEUR / SourceUSD), le résultat est en EUR.
-            // Donc on ne ré-applique PAS "rate" si isGoldSwapped est true (car targetPrice est déjà en EUR).
-            else if (isUSD) {
-              val = val * rate;
-            }
+            // All non-Gold prices remain in Yahoo's native currency. The
+            // portfolio engine performs the single date-aware FX conversion.
 
             prices[ts * 1000] = val;
           }

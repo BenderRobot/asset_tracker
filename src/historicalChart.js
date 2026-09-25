@@ -37,7 +37,7 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // v2 invalidates snapshots built with the former long-range
 // value/current-cost-basis curve. Those cached arrays are financially
 // incompatible with the canonical flow-neutral TWR series.
-const HISTORY_CHART_CACHE_VERSION = 4;
+const HISTORY_CHART_CACHE_VERSION = 5;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;

@@ -33,12 +33,12 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-function yahooResponse(closes, startSec = 1_790_000_000) {
+function yahooResponse(closes, startSec = 1_790_000_000, currency = 'EUR') {
     const timestamp = closes.map((_, i) => startSec + i * 86400);
     return {
         chart: {
             result: [{
-                meta: { currency: 'EUR', exchangeTimezoneName: 'Europe/Paris' },
+                meta: { currency, exchangeTimezoneName: 'Europe/Paris' },
                 timestamp,
                 indicators: { quote: [{ close: closes }] }
             }],
@@ -51,6 +51,20 @@ function yahooResponse(closes, startSec = 1_790_000_000) {
 // ne déclenchent qu'UNE seule exécution réseau ; les 3 appelants reçoivent le
 // même résultat.
 describe('TEST 1 — coalescing au niveau réseau (api.js::getHistoricalPricesWithRetry)', () => {
+    it('returns USD candles in native currency so the portfolio engine converts them exactly once', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            json: async () => yahooResponse([100, 110], 1_790_000_000, 'USD')
+        })));
+        const storage = createFakeStorage({
+            assetTypes: { NATIVEUSD: 'STOCK' }, conversionRate: 0.8
+        });
+        const api = new PriceAPI(storage);
+
+        const result = await api.getHistoricalPricesWithRetry('NATIVEUSD', 1_790_000_000, 1_790_200_000, '1d');
+        expect(Object.values(result)).toEqual([100, 110]);
+    });
+
     it('3 appels concurrents identiques -> 1 seul fetch(), même résultat pour les 3', async () => {
         let fetchCalls = 0;
         vi.stubGlobal('fetch', vi.fn(async () => {

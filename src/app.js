@@ -4,12 +4,12 @@
 // app.js - (v13 - FIX INDICES LOADING)
 // ========================================
 import { Storage } from './storage.js?v=4';
-import { PriceAPI } from './api.js?v=9';
+import { PriceAPI } from './api.js?v=10';
 import { UIComponents } from './ui.js?v=5';
 import { FilterManager } from './filters.js';
 import { AchatsPage } from './achatsPage.js?v=7';
 import { InvestmentsPage } from './investmentsPage.js?v=16';
-import { HistoricalChart } from './historicalChart.js?v=29';
+import { HistoricalChart } from './historicalChart.js?v=30';
 import { DataManager } from './dataManager.js?v=25';
 import { initMarketStatus } from './marketStatus.js?v=3';
 import { ASSET_TYPES, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED, DASHBOARD_INDICES, PRICE_PROXY_URL } from './config.js';
