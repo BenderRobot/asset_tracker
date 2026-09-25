@@ -89,7 +89,8 @@ describe('Long-range portfolio performance', () => {
             purchase({ ticker: 'AAPL', assetType: 'Dividend', type: 'dividend', price: 10, quantity: 1, date: '2026-03-03' })
         ], 'all', false);
 
-        expect(graph.twr.filter(Number.isFinite).at(-1)).toBeCloseTo(1.10, 8);
+        expect(graph.twr.filter(Number.isFinite).at(-1)).toBeCloseTo(1.00, 8);
+        expect(graph.twrWithDividends.filter(Number.isFinite).at(-1)).toBeCloseTo(1.10, 8);
     });
 
     it('values USD holdings with historical daily FX instead of today’s FX', async () => {
@@ -117,5 +118,55 @@ describe('Long-range portfolio performance', () => {
         expect(validValues[0]).toBeCloseTo(90, 8);
         expect(validValues.at(-1)).toBeCloseTo(100, 8);
         expect(graph.twr.filter(Number.isFinite).at(-1)).toBeCloseTo(100 / 90, 8);
+    });
+
+    it('converts only USD instruments and leaves every EUR instrument unchanged', async () => {
+        const ts = utcNoon('2026-05-04');
+        const storage = createFakeStorage({
+            prices: {
+                EURASSET: { price: 100, previousClose: 100, currency: 'EUR', lastUpdate: Date.now() },
+                USDASSET: { price: 100, previousClose: 100, currency: 'USD', lastUpdate: Date.now() }
+            },
+            conversionRate: 0.9
+        });
+        const dm = new DataManager(storage, createFakeApi({
+            async getHistoricalPricesWithRetry() { return { [ts]: 100 }; }
+        }));
+        const fx = new Map([['2026-05-04', 1 / 0.9]]);
+
+        const graph = await dm.calculateGenericHistory([
+            purchase({ ticker: 'EURASSET', currency: 'EUR', price: 100, quantity: 1, date: '2026-05-04' }),
+            purchase({ ticker: 'USDASSET', currency: 'USD', price: 100, quantity: 1, date: '2026-05-04' })
+        ], 'all', false, 0.9, fx);
+
+        // 100 EUR unchanged + (100 USD × 0.90) = 190 EUR.
+        expect(graph.values.filter(Number.isFinite).at(-1)).toBeCloseTo(190, 8);
+    });
+
+    it('produces the same price TWR whether a trade has a cash counterpart or not', async () => {
+        const prices = {
+            [utcNoon('2026-06-01')]: 100,
+            [utcNoon('2026-06-02')]: 110,
+            [utcNoon('2026-06-03')]: 121
+        };
+        const storage = createFakeStorage({
+            prices: { AAPL: { price: 121, previousClose: 121, currency: 'EUR', lastUpdate: Date.now() } },
+            conversionRate: 1
+        });
+        const api = createFakeApi({ async getHistoricalPricesWithRetry() { return prices; } });
+        const trades = [
+            purchase({ ticker: 'AAPL', price: 100, quantity: 1, date: '2026-06-01' }),
+            purchase({ ticker: 'AAPL', price: 110, quantity: 1, date: '2026-06-02' })
+        ];
+        const cashCounterparts = [
+            purchase({ ticker: 'EUR', assetType: 'Cash', currency: 'EUR', price: -100, quantity: 1, date: '2026-06-01' }),
+            purchase({ ticker: 'EUR', assetType: 'Cash', currency: 'EUR', price: -110, quantity: 1, date: '2026-06-02' })
+        ];
+
+        const withoutCash = await new DataManager(storage, api).calculateGenericHistory(trades, 'all', false);
+        const withCash = await new DataManager(storage, api).calculateGenericHistory([...trades, ...cashCounterparts], 'all', false);
+
+        expect(withCash.twr).toEqual(withoutCash.twr);
+        expect(withCash.twrWithDividends).toEqual(withoutCash.twrWithDividends);
     });
 });

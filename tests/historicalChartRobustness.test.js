@@ -74,6 +74,22 @@ describe('Historical chart robustness and cache', () => {
         expect(c).toBe(a);
     });
 
+    it('defaults to price-only TWR and enables dividends only through the explicit toggle', () => {
+        const chart = makeChart();
+        chart.update = vi.fn();
+        chart._syncViewToggle(false, false);
+        chart._syncDividendToggle(false, false);
+
+        const button = document.querySelector('#dividend-return-toggle .toggle-btn');
+        expect(chart.includeDividends).toBe(false);
+        expect(button.classList.contains('active')).toBe(false);
+
+        button.click();
+        expect(chart.includeDividends).toBe(true);
+        expect(button.classList.contains('active')).toBe(true);
+        expect(localStorage.getItem('chart_include_dividends')).toBe('1');
+    });
+
     it('persists a validated complete graph and restores it without rebuilding', async () => {
         const rows = [purchase({ ticker: 'AAPL' })];
         const data = {

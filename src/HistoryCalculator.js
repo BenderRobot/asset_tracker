@@ -54,10 +54,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function emptyResult() {
     return {
-        labels: [], invested: [], investedAssetOnly: [], values: [], yesterdayClose: null,
+        labels: [], invested: [], investedAssetOnly: [], values: [], assetValues: [], yesterdayClose: null,
         dayStartValue: null, todayValueOfYesterdayHoldings: null,
         perTickerYesterdayClose: new Map(), unitPrices: [], purchasePoints: [],
-        timestamps: [], twr: [], dailyTwr: [], historicalDataMap: new Map(), isMixed: false,
+        timestamps: [], twr: [], twrWithDividends: [], dailyTwr: [], dailyTwrWithDividends: [], historicalDataMap: new Map(), isMixed: false,
         cash: [], totalReturn: [], totalReturnPct: [], periodPnl: [],
         // Aucun achat du tout : rien à valoriser, donc rien qui puisse échouer.
         dataQuality: { valid: true, reason: null, failedInstruments: [] }
@@ -209,6 +209,7 @@ export class HistoryCalculator {
             invested: series.invested,
             investedAssetOnly: series.investedAssetOnly,
             values: gateOnValidity(series.values),
+            assetValues: gateOnValidity(series.assetValues),
             // PortfolioSnapshot historique par point (audit architecture SSOT) —
             // voir _buildSeries : cash[i]/totalReturn[i]/totalReturnPct[i] sont
             // déjà calculés avec la même formule que le snapshot LIVE, jamais à
@@ -225,7 +226,9 @@ export class HistoryCalculator {
             purchasePoints,
             timestamps: displayTimestamps,
             twr: series.twr,
+            twrWithDividends: series.twrWithDividends,
             dailyTwr: series.dailyTwr,
+            dailyTwrWithDividends: series.dailyTwrWithDividends,
             historicalDataMap,
             isMixed,
             // SINGLE SOURCE OF TRUTH pour "le prix couramment utilisé, par
@@ -307,7 +310,8 @@ export class HistoryCalculator {
                         // A dividend is investment income, not capital supplied
                         // by the user. It must increase TWR rather than being
                         // neutralised like a deposit/withdrawal.
-                        isExternalFlow: !(type === 'dividend' || p.type === 'dividend')
+                        isExternalFlow: !(type === 'dividend' || p.type === 'dividend'),
+                        isDividend: type === 'dividend' || p.type === 'dividend'
                     });
                 } else {
                     addEntry(t, {
@@ -859,8 +863,10 @@ export class HistoryCalculator {
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
     async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot }) {
-        const labels = [], invested = [], investedAssetOnly = [], values = [], unitPrices = [];
-        const twr = [], dailyTwr = [];
+        const labels = [], invested = [], investedAssetOnly = [], values = [], assetValues = [], unitPrices = [];
+        // `twr` is deliberately price-only. Cash never belongs to its market
+        // value and dividends are exposed through a separate optional series.
+        const twr = [], twrWithDividends = [], dailyTwr = [], dailyTwrWithDividends = [];
         // Provenance par point (validation architecture 2026-09-24, Phase 4) :
         // un enregistrement par index de displayTimestamps, jamais recalculé en
         // aval (le renderer/tooltip ne fait que LIRE ces champs, voir
@@ -1024,6 +1030,7 @@ export class HistoryCalculator {
         // as a gain.  Short ranges keep their official-close anchor below because
         // it is needed for exact day performance and the existing KPI invariant.
         let cumulativeTwr = 1.0;
+        let cumulativeTwrWithDividends = 1.0;
         let cumulativePeriodPnl = 0;
         let previousTwrValue = null;
 
@@ -1033,6 +1040,8 @@ export class HistoryCalculator {
             const prevTs = (i === 0) ? win.displayStartTs - 1 : displayTimestamps[i - 1];
 
             let cashFlow = 0;
+            let assetFlow = 0;
+            let dividendIncome = 0;
             let quantityChanged = false;
             for (const t of tickers) {
                 // Mirrors the seed cutoff above at i===0, so a flow dated between
@@ -1057,6 +1066,14 @@ export class HistoryCalculator {
                             const flow = entry.price * entry.quantity * rate;
                             investedByTicker.set(t, investedByTicker.get(t) + flow);
                             if (entry.isExternalFlow !== false) cashFlow += flow;
+                            if (t.startsWith('CASH-')) {
+                                if (entry.isDividend) dividendIncome += flow;
+                            } else {
+                                // Every trade is a flow into/out of the SECURITY
+                                // sleeve. Its optional cash counterpart is ignored
+                                // by TWR, exactly as required by the product rule.
+                                assetFlow += flow;
+                            }
                         }
                         quantityChanged = true;
                         applyCostBasisEntry(t, entry);
@@ -1064,8 +1081,8 @@ export class HistoryCalculator {
                 }
             }
 
-            let totalValue = 0, totalInvested = 0, totalInvestedAssetOnly = 0, totalCash = 0, unitPrice = null;
-            let hasAnyPrice = false, expected = 0, priced = 0;
+            let totalValue = 0, totalAssetValue = 0, totalInvested = 0, totalInvestedAssetOnly = 0, totalCash = 0, unitPrice = null;
+            let hasAnyPrice = false, hasAnyAssetPrice = false, expected = 0, priced = 0;
 
             for (const t of tickers) {
                 const qty = quantities.get(t);
@@ -1139,6 +1156,10 @@ export class HistoryCalculator {
                 if (price != null) {
                     totalValue += price * qty * rate;
                     if (isCash) totalCash += price * qty * rate;
+                    else {
+                        totalAssetValue += price * qty * rate;
+                        hasAnyAssetPrice = true;
+                    }
                     hasAnyPrice = true; priced++;
                     if (isSingleAsset) unitPrice = price;
                     lastKnownPrices.set(t, price);
@@ -1233,43 +1254,50 @@ export class HistoryCalculator {
 
             // --- TWR values for this point ---
             let pointTwr;
-            if (!hasAnyPrice && !quantityChanged) {
+            let pointTwrWithDividends;
+            if (!hasAnyAssetPrice && assetFlow === 0) {
                 pointTwr = null;
-            } else if (shouldAnchorOnClose && periodDenominator > 0) {
-                pointTwr = totalValue / periodDenominator;
+                pointTwrWithDividends = null;
             } else {
                 if (previousTwrValue !== null) {
-                    const capitalBeforeMarketMove = previousTwrValue + cashFlow;
+                    const capitalBeforeMarketMove = previousTwrValue + assetFlow;
                     // A portfolio can legitimately cross zero after a complete
                     // withdrawal.  There is no defined return for that interval;
                     // preserve the last valid index instead of manufacturing an
                     // infinite/negative performance factor.
-                    if (capitalBeforeMarketMove > 0 && totalValue >= 0) {
-                        cumulativeTwr *= totalValue / capitalBeforeMarketMove;
+                    if (capitalBeforeMarketMove > 0 && totalAssetValue >= 0) {
+                        cumulativeTwr *= totalAssetValue / capitalBeforeMarketMove;
+                        cumulativeTwrWithDividends *= (totalAssetValue + dividendIncome) / capitalBeforeMarketMove;
                     }
                     // Additive euro P&L for the stats panel. Unlike multiplying
                     // TWR by the tiny first portfolio value, this remains a real
                     // monetary amount when capital is added later.
-                    cumulativePeriodPnl += totalValue - capitalBeforeMarketMove;
+                    cumulativePeriodPnl += totalAssetValue - capitalBeforeMarketMove;
                 }
                 pointTwr = cumulativeTwr;
+                pointTwrWithDividends = cumulativeTwrWithDividends;
             }
             twr.push(pointTwr);
+            twrWithDividends.push(pointTwrWithDividends);
             periodPnl.push((hasAnyPrice || quantityChanged) ? cumulativePeriodPnl : null);
 
             // Only a fully valued point may become the next interval's capital.
             // dataQuality will fail-close the returned market series when an
             // instrument failed; this guard also keeps the internal index finite.
-            if (hasAnyPrice && Number.isFinite(totalValue)) previousTwrValue = totalValue;
+            if (hasAnyAssetPrice && Number.isFinite(totalAssetValue)) previousTwrValue = totalAssetValue;
 
             const useDailyTwr = shouldAnchorOnClose && dayDenominator > 0;
-            dailyTwr.push((!hasAnyPrice && !quantityChanged) ? null : (useDailyTwr ? totalValue / dayDenominator : null));
+            // A 1D window already starts from its previous-close valuation, so
+            // the same security-only index is also the canonical daily series.
+            dailyTwr.push(pointTwr);
+            dailyTwrWithDividends.push(pointTwrWithDividends);
 
             labels.push(labelFormatFunc(ts));
             if (hasAnyPrice || quantityChanged) {
                 invested.push(totalInvested);
                 investedAssetOnly.push(totalInvestedAssetOnly);
                 values.push(totalValue);
+                assetValues.push(totalAssetValue);
                 cash.push(totalCash);
                 // Même formule EXACTE que dataManager.buildPortfolioSnapshot
                 // (totalReturn = (totalValue - cash) - investedAssetOnly, cash
@@ -1282,6 +1310,7 @@ export class HistoryCalculator {
                 invested.push(null);
                 investedAssetOnly.push(null);
                 values.push(null);
+                assetValues.push(null);
                 cash.push(null);
                 totalReturn.push(null);
                 totalReturnPct.push(null);
@@ -1326,7 +1355,7 @@ export class HistoryCalculator {
         // could therefore drift from it — align it on the same single anchor.
         if (days === 1 && periodDenominator > 0) dayStartValue = periodDenominator;
 
-        return { labels, invested, investedAssetOnly, values, cash, totalReturn, totalReturnPct, periodPnl, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue, resolvedPrices, pointMeta };
+        return { labels, invested, investedAssetOnly, values, assetValues, cash, totalReturn, totalReturnPct, periodPnl, unitPrices, twr, twrWithDividends, dailyTwr, dailyTwrWithDividends, displayedYesterdayClose, dayStartValue, resolvedPrices, pointMeta };
     }
 
     // ========================================================

@@ -37,7 +37,7 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // v2 invalidates snapshots built with the former long-range
 // value/current-cost-basis curve. Those cached arrays are financially
 // incompatible with the canonical flow-neutral TWR series.
-const HISTORY_CHART_CACHE_VERSION = 5;
+const HISTORY_CHART_CACHE_VERSION = 6;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
@@ -72,6 +72,8 @@ export class HistoricalChart {
             close: this.ui ? this._loadRefLinePref('close') : true,
             pru: this._loadRefLinePref('pru')
         };
+        try { this.includeDividends = localStorage.getItem('chart_include_dividends') === '1'; }
+        catch { this.includeDividends = false; }
 
         this._unsubscribeSnapshot = this.dataManager.repository?.subscribe(result => {
             // A live snapshot refresh can change the 1D valuation. It must not
@@ -988,6 +990,32 @@ export class HistoricalChart {
         container.style.display = (showClose || showPru) ? '' : 'none';
     }
 
+    _syncDividendToggle(isSingleAssetMode, isIndexMode) {
+        const anchor = document.getElementById('view-toggle');
+        if (!anchor) return;
+        let container = document.getElementById('dividend-return-toggle');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'dividend-return-toggle';
+            container.className = 'toggle-group';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'toggle-btn';
+            btn.textContent = 'Dividendes';
+            btn.title = 'Inclure les dividendes dans la performance';
+            btn.addEventListener('click', () => {
+                this.includeDividends = !this.includeDividends;
+                btn.classList.toggle('active', this.includeDividends);
+                try { localStorage.setItem('chart_include_dividends', this.includeDividends ? '1' : '0'); } catch { /* ignore */ }
+                this.update(false, false);
+            });
+            container.appendChild(btn);
+            anchor.parentNode.insertBefore(container, anchor.nextSibling);
+        }
+        container.querySelector('.toggle-btn')?.classList.toggle('active', this.includeDividends);
+        container.style.display = (!isSingleAssetMode && !isIndexMode) ? '' : 'none';
+    }
+
     // ========================================================
     // renderChart — Chart.js dataset construction + stats panel + KPI cards
     // ========================================================
@@ -997,6 +1025,7 @@ export class HistoricalChart {
 
         this._syncViewToggle(isSingleAssetMode, isIndexMode);
         this._syncReferenceLineToggles(isSingleAssetMode);
+        this._syncDividendToggle(isSingleAssetMode, isIndexMode);
         const viewToggle = document.getElementById('view-toggle');
         const activeView = viewToggle?.querySelector('.toggle-btn.active')?.dataset.view || 'global';
         const isUnitView = isSingleAssetMode && activeView === 'unit';
@@ -1038,13 +1067,16 @@ export class HistoricalChart {
         // PÉRIODE follows the canonical time-weighted series. Cash flows are
         // neutralised by HistoryCalculator; dividends remain investment return.
         let perfAbs = 0, perfPct = 0;
-        if (!isIndexMode && !isUnitView && graphData.twr?.length > lastIndex) {
-            const twrStart = (this.currentPeriod === 1) ? 1.0 : (graphData.twr[firstIndex] || 1.0);
-            const twrEnd = graphData.twr[lastIndex];
+        const selectedTwr = this.includeDividends && Array.isArray(graphData.twrWithDividends)
+            ? graphData.twrWithDividends : graphData.twr;
+        if (!isIndexMode && !isUnitView && selectedTwr?.length > lastIndex) {
+            const twrStart = (this.currentPeriod === 1) ? 1.0 : (selectedTwr[firstIndex] || 1.0);
+            const twrEnd = selectedTwr[lastIndex];
             perfPct = twrStart !== 0 ? ((twrEnd - twrStart) / twrStart) * 100 : 0;
-            const baseValue = (this.currentPeriod === 1)
-                ? (referenceCloseIn || graphData.yesterdayClose || priceStart)
-                : priceStart;
+            // Monetary period performance uses the same security-only capital
+            // base as TWR. Cash remains available in the Value view, but cannot
+            // leak into this performance amount.
+            const baseValue = Number(graphData.assetValues?.[firstIndex]) || priceStart;
             perfAbs = (perfPct / 100) * baseValue;
         } else {
             perfAbs = priceEnd - priceStart;
@@ -1448,9 +1480,13 @@ export class HistoricalChart {
         // Computed unconditionally (not just in performance mode) so the
         // tooltip can always show €+% together on the main line, whichever
         // mode is currently displayed.
-        const hasDailyTwr = this.currentPeriod === 1 && Array.isArray(graphData.dailyTwr) &&
-            graphData.dailyTwr.length === graphData.twr.length && graphData.dailyTwr.some(v => v !== null);
-        const twrSeries = hasDailyTwr ? graphData.dailyTwr : graphData.twr;
+        const selectedTwr = this.includeDividends && Array.isArray(graphData.twrWithDividends)
+            ? graphData.twrWithDividends : graphData.twr;
+        const selectedDailyTwr = this.includeDividends && Array.isArray(graphData.dailyTwrWithDividends)
+            ? graphData.dailyTwrWithDividends : graphData.dailyTwr;
+        const hasDailyTwr = this.currentPeriod === 1 && Array.isArray(selectedDailyTwr) &&
+            selectedDailyTwr.length === selectedTwr?.length && selectedDailyTwr.some(v => v !== null);
+        const twrSeries = hasDailyTwr ? selectedDailyTwr : selectedTwr;
         const twrStart = hasDailyTwr ? 1.0 : (twrSeries?.[firstIndex] || 1.0);
         const pctSeries = Array.isArray(twrSeries)
             ? twrSeries.map(v => (v === null || v === undefined) ? null : ((v - twrStart) / twrStart) * 100)
