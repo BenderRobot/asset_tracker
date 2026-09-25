@@ -4,6 +4,7 @@ import { HistoricalChart } from '../src/historicalChart.js';
 import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 import { getIntervalForPeriod } from '../src/MarketUtils.js';
+import { createFailedHistoricalResult } from '../src/api.js';
 
 function makeChart() {
     const storage = createFakeStorage();
@@ -168,6 +169,36 @@ describe('Historical chart robustness and cache', () => {
 });
 
 describe('Long-period request plan', () => {
+    it('recovers a failed 90m ticker with real daily candles without invalidating the portfolio', async () => {
+        const calls = [];
+        const now = Date.now();
+        const api = createFakeApi({
+            async getHistoricalPricesWithRetry(ticker, start, end, interval) {
+                calls.push([ticker, interval]);
+                if (ticker === 'AAPL' && interval === '90m') return createFailedHistoricalResult();
+                return { [now - 86400000]: ticker === 'AAPL' ? 100 : 50, [now]: ticker === 'AAPL' ? 101 : 51 };
+            }
+        });
+        const storage = createFakeStorage({
+            prices: {
+                AAPL: { price: 101, previousClose: 100, currency: 'EUR', lastUpdate: now },
+                MSFT: { price: 51, previousClose: 50, currency: 'EUR', lastUpdate: now }
+            }
+        });
+        const dm = new DataManager(storage, api);
+
+        const result = await dm.calculateHistory([
+            purchase({ ticker: 'AAPL', date: '2024-01-01' }),
+            purchase({ ticker: 'MSFT', date: '2024-01-01' })
+        ], 30);
+
+        expect(calls).toContainEqual(['AAPL', '90m']);
+        expect(calls).toContainEqual(['AAPL', '1d']);
+        expect(result.dataQuality.valid).toBe(true);
+        expect(result.dataQuality.recoveredInstruments).toEqual({ AAPL: '1d' });
+        expect(result.values.some(Number.isFinite)).toBe(true);
+    });
+
     it('reuses the buffered intraday candles for 2D anchors without daily refetches', async () => {
         const intervals = [];
         const api = createFakeApi({

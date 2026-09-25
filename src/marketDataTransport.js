@@ -45,8 +45,8 @@ async function disk(key, value) {
     } catch { resolve(null); }
   });
 }
-function response(entry) {
-  return { ok: true, status: 200, fetchedAt: entry.fetchedAt, headers: new Headers(), json: async () => structuredClone(entry.data) };
+function response(entry, stale = false) {
+  return { ok: true, status: 200, fetchedAt: entry.fetchedAt, stale, headers: new Headers(), json: async () => structuredClone(entry.data) };
 }
 function cacheable(data) {
   if (Number.isFinite(data?.rates?.EUR) && data.rates.EUR > 0) return true;
@@ -67,7 +67,14 @@ export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 
       memory.set(key, stored); marketDataMetrics.recordCacheHit(); return response(stored);
     }
     const failure = failures.get(key);
-    if (failure && Date.now() < failure.until) throw failure.error;
+    if (failure && Date.now() < failure.until) {
+      const staleEntry = stored?.data ? stored : cached;
+      if (staleEntry?.data && cacheable(staleEntry.data)) {
+        marketDataMetrics.recordCacheHit();
+        return response(staleEntry, true);
+      }
+      throw failure.error;
+    }
     if (active >= 6) await new Promise(resolve => waiting.push(resolve));
     active++;
     const controller = new AbortController();
@@ -96,6 +103,16 @@ export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 
       return { ok: true, status: res.status || 200, fetchedAt: entry.fetchedAt, headers: res.headers, json: async () => structuredClone(data) };
     } catch (error) {
       failedStatus = error.name === 'AbortError' ? 'timeout' : 0;
+      // Stale-if-error for REAL provider payloads only. This is the persistent
+      // cache-first path for immutable past candles: a temporary Worker/Yahoo
+      // failure must not erase an already validated history. No live quote,
+      // purchase price or synthetic point is introduced.
+      const staleEntry = stored?.data ? stored : cached;
+      if (staleEntry?.data && cacheable(staleEntry.data)) {
+        memory.set(key, staleEntry);
+        marketDataMetrics.recordCacheHit();
+        return response(staleEntry, true);
+      }
       throw error;
     } finally {
       marketDataMetrics.recordRequestEnd(handle, res?.status || failedStatus || (controller.signal.aborted ? 'timeout' : 0), res);

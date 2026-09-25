@@ -131,7 +131,7 @@ export class HistoryCalculator {
         const interval = getIntervalForPeriod(days);
         const labelFormatFunc = getLabelFormat(days);
 
-        const { map: historicalDataMap, failedTickers } = await this._fetchHistoricalData(tickers, win.dataStartTs, win.dataEndTs, interval);
+        const { map: historicalDataMap, failedTickers, recoveredTickers } = await this._fetchHistoricalData(tickers, win.dataStartTs, win.dataEndTs, interval);
         await this._fillCryptoGapsFromBinance(tickers, historicalDataMap, days);
         await this._recoverFromClosedMarket(tickers, historicalDataMap, win, days, isCrypto, interval);
 
@@ -147,8 +147,8 @@ export class HistoryCalculator {
             if (hist && Object.keys(hist).length > 0) failedTickers.delete(t);
         }
         const dataQuality = failedTickers.size > 0
-            ? { valid: false, reason: 'PRICE_DATA_UNAVAILABLE', failedInstruments: [...failedTickers] }
-            : { valid: true, reason: null, failedInstruments: [] };
+            ? { valid: false, reason: 'PRICE_DATA_UNAVAILABLE', failedInstruments: [...failedTickers], recoveredInstruments: Object.fromEntries(recoveredTickers) }
+            : { valid: true, reason: null, failedInstruments: [], recoveredInstruments: Object.fromEntries(recoveredTickers) };
 
         const lastKnownPrices = this._seedLastKnownPrices(tickers, historicalDataMap, win, days, livePriceSnapshot);
 
@@ -422,13 +422,32 @@ export class HistoryCalculator {
     async _fetchHistoricalData(tickers, startTs, endTs, interval) {
         const map = new Map();
         const failedTickers = new Set();
+        const recoveredTickers = new Map();
+        const fallbackInterval = {
+            '5m': '15m',
+            '15m': '1h',
+            '30m': '1h',
+            '60m': '1d',
+            '90m': '1d',
+            '1h': '1d',
+            '1d': '1wk',
+            '1wk': '1mo'
+        }[interval];
         const batchSize = 3;
         for (let i = 0; i < tickers.length; i += batchSize) {
             const batch = tickers.slice(i, i + batchSize);
             await Promise.all(batch.map(async (t) => {
                 if (t.startsWith('CASH-')) { map.set(t, {}); return; }
                 try {
-                    const hist = await this.getHistoryWithCache(formatTicker(t), startTs, endTs, interval);
+                    let hist = await this.getHistoryWithCache(formatTicker(t), startTs, endTs, interval);
+                    if (isHistoricalFetchFailure(hist) && fallbackInterval) {
+                        const recovered = await this.getHistoryWithCache(formatTicker(t), startTs, endTs, fallbackInterval);
+                        if (!isHistoricalFetchFailure(recovered) && Object.keys(recovered || {}).length > 0) {
+                            hist = recovered;
+                            recoveredTickers.set(t, fallbackInterval);
+                            console.warn(`[HistoryCalc] ${t}: ${interval} unavailable, recovered with real ${fallbackInterval} candles.`);
+                        }
+                    }
                     map.set(t, hist || {});
                     if (isHistoricalFetchFailure(hist)) failedTickers.add(t);
                 } catch (err) {
@@ -437,7 +456,7 @@ export class HistoryCalculator {
                 }
             }));
         }
-        return { map, failedTickers };
+        return { map, failedTickers, recoveredTickers };
     }
 
     // Yahoo sometimes has no intraday data for a crypto ticker — Binance is a

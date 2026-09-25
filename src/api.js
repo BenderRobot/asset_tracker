@@ -1,4 +1,4 @@
-import { fetchMarketResponse } from './marketDataTransport.js';
+import { fetchMarketResponse } from './marketDataTransport.js?v=2';
 // ========================================
 // api.js - Cloudflare Workers Proxy
 // ========================================

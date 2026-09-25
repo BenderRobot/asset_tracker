@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fetchMarketResponse } from '../src/marketDataTransport.js';
+import { fetchMarketResponse } from '../src/marketDataTransport.js?v=2';
 import { marketDataMetrics } from '../src/marketDataMetrics.js';
 afterEach(() => vi.unstubAllGlobals());
 const url = 'https://example.test/?symbol=AAA';
@@ -25,5 +25,19 @@ describe('Shared provider transport', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502 })));
     await expect(fetchMarketResponse(url, 1000, 'binance')).rejects.toThrow();
     expect(marketDataMetrics.snapshot()).toMatchObject({ networkRequests: 1, worker5xx: 0 });
+  });
+  it('serves a previously validated provider payload when its refresh fails', async () => {
+    const staleUrl = 'https://example.test/?symbol=STALE';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => valid })
+      .mockResolvedValueOnce({ ok: false, status: 502, headers: new Headers() });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchMarketResponse(staleUrl, 1000, 'historical', 0);
+    const fallback = await fetchMarketResponse(staleUrl, 1000, 'historical', 0);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fallback.stale).toBe(true);
+    expect((await fallback.json()).chart.result[0].indicators.quote[0].close).toEqual([100]);
   });
 });

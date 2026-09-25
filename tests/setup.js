@@ -1,5 +1,5 @@
 import { beforeEach } from 'vitest';
-import { clearMarketTransportCache } from '../src/marketDataTransport.js';
+import { clearMarketTransportCache } from '../src/marketDataTransport.js?v=2';
 beforeEach(() => clearMarketTransportCache());
 // Minimal stub of the Firebase v8-compat global expected by src/firebaseConfig.js.
 // The real app loads Firebase via a <script> CDN tag in the browser; under the
