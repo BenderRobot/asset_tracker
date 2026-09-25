@@ -366,14 +366,27 @@ export class DashboardApp {
     renderSnapshot(result) {
         const { snapshot, stale, degraded, previousSession } = result;
         const { holdings, cashReserve } = snapshot._engine;
-        const summary = previousSession
+        const engineSummary = previousSession
             ? { ...snapshot._engine.summary, totalDayChangeEUR: null, dayChangePct: null }
             : snapshot._engine.summary;
+        // The top cards can render before the chart: PortfolioSnapshot is the
+        // canonical result already shared by KPI/table/chart and includes cash.
+        // Passing the engine summary here kept the cards dependent on a later
+        // graph publication and could leave them as "-" on a cache-first load.
+        const canonicalSummary = {
+            totalCurrentEUR: snapshot.portfolioSnapshot.totalValue,
+            totalInvestedEUR: snapshot.portfolioSnapshot.invested,
+            gainTotal: snapshot.portfolioSnapshot.totalReturn,
+            gainPct: snapshot.portfolioSnapshot.totalReturnPct,
+            totalDayChangeEUR: previousSession ? null : snapshot.portfolioSnapshot.dayPnl,
+            dayChangePct: previousSession ? null : snapshot.portfolioSnapshot.dayPnlPct,
+            movementsCount: engineSummary.movementsCount || 0
+        };
         this._latestPortfolioSnapshotId = snapshot.snapshotId;
         this.lastHoldings = holdings;
-        this.renderKPIs(summary, cashReserve.total, holdings);
-        this.renderAllocation(holdings, summary.totalCurrentEUR);
-        if (this.chart?.currentMode !== 'asset') this.ui.updatePortfolioSummary(summary, summary.movementsCount || 0, cashReserve.total, this.marketStatus);
+        this.renderKPIs(engineSummary, cashReserve.total, holdings);
+        this.renderAllocation(holdings, engineSummary.totalCurrentEUR);
+        if (this.chart?.currentMode !== 'asset') this.ui.updatePortfolioSummary(canonicalSummary, canonicalSummary.movementsCount, 0, this.marketStatus);
         if (stale || degraded) {
             this.showCacheBadge();
             const badge = document.getElementById('cache-badge');
@@ -382,7 +395,7 @@ export class DashboardApp {
         if (snapshot.portfolioSnapshot.status === 'valid') marketDataMetrics.recordInitialRender();
         if (!stale && !degraded && snapshot.portfolioSnapshot.status === 'valid' && this._notifiedSnapshotId !== snapshot.snapshotId) {
             this._notifiedSnapshotId = snapshot.snapshotId;
-            this.notificationManager?.checkAll(this.storage.currentData, summary);
+            this.notificationManager?.checkAll(this.storage.currentData, engineSummary);
         }
     }
 

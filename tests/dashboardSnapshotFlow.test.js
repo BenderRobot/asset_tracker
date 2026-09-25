@@ -44,6 +44,17 @@ it('dashboard and chart share one computation; reload restores a snapshot with z
   expect(results).toHaveLength(1);
   expect(app._latestPortfolioSnapshotId).toBe(results[0].snapshot.snapshotId);
   expect(results[0].snapshot.portfolioSnapshot.status).toBe('valid');
+  expect(app.ui.updatePortfolioSummary).toHaveBeenCalledWith(
+    expect.objectContaining({
+      totalCurrentEUR: results[0].snapshot.portfolioSnapshot.totalValue,
+      totalInvestedEUR: results[0].snapshot.portfolioSnapshot.invested,
+      gainTotal: results[0].snapshot.portfolioSnapshot.totalReturn,
+      totalDayChangeEUR: results[0].snapshot.portfolioSnapshot.dayPnl
+    }),
+    expect.any(Number),
+    0,
+    undefined
+  );
   const cold = marketDataMetrics.snapshot();
   expect(cold.historicalCalculations).toBe(1);
   expect(cold.networkRequests).toBe(8); // 2 live + 2 intraday + 4 daily reference requests in this fixture
