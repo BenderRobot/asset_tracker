@@ -658,7 +658,15 @@ export class PriceAPI {
     // ORIGINALEMENT demandée (voir finalizeResult).
     const deltaEligible = isDeltaFetchEligible(interval) && !isGoldSwapped;
     const conversionRate = this.storage.getConversionRate('USD_TO_EUR');
-    const goldReference = isGoldSwapped ? this.storage.getCurrentPrice('GOLD-EUR.PA')?.price : null;
+    // GOLD-ETFP is the storage/business key. Yahoo formatting subsequently
+    // turns it into GOLD-EUR.PA and, for long periods, GOLD.PA. Preserve that
+    // original identity when resolving the live EUR calibration reference.
+    const goldReference = isGoldSwapped
+      ? (this.storage.getCurrentPrice(ticker)?.price
+        ?? this.storage.getCurrentPrice('GOLD-ETFP')?.price
+        ?? this.storage.getCurrentPrice('GOLD-EUR.PA')?.price
+        ?? null)
+      : null;
     const pointKey = `${formatted}|fx:${conversionRate ?? 'none'}|gold:${goldReference ?? 'none'}`;
     const plan = deltaEligible
       ? historicalPointStore.planFetch(pointKey, interval, startTs, endTs)
@@ -786,9 +794,6 @@ export class PriceAPI {
         // CALCUL DU RATIO GOLD SI NÉCESSAIRE
         let goldRatio = 1;
         if (isGoldSwapped) {
-          const targetPriceObj = this.storage.getCurrentPrice('GOLD-EUR.PA');
-          // Si on n'a pas le prix cible en cache, on utilise un ratio fixe approximatif (146/74 ~ 1.97)
-          // Ce cas est rare car l'app fetch d'abord le snapshot
           const targetPrice = goldReference;
           if (!(targetPrice > 0)) throw new Error('Gold conversion reference unavailable');
 

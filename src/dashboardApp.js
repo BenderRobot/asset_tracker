@@ -4,9 +4,9 @@
 // dashboardApp.js - VERSION CORRIGÉE FINALE (Unification + Fix Erreur Critique + GCP Proxy)
 // ========================================
 import { Storage } from './storage.js?v=4';
-import { PriceAPI } from './api.js?v=8';
+import { PriceAPI } from './api.js?v=9';
 import { MarketStatus } from './marketStatus.js?v=2';
-import { DataManager } from './dataManager.js?v=20';
+import { DataManager } from './dataManager.js?v=21';
 import { HistoricalChart } from './historicalChart.js?v=27';
 import { IndexCardChart } from './indexCardChart.js';
 import { ChartKPIManager } from './chartKPIManager.js'; // NOUVEAU : Pour sparkline

@@ -45,7 +45,6 @@ import {
     isCryptoTicker,
     isMixedPortfolio,
     findClosestPrice,
-    formatTicker,
     resolveTickerPreviousClose,
     getCloseCutoffForTicker,
     resolveHistoricalUsdToEurRate
@@ -439,9 +438,13 @@ export class HistoryCalculator {
             await Promise.all(batch.map(async (t) => {
                 if (t.startsWith('CASH-')) { map.set(t, {}); return; }
                 try {
-                    let hist = await this.getHistoryWithCache(formatTicker(t), startTs, endTs, interval);
+                    // Preserve the portfolio ticker identity up to PriceAPI.
+                    // PriceAPI owns Yahoo formatting; pre-formatting here lost
+                    // aliases such as GOLD-ETFP, so the long-period GOLD.PA
+                    // conversion could no longer find its live EUR reference.
+                    let hist = await this.getHistoryWithCache(t, startTs, endTs, interval);
                     if (isHistoricalFetchFailure(hist) && fallbackInterval) {
-                        const recovered = await this.getHistoryWithCache(formatTicker(t), startTs, endTs, fallbackInterval);
+                        const recovered = await this.getHistoryWithCache(t, startTs, endTs, fallbackInterval);
                         if (!isHistoricalFetchFailure(recovered) && Object.keys(recovered || {}).length > 0) {
                             hist = recovered;
                             recoveredTickers.set(t, fallbackInterval);
@@ -619,7 +622,7 @@ export class HistoryCalculator {
                     // _patchOfficialClose obsolete (it used to force-overwrite the
                     // intraday data with this same unreliable daily value).
                     const dailyBars = await this.api.getHistoricalPricesWithRetry(
-                        formatTicker(t),
+                        t,
                         Math.floor(cutoffTs / 1000) - 7 * 86400,
                         Math.floor(cutoffTs / 1000),
                         '1d'
