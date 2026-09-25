@@ -34,7 +34,10 @@ import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js';
 
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-const HISTORY_CHART_CACHE_VERSION = 1;
+// v2 invalidates snapshots built with the former long-range
+// value/current-cost-basis curve. Those cached arrays are financially
+// incompatible with the canonical flow-neutral TWR series.
+const HISTORY_CHART_CACHE_VERSION = 2;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
@@ -1042,7 +1045,10 @@ export class HistoricalChart {
             const baseValue = (this.currentPeriod === 1)
                 ? (referenceCloseIn || graphData.yesterdayClose || priceStart)
                 : priceStart;
-            perfAbs = (perfPct / 100) * baseValue;
+            const canonicalPeriodPnl = graphData.periodPnl?.[lastIndex];
+            perfAbs = this.currentPeriod !== 1 && Number.isFinite(canonicalPeriodPnl)
+                ? canonicalPeriodPnl
+                : (perfPct / 100) * baseValue;
         } else {
             perfAbs = priceEnd - priceStart;
             perfPct = priceStart !== 0 ? (perfAbs / priceStart) * 100 : 0;

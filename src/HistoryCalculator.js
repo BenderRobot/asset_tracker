@@ -58,7 +58,7 @@ function emptyResult() {
         dayStartValue: null, todayValueOfYesterdayHoldings: null,
         perTickerYesterdayClose: new Map(), unitPrices: [], purchasePoints: [],
         timestamps: [], twr: [], dailyTwr: [], historicalDataMap: new Map(), isMixed: false,
-        cash: [], totalReturn: [], totalReturnPct: [],
+        cash: [], totalReturn: [], totalReturnPct: [], periodPnl: [],
         // Aucun achat du tout : rien à valoriser, donc rien qui puisse échouer.
         dataQuality: { valid: true, reason: null, failedInstruments: [] }
     };
@@ -216,6 +216,7 @@ export class HistoryCalculator {
             cash: gateOnValidity(series.cash),
             totalReturn: gateOnValidity(series.totalReturn),
             totalReturnPct: gateOnValidity(series.totalReturnPct),
+            periodPnl: gateOnValidity(series.periodPnl),
             yesterdayClose: dataQuality.valid ? series.displayedYesterdayClose : null,
             dayStartValue: dataQuality.valid ? series.dayStartValue : null,
             todayValueOfYesterdayHoldings: dataQuality.valid ? todayValueOfYesterdayHoldings : null,
@@ -869,7 +870,7 @@ export class HistoryCalculator {
         // isole la part qui en provient, pour que le tooltip n'ait plus jamais
         // besoin d'aller chercher un cash "courant" ailleurs pour un point
         // historique.
-        const cash = [], totalReturn = [], totalReturnPct = [];
+        const cash = [], totalReturn = [], totalReturnPct = [], periodPnl = [];
 
         const quantities = new Map(tickers.map(t => [t, 0]));
         const investedByTicker = new Map(tickers.map(t => [t, 0]));
@@ -993,6 +994,27 @@ export class HistoryCalculator {
         let dayKeyAnchored = null;
         let displayedYesterdayClose = initialYesterdayClose;
         let dayStartValue = null;
+
+        // Canonical portfolio performance for every multi-day range.
+        //
+        // The former implementation only maintained a flow-adjusted denominator
+        // for 1D/2D/1W.  From 1M onward it silently fell back to
+        // `totalValue / currentCostBasis`.  A current cost basis is suitable for
+        // the Total Return KPI, but it is not a historical performance index:
+        // later purchases and partial sales rewrite that denominator and flatten
+        // the whole curve.  Keep a unitised TWR index instead.  For each interval
+        // the transaction amount is external flow F and the market return is:
+        //
+        //        r = V(end) / (V(previous) + F)
+        //
+        // Chaining those factors neutralises deposits, purchases and sales while
+        // retaining only market performance.  The first observable point is the
+        // base 1.0; a transaction included in that point is therefore never shown
+        // as a gain.  Short ranges keep their official-close anchor below because
+        // it is needed for exact day performance and the existing KPI invariant.
+        let cumulativeTwr = 1.0;
+        let cumulativePeriodPnl = 0;
+        let previousTwrValue = null;
 
         for (let i = 0; i < displayTimestamps.length; i++) {
             const ts = displayTimestamps[i];
@@ -1202,12 +1224,30 @@ export class HistoryCalculator {
                 pointTwr = null;
             } else if (shouldAnchorOnClose && periodDenominator > 0) {
                 pointTwr = totalValue / periodDenominator;
-            } else if (totalInvested > 0) {
-                pointTwr = 1.0 + (totalValue - totalInvested) / totalInvested;
             } else {
-                pointTwr = 1.0;
+                if (previousTwrValue !== null) {
+                    const capitalBeforeMarketMove = previousTwrValue + cashFlow;
+                    // A portfolio can legitimately cross zero after a complete
+                    // withdrawal.  There is no defined return for that interval;
+                    // preserve the last valid index instead of manufacturing an
+                    // infinite/negative performance factor.
+                    if (capitalBeforeMarketMove > 0 && totalValue >= 0) {
+                        cumulativeTwr *= totalValue / capitalBeforeMarketMove;
+                    }
+                    // Additive euro P&L for the stats panel. Unlike multiplying
+                    // TWR by the tiny first portfolio value, this remains a real
+                    // monetary amount when capital is added later.
+                    cumulativePeriodPnl += totalValue - capitalBeforeMarketMove;
+                }
+                pointTwr = cumulativeTwr;
             }
             twr.push(pointTwr);
+            periodPnl.push((hasAnyPrice || quantityChanged) ? cumulativePeriodPnl : null);
+
+            // Only a fully valued point may become the next interval's capital.
+            // dataQuality will fail-close the returned market series when an
+            // instrument failed; this guard also keeps the internal index finite.
+            if (hasAnyPrice && Number.isFinite(totalValue)) previousTwrValue = totalValue;
 
             const useDailyTwr = shouldAnchorOnClose && dayDenominator > 0;
             dailyTwr.push((!hasAnyPrice && !quantityChanged) ? null : (useDailyTwr ? totalValue / dayDenominator : null));
@@ -1273,7 +1313,7 @@ export class HistoryCalculator {
         // could therefore drift from it — align it on the same single anchor.
         if (days === 1 && periodDenominator > 0) dayStartValue = periodDenominator;
 
-        return { labels, invested, investedAssetOnly, values, cash, totalReturn, totalReturnPct, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue, resolvedPrices, pointMeta };
+        return { labels, invested, investedAssetOnly, values, cash, totalReturn, totalReturnPct, periodPnl, unitPrices, twr, dailyTwr, displayedYesterdayClose, dayStartValue, resolvedPrices, pointMeta };
     }
 
     // ========================================================
