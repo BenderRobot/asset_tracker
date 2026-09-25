@@ -10,7 +10,7 @@ import { FilterManager } from './filters.js';
 import { AchatsPage } from './achatsPage.js?v=7';
 import { InvestmentsPage } from './investmentsPage.js?v=16';
 import { HistoricalChart } from './historicalChart.js?v=29';
-import { DataManager } from './dataManager.js?v=24';
+import { DataManager } from './dataManager.js?v=25';
 import { initMarketStatus } from './marketStatus.js?v=3';
 import { ASSET_TYPES, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED, DASHBOARD_INDICES, PRICE_PROXY_URL } from './config.js';
 import { getBrokers, getBrokersSync, fillSelect, attachAddBrokerHandler } from './brokerService.js';

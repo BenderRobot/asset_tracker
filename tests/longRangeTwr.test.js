@@ -5,6 +5,13 @@ import { createFakeApi, createFakeStorage, purchase } from './helpers.js';
 const utcNoon = (isoDate) => new Date(`${isoDate}T12:00:00.000Z`).getTime();
 
 describe('Long-range portfolio performance', () => {
+    it('uses daily observations for 2Y and All so transactions are not shifted to a later week', () => {
+        // Official broker TWR statements are daily. Weekly candles assign a
+        // transaction to the next weekly point and create artificial jumps.
+        expect(new DataManager(createFakeStorage(), createFakeApi()).getIntervalForPeriod('all')).toBe('1d');
+        expect(new DataManager(createFakeStorage(), createFakeApi()).getIntervalForPeriod(730)).toBe('1d');
+    });
+
     it('chains market returns and neutralises a later purchase on All', async () => {
         const prices = {
             [utcNoon('2026-01-05')]: 100,
@@ -62,5 +69,53 @@ describe('Long-range portfolio performance', () => {
         // +20%, sale at unchanged price, then +10% = +32%.
         expect(validTwr.at(-1)).toBeCloseTo(1.32, 8);
         expect(graph.periodPnl.at(-1)).toBeCloseTo(52, 8);
+    });
+
+    it('counts dividends as performance instead of neutralising them as deposits', async () => {
+        const prices = {
+            [utcNoon('2026-03-02')]: 100,
+            [utcNoon('2026-03-03')]: 100
+        };
+        const storage = createFakeStorage({
+            prices: { AAPL: { price: 100, previousClose: 100, currency: 'EUR', lastUpdate: Date.now() } },
+            conversionRate: 1
+        });
+        const dm = new DataManager(storage, createFakeApi({
+            async getHistoricalPricesWithRetry() { return prices; }
+        }));
+
+        const graph = await dm.calculateGenericHistory([
+            purchase({ ticker: 'AAPL', price: 100, quantity: 1, date: '2026-03-02' }),
+            purchase({ ticker: 'AAPL', assetType: 'Dividend', type: 'dividend', price: 10, quantity: 1, date: '2026-03-03' })
+        ], 'all', false);
+
+        expect(graph.twr.filter(Number.isFinite).at(-1)).toBeCloseTo(1.10, 8);
+    });
+
+    it('values USD holdings with historical daily FX instead of today’s FX', async () => {
+        const prices = {
+            [utcNoon('2026-04-01')]: 100,
+            [utcNoon('2026-04-02')]: 100
+        };
+        const storage = createFakeStorage({
+            prices: { AAPL: { price: 100, previousClose: 100, currency: 'USD', lastUpdate: Date.now() } },
+            conversionRate: 1
+        });
+        const dm = new DataManager(storage, createFakeApi({
+            async getHistoricalPricesWithRetry() { return prices; }
+        }));
+        const fx = new Map([
+            ['2026-04-01', 1 / 0.90],
+            ['2026-04-02', 1 / 1.00]
+        ]);
+
+        const graph = await dm.calculateGenericHistory([
+            purchase({ ticker: 'AAPL', currency: 'USD', price: 100, quantity: 1, date: '2026-04-01' })
+        ], 'all', false, 1, fx);
+
+        const validValues = graph.values.filter(Number.isFinite);
+        expect(validValues[0]).toBeCloseTo(90, 8);
+        expect(validValues.at(-1)).toBeCloseTo(100, 8);
+        expect(graph.twr.filter(Number.isFinite).at(-1)).toBeCloseTo(100 / 90, 8);
     });
 });

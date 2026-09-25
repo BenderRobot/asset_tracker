@@ -48,7 +48,7 @@ import {
     resolveTickerPreviousClose,
     getCloseCutoffForTicker,
     resolveHistoricalUsdToEurRate
-} from './MarketUtils.js';
+} from './MarketUtils.js?v=2';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -301,9 +301,20 @@ export class HistoryCalculator {
                 const t = isCash ? `CASH-${currency}` : p.ticker.toUpperCase();
                 const broker = p.broker || 'RV-CT';
                 if (isCash) {
-                    addEntry(t, { date: parseDate(p.date), price: 1.0, quantity: parseFloat(p.price) || 0, currency, broker });
+                    addEntry(t, {
+                        date: parseDate(p.date), price: 1.0,
+                        quantity: parseFloat(p.price) || 0, currency, broker,
+                        // A dividend is investment income, not capital supplied
+                        // by the user. It must increase TWR rather than being
+                        // neutralised like a deposit/withdrawal.
+                        isExternalFlow: !(type === 'dividend' || p.type === 'dividend')
+                    });
                 } else {
-                    addEntry(t, { date: parseDate(p.date), price: parseFloat(p.price), quantity: parseFloat(p.quantity), currency, broker });
+                    addEntry(t, {
+                        date: parseDate(p.date), price: parseFloat(p.price),
+                        quantity: parseFloat(p.quantity), currency, broker,
+                        isExternalFlow: true
+                    });
                 }
             });
         }
@@ -1038,14 +1049,14 @@ export class HistoryCalculator {
                         if (!isSingleAsset) {
                             const currency = livePriceSnapshot.get(t)?.currency || entry.currency || 'EUR';
                             if (currency === 'USD') {
-                                if (!(dynamicRate > 0)) canConvert = false;
-                                else rate = dynamicRate;
+                                rate = resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker: t, broker: entry.broker });
+                                if (!(rate > 0)) canConvert = false;
                             }
                         }
                         if (canConvert) {
                             const flow = entry.price * entry.quantity * rate;
                             investedByTicker.set(t, investedByTicker.get(t) + flow);
-                            cashFlow += flow;
+                            if (entry.isExternalFlow !== false) cashFlow += flow;
                         }
                         quantityChanged = true;
                         applyCostBasisEntry(t, entry);
@@ -1110,15 +1121,17 @@ export class HistoryCalculator {
                         // directe sans risque de course, mais on réutilise déjà
                         // `livePriceSnapshot` ici par cohérence avec la ligne
                         // ci-dessous (même ticker, même objet).
-                        currency = livePriceSnapshot.get(t)?.currency || 'EUR';
+                        currency = livePriceSnapshot.get(t)?.currency ||
+                            ledger.byTicker.get(t)?.[0]?.currency || 'EUR';
                         // FAIL-CLOSED FX : jamais rate=1 silencieux ni taux inventé
                         // pour un actif encore coté en USD.
                         if (currency === 'USD') {
-                            if (!(dynamicRate > 0)) {
+                            const historicalRate = resolveHistoricalUsdToEurRate(new Date(ts), historicalFxMap, dynamicRate, { ticker: t });
+                            if (!(historicalRate > 0)) {
                                 price = null;
                                 priceSource = 'none';
                             } else {
-                                rate = dynamicRate;
+                                rate = historicalRate;
                             }
                         }
                     }

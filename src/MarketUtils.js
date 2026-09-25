@@ -14,7 +14,7 @@ const historicalTimestampIndex = new WeakMap();
 export function getIntervalForPeriod(days) {
     // Cas spéciaux string en premier
     if (days === 'ytd') return '1d';   // YTD: journalier depuis le 1er janvier
-    if (days === 'all') return '1wk';  // All: hebdomadaire
+    if (days === 'all') return '1d';   // All: quotidien — requis pour dater correctement les flux/TWR
     // Cas numériques
     if (days === 1) return '5m';
     // Keep 2D on the same intraday series as 1D. Besides preserving the
@@ -24,8 +24,8 @@ export function getIntervalForPeriod(days) {
     if (days <= 7) return '15m';
     if (days <= 30) return '90m';
     if (days <= 365) return '1d';
-    if (days <= 730) return '1wk';  // 2Y
-    return '1wk';                   // > 2 ans
+    if (days <= 730) return '1d';   // 2Y: quotidien, comme les relevés courtier
+    return '1d';                    // > 2 ans: quotidien; cache persistant + delta fetch
 }
 
 /**
