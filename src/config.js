@@ -37,6 +37,7 @@ export const YAHOO_MAP = {
   '9D5': '9D5.F', 'GXG': 'GXG.F', 'BKSY': 'BKSY',
   'GOLD-ETFP': 'GOLD-EUR.PA',
   'AL2SI': 'AL2SI.PA', 'SU': 'SU.PA', 'ESE': 'ESE.PA', 'EUEA': 'EUEA.AS', 'STEC': 'STEC.AS', 'ALRIB': 'ALRIB.PA',
+  'ASML': 'ASML.AS',
   'SOI': 'SOI.PA',
   'CSPXUS': 'CSPX.AS', 'S&P500': 'CSPX.AS', 'SPY': 'SPY', 'VOO': 'VOO', 'CSPX.F': 'CSPX.AS',
   'BTC': 'BTC-EUR',

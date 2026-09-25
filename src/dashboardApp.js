@@ -161,12 +161,6 @@ export class DashboardApp {
         if (this._refreshInterval) clearInterval(this._refreshInterval);
         this._refreshInterval = setInterval(() => this.refreshDashboard(), 30 * 1000);
 
-        // PWA Service Worker Registration
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('../service-worker.js')
-                .then(reg => console.log('[Service Worker] Registered', reg))
-                .catch(err => console.error('[Service Worker] Registration failed', err));
-        }
     }
 
     /**
