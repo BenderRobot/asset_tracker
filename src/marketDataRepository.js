@@ -91,7 +91,7 @@ export class MarketDataRepository {
   }
   refresh(assets, cash = []) { return this.getSnapshot(assets, cash, { forceRefresh: true }); }
 
-  async getSnapshot(assets, cash = [], { forceRefresh = false } = {}) {
+  async getSnapshot(assets, cash = [], { forceRefresh = false, revalidate = true } = {}) {
     this._ensureScope();
     const key = signature(assets, cash);
     const scope = this._scope;
@@ -121,7 +121,7 @@ export class MarketDataRepository {
     if (!forceRefresh && usable) {
       marketDataMetrics.recordSnapshotCacheHit();
       const result = this._result();
-      if (result.stale && now >= (this._memory.retryAt || 0))
+      if (revalidate && result.stale && now >= (this._memory.retryAt || 0))
         this._refresh(assets, cash, key, true, false).catch(() => {});
       return result;
     }

@@ -21,7 +21,10 @@ describe('Historical chart robustness and cache', () => {
         document.body.innerHTML = `
             <div id="view-toggle"><button class="toggle-btn active" data-view="performance"></button></div>
             <div class="chart-title"><span id="chart-title-text"></span><span id="chart-title-icon"></span></div>
-            <canvas id="historical-portfolio-chart"></canvas>`;
+            <div class="dashboard-chart-section">
+                <div class="chart-wrapper"><canvas id="historical-portfolio-chart"></canvas><div id="chart-loading"></div></div>
+                <div class="chart-stats-bar"></div>
+            </div>`;
     });
     afterEach(() => vi.restoreAllMocks());
 
@@ -66,6 +69,43 @@ describe('Historical chart robustness and cache', () => {
         expect(producer).toHaveBeenCalledTimes(1);
         expect(a).toBe(b);
         expect(c).toBe(a);
+    });
+
+    it('keeps the loader visible and never paints a superseded period', async () => {
+        const chart = makeChart();
+        const dm = chart.dataManager;
+        let releaseFirst;
+        const first = new Promise(resolve => { releaseFirst = resolve; });
+        const portfolioSnapshot = {
+            status: 'valid', snapshotId: 'snap', snapshotStartedAt: 1, generatedAt: 1,
+            totalValue: 100, invested: 100, cash: 0, totalReturn: 0,
+            totalReturnPct: 0, dayPnl: 0, dayPnlPct: 0, positions: []
+        };
+        const engine = {
+            todayGraphData: { labels: ['today'], timestamps: [1], values: [100], invested: [100], twr: [1] },
+            holdings: [], summary: {}, cashReserve: { total: 0 }, portfolioSnapshot
+        };
+        dm.repository.getSnapshot = vi.fn()
+            .mockImplementationOnce(() => first)
+            .mockResolvedValue({ snapshot: { generatedAt: 1, portfolioSnapshot, _engine: engine }, previousSession: false });
+        dm.calculateHistory = vi.fn().mockResolvedValue({
+            labels: ['6m'], timestamps: [2], values: [120], invested: [100], twr: [1.2], dataQuality: { valid: true }
+        });
+        chart.renderChart = vi.fn();
+
+        const initialUpdate = chart.update(true, false);
+        await chart.changePeriod(180);
+        expect(document.getElementById('chart-loading').style.display).toBe('flex');
+        expect(document.querySelector('canvas').style.visibility).toBe('hidden');
+
+        releaseFirst({ snapshot: { generatedAt: 1, portfolioSnapshot, _engine: engine }, previousSession: false });
+        await initialUpdate;
+        await vi.waitFor(() => expect(chart.renderChart).toHaveBeenCalledTimes(1));
+
+        expect(chart.currentPeriod).toBe(180);
+        expect(chart.renderChart.mock.calls[0][1].labels).toEqual(['6m']);
+        expect(document.getElementById('chart-loading').style.display).toBe('none');
+        expect(document.querySelector('canvas').style.visibility).toBe('visible');
     });
 });
 

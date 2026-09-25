@@ -584,7 +584,7 @@ export class DashboardApp {
                 allPeriodBtns.forEach(btn => {
                     const newBtn = btn.cloneNode(true);
                     btn.parentNode.replaceChild(newBtn, btn);
-                    newBtn.addEventListener('click', (e) => {
+                    newBtn.addEventListener('click', async (e) => {
                         if (newBtn.classList.contains('period-disabled')) return;
                         // Update active state on ALL buttons (desktop & mobile) to keep them in sync
                         document.querySelectorAll('.period-btn').forEach(b => {
@@ -596,8 +596,8 @@ export class DashboardApp {
                         });
 
                         const rawPeriod = e.target.dataset.period;
-                        this.chart.currentPeriod = (rawPeriod === 'all' || rawPeriod === 'ytd') ? rawPeriod : parseInt(rawPeriod);
-                        this.chart.update(true, false);
+                        const period = (rawPeriod === 'all' || rawPeriod === 'ytd') ? rawPeriod : parseInt(rawPeriod);
+                        await this.chart.changePeriod(period);
                     });
                 });
             }

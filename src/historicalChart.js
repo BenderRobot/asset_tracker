@@ -72,6 +72,7 @@ export class HistoricalChart {
         this.isLoading = false;
         this._pendingUpdate = null;
         this._pendingPeriod = undefined;
+        this._updateRequestId = 0;
         this._autoRefreshTimeout = null;
         this._autoRefreshInterval = null;
         this.lastRefreshTime = null;
@@ -191,16 +192,19 @@ export class HistoricalChart {
         // Queue the latest request instead of dropping it, and drain it once
         // the in-flight load finishes — same coalesce-to-latest pattern as
         // update()'s own _pendingUpdate.
-        if (this.isLoading) { this._pendingPeriod = days; return; }
+        this._pendingPeriod = days;
+        this._setLoadingState(true);
+        if (this.isLoading) {
+            // Invalidate the render currently in flight. Its data may still be
+            // useful to the network caches, but it must never reach the canvas.
+            this._updateRequestId++;
+            return;
+        }
+        this._pendingPeriod = undefined;
         this.currentPeriod = days;
         this.stopAutoRefresh();
         await this.update(true, false);
         this.startAutoRefresh();
-        if (this._pendingPeriod !== undefined) {
-            const next = this._pendingPeriod;
-            this._pendingPeriod = undefined;
-            if (next !== this.currentPeriod) await this.changePeriod(next);
-        }
     }
 
     // Binds the period-tab buttons (1J/2J/1W/.../All) directly to changePeriod().
@@ -417,6 +421,20 @@ export class HistoricalChart {
         if (info) { info.style.display = 'block'; info.textContent = msg; }
     }
 
+    _setLoadingState(active, { reveal = true } = {}) {
+        const loading = document.getElementById('chart-loading');
+        const canvas = document.getElementById('historical-portfolio-chart');
+        const stats = canvas?.closest('.dashboard-chart-section, .historical-chart-section, .chart-card')
+            ?.querySelector('.chart-stats-bar') || document.querySelector('.chart-stats-bar');
+        if (loading) loading.style.display = active ? 'flex' : 'none';
+        if (canvas) {
+            canvas.style.visibility = (active || !reveal) ? 'hidden' : 'visible';
+            canvas.setAttribute('aria-busy', active ? 'true' : 'false');
+        }
+        if (stats) stats.style.visibility = (active || !reveal) ? 'hidden' : 'visible';
+        if (active) canvas?.parentNode?.querySelector(':scope > .hc-tooltip')?.classList.remove('visible');
+    }
+
     // ========================================================
     // THE single resolver for "today" — reused for the curve (1D tab), the top
     // KPIs and the table's day-change column. Never called a second, separate
@@ -432,7 +450,12 @@ export class HistoricalChart {
     // update() — builds graphData for whichever mode is active, then renders.
     // ========================================================
     async update(showLoading = true, forceApi = true) {
-        if (this.isLoading) { this._pendingUpdate = { showLoading, forceApi }; return; }
+        const requestId = ++this._updateRequestId;
+        if (this.isLoading) {
+            this._pendingUpdate = { showLoading, forceApi };
+            if (showLoading) this._setLoadingState(true);
+            return;
+        }
         const canvas = document.getElementById('historical-portfolio-chart');
         if (!canvas) return;
         this.isLoading = true;
@@ -440,7 +463,8 @@ export class HistoricalChart {
         const loading = document.getElementById('chart-loading');
         const info = document.getElementById('chart-info');
         const benchmarkWrapper = document.getElementById('benchmark-wrapper');
-        if (showLoading) { if (loading) loading.style.display = 'flex'; if (info) info.style.display = 'none'; }
+        if (showLoading) { this._setLoadingState(true); if (info) info.style.display = 'none'; }
+        let committed = false;
 
         try {
             let graphData = null;
@@ -621,7 +645,13 @@ export class HistoricalChart {
                 // les KPI de l'actif si le cache portefeuille datait d'avant la
                 // sélection de l'actif).
                 snapshotStartedAt = Date.now();
-                const repoResult = await this.dataManager.repository.getSnapshot(assetPurchases, cashPurchases, { forceRefresh: forceApi });
+                const repoResult = await this.dataManager.repository.getSnapshot(assetPurchases, cashPurchases, {
+                    forceRefresh: forceApi,
+                    // A period switch only changes the historical window. A
+                    // concurrent live SWR refresh would compete with 20-30
+                    // historical requests and trigger Worker 429 responses.
+                    revalidate: this.currentPeriod === 1
+                });
                 const snapshot = repoResult.snapshot._engine;
                 if (repoResult.previousSession) {
                     this.investmentsPage.renderData?.(snapshot.holdings,
@@ -670,11 +700,17 @@ export class HistoricalChart {
                 benchmarkData = await this.api.getHistoricalPricesWithRetry(this.currentBenchmark, startTs, endTs, interval);
             }
 
+            // A period/filter/mode request issued while this calculation was in
+            // flight owns the next paint. Never expose this superseded result.
+            if (requestId !== this._updateRequestId || this._pendingPeriod !== undefined) return;
+
             if (!graphData || !graphData.labels || graphData.labels.length === 0) {
                 this.showMessage('Pas de données disponibles pour cette période');
             } else {
                 const kpiData = this._computeAggregateKPIs({ portfolioSnapshot, snapshotStartedAt });
                 this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData);
+                committed = true;
+                if (info) info.style.display = 'none';
 
                 if (!isSingleAsset && !isIndexMode) {
                     // SSOT (audit architecture) : plus de 4e argument "chartStats" —
@@ -686,17 +722,24 @@ export class HistoricalChart {
                 }
             }
 
-            if (info) info.style.display = 'none';
         } catch (err) {
+            if (requestId !== this._updateRequestId) return;
             console.error('[HistoricalChart] update failed:', err);
             this.showMessage('Erreur lors du calcul');
         } finally {
-            if (loading) loading.style.display = 'none';
             this.isLoading = false;
+            if (this._pendingPeriod !== undefined) {
+                const next = this._pendingPeriod;
+                this._pendingPeriod = undefined;
+                void this.changePeriod(next);
+                return;
+            }
             if (this._pendingUpdate) {
                 const p = this._pendingUpdate; this._pendingUpdate = null;
-                this.update(p.showLoading, p.forceApi);
+                void this.update(p.showLoading, p.forceApi);
+                return;
             }
+            if (requestId === this._updateRequestId) this._setLoadingState(false, { reveal: committed });
         }
     }
 

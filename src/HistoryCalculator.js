@@ -417,7 +417,7 @@ export class HistoryCalculator {
     async _fetchHistoricalData(tickers, startTs, endTs, interval) {
         const map = new Map();
         const failedTickers = new Set();
-        const batchSize = interval === '1d' || interval === '1wk' ? 6 : 3;
+        const batchSize = 3;
         for (let i = 0; i < tickers.length; i += batchSize) {
             const batch = tickers.slice(i, i + batchSize);
             await Promise.all(batch.map(async (t) => {
