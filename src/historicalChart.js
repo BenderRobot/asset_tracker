@@ -75,6 +75,8 @@ export class HistoricalChart {
         this._autoRefreshTimeout = null;
         this._autoRefreshInterval = null;
         this.lastRefreshTime = null;
+        this._historyCache = new Map();
+        this._historyInFlight = new Map();
 
         this._onShowAsset = (e) => {
             this.showAssetChart(e.detail.ticker);
@@ -122,6 +124,33 @@ export class HistoricalChart {
 
     getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
         return this.investmentsPage.getFilteredPurchasesFromPage(ignoreTickerFilter);
+    }
+
+    _historyKey(scope, purchases, period) {
+        const ledger = (purchases || []).map(p => [
+            p.ticker, p.date, p.price, p.quantity, p.type, p.assetType, p.currency, p.broker
+        ]);
+        return JSON.stringify([scope, period, ledger]);
+    }
+
+    async _getCachedHistory(scope, purchases, period, producer) {
+        const key = this._historyKey(scope, purchases, period);
+        const cached = this._historyCache.get(key);
+        const ttl = period === 1 ? 30_000 : 5 * 60_000;
+        if (cached && Date.now() - cached.createdAt < ttl) return cached.data;
+        if (this._historyInFlight.has(key)) return this._historyInFlight.get(key);
+
+        const promise = producer().then(data => {
+            if (data?.labels?.length && data?.dataQuality?.valid !== false) {
+                this._historyCache.set(key, { createdAt: Date.now(), data });
+                while (this._historyCache.size > 12) {
+                    this._historyCache.delete(this._historyCache.keys().next().value);
+                }
+            }
+            return data;
+        }).finally(() => this._historyInFlight.delete(key));
+        this._historyInFlight.set(key, promise);
+        return promise;
     }
 
     // ========================================================
@@ -369,9 +398,17 @@ export class HistoricalChart {
             const startTs = Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), h, m, 0) / 1000);
             return { startTs, endTs };
         }
-        const daysBack = (days === 'ytd')
+        if (days === 'all') {
+            const firstDate = this.getFilteredPurchasesFromPage(false)
+                .map(p => new Date(p.date).getTime())
+                .filter(Number.isFinite)
+                .sort((a, b) => a - b)[0];
+            const startMs = firstDate ?? (Date.now() - 3650 * 86400000);
+            return { startTs: Math.floor(startMs / 1000) - 7 * 86400, endTs };
+        }
+        const daysBack = days === 'ytd'
             ? Math.ceil((Date.now() - new Date(today.getFullYear(), 0, 1).getTime()) / 86400000)
-            : (days === 'all' ? 3650 : (typeof days === 'number' ? days : 365));
+            : (typeof days === 'number' ? days : 365);
         return { startTs: endTs - daysBack * 86400, endTs };
     }
 
@@ -497,9 +534,10 @@ export class HistoricalChart {
                 // période affichée — pas un calcul financier, voir doc de
                 // dataManager.buildAssetPortfolioSnapshot ci-contre pour pourquoi
                 // elle reste ici plutôt que dans DataManager).
-                graphData = targetAssetPurchases.length === 0
-                    ? await this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod)
-                    : await this.dataManager.calculateGenericHistory(targetAssetPurchases, this.currentPeriod, true);
+                graphData = await this._getCachedHistory(`asset:${currentTicker}`, targetAssetPurchases, this.currentPeriod, () =>
+                    targetAssetPurchases.length === 0
+                        ? this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod)
+                        : this.dataManager.calculateGenericHistory(targetAssetPurchases, this.currentPeriod, true));
 
                 todayGraphData = await this._resolveTodayData(targetAssetPurchases, [], true, graphData);
                 // Taux USD/EUR figé à la date de chaque transaction (invariant 9) —
@@ -604,9 +642,11 @@ export class HistoricalChart {
                 // "aujourd'hui" (Var Today/Clôture hier/Total Value) reste
                 // exclusivement défini par le snapshot ci-dessus, jamais par le
                 // dernier point de cette série-là.
+                const historyPurchases = [...assetPurchases, ...cashPurchases];
                 graphData = (this.currentPeriod === 1)
                     ? todayGraphData
-                    : await this.dataManager.calculateHistory([...assetPurchases, ...cashPurchases], this.currentPeriod);
+                    : await this._getCachedHistory('portfolio', historyPurchases, this.currentPeriod,
+                        () => this.dataManager.calculateHistory(historyPurchases, this.currentPeriod));
 
                 // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
                 // 2026-09-24, Phase 4) : voir le même commentaire en mode actif
@@ -810,9 +850,11 @@ export class HistoricalChart {
         const displayValues = isUnitView ? graphData.unitPrices : graphData.values;
         const decimals = (isUnitView || isIndexMode) ? 4 : 2;
 
-        let firstIndex = displayValues.findIndex(v => v !== null && !isNaN(v));
+        const isMeaningfulPoint = (v) => v !== null && Number.isFinite(Number(v)) &&
+            (isIndexMode || isUnitView || Math.abs(Number(v)) > 1e-9);
+        let firstIndex = displayValues.findIndex(isMeaningfulPoint);
         let lastIndex = displayValues.length - 1;
-        while (lastIndex >= 0 && (displayValues[lastIndex] === null || isNaN(displayValues[lastIndex]))) lastIndex--;
+        while (lastIndex >= 0 && !isMeaningfulPoint(displayValues[lastIndex], lastIndex)) lastIndex--;
         if (firstIndex < 0) firstIndex = 0;
         // BUG FIX: lastIndex can also fall through to -1 (every point null) — left
         // unclamped, `array[-1]` doesn't throw in JS, it silently returns undefined,
@@ -828,7 +870,12 @@ export class HistoricalChart {
         let priceStart = (firstIndex >= 0 && displayValues[firstIndex] != null) ? displayValues[firstIndex] : 0;
         let priceEnd = (lastIndex >= 0 && displayValues[lastIndex] != null) ? displayValues[lastIndex] : 0;
         let priceHigh = -Infinity, priceLow = Infinity;
-        displayValues.forEach(v => { if (v !== null && !isNaN(v)) { priceHigh = Math.max(priceHigh, v); priceLow = Math.min(priceLow, v); } });
+        displayValues.forEach((v, i) => {
+            if (i >= firstIndex && i <= lastIndex && isMeaningfulPoint(v)) {
+                priceHigh = Math.max(priceHigh, v);
+                priceLow = Math.min(priceLow, v);
+            }
+        });
         if (priceHigh === -Infinity) priceHigh = priceEnd;
         if (priceLow === Infinity) priceLow = priceStart;
 

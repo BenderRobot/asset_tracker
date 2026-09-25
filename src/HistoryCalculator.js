@@ -165,8 +165,11 @@ export class HistoryCalculator {
         // (win.displayStart), not to the real calendar date — otherwise, once the
         // market is closed and the chart rolls back to the last trading day, this
         // would resolve to that same day's own close instead of the day before it.
+        const needsCloseAnchors = days === 1 || days === 2 || (typeof days === 'number' && days <= 7);
         const yesterdayRefDate = (days === 1) ? win.displayStart : new Date();
-        const yesterday = await resolveCloseBefore(yesterdayRefDate, 'yesterdayClose', true);
+        const yesterday = needsCloseAnchors
+            ? await resolveCloseBefore(yesterdayRefDate, 'yesterdayClose', true)
+            : { total: 0, quantities: new Map(), prices: new Map() };
 
         const midnightValuationSeed = (days === 1)
             ? this._resolveMidnightValuationSeed(tickers, historicalDataMap, win, yesterday, livePriceSnapshot)
@@ -414,7 +417,7 @@ export class HistoryCalculator {
     async _fetchHistoricalData(tickers, startTs, endTs, interval) {
         const map = new Map();
         const failedTickers = new Set();
-        const batchSize = 3;
+        const batchSize = interval === '1d' || interval === '1wk' ? 6 : 3;
         for (let i = 0; i < tickers.length; i += batchSize) {
             const batch = tickers.slice(i, i + batchSize);
             await Promise.all(batch.map(async (t) => {

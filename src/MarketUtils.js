@@ -4,6 +4,8 @@
 
 import { YAHOO_MAP } from './config.js';
 
+const historicalTimestampIndex = new WeakMap();
+
 /**
  * Returns the appropriate interval for a given number of days.
  * @param {number} days
@@ -377,7 +379,11 @@ export function formatTicker(ticker) {
  */
 export function findClosestPrice(hist, targetTs, interval, allowForward = true) {
     if (!hist) return null;
-    const timestamps = Object.keys(hist).map(k => parseInt(k)).sort((a, b) => a - b);
+    let timestamps = historicalTimestampIndex.get(hist);
+    if (!timestamps) {
+        timestamps = Object.keys(hist).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        historicalTimestampIndex.set(hist, timestamps);
+    }
     if (timestamps.length === 0) return null;
 
     // REWRITTEN LOGIC: Robust Distance-Based Search
@@ -400,40 +406,18 @@ export function findClosestPrice(hist, targetTs, interval, allowForward = true) 
         else if (interval === '1wk') forwardTolerance = 604800000; // 1 week
     }
 
-    let bestTs = null;
-    let minDiff = Infinity;
-
-    // First pass: Find closest timestamp globally (with constraints)
-    for (const ts of timestamps) {
-        const diff = ts - targetTs;
-        const absDiff = Math.abs(diff);
-
-        if (diff > 0) {
-            // Future point: Must be within tolerance
-            if (diff <= forwardTolerance) {
-                if (absDiff < minDiff) {
-                    minDiff = absDiff;
-                    bestTs = ts;
-                }
-            }
-        } else {
-            // Past point: Always valid candidates, but we want the one closest to target (i.e. latest possible past)
-            if (absDiff < minDiff) {
-                minDiff = absDiff;
-                bestTs = ts;
-            }
-        }
+    let low = 0, high = timestamps.length;
+    while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (timestamps[mid] <= targetTs) low = mid + 1;
+        else high = mid;
     }
-
-    // Safety fallback: If nothing found (e.g. only future points > tolerance),
-    // find the absolute latest past point to avoid null gaps.
-    if (bestTs === null) {
-        for (let i = timestamps.length - 1; i >= 0; i--) {
-            if (timestamps[i] <= targetTs) {
-                bestTs = timestamps[i];
-                break;
-            }
-        }
+    const pastTs = low > 0 ? timestamps[low - 1] : null;
+    const futureTs = low < timestamps.length ? timestamps[low] : null;
+    let bestTs = pastTs;
+    if (futureTs !== null && futureTs - targetTs <= forwardTolerance &&
+        (pastTs === null || futureTs - targetTs < targetTs - pastTs)) {
+        bestTs = futureTs;
     }
 
     if (bestTs !== null) return hist[bestTs];
