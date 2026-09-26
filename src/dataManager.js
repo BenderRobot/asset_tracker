@@ -6,7 +6,7 @@ import { fetchMarketResponse } from './marketDataTransport.js?v=2';
 
 import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
-import { HistoryCalculator } from './HistoryCalculator.js?v=13';
+import { HistoryCalculator } from './HistoryCalculator.js?v=14';
 import { MarketDataRepository } from './marketDataRepository.js';
 import { db, auth } from './firebaseConfig.js';
 import {
@@ -1506,18 +1506,18 @@ export class DataManager {
         const endTs = Math.floor(todayUTC.getTime() / 1000);
 
         let startTs;
-        if (days === 1) {
-            startTs = endTs - (24 * 60 * 60) - (2 * 60 * 60);
-        } else if (days === 7) {
-            startTs = endTs - (7 * 24 * 60 * 60);
-        } else if (days === 30) {
-            startTs = endTs - (30 * 24 * 60 * 60);
-        } else if (days === 90) {
-            startTs = endTs - (90 * 24 * 60 * 60);
-        } else if (days === 365) {
-            startTs = endTs - (365 * 24 * 60 * 60);
+        if (days === 'ytd') {
+            startTs = Math.floor(Date.UTC(today.getUTCFullYear(), 0, 1) / 1000);
+        } else if (days === 'all') {
+            // An index has no portfolio opening transaction to define "All".
+            // Ten years is the explicit product horizon instead of the former
+            // silent one-year fallback.
+            startTs = endTs - (10 * 365 * 24 * 60 * 60);
         } else {
-            startTs = endTs - (365 * 24 * 60 * 60);
+            const numericDays = Number(days);
+            const safeDays = Number.isFinite(numericDays) && numericDays > 0 ? numericDays : 365;
+            startTs = endTs - (safeDays * 24 * 60 * 60);
+            if (safeDays === 1) startTs -= 2 * 60 * 60;
         }
 
         const hist = await this.getHistoryWithCache(ticker, startTs, endTs, interval);
@@ -1771,7 +1771,7 @@ export class DataManager {
         // temporairement la classification pré-fix de _buildLedger (copie
         // verbatim de la version d'avant ce fix — voir git history), puis la
         // restaure immédiatement, y compris si un throw survient.
-        const { HistoryCalculator } = await import('./HistoryCalculator.js?v=13');
+        const { HistoryCalculator } = await import('./HistoryCalculator.js?v=14');
         const { parseDate } = await import('./utils.js');
         const preFixBuildLedger = function (purchasesArg, isSingleAsset) {
             const byTicker = new Map();

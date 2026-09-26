@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
-import { HistoryCalculator } from '../src/HistoryCalculator.js?v=13';
+import { HistoryCalculator } from '../src/HistoryCalculator.js?v=14';
 import { createFakeApi, createFakeStorage, purchase } from './helpers.js';
 
 const utcNoon = (isoDate) => new Date(`${isoDate}T12:00:00.000Z`).getTime();
@@ -25,6 +25,45 @@ describe('Long-range portfolio performance', () => {
         );
         expect(withPast.get('AAPL')).toBe(90);
     });
+
+    it.each([2, 7, 30, 90, 180, 'ytd', 365, 730, 'all'])(
+        'keeps period %s usable when a manual asset has no market history',
+        async (period) => {
+            const now = Date.now();
+            const day = 86400000;
+            const marketHistory = {
+                [now - 800 * day]: 100,
+                [now - 730 * day]: 101,
+                [now - 365 * day]: 105,
+                [now - 180 * day]: 106,
+                [now - 90 * day]: 107,
+                [now - 30 * day]: 108,
+                [now - 7 * day]: 109,
+                [now - 2 * day]: 110,
+                [now - 60 * 60 * 1000]: 111
+            };
+            const storage = createFakeStorage({
+                prices: {
+                    AAPL: { price: 111, previousClose: 110, currency: 'EUR', lastUpdate: now },
+                    PRIVATE: { price: 125, previousClose: 125, currency: 'EUR', lastUpdate: now }
+                },
+                conversionRate: 1
+            });
+            const dm = new DataManager(storage, createFakeApi({
+                async getHistoricalPricesWithRetry(ticker) {
+                    return ticker === 'AAPL' ? marketHistory : {};
+                }
+            }));
+
+            const graph = await dm.calculateGenericHistory([
+                purchase({ ticker: 'AAPL', price: 100, quantity: 1, date: '2024-01-01' }),
+                purchase({ ticker: 'PRIVATE', price: 100, quantity: 1, date: '2024-01-01' })
+            ], period, false);
+
+            expect(graph.twr.filter(Number.isFinite).length).toBeGreaterThan(0);
+            expect(graph.values.filter(Number.isFinite).length).toBeGreaterThan(0);
+        }
+    );
 
     it('uses daily observations for 2Y and All so transactions are not shifted to a later week', () => {
         // Official broker TWR statements are daily. Weekly candles assign a

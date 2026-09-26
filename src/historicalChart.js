@@ -34,9 +34,9 @@ import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js?v=2';
 
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-// Bump whenever the financial meaning of a persisted series changes. Version 8
-// invalidates charts built before complete-valuation TWR was enforced.
-const HISTORY_CHART_CACHE_VERSION = 8;
+// Bump whenever the financial meaning of a persisted series changes. Version 9
+// invalidates truncated charts and pre-transaction-anchor valuations.
+const HISTORY_CHART_CACHE_VERSION = 9;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
@@ -230,7 +230,15 @@ export class HistoricalChart {
         const values = this.currentMode === 'asset' && Array.isArray(data.unitPrices) && data.unitPrices.length
             ? data.unitPrices
             : data.values;
-        return Array.isArray(values) && values.some(value => value !== null && value !== undefined && Number.isFinite(Number(value)));
+        if (!Array.isArray(values) || values.length !== data.labels.length) return false;
+        const lastValue = values.at(-1);
+        if (lastValue === null || lastValue === undefined || !Number.isFinite(Number(lastValue))) return false;
+        if (this.currentMode === 'portfolio') {
+            if (!Array.isArray(data.twr) || data.twr.length !== data.labels.length) return false;
+            const lastTwr = data.twr.at(-1);
+            if (lastTwr === null || lastTwr === undefined || !Number.isFinite(Number(lastTwr))) return false;
+        }
+        return true;
     }
 
     _commitHistory(key, data, period) {

@@ -31,7 +31,7 @@ import { DataManager } from '../src/dataManager.js';
 // have zero effect on what DataManager actually calls. Import with the exact
 // same specifier dataManager.js uses to guarantee we patch the one instance in
 // play.
-import { HistoryCalculator } from '../src/HistoryCalculator.js?v=13';
+import { HistoryCalculator } from '../src/HistoryCalculator.js?v=14';
 import { parseDate } from '../src/utils.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 

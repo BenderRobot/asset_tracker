@@ -994,6 +994,7 @@ export class HistoryCalculator {
             : null;
         for (const t of tickers) {
             const cutoff = seedCutoff ? seedCutoff.get(t) : win.displayStartTs - 1;
+            let latestTransactionPrice = null;
             for (const entry of ledger.byTicker.get(t) || []) {
                 if (entry.date.getTime() <= cutoff) {
                     quantities.set(t, quantities.get(t) + entry.quantity);
@@ -1010,7 +1011,16 @@ export class HistoryCalculator {
                         investedByTicker.set(t, investedByTicker.get(t) + entry.price * entry.quantity * rate);
                     }
                     applyCostBasisEntry(t, entry);
+                    if (!t.startsWith('CASH-') && entry.price > 0) latestTransactionPrice = entry.price;
                 }
+            }
+            // A transaction execution price is a real historical observation.
+            // For private/manual assets or unsupported Yahoo tickers it is the
+            // only honest anchor available: carry it forward from the trade,
+            // never backward before the trade and never replace the past with
+            // today's live quote.
+            if (!lastKnownPrices.has(t) && latestTransactionPrice > 0) {
+                lastKnownPrices.set(t, latestTransactionPrice);
             }
         }
 
@@ -1071,6 +1081,10 @@ export class HistoryCalculator {
                     const entryTs = entry.date.getTime();
                     if (entryTs > lowerBound && entryTs <= ts) {
                         quantities.set(t, quantities.get(t) + entry.quantity);
+                        if (!t.startsWith('CASH-') && entry.price > 0) {
+                            lastKnownPrices.set(t, entry.price);
+                            tickerSourcesThisPoint[t] = 'transaction';
+                        }
                         let rate = 1;
                         let canConvert = true;
                         if (!isSingleAsset) {

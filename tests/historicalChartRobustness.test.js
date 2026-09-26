@@ -60,7 +60,7 @@ describe('Historical chart robustness and cache', () => {
 
     it('coalesces concurrent builds and reuses a completed long-period series', async () => {
         const chart = makeChart();
-        const producer = vi.fn(async () => ({ labels: ['x'], values: [1] }));
+        const producer = vi.fn(async () => ({ labels: ['x'], values: [1], twr: [1] }));
         const rows = [purchase({ ticker: 'AAPL' })];
 
         const [a, b] = await Promise.all([
@@ -72,6 +72,18 @@ describe('Historical chart robustness and cache', () => {
         expect(producer).toHaveBeenCalledTimes(1);
         expect(a).toBe(b);
         expect(c).toBe(a);
+    });
+
+    it('rejects a truncated portfolio series whose final valuation is missing', () => {
+        const chart = makeChart();
+        expect(chart._isValidHistoryData({
+            labels: ['start', 'end'], values: [100, null], twr: [1, null],
+            dataQuality: { valid: true }
+        })).toBe(false);
+        expect(chart._isValidHistoryData({
+            labels: ['start', 'end'], values: [100, 110], twr: [1, 1.1],
+            dataQuality: { valid: true }
+        })).toBe(true);
     });
 
     it('defaults to price-only return and enables dividends only through the explicit toggle', () => {
@@ -209,6 +221,24 @@ describe('Historical chart robustness and cache', () => {
 });
 
 describe('Long-period request plan', () => {
+    it.each([
+        [2, 2], [180, 180], [730, 730], ['all', 3650]
+    ])('requests the real index horizon for %s', async (period, expectedDays) => {
+        let request = null;
+        const api = createFakeApi({
+            async getHistoricalPricesWithRetry(_ticker, start, end, interval) {
+                request = { start, end, interval };
+                return {};
+            }
+        });
+        const dm = new DataManager(createFakeStorage(), api);
+        await dm.calculateIndexData('^GSPC', period);
+
+        const actualDays = (request.end - request.start) / 86400;
+        expect(actualDays).toBeCloseTo(expectedDays, period === 2 ? 0 : 1);
+        expect(request.interval).toBe(getIntervalForPeriod(period));
+    });
+
     it('recovers a failed 90m ticker with real daily candles without invalidating the portfolio', async () => {
         const calls = [];
         const now = Date.now();
