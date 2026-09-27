@@ -26,7 +26,7 @@
 // dataManager.buildTodaySnapshot's own doc comment for the full audit).
 
 import { eventBus } from './eventBus.js';
-import { ChartKPIManager } from './chartKPIManager.js?v=2';
+import { ChartKPIManager } from './chartKPIManager.js?v=3';
 import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js';

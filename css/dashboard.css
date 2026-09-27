@@ -331,9 +331,19 @@
     flex-direction: column;
     overflow: hidden;
 
-    /* Hauteur minimale, jamais fixe : avec overflow:hidden, une hauteur fixe
-       rognait la barre de stats dès que l'en-tête passait sur deux lignes. */
-    min-height: 550px;
+    /* Hauteur = contenu, jamais fixe : avec overflow:hidden, une hauteur fixe
+       rognait la barre de stats dès que l'en-tête passait sur deux lignes.
+       C'est la zone du graphique qui porte une hauteur fixe (ci-dessous). */
+}
+
+/* Hauteur du graphique du Dashboard : fixe, indépendante de l'en-tête et de
+   la barre de stats (les règles .chart-wrapper.tall plus bas ont un
+   flex:1 + min-height:350px qui le faisaient grandir). Mobile : voir
+   dashboard-mobile.css (250px). */
+.dashboard-chart-section > .chart-wrapper.tall {
+    flex: 0 0 auto;
+    height: 300px;
+    min-height: 300px;
 }
 
 /* Wrapper interne du graphique */

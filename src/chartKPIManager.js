@@ -522,7 +522,12 @@ export class ChartKPIManager {
     updateAthStats(details) {
         const group = document.getElementById('stat-group-ath');
         if (!group) return;
-        if (!details) { group.hidden = true; return; }
+        // The stats bar switches to its 4-column layout only while ATH is shown.
+        const showGroup = (visible) => {
+            group.hidden = !visible;
+            group.closest('.chart-stats-bar')?.classList.toggle('has-ath', visible);
+        };
+        if (!details) { showGroup(false); return; }
 
         const eur = (n) => `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
         const signed = (n, text) => `${n >= 0 ? '+' : ''}${text}`;
@@ -564,7 +569,7 @@ export class ChartKPIManager {
         const atAth = gap !== null && gap > -0.005;
         setText('ath-gap', gap === null ? '—' : (atAth ? 'Au plus haut' : pct(gap)), gap === null ? null : (atAth ? 'positive' : 'negative'));
 
-        group.hidden = false;
+        showGroup(true);
     }
 
     /**

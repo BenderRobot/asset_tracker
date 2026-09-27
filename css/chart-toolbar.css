@@ -33,11 +33,12 @@
 }
 
 /* --------------------------------------------------------------------------
-   Header layout — two deliberate arrangements, chosen from the card's OWN
-   width (container query), never an accidental flex wrap:
-     wide    : title | options | periods           (one line)
-     compact : title ............ periods
-               options (left-aligned, full width)
+   Header layout — deliberate arrangements, chosen from the card's OWN width
+   (container query), never an accidental flex wrap:
+     > 1100px   : title | options | periods           (one line)
+     980–1100px : same line, "dense" spacing          (one line)
+     < 980px    : title ............ periods
+                  options (left-aligned, full width)
    Mobile keeps its own flex layout (the *-mobile.css sheets force it).
    -------------------------------------------------------------------------- */
 .dashboard-chart-section,
@@ -69,7 +70,41 @@
     grid-area: periods;
 }
 
-@container chart-card (max-width: 1100px) {
+/* On the single line the options never wrap: the dense step below, then
+   the two-line layout, take over before space runs out. */
+@container chart-card (min-width: 980px) {
+    .chart-header > .chart-toolbar {
+        flex-wrap: nowrap;
+    }
+}
+
+@container chart-card (min-width: 980px) and (max-width: 1100px) {
+    .chart-header-mini.chart-header {
+        column-gap: 12px;
+    }
+
+    .chart-header > .chart-toolbar {
+        gap: 6px;
+    }
+
+    .chart-header .chart-chip {
+        padding: 0 9px;
+        gap: 6px;
+    }
+
+    .chart-header #benchmark-select {
+        max-width: 132px;
+        padding-right: 24px;
+        background-position: right 8px center;
+        text-overflow: ellipsis;
+    }
+
+    .chart-header > .chart-controls-inline .period-btn {
+        padding: 0 9px;
+    }
+}
+
+@container chart-card (max-width: 979px) {
     .chart-header-mini.chart-header {
         grid-template-columns: minmax(0, 1fr) auto;
         grid-template-areas:
@@ -410,92 +445,100 @@
 }
 
 /* --------------------------------------------------------------------------
-   ATH strip (#stat-group-ath, filled by chartKPIManager.updateAthStats)
-   A full-width row right under the stats bar — a sibling of it, so the
-   stats grid keeps its exact layout — separated by the ATH line's own
-   yellow dashes so it reads as "the stats of the dashed line".
+   Stats bar — ATH block (#stat-group-ath, filled by chartKPIManager).
+   A 4th 2×2 block at the right of the stats bar, same rhythm as
+   DÉBUT/FIN/HAUT/BAS, labelled in the ATH line's yellow. While it is shown
+   the bar carries .has-ath and uses explicit columns (an auto-fit grid
+   would squeeze the existing groups).
    -------------------------------------------------------------------------- */
-.chart-ath-strip {
+.stat-group-ath {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px 16px;
-    align-items: start;
-    background: var(--bg-secondary);
-}
-
-.chart-ath-strip[hidden],
-.chart-ath-strip .stat[hidden] {
-    display: none !important;
-}
-
-/* Dashboard: continues the stats bar inside the same card; the dashed
-   separator is inset to the content width like the stats themselves. */
-.dashboard-chart-section > .chart-ath-strip {
-    padding: 0 24px 16px;
-}
-
-.dashboard-chart-section > .chart-ath-strip::before {
-    content: '';
-    grid-column: 1 / -1;
-    margin-bottom: 4px;
-    border-top: 1px dashed rgba(250, 204, 21, 0.4);
-}
-
-/* Investments: the stats bar is its own rounded box — the strip is a
-   matching box right under it. */
-.historical-chart-container > .chart-ath-strip {
-    margin-top: 8px;
-    padding: 12px 20px;
-    border: 1px solid var(--border-color);
-    border-top: 1px dashed rgba(250, 204, 21, 0.45);
-    border-radius: 10px;
-}
-
-.chart-ath-strip .stat {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    align-content: center;
     min-width: 0;
 }
 
-.chart-ath-strip .label {
-    margin-bottom: 4px;
-    font: 600 10px/1.2 'Inter', sans-serif;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: rgba(253, 224, 71, 0.8);
+.stat-group-ath[hidden],
+.stat-group-ath .stat[hidden] {
+    display: none !important;
 }
 
-.chart-ath-strip .value {
-    font: 700 15px/1.3 'Inter', sans-serif;
-    color: var(--text-primary);
+.stat-group-ath .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start !important;
+    min-width: 0;
+}
+
+.stat-group-ath .label {
+    color: rgba(253, 224, 71, 0.85) !important;
+}
+
+.stat-group-ath .value {
     white-space: nowrap;
 }
 
-.chart-ath-strip .stat-inline {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 5px;
-    white-space: nowrap;
+/* Total Return ATH: amount, then its % underneath (keeps the cell narrow). */
+.stat-group-ath .stat-inline {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
 }
 
-.chart-ath-strip .pct {
-    font: 500 12px/1 'Inter', sans-serif;
-    opacity: 0.9;
+.stat-group-ath .stat-inline .pct {
+    margin-left: 0 !important;
+    font-size: 12px;
 }
 
-.chart-ath-strip .positive { color: #10b981; }
-.chart-ath-strip .negative { color: #ef4444; }
+.stat-group-ath .positive { color: #10b981 !important; }
+.stat-group-ath .negative { color: #ef4444 !important; }
 
-/* Narrow cards: 2×2. */
-@container chart-card (max-width: 640px) {
-    .chart-ath-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        row-gap: 12px;
+/* Wide card: one row of four blocks. */
+@container chart-card (min-width: 861px) {
+    .chart-stats-bar.has-ath {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.3fr) !important;
     }
 
-    .dashboard-chart-section > .chart-ath-strip {
-        padding: 0 12px 12px;
+    .chart-stats-bar.has-ath > .stat-group-3 {
+        grid-column: auto !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        padding: 0 16px !important;
+        border-right: 1px solid var(--border-color) !important;
+    }
+
+    .chart-stats-bar.has-ath > .stat-group-ath {
+        padding-left: 16px;
+    }
+
+    /* Dashboard: a viewport rule (≤1400px) restyles groups 1/2 as stacked
+       rows; in the 4-block row they keep their column look. */
+    .dashboard-chart-section .chart-stats-bar.has-ath > .stat-group-1,
+    .dashboard-chart-section .chart-stats-bar.has-ath > .stat-group-2 {
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: normal !important;
+        padding-bottom: 0 !important;
+        border-bottom: none !important;
+        border-right: 1px solid var(--border-color) !important;
+    }
+}
+
+/* Narrower card: the ATH block takes a full row under the others. */
+@container chart-card (max-width: 860px) {
+    .chart-stats-bar > .stat-group-ath {
+        grid-column: 1 / -1;
+        flex: 1 0 100%;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        padding: 12px 0 0;
+        border-top: 1px dashed rgba(250, 204, 21, 0.4);
+    }
+}
+
+@container chart-card (max-width: 560px) {
+    .chart-stats-bar > .stat-group-ath {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 12px 8px 0;
     }
 }
 

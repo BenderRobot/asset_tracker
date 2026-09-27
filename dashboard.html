@@ -15,9 +15,9 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/dashboard.css?v=101">
+    <link rel="stylesheet" href="css/dashboard.css?v=102">
     <link rel="stylesheet" href="css/dashboard-mobile.css?v=6">
-    <link rel="stylesheet" href="css/chart-toolbar.css?v=3">
+    <link rel="stylesheet" href="css/chart-toolbar.css?v=4">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -255,13 +255,13 @@
                                         class="value">--</span>
                                 </div>
                             </div>
-                        </div>
-                        <!-- ATH (filled by chartKPIManager.updateAthStats, hidden unless the ATH line is shown; a sibling of .chart-stats-bar so it never alters that grid) -->
-                        <div class="chart-ath-strip" id="stat-group-ath" hidden>
-                            <div class="stat" id="ath-value-row"><span class="label" id="ath-value-label">Total Value ATH</span><span id="ath-total-value" class="value">—</span></div>
-                            <div class="stat" id="ath-return-row"><span class="label">Total Return ATH</span><span class="stat-inline"><span id="ath-total-return" class="value">—</span><span id="ath-total-return-pct" class="pct"></span></span></div>
-                            <div class="stat"><span class="label">Date ATH</span><span id="ath-date" class="value">—</span></div>
-                            <div class="stat"><span class="label">Écart / ATH</span><span id="ath-gap" class="value">—</span></div>
+                            <!-- ATH (filled by chartKPIManager.updateAthStats, hidden unless the ATH line is shown — 4th 2×2 block of the stats bar, see css/chart-toolbar.css) -->
+                            <div class="stat-group stat-group-ath" id="stat-group-ath" hidden>
+                                <div class="stat" id="ath-value-row"><span class="label" id="ath-value-label">Total Value ATH</span><span id="ath-total-value" class="value">—</span></div>
+                                <div class="stat" id="ath-return-row"><span class="label">Total Return ATH</span><span class="stat-inline"><span id="ath-total-return" class="value">—</span><span id="ath-total-return-pct" class="pct"></span></span></div>
+                                <div class="stat"><span class="label">Date ATH</span><span id="ath-date" class="value">—</span></div>
+                                <div class="stat"><span class="label">Écart / ATH</span><span id="ath-gap" class="value">—</span></div>
+                            </div>
                         </div>
                         <div class="chart-controls-bottom-mobile" style="display:none;">
                             <button class="period-btn active" data-period="1">1D</button>
@@ -437,7 +437,7 @@
     <!-- Firebase Messaging for FCM push notifications -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-messaging-compat.js"></script>
 
-    <script type="module" src="./src/dashboardApp.js?v=98"></script>
+    <script type="module" src="./src/dashboardApp.js?v=99"></script>
     <script type="module" src="./src/sidebar.js"></script>
 </body>
 
