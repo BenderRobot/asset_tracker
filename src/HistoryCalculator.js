@@ -404,7 +404,16 @@ export class HistoryCalculator {
             displayStart = (days === 1)
                 ? new Date(getGlobalWindow(1, portfolioTz, today).startMs)
                 : local;
-            bufferDays = (typeof days === 'number' && days <= 7) ? 2 : 14;
+            // A 1W window can begin on a Monday. Two calendar days of buffer
+            // then start late on Friday, after US and European exchanges have
+            // already closed, so no official pre-window price is downloaded.
+            // Without that anchor, positions temporarily fall back to their
+            // transaction price and jump when Monday's first candle arrives.
+            // One full week guarantees that the preceding trading session is
+            // available without adding any extra provider request.
+            bufferDays = days === 7
+                ? 7
+                : ((typeof days === 'number' && days <= 7) ? 2 : 14);
         } else if (days === 1) {
             // Phase 2 — Global 1D MUST be 00:00 → maintenant in the portfolio
             // timezone (see MarketCalendarEngine.getPortfolioTimezone), not the

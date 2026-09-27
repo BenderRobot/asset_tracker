@@ -34,9 +34,9 @@ import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js?v=2';
 
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-// Bump whenever the financial meaning of a persisted series changes. Version 11
-// invalidates 1D series whose midnight point used a post-boundary candle.
-const HISTORY_CHART_CACHE_VERSION = 12;
+// Bump whenever the financial meaning of a persisted series changes. Version 13
+// invalidates 1W series built without the pre-window market-close anchor.
+const HISTORY_CHART_CACHE_VERSION = 13;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;

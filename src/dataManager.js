@@ -6,7 +6,7 @@ import { fetchMarketResponse } from './marketDataTransport.js?v=3';
 
 import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
-import { HistoryCalculator } from './HistoryCalculator.js?v=18';
+import { HistoryCalculator } from './HistoryCalculator.js?v=19';
 import { MarketDataRepository } from './marketDataRepository.js?v=5';
 import { db, auth } from './firebaseConfig.js';
 import {
@@ -1772,7 +1772,7 @@ export class DataManager {
         // temporairement la classification pré-fix de _buildLedger (copie
         // verbatim de la version d'avant ce fix — voir git history), puis la
         // restaure immédiatement, y compris si un throw survient.
-        const { HistoryCalculator } = await import('./HistoryCalculator.js?v=18');
+        const { HistoryCalculator } = await import('./HistoryCalculator.js?v=19');
         const { parseDate } = await import('./utils.js');
         const preFixBuildLedger = function (purchasesArg, isSingleAsset) {
             const byTicker = new Map();

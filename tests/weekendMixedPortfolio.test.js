@@ -160,6 +160,62 @@ describe('Portefeuille mixte pendant le week-end', () => {
         expect(graph.values.at(-1) - graph.values[saturdayIndex]).toBeCloseTo(7, 8);
     });
 
+    it('la vue 1W charge la clôture du vendredi avant son premier lundi', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-27T12:00:00+02:00'));
+
+        const fridayBeforeWindow = new Date('2026-09-18T19:55:00Z').getTime();
+        const mondayOpen = new Date('2026-09-21T08:00:00Z').getTime();
+        const requestedRanges = [];
+        const candles = {
+            'BTC-EUR': {
+                [new Date('2026-09-20T21:45:00Z').getTime()]: 100,
+                [new Date('2026-09-21T08:00:00Z').getTime()]: 100,
+                [new Date('2026-09-27T09:45:00Z').getTime()]: 105
+            },
+            AAPL: {
+                [fridayBeforeWindow]: 90,
+                [new Date('2026-09-21T14:30:00Z').getTime()]: 90
+            },
+            'CSPX.L': {
+                [new Date('2026-09-18T15:25:00Z').getTime()]: 50,
+                [mondayOpen]: 50
+            }
+        };
+        const storage = createFakeStorage({
+            prices: {
+                'BTC-EUR': { price: 105, previousClose: 100, currency: 'EUR', lastUpdate: Date.now() },
+                AAPL: { price: 90, previousClose: 90, currency: 'EUR', lastUpdate: Date.now() },
+                'CSPX.L': { price: 50, previousClose: 50, currency: 'EUR', lastUpdate: Date.now() }
+            },
+            conversionRate: 1
+        });
+        const api = createFakeApi({
+            async getHistoricalPricesWithRetry(ticker, startSec, endSec, interval) {
+                requestedRanges.push({ ticker, startSec, endSec, interval });
+                return Object.fromEntries(Object.entries(candles[ticker] || {}).filter(([ts]) => {
+                    const time = Number(ts);
+                    return time >= startSec * 1000 && time <= endSec * 1000;
+                }));
+            }
+        });
+        const dm = new DataManager(storage, api);
+        const trace = [];
+
+        const graph = await dm.calculateGenericHistory(mixedPurchases(), 7, false, 1, new Map(), trace);
+        const aaplRequest = requestedRanges.find(request => request.ticker === 'AAPL' && request.interval === '15m');
+        const firstCompleteIndex = graph.values.findIndex(Number.isFinite);
+        const beforeMondayOpen = trace.filter(row => row.ts < mondayOpen && ['AAPL', 'CSPX.L'].includes(row.ticker));
+
+        expect(aaplRequest.startSec * 1000).toBeLessThanOrEqual(fridayBeforeWindow);
+        expect(firstCompleteIndex).toBe(0);
+        expect(graph.values[0]).toBeCloseTo(240, 8);
+        expect(beforeMondayOpen.length).toBeGreaterThan(0);
+        expect(beforeMondayOpen.every(row => row.source === 'closestPrice')).toBe(true);
+        expect(beforeMondayOpen.filter(row => row.ticker === 'AAPL').every(row => row.price === 90)).toBe(true);
+        expect(beforeMondayOpen.filter(row => row.ticker === 'CSPX.L').every(row => row.price === 50)).toBe(true);
+    });
+
     it('le lundi repart de la clôture de vendredi pour les marchés et de la valeur BTC de dimanche soir', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(new Date('2026-09-28T22:00:00+02:00'));
