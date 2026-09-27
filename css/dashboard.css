@@ -424,50 +424,6 @@
     display: none;
 }
 
-.selection-mode-toggle {
-    margin-left: 6px;
-    padding-left: 10px;
-    padding-right: 10px;
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-/* Benchmark Select */
-.benchmark-wrapper {
-    position: relative;
-}
-
-#benchmark-select {
-    appearance: none;
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    color: var(--text-secondary);
-    padding: 0 24px 0 12px;
-    /* Top/Bottom 0 for full height alignment */
-    border-radius: 8px;
-    /* Match others */
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    height: 32px;
-    /* Unifié 32px */
-    line-height: 30px;
-    /* Vertically centered */
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239fa6bc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 8px center;
-    box-sizing: border-box;
-}
-
-#benchmark-select:hover {
-    border-color: var(--accent-blue);
-    color: var(--text-primary);
-}
-
-#benchmark-select:focus {
-    outline: none;
-    border-color: var(--accent-blue);
-}
-
 /* --- BARRE DE STATS CORRIGÉE (GRID) --- */
 .chart-stats-bar {
     display: grid;

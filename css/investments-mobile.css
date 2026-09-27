@@ -159,50 +159,11 @@
         /* ensure text is white */
     }
 
-    /* Controls Container */
+    /* Controls row: full width under the title. Spacing, sizing and the
+    horizontal scroll of the controls themselves live in chart-toolbar.css. */
     .header-controls {
         flex: 1 0 100% !important;
-        /* Force full width on new line if wrapped */
-        display: flex !important;
-        justify-content: space-between !important;
-        /* Benchmark Left, Toggle Right */
-        align-items: center !important;
-        /* Align heights center */
         margin-top: 4px !important;
-        gap: 0 !important;
-        /* Space handled by justify-between */
-    }
-
-    /* Compact Buttons & Height Match */
-    .benchmark-select-wrapper {
-        display: flex;
-        align-items: center;
-    }
-
-    .benchmark-select-wrapper select {
-        padding: 0 8px !important;
-        font-size: 11px !important;
-        height: 28px !important;
-        /* Explicit common height */
-        line-height: normal !important;
-        width: 130px !important;
-        /* Slightly fixed width for stability */
-    }
-
-    .view-toggle {
-        display: flex;
-        align-items: center;
-        height: 28px !important;
-    }
-
-    .view-toggle .toggle-btn,
-    #ref-lines-toggle .toggle-btn {
-        padding: 0 10px !important;
-        font-size: 11px !important;
-        height: 100% !important;
-        /* Fill container 28px */
-        display: flex !important;
-        align-items: center !important;
     }
 
     /* Hide Title Text on very small screens if needed, or keep small */
@@ -362,7 +323,7 @@
     }
 
     .chart-controls .period-btn.active {
-        background: var(--primary-color);
+        background: var(--accent-blue);
         color: white;
         box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
         font-weight: 600;

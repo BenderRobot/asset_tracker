@@ -15,8 +15,9 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/dashboard.css?v=99">
-    <link rel="stylesheet" href="css/dashboard-mobile.css?v=5">
+    <link rel="stylesheet" href="css/dashboard.css?v=100">
+    <link rel="stylesheet" href="css/dashboard-mobile.css?v=6">
+    <link rel="stylesheet" href="css/chart-toolbar.css?v=1">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -181,17 +182,22 @@
                                 <div id="last-update" style="display:none"></div>
 
                             </div>
-                            <div class="header-controls">
-                                <div id="benchmark-wrapper" class="benchmark-wrapper">
-                                    <select id="benchmark-select">
-                                        <option value="">vs Benchmark</option>
+                            <!-- Chart toolbar: view → options/reference lines (injected by
+                                 historicalChart.js right after #view-toggle) → benchmark → periods.
+                                 Styling: css/chart-toolbar.css. -->
+                            <div class="header-controls chart-toolbar" role="toolbar" aria-label="Options du graphique">
+                                <div id="view-toggle" style="display:none;"></div>
+                                <div id="benchmark-wrapper" class="benchmark-wrapper chart-benchmark">
+                                    <i class="fa-solid fa-code-compare" aria-hidden="true"></i>
+                                    <select id="benchmark-select" aria-label="Comparer à un indice"
+                                        title="Comparer la performance à un indice">
+                                        <option value="">Comparer</option>
                                         <option value="^GSPC">S&P 500</option>
                                         <option value="^IXIC">Nasdaq 100</option>
                                         <option value="^STOXX50E">Eurostoxx 50</option>
                                         <option value="BTC-EUR">Bitcoin</option>
                                     </select>
                                 </div>
-                                <div id="view-toggle" style="display:none; margin-right: 12px;"></div>
                                 <div id="chart-info" style="display:none; font-size:12px;"></div>
                                 <div class="chart-controls-inline">
                                     <button class="period-btn active" data-period="1">1D</button>
@@ -423,7 +429,7 @@
     <!-- Firebase Messaging for FCM push notifications -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-messaging-compat.js"></script>
 
-    <script type="module" src="./src/dashboardApp.js?v=95"></script>
+    <script type="module" src="./src/dashboardApp.js?v=96"></script>
     <script type="module" src="./src/sidebar.js"></script>
 </body>
 

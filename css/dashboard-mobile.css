@@ -217,48 +217,17 @@
         font-size: 14px !important;
     }
 
-    /* Controls Alignment */
+    /* Controls row: full width under the title. Spacing, sizing and the
+    horizontal scroll of the controls themselves live in chart-toolbar.css. */
     .header-controls {
         flex: 1 1 100% !important;
-        /* Wrap to next line if needed, or take remaining space */
-        justify-content: space-between !important;
-        gap: 8px !important;
-        margin-top: 4px !important;
         width: 100% !important;
-        display: flex !important;
+        margin-top: 4px !important;
     }
 
     /* Hide Desktop Period Buttons in Header */
     .chart-controls-inline {
         display: none !important;
-    }
-
-    /* Benchmark Select Styling */
-    #benchmark-wrapper {
-        flex: 0 0 auto !important;
-        /* Don't grow, prevent jump */
-    }
-
-    #benchmark-select {
-        width: 130px !important;
-        /* Fixed width matching Investments */
-        height: 28px !important;
-        font-size: 11px !important;
-        padding: 0 8px !important;
-    }
-
-    /* View Toggle Styling */
-    #view-toggle {
-        margin-right: 0 !important;
-        height: 28px !important;
-    }
-
-    #view-toggle .toggle-btn,
-    #ref-lines-toggle .toggle-btn {
-        padding: 0 10px !important;
-        height: 28px !important;
-        font-size: 10px !important;
-        line-height: 26px !important;
     }
 
     /* --- STATS BAR LAYOUT (Match Investments) --- */
@@ -386,7 +355,7 @@
     }
 
     .chart-controls-bottom-mobile .period-btn.active {
-        background: var(--primary-color);
+        background: var(--accent-blue);
         color: white;
         box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
         font-weight: 600;

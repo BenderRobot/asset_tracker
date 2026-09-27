@@ -92,7 +92,7 @@ describe('Historical chart robustness and cache', () => {
         chart._syncViewToggle(false, false);
         chart._syncDividendToggle(false, false);
 
-        const button = document.querySelector('#dividend-return-toggle .toggle-btn');
+        const button = document.querySelector('#dividend-return-toggle [data-option="dividends"]');
         expect(chart.includeDividends).toBe(false);
         expect(button.classList.contains('active')).toBe(false);
 

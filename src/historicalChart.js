@@ -530,12 +530,16 @@ export class HistoricalChart {
             if (this._isZoomed) {
                 b.classList.add('active');
                 b.title = 'Réinitialiser le zoom';
-                b.innerHTML = '<i class="fa-solid fa-magnifying-glass-minus"></i>';
+                b.innerHTML = '<i class="fa-solid fa-magnifying-glass-minus" aria-hidden="true"></i>';
             } else {
                 b.classList.toggle('active', !!this.zoomModeEnabled);
-                b.title = 'Activer le zoom par glisser-déposer';
-                b.innerHTML = '<i class="fa-solid fa-magnifying-glass-plus"></i>';
+                b.title = this.zoomModeEnabled
+                    ? 'Zoom activé : glissez sur le graphique pour zoomer'
+                    : 'Activer le zoom par glisser-déposer';
+                b.innerHTML = '<i class="fa-solid fa-magnifying-glass-plus" aria-hidden="true"></i>';
             }
+            b.setAttribute('aria-label', b.title);
+            b.setAttribute('aria-pressed', String(this._isZoomed || !!this.zoomModeEnabled));
         });
         if (this._canvasEl) this._canvasEl.style.cursor = this.zoomModeEnabled ? 'zoom-in' : 'crosshair';
     }
@@ -905,6 +909,7 @@ export class HistoricalChart {
                 this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData, athSource);
                 committed = true;
                 if (info) info.style.display = 'none';
+                this._syncToolbarState(isSingleAsset || isIndexMode ? null : this.snapshotFreshness);
 
                 if (!isSingleAsset && !isIndexMode) {
                     // SSOT (audit architecture) : plus de 4e argument "chartStats" —
@@ -1037,23 +1042,30 @@ export class HistoricalChart {
         if (!container) {
             container = document.createElement('div');
             container.id = 'ref-lines-toggle';
-            container.className = 'toggle-group';
+            container.className = 'chart-chip-group';
             anchor.parentNode.insertBefore(container, anchor.nextSibling);
             // The Dashboard does not expose Clôture/PRU, but it does expose ATH
             // for the global portfolio. Investments adds all three controls.
+            // Each chip carries a dashed swatch in its line's colour (see
+            // css/chart-toolbar.css), so the chips also act as the legend.
             const lines = this.ui
-                ? [['close', 'Clôture'], ['pru', 'PRU'], ['ath', 'ATH']]
-                : [['ath', 'ATH']];
-            lines.forEach(([key, label]) => {
+                ? [['close', 'Clôture', 'Clôture de la veille (vue 1J)'], ['pru', 'PRU', 'Prix de revient unitaire moyen'], ['ath', 'ATH', '']]
+                : [['ath', 'ATH', '']];
+            lines.forEach(([key, label, title]) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'toggle-btn';
+                btn.className = 'chart-chip';
                 btn.dataset.refline = key;
-                btn.textContent = label;
-                btn.classList.toggle('active', this.refLineVisibility[key]);
+                if (title) btn.title = title;
+                btn.innerHTML = `<span class="chart-chip-swatch" aria-hidden="true"></span><span>${label}</span>`;
+                const syncPressed = () => {
+                    btn.classList.toggle('active', this.refLineVisibility[key]);
+                    btn.setAttribute('aria-pressed', String(!!this.refLineVisibility[key]));
+                };
+                syncPressed();
                 btn.addEventListener('click', () => {
                     this.refLineVisibility[key] = !this.refLineVisibility[key];
-                    btn.classList.toggle('active', this.refLineVisibility[key]);
+                    syncPressed();
                     try { localStorage.setItem(`chart_refline_${key}`, this.refLineVisibility[key] ? '1' : '0'); } catch (e) { /* ignore */ }
                     this.update(false, false);
                 });
@@ -1077,6 +1089,32 @@ export class HistoricalChart {
         container.style.display = (showClose || showPru || showAth) ? '' : 'none';
     }
 
+    // Toolbar state that is not a button of its own: the benchmark chip tint
+    // and the freshness status (replaces the static "00:00"). `freshness` is
+    // the portfolio snapshot's {stale, degraded, generatedAt} for this cycle;
+    // asset/index views have none and show the time of this render.
+    _syncToolbarState(freshness) {
+        document.getElementById('benchmark-wrapper')
+            ?.classList.toggle('is-active', !!this.currentBenchmark);
+
+        const status = document.getElementById('last-update');
+        if (!status) return;
+        const at = new Date(Number.isFinite(Number(freshness?.generatedAt)) ? Number(freshness.generatedAt)
+            : (Date.parse(freshness?.generatedAt) || Date.now()));
+        const time = at.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const state = freshness?.degraded ? 'degraded' : (freshness?.stale ? 'stale' : 'fresh');
+        const text = { degraded: `Partiel · ${time}`, stale: `Différé · ${time}`, fresh: `À jour · ${time}` }[state];
+        const title = {
+            degraded: 'Certaines cotations n’ont pas pu être actualisées',
+            stale: 'Données en cache, actualisation en cours',
+            fresh: this.currentPeriod === 1 ? 'Actualisation automatique active' : 'Données à jour'
+        }[state];
+
+        status.className = `chart-status is-${state}${state === 'fresh' && this.currentPeriod === 1 ? ' is-live' : ''}`;
+        status.title = `${title} — ${at.toLocaleString('fr-FR')}`;
+        status.innerHTML = `<span class="chart-status-dot" aria-hidden="true"></span><span class="chart-status-text">${text}</span>`;
+    }
+
     _syncDividendToggle(isSingleAssetMode, isIndexMode) {
         const anchor = document.getElementById('view-toggle');
         if (!anchor) return;
@@ -1084,22 +1122,26 @@ export class HistoricalChart {
         if (!container) {
             container = document.createElement('div');
             container.id = 'dividend-return-toggle';
-            container.className = 'toggle-group';
+            container.className = 'chart-chip-group';
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'toggle-btn';
-            btn.textContent = 'Dividendes';
+            btn.className = 'chart-chip';
+            btn.dataset.option = 'dividends';
+            btn.innerHTML = '<i class="fa-solid fa-coins" aria-hidden="true"></i><span>Dividendes</span>';
             btn.title = 'Inclure les dividendes dans la performance';
             btn.addEventListener('click', () => {
                 this.includeDividends = !this.includeDividends;
                 btn.classList.toggle('active', this.includeDividends);
+                btn.setAttribute('aria-pressed', String(this.includeDividends));
                 try { localStorage.setItem('chart_include_dividends', this.includeDividends ? '1' : '0'); } catch { /* ignore */ }
                 this.update(false, false);
             });
             container.appendChild(btn);
             anchor.parentNode.insertBefore(container, anchor.nextSibling);
         }
-        container.querySelector('.toggle-btn')?.classList.toggle('active', this.includeDividends);
+        const dividendBtn = container.querySelector('.chart-chip');
+        dividendBtn?.classList.toggle('active', this.includeDividends);
+        dividendBtn?.setAttribute('aria-pressed', String(this.includeDividends));
         container.style.display = (!isSingleAssetMode && !isIndexMode) ? '' : 'none';
     }
 

@@ -14,9 +14,10 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/investments.css?v=55">
-    <link rel="stylesheet" href="css/investments-mobile.css?v=3">
+    <link rel="stylesheet" href="css/investments.css?v=56">
+    <link rel="stylesheet" href="css/investments-mobile.css?v=4">
     <link rel="stylesheet" href="css/investments-table-compact.css?v=6">
+    <link rel="stylesheet" href="css/chart-toolbar.css?v=1">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -114,22 +115,28 @@
                         </h3>
                     </div>
 
-                    <div class="header-controls">
-                        <div class="benchmark-select-wrapper" id="benchmark-wrapper" style="display: none;">
-                            <select id="benchmark-select" class="btn-secondary"
-                                style="padding: 6px 12px; font-size: 0.85rem; -webkit-appearance: listbox; appearance: none;">
-                                <option value="">vs Benchmark</option>
+                    <!-- Chart toolbar: view → options/reference lines (injected by
+                         historicalChart.js right after #view-toggle) → benchmark → status.
+                         Styling: css/chart-toolbar.css. -->
+                    <div class="header-controls chart-toolbar" role="toolbar" aria-label="Options du graphique">
+                        <div class="view-toggle" id="view-toggle" style="display:none;">
+                            <button class="toggle-btn active" data-view="global">Global</button>
+                            <button class="toggle-btn" data-view="unit">Unite</button>
+                        </div>
+                        <div class="benchmark-select-wrapper chart-benchmark" id="benchmark-wrapper" style="display: none;">
+                            <i class="fa-solid fa-code-compare" aria-hidden="true"></i>
+                            <select id="benchmark-select" aria-label="Comparer à un indice"
+                                title="Comparer la performance à un indice">
+                                <option value="">Comparer</option>
                                 <option value="^GSPC">S&P 500</option>
                                 <option value="^IXIC">Nasdaq 100</option>
                                 <option value="^STOXX50E">Eurostoxx 50</option>
                                 <option value="BTC-EUR">Bitcoin</option>
                             </select>
                         </div>
-                        <div class="view-toggle" id="view-toggle" style="display:none;">
-                            <button class="toggle-btn active" data-view="global">Global</button>
-                            <button class="toggle-btn" data-view="unit">Unite</button>
+                        <div id="last-update" class="chart-status">
+                            <span class="chart-status-dot"></span><span class="chart-status-text">—</span>
                         </div>
-                        <div id="last-update" class="time">00:00</div>
                     </div>
                 </div>
 
@@ -262,7 +269,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
     <script type="module" src="./src/authGuard.js"></script>
-    <script type="module" src="./src/app.js?v=66"></script>
+    <script type="module" src="./src/app.js?v=67"></script>
     <script src="./src/cacheRefresh.js"></script>
     <script src="./src/investmentsMobile.js?v=3"></script>
     <script type="module" src="./src/sidebar.js?v=31"></script>

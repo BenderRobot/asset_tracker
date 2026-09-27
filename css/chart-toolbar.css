@@ -1,0 +1,375 @@
+/* ==========================================================================
+   CHART TOOLBAR — single source of styling for every control of the
+   historical chart (investments.html + dashboard.html), loaded last:
+     - view switch (Valeur / Performance / Prix unitaire)   → segmented, blue
+     - period bar + zoom                                    → segmented, blue
+     - reference lines (Clôture / PRU / ATH), Dividendes    → toggle chips
+     - benchmark                                            → select chip
+     - data freshness                                       → status
+   Two visual grammars on purpose: a SEGMENTED control means "pick one"
+   (filled blue when selected), a CHIP means "stack it on the chart" (tinted
+   with the colour of the line it draws, so the chips double as the legend).
+   ========================================================================== */
+
+.chart-toolbar {
+    --ct-h: 32px;
+    --ct-radius: 9px;
+    --ct-inner-radius: 6px;
+    --ct-surface: rgba(255, 255, 255, 0.03);
+    --ct-surface-hover: rgba(255, 255, 255, 0.07);
+    --ct-focus: 0 0 0 2px rgba(59, 130, 246, 0.6);
+    --ct-font: 600 12px/1 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+    display: flex;
+    align-items: center;
+    align-self: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* Every direct control sits on the same 32px baseline, whatever page CSS
+   says about margins — this is what makes the row look regular. */
+.chart-toolbar > * {
+    flex: 0 0 auto;
+    margin: 0 !important;
+}
+
+/* --------------------------------------------------------------------------
+   Segmented control — #view-toggle (markup built in JS on both pages)
+   -------------------------------------------------------------------------- */
+.chart-toolbar #view-toggle {
+    align-items: center;
+    height: var(--ct-h);
+}
+
+.chart-toolbar #view-toggle .toggle-group {
+    display: inline-flex;
+    align-items: stretch;
+    gap: 2px;
+    height: var(--ct-h);
+    margin: 0;
+    padding: 3px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--ct-radius);
+    box-sizing: border-box;
+}
+
+.chart-toolbar #view-toggle .toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    height: auto;
+    min-width: 0;
+    padding: 0 12px;
+    font: var(--ct-font);
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: var(--ct-inner-radius);
+    box-shadow: none;
+    transform: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.chart-toolbar #view-toggle .toggle-btn:hover:not(.active) {
+    color: var(--text-primary);
+    background: var(--ct-surface-hover);
+}
+
+.chart-toolbar #view-toggle .toggle-btn.active {
+    color: #fff;
+    background: var(--accent-blue);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.chart-toolbar #view-toggle .toggle-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--ct-focus);
+}
+
+/* --------------------------------------------------------------------------
+   Toggle chips — reference lines + dividends (built in historicalChart.js)
+   -------------------------------------------------------------------------- */
+.chart-chip-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.chart-chip {
+    --chip-color: var(--accent-blue);
+    --chip-tint: rgba(59, 130, 246, 0.14);
+    --chip-edge: rgba(59, 130, 246, 0.5);
+
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: var(--ct-h, 32px);
+    padding: 0 11px;
+    font: var(--ct-font, 600 12px/1 'Inter', sans-serif);
+    color: var(--text-secondary);
+    background: var(--ct-surface, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--border-color);
+    border-radius: var(--ct-radius, 9px);
+    cursor: pointer;
+    white-space: nowrap;
+    box-sizing: border-box;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.chart-chip:hover {
+    color: var(--text-primary);
+    background: var(--ct-surface-hover, rgba(255, 255, 255, 0.07));
+    border-color: var(--chip-edge);
+}
+
+.chart-chip.active {
+    color: var(--text-primary);
+    background: var(--chip-tint);
+    border-color: var(--chip-edge);
+}
+
+.chart-chip:focus-visible {
+    outline: none;
+    box-shadow: var(--ct-focus, 0 0 0 2px rgba(59, 130, 246, 0.6));
+}
+
+/* Legend swatch: a mini dashed line, exactly like the line drawn on the
+   chart. Dim while off, full colour while on. */
+.chart-chip-swatch {
+    width: 14px;
+    height: 0;
+    border-top: 2px dashed var(--chip-color);
+    opacity: 0.45;
+    transition: opacity 0.15s ease;
+}
+
+.chart-chip i {
+    font-size: 11px;
+    color: var(--chip-color);
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+}
+
+.chart-chip.active .chart-chip-swatch,
+.chart-chip.active i {
+    opacity: 1;
+}
+
+/* One colour per line — the same values as the Chart.js datasets/plugin. */
+.chart-chip[data-refline="close"] {
+    --chip-color: #95a5a6;
+    --chip-tint: rgba(149, 165, 166, 0.14);
+    --chip-edge: rgba(149, 165, 166, 0.5);
+}
+
+.chart-chip[data-refline="pru"] {
+    --chip-color: #ff9f43;
+    --chip-tint: rgba(255, 159, 67, 0.13);
+    --chip-edge: rgba(255, 159, 67, 0.5);
+}
+
+.chart-chip[data-refline="ath"] {
+    --chip-color: #facc15;
+    --chip-tint: rgba(250, 204, 21, 0.12);
+    --chip-edge: rgba(250, 204, 21, 0.5);
+}
+
+.chart-chip[data-option="dividends"] {
+    --chip-color: #10b981;
+    --chip-tint: rgba(16, 185, 129, 0.13);
+    --chip-edge: rgba(16, 185, 129, 0.5);
+}
+
+/* --------------------------------------------------------------------------
+   Benchmark — native <select> dressed as a chip (purple = benchmark line)
+   -------------------------------------------------------------------------- */
+.chart-toolbar .chart-benchmark {
+    position: relative;
+    height: var(--ct-h);
+}
+
+.chart-toolbar .chart-benchmark > i {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: #a855f7;
+    opacity: 0.6;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+
+.chart-toolbar #benchmark-select {
+    appearance: none;
+    -webkit-appearance: none;
+    width: auto;
+    height: var(--ct-h);
+    padding: 0 28px 0 30px;
+    font: var(--ct-font);
+    line-height: normal;
+    color: var(--text-secondary);
+    background-color: var(--ct-surface);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239fa6bc' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--ct-radius);
+    box-sizing: border-box;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.chart-toolbar #benchmark-select:hover {
+    color: var(--text-primary);
+    background-color: var(--ct-surface-hover);
+    border-color: rgba(168, 85, 247, 0.5);
+}
+
+.chart-toolbar #benchmark-select:focus-visible {
+    outline: none;
+    box-shadow: var(--ct-focus);
+}
+
+.chart-toolbar #benchmark-select option {
+    color: var(--text-primary);
+    background: var(--bg-card);
+}
+
+.chart-toolbar .chart-benchmark.is-active > i {
+    opacity: 1;
+}
+
+.chart-toolbar .chart-benchmark.is-active #benchmark-select {
+    color: var(--text-primary);
+    background-color: rgba(168, 85, 247, 0.14);
+    border-color: rgba(168, 85, 247, 0.55);
+}
+
+/* --------------------------------------------------------------------------
+   Freshness status — replaces the static "00:00"
+   -------------------------------------------------------------------------- */
+.chart-toolbar .chart-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: var(--ct-h);
+    padding: 0 2px 0 12px;
+    font: 500 11.5px/1 'Inter', sans-serif;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    border-left: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.chart-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.chart-status.is-fresh .chart-status-dot { background: #10b981; }
+.chart-status.is-stale .chart-status-dot { background: #f59e0b; }
+.chart-status.is-degraded .chart-status-dot { background: #ef4444; }
+.chart-status.is-stale { color: #fbbf24; }
+.chart-status.is-degraded { color: #f87171; }
+
+/* Pulse only while the 1D view auto-refreshes — "live" means live. */
+.chart-status.is-live .chart-status-dot {
+    animation: chart-status-pulse 2s ease-out infinite;
+}
+
+@keyframes chart-status-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+    70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* --------------------------------------------------------------------------
+   Period bars (both pages) — zoom toggle
+   -------------------------------------------------------------------------- */
+.period-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.6);
+}
+
+.period-btn.selection-mode-toggle {
+    position: relative;
+    margin-left: 7px;
+    padding: 0 11px;
+    flex: 0 0 auto;
+}
+
+/* Divider drawn outside the button so it never takes the hover/active fill. */
+.period-btn.selection-mode-toggle::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 20%;
+    height: 60%;
+    border-left: 1px solid var(--border-color);
+}
+
+/* Purple = zoom, same colour as the zoom selection drawn on the chart. */
+.period-btn.selection-mode-toggle.active {
+    color: #e9d5ff;
+    background: rgba(168, 85, 247, 0.2);
+    box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.5);
+}
+
+/* --------------------------------------------------------------------------
+   Reduced motion / mobile
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    .chart-status.is-live .chart-status-dot { animation: none; }
+    .chart-chip,
+    .chart-toolbar #view-toggle .toggle-btn,
+    .chart-toolbar #benchmark-select { transition: none; }
+}
+
+/* One scrollable line instead of an irregular wrap; the edge fade signals
+   that more controls are reachable by swiping. */
+@media (max-width: 768px) {
+    .chart-toolbar {
+        --ct-h: 30px;
+        --ct-font: 600 11px/1 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        gap: 6px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        padding-right: 16px;
+        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+        mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+    }
+
+    .chart-toolbar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .chart-chip {
+        padding: 0 10px;
+        gap: 6px;
+    }
+
+    .chart-toolbar #view-toggle .toggle-btn {
+        padding: 0 10px;
+    }
+
+    .chart-toolbar #benchmark-select {
+        padding: 0 24px 0 27px;
+        background-position: right 8px center;
+    }
+
+    .chart-toolbar .chart-benchmark > i {
+        left: 10px;
+    }
+}
