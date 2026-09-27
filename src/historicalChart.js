@@ -31,6 +31,7 @@ import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js';
 import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js?v=2';
+import { mountViewToggle } from './chartViewToggle.js?v=1';
 
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -1004,22 +1005,7 @@ export class HistoricalChart {
         const wantAsset = isSingleAssetMode && !isIndexMode;
         const mode = wantAsset ? 'asset' : 'portfolio';
         if (container.dataset.mode === mode) return;
-        container.dataset.mode = mode;
-        container.innerHTML = wantAsset
-            ? `<div class="toggle-group">
-                   <button class="toggle-btn" data-view="global">Valeur (€)</button>
-                   <button class="toggle-btn active" data-view="unit">Prix unitaire</button>
-               </div>`
-            : `<div class="toggle-group">
-                   <button class="toggle-btn" data-view="global">Valeur (€)</button>
-                   <button class="toggle-btn active" data-view="performance">Performance (%)</button>
-               </div>`;
-        container.querySelectorAll('.toggle-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                container.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b === e.target));
-                this.update(false, false);
-            });
-        });
+        mountViewToggle(container, mode, () => this.update(false, false));
     }
 
     _loadRefLinePref(key) {

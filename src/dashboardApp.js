@@ -7,7 +7,8 @@ import { Storage } from './storage.js?v=4';
 import { PriceAPI } from './api.js?v=11';
 import { MarketStatus } from './marketStatus.js?v=2';
 import { DataManager } from './dataManager.js?v=33';
-import { HistoricalChart } from './historicalChart.js?v=44';
+import { HistoricalChart } from './historicalChart.js?v=45';
+import { mountViewToggle } from './chartViewToggle.js?v=1';
 import { IndexCardChart } from './indexCardChart.js';
 import { ChartKPIManager } from './chartKPIManager.js'; // NOUVEAU : Pour sparkline
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
@@ -229,35 +230,10 @@ export class DashboardApp {
         const toggleContainer = document.getElementById('view-toggle');
         if (toggleContainer) {
             toggleContainer.style.display = 'flex';
-            toggleContainer.innerHTML = `
-                <div class="toggle-group">
-                    <button class="toggle-btn" data-view="global">Valeur (€)</button>
-                    <button class="toggle-btn active" data-view="performance">Performance (%)</button>
-                </div>
-            `;
-            // See historicalChart.js's _syncViewToggle() — it owns rebuilding
-            // this element for single-asset mode; tagging it here avoids an
-            // immediate, needless rebuild on the very first render.
-            toggleContainer.dataset.mode = 'portfolio';
-
-            const updateToggle = (view) => {
-                toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
-                    if (btn.dataset.view === view) btn.classList.add('active');
-                    else btn.classList.remove('active');
-                });
-
-                // Mettre à jour le graphique via this.chart
-                if (this.chart) {
-                    this.chart.update(false, false);
-                }
-            };
-
-            toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const view = e.target.dataset.view;
-                    updateToggle(view);
-                });
-            });
+            // Same builder as historicalChart.js's _syncViewToggle(), which
+            // rebuilds it for single-asset mode; the 'portfolio' mode tag it
+            // sets avoids a needless rebuild on the very first render.
+            mountViewToggle(toggleContainer, 'portfolio', () => this.chart?.update(false, false));
         }
     }
 

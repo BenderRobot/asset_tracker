@@ -331,8 +331,8 @@
     flex-direction: column;
     overflow: hidden;
 
-    /* MODIF : Hauteur flexible avec un minimum pour éviter les coupures */
-    height: 550px;
+    /* Hauteur minimale, jamais fixe : avec overflow:hidden, une hauteur fixe
+       rognait la barre de stats dès que l'en-tête passait sur deux lignes. */
     min-height: 550px;
 }
 

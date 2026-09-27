@@ -26,6 +26,10 @@
     justify-content: flex-end;
     flex-wrap: wrap;
     gap: 8px;
+    /* Share the title's row and wrap internally when space runs out, rather
+       than the whole toolbar dropping to a second header line. */
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 /* Every direct control sits on the same 32px baseline, whatever page CSS
@@ -36,17 +40,22 @@
 }
 
 /* --------------------------------------------------------------------------
-   Segmented control — #view-toggle (markup built in JS on both pages)
+   View switch — #view-toggle (built by src/chartViewToggle.js)
+   Icon-only € / % (or € / unit price) with a thumb that slides to the
+   selected option; the full name is in the tooltip and aria-label.
    -------------------------------------------------------------------------- */
 .chart-toolbar #view-toggle {
+    --vs-btn: 34px;
+    --vs-gap: 2px;
     align-items: center;
     height: var(--ct-h);
 }
 
 .chart-toolbar #view-toggle .toggle-group {
+    position: relative;
     display: inline-flex;
     align-items: stretch;
-    gap: 2px;
+    gap: var(--vs-gap);
     height: var(--ct-h);
     margin: 0;
     padding: 3px;
@@ -56,13 +65,34 @@
     box-sizing: border-box;
 }
 
+.chart-toolbar #view-toggle .toggle-group::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: 3px;
+    width: var(--vs-btn);
+    border-radius: var(--ct-inner-radius);
+    background: var(--accent-blue);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    transition: transform 0.22s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+
+.chart-toolbar #view-toggle .toggle-group[data-active="1"]::before {
+    transform: translateX(calc(var(--vs-btn) + var(--vs-gap)));
+}
+
 .chart-toolbar #view-toggle .toggle-btn {
+    position: relative;
+    z-index: 1;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    width: var(--vs-btn);
     height: auto;
     min-width: 0;
-    padding: 0 12px;
-    font: var(--ct-font);
+    padding: 0;
+    font: 700 13px/1 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     color: var(--text-secondary);
     background: transparent;
     border: none;
@@ -70,19 +100,20 @@
     box-shadow: none;
     transform: none;
     cursor: pointer;
-    white-space: nowrap;
-    transition: background-color 0.15s ease, color 0.15s ease;
+    transition: color 0.15s ease;
+}
+
+.chart-toolbar #view-toggle .toggle-btn i {
+    font-size: 11px;
 }
 
 .chart-toolbar #view-toggle .toggle-btn:hover:not(.active) {
     color: var(--text-primary);
-    background: var(--ct-surface-hover);
 }
 
 .chart-toolbar #view-toggle .toggle-btn.active {
     color: #fff;
-    background: var(--accent-blue);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    background: transparent;
 }
 
 .chart-toolbar #view-toggle .toggle-btn:focus-visible {
@@ -328,6 +359,7 @@
    -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
     .chart-status.is-live .chart-status-dot { animation: none; }
+    .chart-toolbar #view-toggle .toggle-group::before { transition: none; }
     .chart-chip,
     .chart-toolbar #view-toggle .toggle-btn,
     .chart-toolbar #benchmark-select { transition: none; }
@@ -360,8 +392,8 @@
         gap: 6px;
     }
 
-    .chart-toolbar #view-toggle .toggle-btn {
-        padding: 0 10px;
+    .chart-toolbar #view-toggle {
+        --vs-btn: 32px;
     }
 
     .chart-toolbar #benchmark-select {

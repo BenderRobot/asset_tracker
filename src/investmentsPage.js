@@ -9,6 +9,7 @@ import { formatCurrency, formatPercent, formatQuantity } from './utils.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
 import { resolveHistoricalUsdToEurRate } from './MarketUtils.js';
+import { mountViewToggle } from './chartViewToggle.js?v=1';
 
 // Pour les stocks US cotés en EU (Xetra/Frankfurt), on redirige vers le ticker US primaire
 // afin que le screener trouve les données Yahoo Finance correctement.
@@ -97,35 +98,10 @@ export class InvestmentsPage {
     const toggleContainer = document.getElementById('view-toggle');
     if (toggleContainer) {
       toggleContainer.style.display = 'flex';
-      toggleContainer.innerHTML = `
-              <div class="toggle-group">
-                  <button class="toggle-btn" data-view="global">Valeur (€)</button>
-                  <button class="toggle-btn active" data-view="performance">Performance (%)</button>
-              </div>
-          `;
-      // Matches historicalChart.js's _syncViewToggle(), which owns rebuilding
-      // this element with different buttons once a single asset is drilled
-      // into — tagging the mode here avoids it needlessly redoing this exact
-      // same build (and losing the listeners below) on the very first render.
-      toggleContainer.dataset.mode = 'portfolio';
-
-      const updateToggle = (view) => {
-        toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
-          if (btn.dataset.view === view) btn.classList.add('active');
-          else btn.classList.remove('active');
-        });
-
-        if (this.historicalChart) {
-          this.historicalChart.update(false, false);
-        }
-      };
-
-      toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const view = e.target.dataset.view;
-          updateToggle(view);
-        });
-      });
+      // Same builder as historicalChart.js's _syncViewToggle(), which rebuilds
+      // it for single-asset mode; the 'portfolio' mode tag it sets avoids a
+      // needless rebuild on the very first render.
+      mountViewToggle(toggleContainer, 'portfolio', () => this.historicalChart?.update(false, false));
     }
   }
 
