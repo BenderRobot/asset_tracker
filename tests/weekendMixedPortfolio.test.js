@@ -29,6 +29,7 @@ describe('Portefeuille mixte pendant le week-end', () => {
 
         const result = await dm.buildTodaySnapshot(mixedPurchases(), []);
         const positions = Object.fromEntries(result.portfolioSnapshot.positions.map(position => [position.ticker, position]));
+        const tableRows = Object.fromEntries(result.holdings.map(position => [position.ticker, position]));
 
         expect(positions.AAPL).toMatchObject({
             currentPrice: 90,
@@ -45,6 +46,17 @@ describe('Portefeuille mixte pendant le week-end', () => {
             yesterdayQuantity: 1
         });
         expect(positions['BTC-EUR'].dayPnl).toBeCloseTo(5, 8);
+        // Le KPI quotidien reste pilote uniquement par le BTC, tandis que les
+        // colonnes DAY du tableau montrent la derniere seance cotee (vendredi
+        // contre jeudi) pour les instruments fermes.
+        expect(tableRows.AAPL.dayChange).toBe(0);
+        expect(tableRows.AAPL.displayDayChange).toBeCloseTo(10, 8);
+        expect(tableRows.AAPL.displayDayPct).toBeCloseTo(12.5, 8);
+        expect(tableRows['CSPX.L'].dayChange).toBe(0);
+        expect(tableRows['CSPX.L'].displayDayChange).toBeCloseTo(5, 8);
+        expect(tableRows['CSPX.L'].displayDayPct).toBeCloseTo((5 / 45) * 100, 8);
+        expect(positions.AAPL.displayDayPnl).toBeCloseTo(10, 8);
+        expect(positions['CSPX.L'].displayDayPnl).toBeCloseTo(5, 8);
         expect(result.portfolioSnapshot.totalValue).toBeCloseTo(245, 8);
         expect(result.todayGraphData.yesterdayClose).toBeCloseTo(240, 8);
         expect(result.portfolioSnapshot.dayPnl).toBeCloseTo(5, 8);

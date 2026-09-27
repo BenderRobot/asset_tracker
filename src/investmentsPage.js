@@ -239,8 +239,13 @@ export class InvestmentsPage {
     let filteredHoldings = this.filterVisibleHoldings(this.currentHoldings);
 
     filteredHoldings.sort((a, b) => {
-      const valA = a[this.sortColumn] ?? -Infinity;
-      const valB = b[this.sortColumn] ?? -Infinity;
+      const displayValue = (position) => {
+        if (this.sortColumn === 'dayChange') return position.displayDayChange ?? position.displayDayPnl ?? position.dayChange;
+        if (this.sortColumn === 'dayPct') return position.displayDayPct ?? position.displayDayPnlPct ?? position.dayPct;
+        return position[this.sortColumn];
+      };
+      const valA = displayValue(a) ?? -Infinity;
+      const valB = displayValue(b) ?? -Infinity;
       let order;
       if (typeof valA === 'string' && typeof valB === 'string') order = valA.localeCompare(valB);
       else order = valA < valB ? -1 : valA > valB ? 1 : 0;
@@ -323,6 +328,8 @@ export class InvestmentsPage {
       const isExpanded = this.expandedTicker === p.ticker;
       const rowExpandedClass = isExpanded ? 'expanded' : '';
       const purchasesOpenClass = isExpanded ? 'open' : '';
+      const displayedDayChange = p.displayDayChange ?? p.displayDayPnl ?? p.dayChange;
+      const displayedDayPct = p.displayDayPct ?? p.displayDayPnlPct ?? p.dayPct;
 
       const purchasesTable = `
         <tr class="purchases-row ${purchasesOpenClass}" data-ticker="${p.ticker}">
@@ -371,8 +378,8 @@ export class InvestmentsPage {
                 <td>${formatCurrency(p.currentValue, 'EUR')}</td>
                 <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatCurrency(p.gainEUR, 'EUR')}</td>
                 <td><span class="badge ${p.gainPct > 0 ? 'badge-positive' : p.gainPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatPercent(p.gainPct)}</span></td>
-                <td class="${p.dayChange > 0 ? 'positive' : p.dayChange < 0 ? 'negative' : ''}">${formatCurrency(p.dayChange, 'EUR')}</td>
-                <td><span class="badge ${p.dayPct > 0 ? 'badge-positive' : p.dayPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatPercent(p.dayPct)}</span></td>
+                <td class="${displayedDayChange > 0 ? 'positive' : displayedDayChange < 0 ? 'negative' : ''}">${formatCurrency(displayedDayChange, 'EUR')}</td>
+                <td><span class="badge ${displayedDayPct > 0 ? 'badge-positive' : displayedDayPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatPercent(displayedDayPct)}</span></td>
             </tr>
             ${purchasesTable}
         `;

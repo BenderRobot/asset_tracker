@@ -61,7 +61,7 @@ function emptyResult() {
     return {
         labels: [], invested: [], investedAssetOnly: [], values: [], assetValues: [], yesterdayClose: null,
         dayStartValue: null, todayValueOfYesterdayHoldings: null,
-        perTickerYesterdayClose: new Map(), unitPrices: [], purchasePoints: [],
+        perTickerYesterdayClose: new Map(), perTickerLastSessionPerformance: new Map(), unitPrices: [], purchasePoints: [],
         timestamps: [], twr: [], twrWithDividends: [], dailyTwr: [], dailyTwrWithDividends: [], historicalDataMap: new Map(), isMixed: false,
         cash: [], totalReturn: [], totalReturnPct: [], totalReturnWithDividends: [], totalReturnPctWithDividends: [], periodPnl: [],
         // Aucun achat du tout : rien à valoriser, donc rien qui puisse échouer.
@@ -202,6 +202,19 @@ export class HistoryCalculator {
         const { perTickerYesterdayClose, todayValueOfYesterdayHoldings } =
             this._valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset, livePriceSnapshot, win.displayStart);
 
+        // Sur un jour ferme, la metrique canonique "aujourd'hui" des actions
+        // reste volontairement a zero (le portefeuille mixte ne doit bouger que
+        // sous l'effet des actifs 24/7). Le tableau a toutefois besoin de la
+        // derniere seance reellement cotee. Elle est resolue ici, depuis les
+        // memes bougies deja chargees, et exposee comme metrique d'affichage
+        // distincte : elle ne participe jamais a la Var Today du portefeuille.
+        const perTickerLastSessionPerformance = days === 1
+            ? await this._resolveLastClosedSessionPerformance({
+                tickers, ledger, historicalDataMap, dynamicRate,
+                livePriceSnapshot, failedTickers
+            })
+            : new Map();
+
         const series = await this._buildSeries({
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
             dynamicRate, isSingleAsset, isMixed, interval, days, labelFormatFunc,
@@ -242,6 +255,7 @@ export class HistoryCalculator {
             dayStartValue: dataQuality.valid ? series.dayStartValue : null,
             todayValueOfYesterdayHoldings: dataQuality.valid ? todayValueOfYesterdayHoldings : null,
             perTickerYesterdayClose,
+            perTickerLastSessionPerformance,
             unitPrices: series.unitPrices,
             purchasePoints,
             timestamps: displayTimestamps,
@@ -929,6 +943,90 @@ export class HistoryCalculator {
         }
 
         return { perTickerYesterdayClose: map, todayValueOfYesterdayHoldings: found > 0 ? total : null };
+    }
+
+    // Performance de la derniere seance fermee, destinee exclusivement aux
+    // lignes du tableau pendant un week-end/jour ferme. La quantite est celle
+    // detenue a la cloture precedente afin qu'un achat pendant la seance ne
+    // soit pas transforme en performance. Aucun fetch supplementaire : la vue
+    // 1D charge deja plusieurs jours de marge dans historicalDataMap.
+    async _resolveLastClosedSessionPerformance({
+        tickers, ledger, historicalDataMap, dynamicRate,
+        livePriceSnapshot, failedTickers = new Set()
+    }) {
+        const result = new Map();
+        const now = new Date();
+
+        for (const ticker of tickers) {
+            if (ticker.startsWith('CASH-') || isCryptoTicker(ticker)
+                || !isClosedExchangeDay(ticker, now) || failedTickers.has(ticker)) continue;
+
+            const session = marketCalendarEngine.getPreviousTradingSession(ticker, now);
+            const history = historicalDataMap.get(ticker) || null;
+            if (!session) continue;
+
+            let sessionCloseTs = null;
+            let sessionClosePrice = null;
+            if (history) {
+                const sessionKeys = Object.keys(history).map(Number)
+                    .filter(ts => ts >= session.openUTCMs && ts <= session.closeUTCMs)
+                    .sort((a, b) => a - b);
+                sessionCloseTs = sessionKeys.at(-1) ?? null;
+                if (sessionCloseTs !== null) sessionClosePrice = history[sessionCloseTs];
+            }
+
+            // Les metadonnees live du week-end portent la derniere cloture
+            // officielle. Elles ne servent que si la bougie de fin de seance
+            // n'est pas presente dans la marge historique deja telechargee.
+            if (!(sessionClosePrice > 0)) {
+                const stored = livePriceSnapshot.get(ticker);
+                if (stored?.price > 0) {
+                    sessionClosePrice = stored.price;
+                    sessionCloseTs = session.closeUTCMs;
+                }
+            }
+            if (!(sessionClosePrice > 0)) continue;
+
+            const previous = await resolveTickerPreviousClose(ticker, {
+                storage: this.storage,
+                refDate: new Date(session.openUTCMs),
+                preferLiveClose: false,
+                historicalDataMap: history,
+                allowFetch: false
+            });
+            if (!(previous.closePrice > 0)) continue;
+
+            let quantityAtPreviousClose = 0;
+            for (const entry of ledger.byTicker.get(ticker) || []) {
+                if (entry.date.getTime() <= previous.cutoffTs) quantityAtPreviousClose += entry.quantity;
+            }
+            if (!(quantityAtPreviousClose > 0)) continue;
+
+            const currency = livePriceSnapshot.get(ticker)?.currency
+                || ledger.byTicker.get(ticker)?.[0]?.currency || 'EUR';
+            // Meme convention que la metrique Day P&L canonique : les deux
+            // clotures sont converties avec le taux courant du snapshot. Cela
+            // mesure la variation du titre sans y injecter une variation FX
+            // differente de celle utilisee le reste de l'application.
+            const rate = currency === 'USD' ? dynamicRate : 1;
+            if (!(rate > 0)) continue;
+
+            const previousTotal = previous.closePrice * quantityAtPreviousClose * rate;
+            const sessionTotal = sessionClosePrice * quantityAtPreviousClose * rate;
+            const dayChange = sessionTotal - previousTotal;
+
+            result.set(ticker, {
+                dayChange,
+                dayPct: previousTotal > 0 ? (dayChange / previousTotal) * 100 : 0,
+                quantity: quantityAtPreviousClose,
+                previousCloseTotal: previousTotal,
+                sessionCloseTotal: sessionTotal,
+                sessionCloseTs,
+                currency
+            });
+        }
+
+        return result;
     }
 
     // ========================================================

@@ -6,8 +6,8 @@ import { fetchMarketResponse } from './marketDataTransport.js?v=3';
 
 import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
-import { HistoryCalculator } from './HistoryCalculator.js?v=20';
-import { MarketDataRepository } from './marketDataRepository.js?v=6';
+import { HistoryCalculator } from './HistoryCalculator.js?v=21';
+import { MarketDataRepository } from './marketDataRepository.js?v=7';
 import { db, auth } from './firebaseConfig.js';
 import {
     getIntervalForPeriod,
@@ -99,6 +99,8 @@ export class DataManager {
             yesterdayQuantity: holding.yesterdayQuantity ?? null,
             dayPnl: holding.dayChange,
             dayPnlPct: holding.dayPct,
+            displayDayPnl: holding.displayDayChange ?? holding.dayChange,
+            displayDayPnlPct: holding.displayDayPct ?? holding.dayPct,
             weight: holding.weight,
             purchases: Object.freeze([...(holding.purchases || [])]),
             // FAIL-CLOSED (audit incident 2026-09-23) — voir
@@ -256,14 +258,22 @@ export class DataManager {
     buildYesterdayCloseMapFromGraphData(graphData) {
         const map = new Map();
         const perTicker = graphData && graphData.perTickerYesterdayClose;
-        if (!perTicker) return map;
-        perTicker.forEach((entry, ticker) => {
-            if (entry.yesterdayCloseTotal === null || entry.yesterdayCloseTotal === undefined) return;
+        const lastSession = graphData && graphData.perTickerLastSessionPerformance;
+        const tickers = new Set([
+            ...(perTicker ? perTicker.keys() : []),
+            ...(lastSession ? lastSession.keys() : [])
+        ]);
+        tickers.forEach(ticker => {
+            const entry = perTicker?.get(ticker);
+            const display = lastSession?.get(ticker);
+            if ((!entry || entry.yesterdayCloseTotal === null || entry.yesterdayCloseTotal === undefined) && !display) return;
             map.set(ticker, {
-                yesterdayClose: entry.yesterdayCloseTotal,
-                todayValueOfYesterdayHoldings: entry.todayValueOfYesterdayHoldingsTotal ?? null,
-                quantityYesterday: entry.quantityYesterday ?? null,
-                currency: entry.currency
+                yesterdayClose: entry?.yesterdayCloseTotal ?? null,
+                todayValueOfYesterdayHoldings: entry?.todayValueOfYesterdayHoldingsTotal ?? null,
+                quantityYesterday: entry?.quantityYesterday ?? null,
+                currency: entry?.currency ?? display?.currency,
+                displayDayChange: display?.dayChange ?? null,
+                displayDayPct: display?.dayPct ?? null
             });
         });
         return map;
@@ -533,6 +543,7 @@ export class DataManager {
                 avgPrice: avgPriceEUR, invested: data.invested,
                 currentPrice: null, previousClose: null, currentValue: null,
                 gainEUR: null, gainPct: null, dayChange: null, dayPct: null,
+                displayDayChange: null, displayDayPct: null,
                 yesterdayQuantity: null, weight: 0, purchases: data.purchases,
                 priceDataUnavailable: true
             };
@@ -553,6 +564,7 @@ export class DataManager {
                 avgPrice: avgPriceEUR, invested: data.invested,
                 currentPrice: null, previousClose: null, currentValue: null,
                 gainEUR: null, gainPct: null, dayChange: null, dayPct: null,
+                displayDayChange: null, displayDayPct: null,
                 yesterdayQuantity: null, weight: 0, purchases: data.purchases,
                 priceDataUnavailable: true
             };
@@ -706,6 +718,18 @@ export class DataManager {
             }
         }
 
+        // Metrique de presentation du tableau : pendant un jour ferme, le
+        // moteur historique fournit la derniere seance cotee. La metrique
+        // canonique dayChange reste intacte et continue seule d'alimenter la
+        // Var Today et les agregats du portefeuille.
+        const displayEntry = yesterdayCloseMap?.get(ticker);
+        const displayDayChange = Number.isFinite(displayEntry?.displayDayChange)
+            ? displayEntry.displayDayChange
+            : dayChange;
+        const displayDayPct = Number.isFinite(displayEntry?.displayDayPct)
+            ? displayEntry.displayDayPct
+            : dayPct;
+
         return {
             ticker,
             name: data.name,
@@ -720,6 +744,8 @@ export class DataManager {
             gainPct,
             dayChange,
             dayPct,
+            displayDayChange,
+            displayDayPct,
             yesterdayQuantity,
             weight: 0,
             purchases: data.purchases,
@@ -1772,7 +1798,7 @@ export class DataManager {
         // temporairement la classification pré-fix de _buildLedger (copie
         // verbatim de la version d'avant ce fix — voir git history), puis la
         // restaure immédiatement, y compris si un throw survient.
-        const { HistoryCalculator } = await import('./HistoryCalculator.js?v=20');
+        const { HistoryCalculator } = await import('./HistoryCalculator.js?v=21');
         const { parseDate } = await import('./utils.js');
         const preFixBuildLedger = function (purchasesArg, isSingleAsset) {
             const byTicker = new Map();

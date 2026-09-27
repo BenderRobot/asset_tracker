@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
-import { HistoryCalculator } from '../src/HistoryCalculator.js?v=20';
+import { HistoryCalculator } from '../src/HistoryCalculator.js?v=21';
 import { createFakeApi, createFakeStorage, purchase } from './helpers.js';
 
 const utcNoon = (isoDate) => new Date(`${isoDate}T12:00:00.000Z`).getTime();
