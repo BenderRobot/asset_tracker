@@ -204,7 +204,7 @@ export class HistoryCalculator {
 
         const series = await this._buildSeries({
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
-            dynamicRate, isSingleAsset, interval, days, labelFormatFunc,
+            dynamicRate, isSingleAsset, isMixed, interval, days, labelFormatFunc,
             resolveCloseBefore, initialYesterdayClose: yesterday.total, initialYesterdayPrices: yesterday.prices, win, historicalFxMap,
             midnightValuationSeed, debugCapture, livePriceSnapshot
         });
@@ -932,7 +932,7 @@ export class HistoryCalculator {
     // ========================================================
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
-    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, initialYesterdayPrices = null, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot }) {
+    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, isMixed, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, initialYesterdayPrices = null, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], assetValues = [], unitPrices = [];
         // `twr` is deliberately price-only. Cash never belongs to its market
         // value and dividends are exposed through a separate optional series.
@@ -1209,11 +1209,19 @@ export class HistoryCalculator {
                     price = 1.0;
                 } else {
                     const hist = historicalDataMap.get(t);
+                    const frozenWeekendClose = (isMixed && typeof days === 'number' && days <= 2 && isClosedExchangeDay(t, new Date(ts)))
+                        ? (initialYesterdayPrices?.get(t) || null)
+                        : null;
                     // The 1D boundary must be continuous: yesterday's close is
                     // also today's opening valuation. A candle timestamped at
                     // the boundary belongs to the interval starting there and
                     // must not replace that instantaneous opening value.
-                    if (ts === win.displayStartTs && midnightValuationSeed?.has(t)) { price = midnightValuationSeed.get(t); priceSource = 'midnightSeed'; }
+                    // During a closed weekend, every portfolio point must keep
+                    // exchange-traded assets on that same official close. BTC
+                    // candles may advance the grid, but must never make a stale
+                    // Friday intraday candle overwrite the frozen stock value.
+                    if (frozenWeekendClose > 0) { price = frozenWeekendClose; priceSource = 'closedMarketClose'; }
+                    else if (ts === win.displayStartTs && midnightValuationSeed?.has(t)) { price = midnightValuationSeed.get(t); priceSource = 'midnightSeed'; }
                     else if (hist?.[ts] != null) { price = hist[ts]; priceSource = 'candle'; }
                     else if (hist) { price = findClosestPrice(hist, ts, interval, isCryptoTicker(t)); if (price != null) priceSource = 'closestPrice'; }
                     if (price == null && lastKnownPrices.has(t)) { price = lastKnownPrices.get(t); priceSource = 'lastKnown'; }
@@ -1438,7 +1446,7 @@ export class HistoryCalculator {
             // comptent pas comme source de marché.
             const marketSources = Object.entries(tickerSourcesThisPoint).reduce((acc, [t, s]) => {
                 if (s === 'candle') acc[t] = 'historical_candle';
-                else if (s === 'closestPrice' || s === 'midnightSeed' || s === 'lastKnown') acc[t] = 'valuation';
+                else if (s === 'closestPrice' || s === 'midnightSeed' || s === 'lastKnown' || s === 'closedMarketClose') acc[t] = 'valuation';
                 return acc;
             }, {});
             const distinctSources = new Set(Object.values(marketSources));

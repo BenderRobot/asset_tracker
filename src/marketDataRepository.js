@@ -1,7 +1,7 @@
 // Cache orchestration only. DataManager remains the financial engine.
 import { marketDataMetrics } from './marketDataMetrics.js';
 
-const VERSION = 4;
+const VERSION = 5;
 const FRESH_TTL_MS = 30_000;
 const RETRY_MS = 30_000;
 const encode = (_, value) => value instanceof Map ? { $marketMap: [...value] } : value;

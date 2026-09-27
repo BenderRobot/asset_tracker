@@ -36,7 +36,7 @@ const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // Bump whenever the financial meaning of a persisted series changes. Version 11
 // invalidates 1D series whose midnight point used a post-boundary candle.
-const HISTORY_CHART_CACHE_VERSION = 11;
+const HISTORY_CHART_CACHE_VERSION = 12;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
