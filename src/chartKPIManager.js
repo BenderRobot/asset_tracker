@@ -513,6 +513,61 @@ export class ChartKPIManager {
     }
 
     /**
+     * Groupe « ATH » de la barre de stats (#stat-group-ath). Formatage pur :
+     * `details` vient de historicalChart._resolveAthReference, qui ne fait que
+     * lire les séries au point localisé par dataManager.computeAthReference.
+     * null (ligne ATH masquée / indisponible / vue € sans ATH) → groupe caché.
+     * @param {Object|null} details
+     */
+    updateAthStats(details) {
+        const group = document.getElementById('stat-group-ath');
+        if (!group) return;
+        if (!details) { group.hidden = true; return; }
+
+        const eur = (n) => `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+        const signed = (n, text) => `${n >= 0 ? '+' : ''}${text}`;
+        const pct = (n) => signed(n, `${n.toFixed(2)}%`);
+        const setText = (id, text, tone = null) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = text;
+            el.classList.toggle('positive', tone === 'positive');
+            el.classList.toggle('negative', tone === 'negative');
+        };
+        const tone = (n) => (n === null ? null : (n >= 0 ? 'positive' : 'negative'));
+        const setRow = (id, visible) => { const row = document.getElementById(id); if (row) row.hidden = !visible; };
+
+        const isPrice = details.kind === 'price';
+        setRow('ath-value-row', true);
+        setText('ath-value-label', isPrice ? 'Prix ATH' : 'Total Value ATH');
+        const headline = isPrice ? details.price : details.totalValue;
+        setText('ath-total-value', headline !== null ? eur(headline) : '—');
+
+        setRow('ath-return-row', !isPrice);
+        if (!isPrice) {
+            const r = details.totalReturn;
+            setText('ath-total-return', r !== null ? signed(r, eur(r)) : '—', tone(r));
+            setText('ath-total-return-pct', details.totalReturnPct !== null ? `(${pct(details.totalReturnPct)})` : '', tone(details.totalReturnPct));
+        }
+
+        let dateText = '—';
+        if (details.timestamp !== null) {
+            const d = new Date(details.timestamp);
+            dateText = details.intraday
+                ? `${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+        }
+        setText('ath-date', dateText);
+
+        // At the ATH (within rounding) the gap reads "Au plus haut" rather than "-0.00%".
+        const gap = details.fromAthPct;
+        const atAth = gap !== null && gap > -0.005;
+        setText('ath-gap', gap === null ? '—' : (atAth ? 'Au plus haut' : pct(gap)), gap === null ? null : (atAth ? 'positive' : 'negative'));
+
+        group.hidden = false;
+    }
+
+    /**
      * Réinitialise tous les KPIs à leur état par défaut
      * @private
      */

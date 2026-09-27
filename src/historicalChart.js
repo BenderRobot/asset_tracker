@@ -26,7 +26,7 @@
 // dataManager.buildTodaySnapshot's own doc comment for the full audit).
 
 import { eventBus } from './eventBus.js';
-import { ChartKPIManager } from './chartKPIManager.js';
+import { ChartKPIManager } from './chartKPIManager.js?v=2';
 import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js';
@@ -1232,6 +1232,7 @@ export class HistoricalChart {
         const avgPrice = this._computeAvgPrice(currentTicker, isIndexMode, kpiData?.portfolioSnapshot);
 
         const athReference = this._resolveAthReference(athKind, athSource, graphData, firstIndex, lastIndex);
+        this.kpiManager.updateAthStats?.(athReference?.details ?? null);
 
         this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData, avgPrice, athReference);
 
@@ -1284,7 +1285,25 @@ export class HistoricalChart {
         const label = ath.kind === 'price'
             ? `ATH ${ath.value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} €`
             : `ATH ${ath.value >= 0 ? '+' : ''}${ath.value.toFixed(2)}%`;
-        return { value: ath.value, label };
+
+        // Stats-bar details: pure reads of the series at the point where the
+        // engine located the ATH — no recomputation here.
+        const series = ath.at.source === 'visible' ? graphData : allHistory;
+        const i = ath.at.index;
+        const read = (arr) => (Array.isArray(arr) && arr[i] !== null && arr[i] !== undefined && Number.isFinite(Number(arr[i]))) ? Number(arr[i]) : null;
+        const returnPct = this.includeDividends && Array.isArray(series.totalReturnPctWithDividends)
+            ? series.totalReturnPctWithDividends : series.totalReturnPct;
+        const details = {
+            kind: ath.kind,
+            timestamp: read(series.timestamps),
+            intraday: ath.at.source === 'visible' && typeof this.currentPeriod === 'number' && this.currentPeriod <= 2,
+            price: ath.kind === 'price' ? ath.value : null,
+            totalValue: ath.kind === 'performance' ? read(series.values) : null,
+            totalReturn: ath.kind === 'performance' ? read(this._getPortfolioReturnSeries(series)) : null,
+            totalReturnPct: ath.kind === 'performance' ? read(returnPct) : null,
+            fromAthPct: ath.fromAthPct
+        };
+        return { value: ath.value, label, details };
     }
 
     _computeAvgPrice(currentTicker, isIndexMode, portfolioSnapshot) {

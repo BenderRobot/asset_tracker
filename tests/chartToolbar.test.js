@@ -78,3 +78,50 @@ describe('chart toolbar', () => {
         expect(wrapper.classList.contains('is-active')).toBe(false);
     });
 });
+
+describe('ATH stats group', () => {
+    beforeEach(() => {
+        document.body.innerHTML = `
+            <div class="stat-group stat-group-ath" id="stat-group-ath" hidden>
+                <div class="stat" id="ath-value-row"><span id="ath-value-label"></span><span id="ath-total-value"></span></div>
+                <div class="stat" id="ath-return-row"><span id="ath-total-return"></span><span id="ath-total-return-pct"></span></div>
+                <div class="stat"><span id="ath-date"></span></div>
+                <div class="stat"><span id="ath-gap"></span></div>
+            </div>`;
+    });
+
+    const manager = () => makeChart().kpiManager;
+    const text = (id) => document.getElementById(id).textContent;
+
+    it('performance: shows Total Value / Total Return at the ATH, its date and the gap', () => {
+        manager().updateAthStats({
+            kind: 'performance', timestamp: new Date(2026, 2, 12).getTime(), intraday: false,
+            price: null, totalValue: 36717.02, totalReturn: 1964.79, totalReturnPct: 7.45, fromAthPct: -1.3
+        });
+        expect(document.getElementById('stat-group-ath').hidden).toBe(false);
+        expect(text('ath-value-label')).toBe('Total Value ATH');
+        expect(text('ath-total-value').replace(/\s/g, ' ')).toBe('36 717,02 €');
+        expect(text('ath-total-return').replace(/\s/g, ' ')).toBe('+1 964,79 €');
+        expect(text('ath-total-return-pct')).toBe('(+7.45%)');
+        expect(text('ath-date')).toBe('12 mars 2026');
+        expect(text('ath-gap')).toBe('-1.30%');
+        expect(document.getElementById('ath-gap').classList.contains('negative')).toBe(true);
+    });
+
+    it('price: shows the ATH price, hides Total Return, and "Au plus haut" at the peak', () => {
+        manager().updateAthStats({
+            kind: 'price', timestamp: 0, intraday: false, price: 43.5,
+            totalValue: null, totalReturn: null, totalReturnPct: null, fromAthPct: 0
+        });
+        expect(text('ath-value-label')).toBe('Prix ATH');
+        expect(document.getElementById('ath-return-row').hidden).toBe(true);
+        expect(text('ath-gap')).toBe('Au plus haut');
+    });
+
+    it('hides the group when there is no ATH to show', () => {
+        const kpi = manager();
+        kpi.updateAthStats({ kind: 'price', timestamp: 0, price: 1, fromAthPct: 0 });
+        kpi.updateAthStats(null);
+        expect(document.getElementById('stat-group-ath').hidden).toBe(true);
+    });
+});

@@ -11,7 +11,7 @@ describe('computeAthReference (engine)', () => {
             allHistory: { unitPrices: [10, 42, 30] },
             visibleHistory: { unitPrices: [30, 31] }
         });
-        expect(ath).toEqual({ kind: 'price', value: 42 });
+        expect(ath).toEqual({ kind: 'price', value: 42, at: { source: 'all', index: 1 }, fromAthPct: expect.closeTo((31 / 42 - 1) * 100, 8) });
     });
 
     it('price: an intraday/live high above every daily close becomes the ATH', () => {
@@ -67,6 +67,27 @@ describe('computeAthReference (engine)', () => {
             visibleHistory: { timestamps: [350, 360], twr: [1, 1.02] }
         });
         expect(ath.value).toBeCloseTo(25, 8);
+    });
+
+    it('performance: locates the ATH point and the gap of the last point', () => {
+        const ath = computeAthReference({
+            kind: 'performance',
+            allHistory: { timestamps: [1, 2, 3, 4], twr: [1, 1.5, 1.2, 1.32] },
+            visibleHistory: { timestamps: [3, 4], twr: [1, 1.1] }
+        });
+        expect(ath.at).toEqual({ source: 'all', index: 1 });
+        // Last point is index 1.32 vs peak 1.5 → -12 %.
+        expect(ath.fromAthPct).toBeCloseTo((1.32 / 1.5 - 1) * 100, 8);
+    });
+
+    it('price: an intraday high is located in the visible series', () => {
+        const ath = computeAthReference({
+            kind: 'price',
+            allHistory: { unitPrices: [10, 42, 40] },
+            visibleHistory: { unitPrices: [40, 43.5, 43.5] }
+        });
+        expect(ath.at).toEqual({ source: 'visible', index: 1 });
+        expect(ath.fromAthPct).toBeCloseTo(0, 8);
     });
 
     it('performance: a visible high above the rebased all-time high wins', () => {
@@ -147,7 +168,12 @@ describe('HistoricalChart ATH line', () => {
         render(chart, graph(), { scope: 'portfolio', purchases: [], producer });
 
         expect(athButton().style.display).toBe('');
-        expect(athArg(chart)).toEqual({ value: expect.closeTo(50, 8), label: 'ATH +50.00%' });
+        expect(athArg(chart)).toMatchObject({ value: expect.closeTo(50, 8), label: 'ATH +50.00%' });
+        // Stats bar: values read at the ATH point (index 1 of the displayed series).
+        expect(athArg(chart).details).toMatchObject({
+            kind: 'performance', timestamp: 2, totalValue: 150, totalReturn: 50, totalReturnPct: 50,
+            fromAthPct: expect.closeTo((1.2 / 1.5 - 1) * 100, 8)
+        });
         expect(producer).not.toHaveBeenCalled();
     });
 

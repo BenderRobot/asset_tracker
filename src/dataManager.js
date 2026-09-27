@@ -1920,30 +1920,46 @@ export class DataManager {
 // Jamais sur une valeur € de portefeuille/position : ce total intègre les
 // apports, chaque versement y créerait un faux « plus haut ».
 //
-// Retourne { kind, value } ou null (données absentes/invalides : fail-closed).
+// Retourne { kind, value, at, fromAthPct } ou null (données absentes/
+// invalides : fail-closed).
+//   at         : { source: 'all' | 'visible', index } — le point où l'ATH a été
+//                atteint, pour que la vue y LISE date/Total Value/Total Return
+//                (sélecteur pur, aucun recalcul).
+//   fromAthPct : écart du dernier point visible par rapport à l'ATH (≤ 0),
+//                en % de prix (price) ou de performance TWR (performance).
 // ============================================================
 export function computeAthReference({ kind, allHistory, visibleHistory, firstIndex = 0, lastIndex = null, includeDividends = false }) {
     if (!allHistory || !visibleHistory) return null;
     if (allHistory.dataQuality?.valid === false || visibleHistory.dataQuality?.valid === false) return null;
 
-    const finiteMax = (series, from = 0, to = Infinity) => {
-        if (!Array.isArray(series)) return -Infinity;
-        let max = -Infinity;
+    const isFinitePoint = (v) => v !== null && v !== undefined && Number.isFinite(Number(v));
+    // Highest finite point in [from, to] (first occurrence on ties) and the
+    // last finite point of that range.
+    const scan = (series, from = 0, to = Infinity) => {
+        const result = { max: -Infinity, maxIndex: -1, last: null };
+        if (!Array.isArray(series)) return result;
         const end = Math.min(to, series.length - 1);
         for (let i = Math.max(0, from); i <= end; i++) {
-            const v = series[i];
-            if (v !== null && v !== undefined && Number.isFinite(Number(v))) max = Math.max(max, Number(v));
+            if (!isFinitePoint(series[i])) continue;
+            const v = Number(series[i]);
+            if (v > result.max) { result.max = v; result.maxIndex = i; }
+            result.last = v;
         }
-        return max;
+        return result;
     };
     const visibleEnd = lastIndex ?? Infinity;
 
     if (kind === 'price') {
-        const value = Math.max(
-            finiteMax(allHistory.unitPrices),
-            finiteMax(visibleHistory.unitPrices, firstIndex, visibleEnd)
-        );
-        return Number.isFinite(value) && value > 0 ? { kind, value } : null;
+        const all = scan(allHistory.unitPrices);
+        const visible = scan(visibleHistory.unitPrices, firstIndex, visibleEnd);
+        const fromVisible = visible.max > all.max;
+        const value = fromVisible ? visible.max : all.max;
+        if (!Number.isFinite(value) || value <= 0) return null;
+        return {
+            kind, value,
+            at: fromVisible ? { source: 'visible', index: visible.maxIndex } : { source: 'all', index: all.maxIndex },
+            fromAthPct: visible.last !== null ? (visible.last / value - 1) * 100 : null
+        };
     }
     if (kind !== 'performance') return null;
 
@@ -1952,8 +1968,8 @@ export function computeAthReference({ kind, allHistory, visibleHistory, firstInd
     const visibleTwr = pickTwr(visibleHistory);
     if (!Array.isArray(allTwr) || !Array.isArray(visibleTwr)) return null;
 
-    const athIndex = finiteMax(allTwr);
-    if (!(athIndex > 0)) return null;
+    const all = scan(allTwr);
+    if (!(all.max > 0)) return null;
 
     // Passage du repère « historique complet » au repère « fenêtre visible » :
     // le TWR étant chaîné, visibleTwr[j] / allTwr[i] est constant pour tout
@@ -1992,8 +2008,16 @@ export function computeAthReference({ kind, allHistory, visibleHistory, firstInd
         scale = 1 / base;
     }
 
-    const rebasedAthPct = (athIndex * scale - 1) * 100;
-    const visibleMaxPct = (finiteMax(visibleTwr, firstIndex, visibleEnd) - 1) * 100;
-    const value = Math.max(rebasedAthPct, visibleMaxPct);
-    return Number.isFinite(value) ? { kind, value } : null;
+    const visible = scan(visibleTwr, firstIndex, visibleEnd);
+    const rebasedAthPct = (all.max * scale - 1) * 100;
+    const visibleMaxPct = (visible.max - 1) * 100;
+    const fromVisible = visibleMaxPct > rebasedAthPct;
+    const value = fromVisible ? visibleMaxPct : rebasedAthPct;
+    if (!Number.isFinite(value)) return null;
+    const lastPct = visible.last !== null ? (visible.last - 1) * 100 : null;
+    return {
+        kind, value,
+        at: fromVisible ? { source: 'visible', index: visible.maxIndex } : { source: 'all', index: all.maxIndex },
+        fromAthPct: lastPct !== null ? ((1 + lastPct / 100) / (1 + value / 100) - 1) * 100 : null
+    };
 }

@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="css/investments.css?v=56">
     <link rel="stylesheet" href="css/investments-mobile.css?v=4">
     <link rel="stylesheet" href="css/investments-table-compact.css?v=6">
-    <link rel="stylesheet" href="css/chart-toolbar.css?v=2">
+    <link rel="stylesheet" href="css/chart-toolbar.css?v=3">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -107,7 +107,7 @@
             </div>
 
             <div class="historical-chart-container ultra-compact">
-                <div class="chart-header-mini">
+                <div class="chart-header-mini chart-header">
                     <div class="title-mini">
                         <h3 id="chart-title" class="chart-title">
                             <span id="chart-title-icon" class="title-icon">Chart</span>
@@ -199,6 +199,13 @@
                         </div>
                     </div>
                 </div>
+                <!-- ATH (filled by chartKPIManager.updateAthStats, hidden unless the ATH line is shown; a sibling of .chart-stats-bar so it never alters that grid) -->
+                <div class="chart-ath-strip" id="stat-group-ath" hidden>
+                    <div class="stat" id="ath-value-row"><span class="label" id="ath-value-label">Total Value ATH</span><span id="ath-total-value" class="value">—</span></div>
+                    <div class="stat" id="ath-return-row"><span class="label">Total Return ATH</span><span class="stat-inline"><span id="ath-total-return" class="value">—</span><span id="ath-total-return-pct" class="pct"></span></span></div>
+                    <div class="stat"><span class="label">Date ATH</span><span id="ath-date" class="value">—</span></div>
+                    <div class="stat"><span class="label">Écart / ATH</span><span id="ath-gap" class="value">—</span></div>
+                </div>
 
                 <div class="chart-controls">
                     <button class="period-btn active" data-period="1">1J</button>
@@ -269,7 +276,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
     <script type="module" src="./src/authGuard.js"></script>
-    <script type="module" src="./src/app.js?v=68"></script>
+    <script type="module" src="./src/app.js?v=69"></script>
     <script src="./src/cacheRefresh.js"></script>
     <script src="./src/investmentsMobile.js?v=3"></script>
     <script type="module" src="./src/sidebar.js?v=31"></script>
