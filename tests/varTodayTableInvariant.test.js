@@ -128,27 +128,22 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
     // est supprimée — elle seule fabriquait dayPnl/dayPnlPct comme séries du
     // graphique (null partout sauf au dernier index). Sans elle, ces deux
     // champs n'existent structurellement plus DU TOUT sur graphData : "Var
-    // Today" ne peut donc plus jamais apparaître dans le tooltip du
-    // graphique, à AUCUN index, pas même le dernier — la KPI "Var Today" en
-    // haut de page reste disponible séparément via portfolioKPIs (alimentée
-    // par portfolioSnapshot.dayPnl, jamais par graphData). C'est exactement
-    // la règle de la section K de l'audit : "Ne pas afficher Var Today sur un
-    // point historique qui ne possède pas un dayPnl explicitement calculé
-    // pour ce point" — et aucun point du graphique n'en a un.
-    it('le tooltip du graphique n\'affiche plus JAMAIS "Var Today", même au dernier index ("maintenant") — cette KPI reste exclusive à portfolioKPIs', () => {
+    // La vue 1D expose maintenant une Var Today calculée explicitement par le
+    // moteur pour chaque point. Le tooltip reste un lecteur pur : il ne la
+    // reconstruit ni depuis le TWR ni depuis la valeur du portefeuille.
+    it('le tooltip 1D affiche la Var Today canonique du point survolé', () => {
         const storage = createFakeStorage({});
         const dataManager = new DataManager(storage, createFakeApi());
         const investmentsPage = { filterManager: { getSelectedTickers: () => new Set() }, getChartTitleConfig: () => ({ mode: 'global' }), getFilteredPurchasesFromPage: () => [], renderData: () => {} };
         const chart = new HistoricalChart(storage, dataManager, null, investmentsPage);
         chart.currentPeriod = 1;
 
-        // Série "brute" telle que HistoryCalculator la produit réellement —
-        // aucun champ dayPnl/dayPnlPct (voir _buildSeries : ces séries
-        // n'existent plus du tout, à aucun index).
         const graphData = {
             values: [2000, 2010.25],
             totalReturn: [250, 263.63],
-            totalReturnPct: [14.7, 15.5]
+            totalReturnPct: [14.7, 15.5],
+            dayPnl: [0, 10.25],
+            dayPnlPct: [0, 0.51]
         };
         const opts = {
             graphData, pctSeries: [0, 0.5], eurFmt: v => v, pctFmt: v => v,
@@ -156,11 +151,17 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
             displayValues: graphData.values
         };
 
-        const rowsAtLast = chart._buildKpiRows(1, opts);
-        expect(rowsAtLast.find(r => r.label === 'Var Today')).toBeUndefined();
+        const rowAtLast = chart._buildKpiRows(1, opts).find(r => r.label === 'Var Today');
+        expect(rowAtLast).toMatchObject({ eur: 10.25, pct: 0.51, positive: true });
 
-        const rowsAtFirst = chart._buildKpiRows(0, opts);
-        expect(rowsAtFirst.find(r => r.label === 'Var Today')).toBeUndefined();
+        const rowAtFirst = chart._buildKpiRows(0, opts).find(r => r.label === 'Var Today');
+        expect(rowAtFirst).toMatchObject({ eur: 0, pct: 0, positive: true });
+
+        const unitRows = chart._buildKpiRows(1, { ...opts, isUnitView: true, displayValues: [100, 101] });
+        expect(unitRows.find(r => r.label === 'Var Today')).toMatchObject({ eur: 10.25, pct: 0.51 });
+
+        chart.currentPeriod = 7;
+        expect(chart._buildKpiRows(1, opts).find(r => r.label === 'Var Today')).toBeUndefined();
     });
 
     it('Invariants D/E/F bout-en-bout : KPI, tableau et graphique lisent le MÊME PortfolioSnapshot (même snapshotId)', async () => {

@@ -114,6 +114,9 @@ describe('Portefeuille mixte pendant le week-end', () => {
         expect(result.todayGraphData.yesterdayClose).toBeCloseTo(240, 8);
         expect(values[0]).toBeCloseTo(240, 8);
         expect(values.at(-1)).toBeCloseTo(245, 8);
+        expect(result.todayGraphData.dayPnl[0]).toBeCloseTo(0, 8);
+        expect(result.todayGraphData.dayPnl.at(-1)).toBeCloseTo(5, 8);
+        expect(result.todayGraphData.dayPnlPct.at(-1)).toBeCloseTo((5 / 240) * 100, 8);
         expect(result.todayGraphData.pointMeta[0].tickerSources['BTC-EUR']).toBe('valuation');
         expect(result.todayGraphData.pointMeta.at(-1).tickerSources.AAPL).toBe('valuation');
         expect(result.todayGraphData.pointMeta.at(-1).tickerSources['CSPX.L']).toBe('valuation');

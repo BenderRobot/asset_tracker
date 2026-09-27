@@ -36,7 +36,7 @@ const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // Bump whenever the financial meaning of a persisted series changes. Version 14
 // invalidates closed-weekend 1D series that showed an empty current civil day.
-const HISTORY_CHART_CACHE_VERSION = 15;
+const HISTORY_CHART_CACHE_VERSION = 16;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
@@ -1253,24 +1253,47 @@ export class HistoricalChart {
         style.textContent = `
 .hc-tooltip {
     position: absolute; z-index: 50; pointer-events: none;
-    background: rgba(8, 13, 26, 0.97);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 12px;
-    padding: 10px 14px;
-    min-width: 220px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    background: linear-gradient(145deg, rgba(12, 19, 35, 0.98), rgba(7, 12, 24, 0.98));
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 10px;
+    padding: 8px 10px;
+    min-width: 208px;
+    max-width: min(300px, calc(100vw - 24px));
+    box-shadow: 0 12px 30px rgba(0,0,0,0.38), 0 1px 0 rgba(255,255,255,0.04) inset;
+    backdrop-filter: blur(10px);
     font-family: 'Inter', sans-serif;
     color: #f1f5f9;
-    opacity: 0; transition: opacity 0.08s ease;
+    opacity: 0; transform: translateY(2px);
+    transition: opacity 0.08s ease, transform 0.08s ease;
 }
-.hc-tooltip.visible { opacity: 1; }
-.hc-tooltip .hc-tt-title { font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 6px; letter-spacing: 0.02em; }
-.hc-tooltip .hc-tt-row { display: grid; grid-template-columns: 18px 100px 1fr auto; align-items: center; column-gap: 8px; font-size: 13px; font-weight: 500; color: #e2e8f0; padding: 3px 0; white-space: nowrap; }
-.hc-tooltip .hc-tt-row .hc-tt-icon { font-size: 13px; }
-.hc-tooltip .hc-tt-row .hc-tt-eur { text-align: right; font-variant-numeric: tabular-nums; color: #f1f5f9; font-weight: 600; }
-.hc-tooltip .hc-tt-row .hc-tt-pct { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; min-width: 64px; }
-.hc-tooltip .positive { color: #2ecc71; }
-.hc-tooltip .negative { color: #e74c3c; }
+.hc-tooltip.visible { opacity: 1; transform: translateY(0); }
+.hc-tooltip .hc-tt-title {
+    color: #94a3b8; font-size: 10.5px; font-weight: 650;
+    letter-spacing: 0.035em; line-height: 1.2;
+    padding-bottom: 6px; margin-bottom: 3px;
+    border-bottom: 1px solid rgba(148,163,184,0.12);
+}
+.hc-tooltip .hc-tt-row {
+    display: grid; grid-template-columns: 7px minmax(72px, 1fr) auto;
+    align-items: center; gap: 7px;
+    min-height: 25px; white-space: nowrap;
+}
+.hc-tooltip .hc-tt-marker {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: #64748b; box-shadow: 0 0 0 3px rgba(100,116,139,0.10);
+}
+.hc-tooltip .hc-tt-marker.positive { background: #20c997; box-shadow: 0 0 0 3px rgba(32,201,151,0.10); }
+.hc-tooltip .hc-tt-marker.negative { background: #ff5c5c; box-shadow: 0 0 0 3px rgba(255,92,92,0.10); }
+.hc-tooltip .hc-tt-label { color: #cbd5e1; font-size: 11.5px; font-weight: 550; }
+.hc-tooltip .hc-tt-values { display: flex; align-items: baseline; justify-content: flex-end; gap: 6px; font-variant-numeric: tabular-nums; }
+.hc-tooltip .hc-tt-eur { color: #f8fafc; font-size: 12.5px; font-weight: 700; }
+.hc-tooltip .hc-tt-pct {
+    min-width: 52px; padding: 2px 5px; border-radius: 5px;
+    text-align: right; font-size: 10.5px; font-weight: 700;
+    background: rgba(148,163,184,0.08);
+}
+.hc-tooltip .hc-tt-pct.positive { color: #20c997; background: rgba(32,201,151,0.10); }
+.hc-tooltip .hc-tt-pct.negative { color: #ff6b6b; background: rgba(255,92,92,0.10); }
 `;
         document.head.appendChild(style);
     }
@@ -1279,7 +1302,10 @@ export class HistoricalChart {
     // through this one function — name / amount / percentage, same grid,
     // same weight, no row visually singled out and no divider between them.
     _renderKpiRowsHtml(titleText, rows) {
-        const rowsHtml = rows.map(r => `<div class="hc-tt-row"><span class="hc-tt-icon">${r.icon}</span><span>${r.label}</span><span class="hc-tt-eur">${r.eur ?? ''}</span><span class="hc-tt-pct ${r.positive ? 'positive' : 'negative'}">${r.pct != null ? '(' + r.pct + ')' : ''}</span></div>`).join('');
+        const rowsHtml = rows.map(r => {
+            const tone = r.positive ? 'positive' : 'negative';
+            return `<div class="hc-tt-row"><span class="hc-tt-marker ${tone}"></span><span class="hc-tt-label">${r.label}</span><span class="hc-tt-values"><span class="hc-tt-eur">${r.eur ?? ''}</span>${r.pct != null ? `<span class="hc-tt-pct ${tone}">${r.pct}</span>` : ''}</span></div>`;
+        }).join('');
         return `<div class="hc-tt-title">${titleText}</div>${rowsHtml}`;
     }
 
@@ -1294,9 +1320,13 @@ export class HistoricalChart {
             const v = displayValues?.[idx];
             if (v == null || isNaN(v)) return [];
             const label = isUnitView ? 'Prix' : 'Cours';
-            return isPerformanceMode
+            const rows = isPerformanceMode
                 ? [{ icon: '📊', label, eur: null, pct: pctFmt(v), positive: v >= 0 }]
                 : [{ icon: '📊', label, eur: eurFmt(v), pct: null, positive: true }];
+            if (isUnitView && this.currentPeriod === 1) {
+                this._pushDayPnlRow(rows, idx, graphData, eurFmt, pctFmt);
+            }
+            return rows;
         }
 
         const val = graphData.values?.[idx];
@@ -1326,19 +1356,26 @@ export class HistoricalChart {
             rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(canonicalPct), positive: totalReturn >= 0 });
         }
 
-        // "Var Today" n'a de sens que "maintenant" (voir HistoryCalculator :
-        // dayPnl n'est renseigné qu'au dernier point aligné sur le snapshot
-        // live, `null` partout ailleurs) — jamais affiché pour un point passé,
-        // jamais recalculé depuis dailyTwr ici.
+        // En vue 1D, HistoryCalculator fournit une Var Today explicite pour
+        // chaque point, déjà neutralisée des flux par sa référence quotidienne.
+        // Cette vue ne fait que lire et formater ces deux séries canoniques.
         if (this.currentPeriod === 1) {
-            const dp = graphData.dayPnl?.[idx];
-            if (dp != null && !isNaN(dp)) {
-                rows.push({ icon: '📅', label: 'Var Today', eur: eurFmt(dp), pct: pctFmt(graphData.dayPnlPct?.[idx]), positive: dp >= 0 });
-            }
+            this._pushDayPnlRow(rows, idx, graphData, eurFmt, pctFmt);
         }
 
         this._pushBenchmarkRows(rows, idx, pct, opts);
         return rows;
+    }
+
+    _pushDayPnlRow(rows, idx, graphData, eurFmt, pctFmt) {
+        const dp = graphData.dayPnl?.[idx];
+        if (dp == null || isNaN(dp)) return;
+        const dpPct = graphData.dayPnlPct?.[idx];
+        rows.push({
+            icon: '📅', label: 'Var Today', eur: eurFmt(dp),
+            pct: Number.isFinite(dpPct) ? pctFmt(dpPct) : null,
+            positive: dp >= 0
+        });
     }
 
     // Shared by both the hover tooltip and the drag-selection box: when a
