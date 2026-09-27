@@ -26,7 +26,7 @@
 // dataManager.buildTodaySnapshot's own doc comment for the full audit).
 
 import { eventBus } from './eventBus.js';
-import { ChartKPIManager } from './chartKPIManager.js?v=3';
+import { ChartKPIManager } from './chartKPIManager.js?v=4';
 import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js';
@@ -97,6 +97,7 @@ export class HistoricalChart {
         // attempt per scope (throttles retries instead of a repaint loop).
         this._athPending = new Set();
         this._athFailedAt = new Map();
+        this._athRepaintKeys = new Set();
 
         this._onShowAsset = (e) => {
             this.showAssetChart(e.detail.ticker);
@@ -602,28 +603,58 @@ export class HistoricalChart {
     // update(): a cache hit is returned synchronously; on a miss the all-time
     // build starts in the background and the chart repaints once it has been
     // committed, so enabling ATH never delays the main curve.
-    _getAthHistory(source, graphData) {
+    //
+    // `forRender: false` is the prefetch issued by update() before its own
+    // awaits, so the all-time build runs in parallel with the snapshot/period
+    // history instead of after the first paint. A repaint is only scheduled
+    // when a render actually went out without the ATH (`_athRepaintKeys`).
+    _getAthHistory(source, graphData, { forRender = true } = {}) {
         if (!source) return null;
         if (this.currentPeriod === 'all') return graphData;
         const key = this._historyKey(source.scope, source.purchases, 'all');
         const cached = this._peekCachedHistory(key, 'all', source.producer);
         if (cached) return cached;
-        if (this._athPending.has(key) || Date.now() - (this._athFailedAt.get(key) || 0) < ATH_RETRY_DELAY_MS) return null;
+        if (this._athPending.has(key)) {
+            if (forRender) this._athRepaintKeys.add(key);
+            return null;
+        }
+        if (Date.now() - (this._athFailedAt.get(key) || 0) < ATH_RETRY_DELAY_MS) return null;
 
         this._athPending.add(key);
+        if (forRender) this._athRepaintKeys.add(key);
         this._getCachedHistory(source.scope, source.purchases, 'all', source.producer)
             .then(data => {
                 // Only a committed (valid) history ends up in the cache the
                 // repaint reads — anything else would loop on the same miss.
                 if (!this._isValidHistoryData(data)) throw new Error('all-time history failed validation');
-                if (this.refLineVisibility.ath) this.update(false, false);
+                if (this._athRepaintKeys.delete(key) && this.refLineVisibility.ath) this.update(false, false);
             })
             .catch(error => {
+                const renderWaiting = this._athRepaintKeys.delete(key);
                 this._athFailedAt.set(key, Date.now());
                 console.warn('[HistoricalChart] ATH history unavailable:', error);
+                // A waiting render shows a loading ATH block: repaint once so
+                // it resolves to "hidden" instead of loading forever.
+                if (renderWaiting && this.refLineVisibility.ath) this.update(false, false);
             })
             .finally(() => this._athPending.delete(key));
         return null;
+    }
+
+    // True while an all-time build for this source is in flight (the stats
+    // bar then shows a loading ATH block instead of popping it in later).
+    _isAthPending(source) {
+        return !!source && this._athPending.has(this._historyKey(source.scope, source.purchases, 'all'));
+    }
+
+    // Start the all-time build as early as possible, but only when the ATH
+    // would actually be drawn: line enabled, and a performance (%) or unit
+    // price view — never for the € value view.
+    _prefetchAthHistory(source) {
+        if (!this.refLineVisibility.ath || this.currentPeriod === 'all') return;
+        const view = document.querySelector('#view-toggle .toggle-btn.active')?.dataset.view;
+        const athView = view === 'performance' || view === 'unit' || (!!this.currentBenchmark && view !== 'unit');
+        if (athView) this._getAthHistory(source, null, { forRender: false });
     }
 
     // ========================================================
@@ -737,6 +768,17 @@ export class HistoricalChart {
                         type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
                 });
 
+                // ATH: complete history of this asset, prefetched now so it builds
+                // in parallel with the period history below (see _getAthHistory).
+                athSource = {
+                    scope: `asset:${currentTicker}`,
+                    purchases: targetAssetPurchases,
+                    producer: () => targetAssetPurchases.length === 0
+                        ? this.dataManager.calculateAssetHistory(currentTicker, 'all')
+                        : this.dataManager.calculateGenericHistory(targetAssetPurchases, 'all', true)
+                };
+                this._prefetchAthHistory(athSource);
+
                 // Orchestration de fetch inchangée (choix d'appel réseau selon la
                 // période affichée — pas un calcul financier, voir doc de
                 // dataManager.buildAssetPortfolioSnapshot ci-contre pour pourquoi
@@ -745,14 +787,6 @@ export class HistoricalChart {
                     targetAssetPurchases.length === 0
                         ? this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod)
                         : this.dataManager.calculateGenericHistory(targetAssetPurchases, this.currentPeriod, true));
-
-                athSource = {
-                    scope: `asset:${currentTicker}`,
-                    purchases: targetAssetPurchases,
-                    producer: () => targetAssetPurchases.length === 0
-                        ? this.dataManager.calculateAssetHistory(currentTicker, 'all')
-                        : this.dataManager.calculateGenericHistory(targetAssetPurchases, 'all', true)
-                };
 
                 todayGraphData = await this._resolveTodayData(targetAssetPurchases, [], true, graphData);
                 // Taux USD/EUR figé à la date de chaque transaction (invariant 9) —
@@ -794,6 +828,17 @@ export class HistoricalChart {
                     const type = (p.assetType || 'Stock').toLowerCase();
                     return type === 'cash' || type === 'dividend' || p.type === 'dividend';
                 });
+
+                // Whole ledger of the view (securities + cash) — shared by the period
+                // history below and the ATH's all-time history, which is prefetched
+                // now so it builds in parallel with the snapshot (see _getAthHistory).
+                const historyPurchases = [...assetPurchases, ...cashPurchases];
+                athSource = {
+                    scope: 'portfolio',
+                    purchases: historyPurchases,
+                    producer: () => this.dataManager.calculateHistory(historyPurchases, 'all')
+                };
+                this._prefetchAthHistory(athSource);
 
                 if (titleConfig.mode === 'asset') {
                     isSingleAsset = true;
@@ -863,17 +908,10 @@ export class HistoricalChart {
                 // "aujourd'hui" (Var Today/Clôture hier/Total Value) reste
                 // exclusivement défini par le snapshot ci-dessus, jamais par le
                 // dernier point de cette série-là.
-                const historyPurchases = [...assetPurchases, ...cashPurchases];
                 graphData = (this.currentPeriod === 1)
                     ? todayGraphData
                     : await this._getCachedHistory('portfolio', historyPurchases, this.currentPeriod,
                         () => this.dataManager.calculateHistory(historyPurchases, this.currentPeriod));
-
-                athSource = {
-                    scope: 'portfolio',
-                    purchases: historyPurchases,
-                    producer: () => this.dataManager.calculateHistory(historyPurchases, 'all')
-                };
 
                 // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
                 // 2026-09-24, Phase 4) : voir le même commentaire en mode actif
@@ -1232,7 +1270,10 @@ export class HistoricalChart {
         const avgPrice = this._computeAvgPrice(currentTicker, isIndexMode, kpiData?.portfolioSnapshot);
 
         const athReference = this._resolveAthReference(athKind, athSource, graphData, firstIndex, lastIndex);
-        this.kpiManager.updateAthStats?.(athReference?.details ?? null);
+        // While the all-time history is still building, the stats bar keeps
+        // the ATH block's place with a loading state (no layout jump later).
+        const athLoading = !athReference && !!athKind && this.refLineVisibility.ath && this._isAthPending(athSource);
+        this.kpiManager.updateAthStats?.(athReference?.details ?? (athLoading ? { loading: true } : null));
 
         this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData, avgPrice, athReference);
 

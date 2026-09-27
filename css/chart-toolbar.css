@@ -494,34 +494,70 @@
 .stat-group-ath .positive { color: #10b981 !important; }
 .stat-group-ath .negative { color: #ef4444 !important; }
 
-/* Wide card: one row of four blocks. */
+/* Wide card: one row of blocks. Columns are created only for the VISIBLE
+   groups (auto-flow) — e.g. VAR. JOUR is hidden outside 1D, and a fixed
+   4-column template left an empty column on the right. Each block's
+   content is centred in its column, 2×2 blocks included. */
 @container chart-card (min-width: 861px) {
     .chart-stats-bar.has-ath {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.3fr) !important;
+        grid-template-columns: none !important;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        align-items: center !important;
     }
 
-    .chart-stats-bar.has-ath > .stat-group-3 {
+    .chart-stats-bar.has-ath > .stat-group {
         grid-column: auto !important;
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
         padding: 0 16px !important;
         border-right: 1px solid var(--border-color) !important;
+        border-bottom: none !important;
+    }
+
+    .chart-stats-bar.has-ath > .stat-group:first-child {
+        padding-left: 0 !important;
     }
 
     .chart-stats-bar.has-ath > .stat-group-ath {
-        padding-left: 16px;
+        border-right: none !important;
+        padding-right: 0 !important;
+    }
+
+    .chart-stats-bar.has-ath > .stat-group-3,
+    .chart-stats-bar.has-ath > .stat-group-ath {
+        grid-template-columns: repeat(2, minmax(0, max-content)) !important;
+        justify-content: center;
+        column-gap: clamp(16px, 3cqi, 40px) !important;
     }
 
     /* Dashboard: a viewport rule (≤1400px) restyles groups 1/2 as stacked
-       rows; in the 4-block row they keep their column look. */
+       rows; in the single row they keep their column look. */
     .dashboard-chart-section .chart-stats-bar.has-ath > .stat-group-1,
     .dashboard-chart-section .chart-stats-bar.has-ath > .stat-group-2 {
         flex-direction: column !important;
         justify-content: center !important;
         align-items: normal !important;
         padding-bottom: 0 !important;
-        border-bottom: none !important;
-        border-right: 1px solid var(--border-color) !important;
     }
+}
+
+/* Loading: the all-time history is still building — skeleton values keep
+   the block's place so nothing jumps when the ATH lands. */
+.stat-group-ath.is-loading .value {
+    min-width: 76px;
+    border-radius: 5px;
+    color: transparent !important;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 25%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.05) 75%);
+    background-size: 200% 100%;
+    animation: ath-skeleton 1.2s ease-in-out infinite;
+}
+
+@keyframes ath-skeleton {
+    from { background-position: 100% 0; }
+    to { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .stat-group-ath.is-loading .value { animation: none; }
 }
 
 /* Narrower card: the ATH block takes a full row under the others. */

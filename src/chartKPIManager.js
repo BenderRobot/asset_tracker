@@ -528,6 +528,21 @@ export class ChartKPIManager {
             group.closest('.chart-stats-bar')?.classList.toggle('has-ath', visible);
         };
         if (!details) { showGroup(false); return; }
+        // { loading: true }: all-time history still building — keep the block's
+        // place with skeleton values (css/chart-toolbar.css) instead of popping
+        // it in once the data lands.
+        group.classList.toggle('is-loading', !!details.loading);
+        group.setAttribute('aria-busy', String(!!details.loading));
+        if (details.loading) {
+            ['ath-total-value', 'ath-total-return', 'ath-date', 'ath-gap'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) { el.textContent = '—'; el.classList.remove('positive', 'negative'); }
+            });
+            const pctEl = document.getElementById('ath-total-return-pct');
+            if (pctEl) pctEl.textContent = '';
+            showGroup(true);
+            return;
+        }
 
         const eur = (n) => `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
         const signed = (n, text) => `${n >= 0 ? '+' : ''}${text}`;

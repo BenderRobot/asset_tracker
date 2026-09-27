@@ -125,3 +125,34 @@ describe('ATH stats group', () => {
         expect(document.getElementById('stat-group-ath').hidden).toBe(true);
     });
 });
+
+describe('ATH stats group — loading', () => {
+    beforeEach(() => {
+        document.body.innerHTML = `
+            <div class="chart-stats-bar">
+                <div class="stat-group stat-group-ath" id="stat-group-ath" hidden>
+                    <span id="ath-total-value"></span><span id="ath-total-return"></span>
+                    <span id="ath-total-return-pct"></span><span id="ath-date"></span><span id="ath-gap"></span>
+                    <span id="ath-value-label"></span><div id="ath-value-row"></div><div id="ath-return-row"></div>
+                </div>
+            </div>`;
+    });
+
+    it('reserves the block with a loading state, then fills it', () => {
+        const kpi = makeChart().kpiManager;
+        const group = document.getElementById('stat-group-ath');
+        const bar = document.querySelector('.chart-stats-bar');
+
+        kpi.updateAthStats({ loading: true });
+        expect(group.hidden).toBe(false);
+        expect(group.classList.contains('is-loading')).toBe(true);
+        expect(bar.classList.contains('has-ath')).toBe(true);
+
+        kpi.updateAthStats({ kind: 'price', timestamp: 0, price: 10, fromAthPct: -5 });
+        expect(group.classList.contains('is-loading')).toBe(false);
+        expect(document.getElementById('ath-gap').textContent).toBe('-5.00%');
+
+        kpi.updateAthStats(null);
+        expect(bar.classList.contains('has-ath')).toBe(false);
+    });
+});

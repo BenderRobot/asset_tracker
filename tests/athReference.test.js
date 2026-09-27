@@ -209,8 +209,54 @@ describe('HistoricalChart ATH line', () => {
         await vi.waitFor(() => expect(chart._athFailedAt.size).toBe(1));
         render(chart, graph(), source);
 
-        expect(chart.update).not.toHaveBeenCalled();
+        // One repaint to clear the waiting render's loading block — no loop.
+        expect(chart.update).toHaveBeenCalledTimes(1);
         expect(athArg(chart)).toBeNull();
+        expect(producer).toHaveBeenCalledTimes(1);
+    });
+
+    it('prefetch starts the all-time build before any render, and a render that finds it ready needs no repaint', async () => {
+        const chart = makeChart();
+        chart.currentPeriod = 30;
+        chart.update = vi.fn();
+        const producer = vi.fn(async () => ({ labels: ['x', 'y', 'z'], timestamps: [0, 1, 3], values: [50, 60, 120], twr: [1, 2, 1.2] }));
+        const source = { scope: 'portfolio', purchases: [purchase({ ticker: 'AAPL' })], producer };
+
+        chart._prefetchAthHistory(source);
+        expect(producer).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(chart._athPending.size).toBe(0));
+
+        render(chart, graph(), source);
+        expect(athArg(chart).value).toBeCloseTo(100, 8);
+        expect(chart.update).not.toHaveBeenCalled();
+        expect(producer).toHaveBeenCalledTimes(1);
+    });
+
+    it('prefetch is skipped in the € value view', () => {
+        document.querySelector('#view-toggle .toggle-btn').dataset.view = 'global';
+        const chart = makeChart();
+        chart.currentPeriod = 30;
+        const producer = vi.fn();
+
+        chart._prefetchAthHistory({ scope: 'portfolio', purchases: [], producer });
+        expect(producer).not.toHaveBeenCalled();
+    });
+
+    it('a render during the prefetch shows a loading ATH block, then repaints exactly once', async () => {
+        const chart = makeChart();
+        chart.currentPeriod = 30;
+        chart.update = vi.fn();
+        chart.kpiManager.updateAthStats = vi.fn();
+        let resolveAll;
+        const producer = vi.fn(() => new Promise(r => { resolveAll = r; }));
+        const source = { scope: 'portfolio', purchases: [purchase({ ticker: 'AAPL' })], producer };
+
+        chart._prefetchAthHistory(source);
+        render(chart, graph(), source);
+        expect(chart.kpiManager.updateAthStats).toHaveBeenLastCalledWith({ loading: true });
+
+        resolveAll({ labels: ['x', 'y', 'z'], timestamps: [0, 1, 3], values: [50, 60, 120], twr: [1, 2, 1.2] });
+        await vi.waitFor(() => expect(chart.update).toHaveBeenCalledTimes(1));
         expect(producer).toHaveBeenCalledTimes(1);
     });
 });
