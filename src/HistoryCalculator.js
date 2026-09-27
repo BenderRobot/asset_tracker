@@ -782,15 +782,20 @@ export class HistoryCalculator {
     // directly into `hist[win.displayStartTs]` — a duplicated price under a
     // synthetic timestamp is exactly the "fake observation" pattern the audit
     // bans. Fix: return a separate seed Map that _buildSeries consults ONLY at
-    // ts===win.displayStartTs, with the exact same priority a real candle
-    // would have had — historicalDataMap itself is never mutated.
+    // ts===win.displayStartTs. At that exact boundary it has priority over a
+    // candle stamped 00:00, whose close belongs to the interval that starts at
+    // 00:00. historicalDataMap itself is never mutated.
     _resolveMidnightValuationSeed(tickers, historicalDataMap, win, yesterday, livePriceSnapshot) {
         const seed = new Map();
         for (const t of tickers) {
             if (t.startsWith('CASH-')) continue;
             const hist = historicalDataMap.get(t);
-            if (hist?.[win.displayStartTs] != null) continue; // une vraie bougie existe déjà — rien à faire
 
+            // The portfolio boundary is an instant, while an intraday candle
+            // stamped exactly at 00:00 contains the close of the interval that
+            // starts at 00:00. It is therefore already a post-boundary value.
+            // Always seed the boundary with the canonical close resolved just
+            // before midnight; the following candles may then move from it.
             let price = yesterday.prices.get(t) || null;
             if (!price) {
                 const pd = livePriceSnapshot.get(t); // voir calculateGenericHistory — snapshot immuable, pas une relecture live
@@ -1204,11 +1209,12 @@ export class HistoryCalculator {
                     price = 1.0;
                 } else {
                     const hist = historicalDataMap.get(t);
-                    if (hist?.[ts] != null) { price = hist[ts]; priceSource = 'candle'; }
-                    // Valorisation (pas une observation) au tout premier point de la
-                    // fenêtre (00:00), uniquement si aucune vraie bougie n'existe déjà
-                    // à cet instant précis — voir _resolveMidnightValuationSeed.
-                    else if (ts === win.displayStartTs && midnightValuationSeed?.has(t)) { price = midnightValuationSeed.get(t); priceSource = 'midnightSeed'; }
+                    // The 1D boundary must be continuous: yesterday's close is
+                    // also today's opening valuation. A candle timestamped at
+                    // the boundary belongs to the interval starting there and
+                    // must not replace that instantaneous opening value.
+                    if (ts === win.displayStartTs && midnightValuationSeed?.has(t)) { price = midnightValuationSeed.get(t); priceSource = 'midnightSeed'; }
+                    else if (hist?.[ts] != null) { price = hist[ts]; priceSource = 'candle'; }
                     else if (hist) { price = findClosestPrice(hist, ts, interval, isCryptoTicker(t)); if (price != null) priceSource = 'closestPrice'; }
                     if (price == null && lastKnownPrices.has(t)) { price = lastKnownPrices.get(t); priceSource = 'lastKnown'; }
                 }

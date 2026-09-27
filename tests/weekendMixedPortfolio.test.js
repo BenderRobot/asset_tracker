@@ -59,6 +59,7 @@ describe('Portefeuille mixte pendant le week-end', () => {
         vi.setSystemTime(new Date('2026-09-27T12:00:00+02:00'));
 
         const btcBeforeParisMidnight = new Date('2026-09-26T21:55:00Z').getTime();
+        const btcCandleStampedAtParisMidnight = new Date('2026-09-26T22:00:00Z').getTime();
         const btcCurrentCandle = new Date('2026-09-27T09:55:00Z').getTime();
         const storage = createFakeStorage({
             prices: {
@@ -73,6 +74,9 @@ describe('Portefeuille mixte pendant le week-end', () => {
                 if (ticker !== 'BTC-EUR') return {};
                 return {
                     [btcBeforeParisMidnight]: 100,
+                    // Cette clôture appartient déjà à l'intervalle qui commence
+                    // à minuit : elle ne doit jamais remplacer le point frontière.
+                    [btcCandleStampedAtParisMidnight]: 104,
                     [btcCurrentCandle]: 105
                 };
             }
@@ -89,6 +93,7 @@ describe('Portefeuille mixte pendant le week-end', () => {
         expect(result.todayGraphData.yesterdayClose).toBeCloseTo(240, 8);
         expect(values[0]).toBeCloseTo(240, 8);
         expect(values.at(-1)).toBeCloseTo(245, 8);
+        expect(result.todayGraphData.pointMeta[0].tickerSources['BTC-EUR']).toBe('valuation');
         expect(periodPnl).toBeCloseTo(5, 8);
         expect(result.portfolioSnapshot.dayPnl).toBeCloseTo(periodPnl, 8);
     });
