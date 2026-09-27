@@ -1837,6 +1837,10 @@ export class HistoricalChart {
                 plugins: {
                     legend: { display: false },
                     tooltip: {
+                        // Always false: the HTML tooltip (external) is the only
+                        // renderer. Re-enabling it anywhere (e.g. after a click
+                        // or a zoom) paints Chart.js's own canvas tooltip on top
+                        // of it — the "tooltip shown twice" bug.
                         enabled: false,
                         external: (context) => this._renderExternalTooltip(context, tooltipOpts)
                     }
@@ -1871,7 +1875,7 @@ export class HistoricalChart {
             isSelecting = true;
             dragState.active = true;
             selStart = selEnd = indexFromClientX(clientXOf(evt));
-            if (this.chart) { this.chart.options.plugins.tooltip.enabled = false; this.chart.update('none'); }
+            if (this.chart) this.chart.update('none');
             evt.preventDefault();
         };
         const onMove = (evt) => {
@@ -1890,7 +1894,7 @@ export class HistoricalChart {
                 selStart = null; selEnd = null;
                 dragState.active = false;
                 tooltipEl.classList.remove('visible');
-                if (this.chart) { this.chart.options.plugins.tooltip.enabled = true; this.chart.update('none'); }
+                if (this.chart) this.chart.update('none');
                 return;
             }
 
@@ -1906,7 +1910,6 @@ export class HistoricalChart {
                 selStart = null; selEnd = null;
                 dragState.active = false;
                 tooltipEl.classList.remove('visible');
-                this.chart.options.plugins.tooltip.enabled = true;
                 this._isZoomed = true;
                 this._updateSelectionToggleUI();
                 return;
