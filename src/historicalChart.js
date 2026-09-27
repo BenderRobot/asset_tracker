@@ -38,6 +38,7 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // invalidates closed-weekend 1D series that showed an empty current civil day.
 const HISTORY_CHART_CACHE_VERSION = 16;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
+const ATH_RETRY_DELAY_MS = 5 * 60 * 1000;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
 
@@ -61,7 +62,7 @@ export class HistoricalChart {
         this.currentBenchmark = null;
         this.customTitle = null;
 
-        // Reference-line visibility (Clôture Hier / PRU) — a per-viewer display
+        // Reference-line visibility (Clôture Hier / PRU / ATH) — a per-viewer display
         // preference, so it's persisted in localStorage rather than app state.
         this.refLineVisibility = {
             // No toggle is ever offered on the Dashboard (this.ui is null there
@@ -69,7 +70,8 @@ export class HistoricalChart {
             // silently turned off by a preference set on the Investments page:
             // both pages share the same origin/localStorage key.
             close: this.ui ? this._loadRefLinePref('close') : true,
-            pru: this._loadRefLinePref('pru')
+            pru: this._loadRefLinePref('pru'),
+            ath: this._loadRefLinePref('ath')
         };
         try { this.includeDividends = localStorage.getItem('chart_include_dividends') === '1'; }
         catch { this.includeDividends = false; }
@@ -90,6 +92,10 @@ export class HistoricalChart {
         this.lastRefreshTime = null;
         this._historyCache = new Map();
         this._historyInFlight = new Map();
+        // All-time histories being built for the ATH line, and the last failed
+        // attempt per scope (throttles retries instead of a repaint loop).
+        this._athPending = new Set();
+        this._athFailedAt = new Map();
 
         this._onShowAsset = (e) => {
             this.showAssetChart(e.detail.ticker);
@@ -268,18 +274,23 @@ export class HistoricalChart {
         return promise;
     }
 
-    async _getCachedHistory(scope, purchases, period, producer) {
-        const key = this._historyKey(scope, purchases, period);
-        const ttl = this._historyCacheTtl(period);
+    // Synchronous cache read (memory, then persistent). A stale entry is still
+    // served while its replacement is rebuilt in the background.
+    _peekCachedHistory(key, period, producer) {
         let cached = this._historyCache.get(key);
         if (!cached && period !== 1) {
             cached = this._readPersistentHistory(key);
             if (cached) this._historyCache.set(key, cached);
         }
-        if (cached) {
-            if (Date.now() - cached.createdAt >= ttl) this._refreshCachedHistory(key, period, producer);
-            return cached.data;
-        }
+        if (!cached) return null;
+        if (Date.now() - cached.createdAt >= this._historyCacheTtl(period)) this._refreshCachedHistory(key, period, producer);
+        return cached.data;
+    }
+
+    async _getCachedHistory(scope, purchases, period, producer) {
+        const key = this._historyKey(scope, purchases, period);
+        const cached = this._peekCachedHistory(key, period, producer);
+        if (cached) return cached;
         if (this._historyInFlight.has(key)) return this._historyInFlight.get(key);
 
         const promise = producer().then(data => {
@@ -582,6 +593,34 @@ export class HistoricalChart {
         return this.dataManager.calculateHistory(purchases, 1);
     }
 
+    // Complete history of the active scope, for the ATH line. Never awaited by
+    // update(): a cache hit is returned synchronously; on a miss the all-time
+    // build starts in the background and the chart repaints once it has been
+    // committed, so enabling ATH never delays the main curve.
+    _getAthHistory(source, graphData) {
+        if (!source) return null;
+        if (this.currentPeriod === 'all') return graphData;
+        const key = this._historyKey(source.scope, source.purchases, 'all');
+        const cached = this._peekCachedHistory(key, 'all', source.producer);
+        if (cached) return cached;
+        if (this._athPending.has(key) || Date.now() - (this._athFailedAt.get(key) || 0) < ATH_RETRY_DELAY_MS) return null;
+
+        this._athPending.add(key);
+        this._getCachedHistory(source.scope, source.purchases, 'all', source.producer)
+            .then(data => {
+                // Only a committed (valid) history ends up in the cache the
+                // repaint reads — anything else would loop on the same miss.
+                if (!this._isValidHistoryData(data)) throw new Error('all-time history failed validation');
+                if (this.refLineVisibility.ath) this.update(false, false);
+            })
+            .catch(error => {
+                this._athFailedAt.set(key, Date.now());
+                console.warn('[HistoricalChart] ATH history unavailable:', error);
+            })
+            .finally(() => this._athPending.delete(key));
+        return null;
+    }
+
     // ========================================================
     // update() — builds graphData for whichever mode is active, then renders.
     // ========================================================
@@ -604,6 +643,9 @@ export class HistoricalChart {
 
         try {
             let graphData = null;
+            // How to obtain the complete history of the active scope (ATH
+            // line) — resolved lazily by renderChart, never awaited here.
+            let athSource = null;
             let todayGraphData = null;
             let targetHoldings = [];
             let targetSummary = {};
@@ -698,6 +740,14 @@ export class HistoricalChart {
                     targetAssetPurchases.length === 0
                         ? this.dataManager.calculateAssetHistory(currentTicker, this.currentPeriod)
                         : this.dataManager.calculateGenericHistory(targetAssetPurchases, this.currentPeriod, true));
+
+                athSource = {
+                    scope: `asset:${currentTicker}`,
+                    purchases: targetAssetPurchases,
+                    producer: () => targetAssetPurchases.length === 0
+                        ? this.dataManager.calculateAssetHistory(currentTicker, 'all')
+                        : this.dataManager.calculateGenericHistory(targetAssetPurchases, 'all', true)
+                };
 
                 todayGraphData = await this._resolveTodayData(targetAssetPurchases, [], true, graphData);
                 // Taux USD/EUR figé à la date de chaque transaction (invariant 9) —
@@ -814,6 +864,12 @@ export class HistoricalChart {
                     : await this._getCachedHistory('portfolio', historyPurchases, this.currentPeriod,
                         () => this.dataManager.calculateHistory(historyPurchases, this.currentPeriod));
 
+                athSource = {
+                    scope: 'portfolio',
+                    purchases: historyPurchases,
+                    producer: () => this.dataManager.calculateHistory(historyPurchases, 'all')
+                };
+
                 // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
                 // 2026-09-24, Phase 4) : voir le même commentaire en mode actif
                 // unique ci-dessus — plus aucun alignement du dernier point sur le
@@ -846,7 +902,7 @@ export class HistoricalChart {
                     : 'Pas de données disponibles pour cette période');
             } else {
                 const kpiData = this._computeAggregateKPIs({ portfolioSnapshot, snapshotStartedAt });
-                this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData);
+                this.renderChart(canvas, graphData, targetSummary, titleConfig, benchmarkData, currentTicker, this.lastYesterdayClose, kpiData, athSource);
                 committed = true;
                 if (info) info.style.display = 'none';
 
@@ -969,11 +1025,12 @@ export class HistoricalChart {
     }
 
     // Small independent checkboxes (not a mutually-exclusive toggle) next to
-    // #view-toggle: "Clôture" only makes sense on the 1D view (the only period
-    // that ever draws that reference line — see _renderChartJs), "PRU" only in
-    // single-asset unit-price mode. Built once and just shown/hidden per mode
-    // afterwards, so a user's choice survives across renders.
-    _syncReferenceLineToggles(isSingleAssetMode) {
+    // #view-toggle: "Clôture" only makes sense on the 1D view, "PRU" only in
+    // single-asset unit-price mode, "ATH" only where a high is a performance
+    // signal — the TWR performance view or the unit-price view (`athKind`),
+    // never a € total that includes contributions. Built once and
+    // shown/hidden per mode afterwards, so a user's choice survives renders.
+    _syncReferenceLineToggles(isSingleAssetMode, athKind = null) {
         const anchor = document.getElementById('view-toggle');
         if (!anchor) return;
         let container = document.getElementById('ref-lines-toggle');
@@ -982,12 +1039,11 @@ export class HistoricalChart {
             container.id = 'ref-lines-toggle';
             container.className = 'toggle-group';
             anchor.parentNode.insertBefore(container, anchor.nextSibling);
-            // On the Dashboard (this.ui is null there — see dashboardApp.js,
-            // which never passes a real ui object), the "Clôture" toggle has no
-            // real use: that page never offers anything else to compare the 1D
-            // curve against, so skip it entirely instead of a button nobody
-            // asked for. "PRU" already never applies there (no asset mode).
-            const lines = this.ui ? [['close', 'Clôture'], ['pru', 'PRU']] : [['pru', 'PRU']];
+            // The Dashboard does not expose Clôture/PRU, but it does expose ATH
+            // for the global portfolio. Investments adds all three controls.
+            const lines = this.ui
+                ? [['close', 'Clôture'], ['pru', 'PRU'], ['ath', 'ATH']]
+                : [['ath', 'ATH']];
             lines.forEach(([key, label]) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
@@ -1006,11 +1062,19 @@ export class HistoricalChart {
         }
         const closeBtn = container.querySelector('[data-refline="close"]');
         const pruBtn = container.querySelector('[data-refline="pru"]');
+        const athBtn = container.querySelector('[data-refline="ath"]');
         const showClose = !!closeBtn && this.currentPeriod === 1;
         const showPru = !!pruBtn && isSingleAssetMode;
+        const showAth = !!athBtn && athKind !== null;
         if (closeBtn) closeBtn.style.display = showClose ? '' : 'none';
         if (pruBtn) pruBtn.style.display = showPru ? '' : 'none';
-        container.style.display = (showClose || showPru) ? '' : 'none';
+        if (athBtn) {
+            athBtn.style.display = showAth ? '' : 'none';
+            athBtn.title = athKind === 'price'
+                ? 'Plus haut prix unitaire depuis le premier achat'
+                : 'Plus haut historique de la performance (TWR), dans le repère de la période affichée';
+        }
+        container.style.display = (showClose || showPru || showAth) ? '' : 'none';
     }
 
     _syncDividendToggle(isSingleAssetMode, isIndexMode) {
@@ -1042,18 +1106,20 @@ export class HistoricalChart {
     // ========================================================
     // renderChart — Chart.js dataset construction + stats panel + KPI cards
     // ========================================================
-    renderChart(canvas, graphData, summary, titleConfig, benchmarkData, currentTicker, referenceCloseIn, kpiData) {
+    renderChart(canvas, graphData, summary, titleConfig, benchmarkData, currentTicker, referenceCloseIn, kpiData, athSource = null) {
         const isSingleAssetMode = (titleConfig && titleConfig.mode === 'asset');
         const isIndexMode = (titleConfig && titleConfig.mode === 'index');
 
         this._syncViewToggle(isSingleAssetMode, isIndexMode);
-        this._syncReferenceLineToggles(isSingleAssetMode);
-        this._syncDividendToggle(isSingleAssetMode, isIndexMode);
         const viewToggle = document.getElementById('view-toggle');
         const activeView = viewToggle?.querySelector('.toggle-btn.active')?.dataset.view || 'global';
         const isUnitView = isSingleAssetMode && activeView === 'unit';
         const isPerformanceView = !isSingleAssetMode && !isIndexMode && activeView === 'performance';
         const isPerformanceMode = (benchmarkData && !isUnitView && !isIndexMode) || isPerformanceView;
+        const athKind = isIndexMode ? null : (isUnitView ? 'price' : (isPerformanceMode ? 'performance' : null));
+        // Same creation order as before (both insert right after #view-toggle).
+        this._syncReferenceLineToggles(isSingleAssetMode, athKind);
+        this._syncDividendToggle(isSingleAssetMode, isIndexMode);
 
         const displayValues = isUnitView ? graphData.unitPrices : graphData.values;
         const decimals = (isUnitView || isIndexMode) ? 4 : 2;
@@ -1137,7 +1203,9 @@ export class HistoricalChart {
 
         const avgPrice = this._computeAvgPrice(currentTicker, isIndexMode, kpiData?.portfolioSnapshot);
 
-        this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData, avgPrice);
+        const athReference = this._resolveAthReference(athKind, athSource, graphData, firstIndex, lastIndex);
+
+        this._renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData, avgPrice, athReference);
 
         this._renderTitle(titleConfig, currentTicker, isSingleAssetMode);
 
@@ -1171,6 +1239,24 @@ export class HistoricalChart {
         }
 
         return { historicalDayChange: vsYesterdayAbs, historicalDayChangePct: vsYesterdayPct };
+    }
+
+    // ATH reference line — pure selector + formatting. The calculation lives
+    // in the engine (dataManager.computeAthReference); this only picks the
+    // all-time series of the active scope and formats the label.
+    _resolveAthReference(athKind, athSource, graphData, firstIndex, lastIndex) {
+        if (!athKind || !this.refLineVisibility.ath) return null;
+        const allHistory = this._getAthHistory(athSource, graphData);
+        if (!allHistory) return null;
+        const ath = this.dataManager.computeAthReference({
+            kind: athKind, allHistory, visibleHistory: graphData,
+            firstIndex, lastIndex, includeDividends: this.includeDividends
+        });
+        if (!ath) return null;
+        const label = ath.kind === 'price'
+            ? `ATH ${ath.value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} €`
+            : `ATH ${ath.value >= 0 ? '+' : ''}${ath.value.toFixed(2)}%`;
+        return { value: ath.value, label };
     }
 
     _computeAvgPrice(currentTicker, isIndexMode, portfolioSnapshot) {
@@ -1489,7 +1575,7 @@ export class HistoricalChart {
     // ========================================================
     // Chart.js construction
     // ========================================================
-    _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData, avgPrice) {
+    _renderChartJs(canvas, graphData, displayValues, isPerformanceMode, benchmarkData, isUnitView, isIndexMode, currentTicker, mainColor, referenceClose, firstIndex, lastIndex, titleConfig, kpiData, avgPrice, athReference = null) {
         if (this.chart) { this.chart.destroy(); this.chart = null; }
         canvas.parentNode?.querySelector(':scope > .hc-tooltip')?.classList.remove('visible');
         this._isZoomed = false; // a freshly-built chart never starts zoomed
@@ -1687,10 +1773,64 @@ export class HistoricalChart {
             }
         };
 
+        // ATH is drawn by this plugin rather than as a dataset, so it never
+        // takes part in the y-axis auto-scale: a far-away ATH must not flatten
+        // the visible curve. When it sits above the visible range, only a
+        // badge pinned to the top edge (▲) is shown. The badge is on the left
+        // so it never hides the latest point, which ends on the right.
+        const athPlugin = {
+            id: 'athReference',
+            afterDatasetsDraw: (chart) => {
+                if (!athReference || !Number.isFinite(athReference.value)) return;
+                const area = chart.chartArea, yScale = chart.scales.y;
+                if (!area || !yScale || athReference.value < yScale.min) return;
+                const aboveScale = athReference.value > yScale.max;
+                const y = aboveScale ? area.top : yScale.getPixelForValue(athReference.value);
+                if (!Number.isFinite(y)) return;
+
+                const c = chart.ctx;
+                c.save();
+                if (!aboveScale) {
+                    c.beginPath();
+                    c.setLineDash([4, 5]);
+                    c.strokeStyle = 'rgba(250, 204, 21, 0.92)';
+                    c.lineWidth = 1.5;
+                    c.moveTo(area.left, y);
+                    c.lineTo(area.right, y);
+                    c.stroke();
+                    c.setLineDash([]);
+                }
+
+                const label = aboveScale ? `▲ ${athReference.label}` : athReference.label;
+                c.font = "600 10px Inter, sans-serif";
+                const paddingX = 7;
+                const width = c.measureText(label).width + paddingX * 2;
+                const height = 20;
+                const x = area.left + 6;
+                // Above the line when there is room, otherwise just below it.
+                const top = aboveScale
+                    ? area.top + 4
+                    : Math.min(y - height - 4 >= area.top ? y - height - 4 : y + 4, area.bottom - height - 4);
+
+                c.beginPath();
+                if (typeof c.roundRect === 'function') c.roundRect(x, top, width, height, 5);
+                else c.rect(x, top, width, height);
+                c.fillStyle = 'rgba(45, 37, 8, 0.92)';
+                c.fill();
+                c.strokeStyle = 'rgba(250, 204, 21, 0.38)';
+                c.lineWidth = 1;
+                c.stroke();
+                c.fillStyle = '#fde047';
+                c.textBaseline = 'middle';
+                c.fillText(label, x + paddingX, top + height / 2 + 0.5);
+                c.restore();
+            }
+        };
+
         this.chart = new Chart(ctx, {
             type: 'line',
             data: { labels: graphData.labels, datasets },
-            plugins: [selectionPlugin],
+            plugins: [selectionPlugin, athPlugin],
             options: {
                 responsive: true, maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },

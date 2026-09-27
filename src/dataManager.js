@@ -1728,6 +1728,11 @@ export class DataManager {
         return { holdings, summary, cashReserve, portfolioSnapshot };
     }
 
+    // Ligne de référence ATH du graphique — voir computeAthReference plus bas.
+    computeAthReference(params) {
+        return computeAthReference(params);
+    }
+
     // ============================================================
     // MODE INDICE — extrait de historicalChart.js. Un indice n'a ni position
     // au sens portefeuille ni "invested" réel ; on le modélise comme une
@@ -1898,4 +1903,97 @@ export class DataManager {
     // supprimé dans cette même passe : le graphique ne fait plus jamais cette
     // substitution, donc il n'y a plus de divergence de ce type à diagnostiquer.
     // Voir HistoryCalculator.js (pointMeta) pour la provenance de chaque point.
+}
+
+// ============================================================
+// ATH (plus haut historique) de la vue courante — calcul pur. La vue
+// (historicalChart.js) ne fait que formater et dessiner le résultat.
+//
+// - kind 'price'       : max du prix unitaire (€) sur l'historique complet du
+//                        scope ET sur la série visible (un plus haut intraday
+//                        ou le point live peut dépasser les clôtures
+//                        journalières de l'historique complet).
+// - kind 'performance' : max de l'indice TWR chaîné sur l'historique complet,
+//                        exprimé dans le repère de la courbe % affichée
+//                        (qui vaut 0 % au début de la fenêtre visible).
+//
+// Jamais sur une valeur € de portefeuille/position : ce total intègre les
+// apports, chaque versement y créerait un faux « plus haut ».
+//
+// Retourne { kind, value } ou null (données absentes/invalides : fail-closed).
+// ============================================================
+export function computeAthReference({ kind, allHistory, visibleHistory, firstIndex = 0, lastIndex = null, includeDividends = false }) {
+    if (!allHistory || !visibleHistory) return null;
+    if (allHistory.dataQuality?.valid === false || visibleHistory.dataQuality?.valid === false) return null;
+
+    const finiteMax = (series, from = 0, to = Infinity) => {
+        if (!Array.isArray(series)) return -Infinity;
+        let max = -Infinity;
+        const end = Math.min(to, series.length - 1);
+        for (let i = Math.max(0, from); i <= end; i++) {
+            const v = series[i];
+            if (v !== null && v !== undefined && Number.isFinite(Number(v))) max = Math.max(max, Number(v));
+        }
+        return max;
+    };
+    const visibleEnd = lastIndex ?? Infinity;
+
+    if (kind === 'price') {
+        const value = Math.max(
+            finiteMax(allHistory.unitPrices),
+            finiteMax(visibleHistory.unitPrices, firstIndex, visibleEnd)
+        );
+        return Number.isFinite(value) && value > 0 ? { kind, value } : null;
+    }
+    if (kind !== 'performance') return null;
+
+    const pickTwr = (h) => includeDividends && Array.isArray(h.twrWithDividends) ? h.twrWithDividends : h.twr;
+    const allTwr = pickTwr(allHistory);
+    const visibleTwr = pickTwr(visibleHistory);
+    if (!Array.isArray(allTwr) || !Array.isArray(visibleTwr)) return null;
+
+    const athIndex = finiteMax(allTwr);
+    if (!(athIndex > 0)) return null;
+
+    // Passage du repère « historique complet » au repère « fenêtre visible » :
+    // le TWR étant chaîné, visibleTwr[j] / allTwr[i] est constant pour tout
+    // couple (i, j) désignant la même observation. On prend l'observation
+    // commune la plus récente (timestamp identique dans les deux séries), qui
+    // est exacte. Repli (fenêtres intraday sans point commun) : dernier point
+    // de l'historique complet antérieur au début de la fenêtre, base 1.
+    const allTs = Array.isArray(allHistory.timestamps) ? allHistory.timestamps : [];
+    const visibleTs = Array.isArray(visibleHistory.timestamps) ? visibleHistory.timestamps : [];
+    const allIndexByTs = new Map();
+    allTs.forEach((ts, i) => {
+        const point = Number(allTwr[i]);
+        if (Number.isFinite(Number(ts)) && Number.isFinite(point) && point > 0) allIndexByTs.set(Number(ts), point);
+    });
+
+    let scale = null;
+    const lastVisible = Math.min(visibleEnd, visibleTwr.length - 1);
+    for (let j = lastVisible; j >= firstIndex && scale === null; j--) {
+        const anchor = allIndexByTs.get(Number(visibleTs[j]));
+        const point = Number(visibleTwr[j]);
+        if (anchor !== undefined && Number.isFinite(point) && point > 0) scale = point / anchor;
+    }
+    if (scale === null) {
+        const visibleStartTs = Number(visibleTs[firstIndex]);
+        let base = null;
+        if (Number.isFinite(visibleStartTs)) {
+            for (let i = 0; i < allTs.length; i++) {
+                const ts = Number(allTs[i]);
+                if (!Number.isFinite(ts)) continue;
+                if (ts > visibleStartTs) break;
+                const point = Number(allTwr[i]);
+                if (Number.isFinite(point) && point > 0) base = point;
+            }
+        }
+        if (base === null) return null;
+        scale = 1 / base;
+    }
+
+    const rebasedAthPct = (athIndex * scale - 1) * 100;
+    const visibleMaxPct = (finiteMax(visibleTwr, firstIndex, visibleEnd) - 1) * 100;
+    const value = Math.max(rebasedAthPct, visibleMaxPct);
+    return Number.isFinite(value) ? { kind, value } : null;
 }
