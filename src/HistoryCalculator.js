@@ -52,6 +52,11 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function isClosedExchangeDay(ticker, date) {
+    return marketCalendarEngine.getTradingModel(ticker) !== 'crypto_24_7'
+        && !marketCalendarEngine.isTradingDay(ticker, date);
+}
+
 function emptyResult() {
     return {
         labels: [], invested: [], investedAssetOnly: [], values: [], assetValues: [], yesterdayClose: null,
@@ -195,12 +200,12 @@ export class HistoryCalculator {
         const displayTimestamps = this._buildTimestampGrid(days, historicalDataMap, win, ledger, interval, isCrypto);
 
         const { perTickerYesterdayClose, todayValueOfYesterdayHoldings } =
-            this._valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset, livePriceSnapshot);
+            this._valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset, livePriceSnapshot, win.displayStart);
 
         const series = await this._buildSeries({
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
             dynamicRate, isSingleAsset, interval, days, labelFormatFunc,
-            resolveCloseBefore, initialYesterdayClose: yesterday.total, win, historicalFxMap,
+            resolveCloseBefore, initialYesterdayClose: yesterday.total, initialYesterdayPrices: yesterday.prices, win, historicalFxMap,
             midnightValuationSeed, debugCapture, livePriceSnapshot
         });
 
@@ -663,7 +668,17 @@ export class HistoryCalculator {
 
                 let closePrice = null;
 
-                if (useDedicatedFetch) {
+                // On a closed exchange day (Saturday/Sunday), Yahoo's live
+                // regularMarketPrice is the last official traded close. Freeze
+                // exchange-traded assets on that value for both the portfolio
+                // valuation and its daily reference. Crypto remains 24/7.
+                const freezeAtLastClose = isClosedExchangeDay(t, refDate);
+                if (freezeAtLastClose) {
+                    const stored = livePriceSnapshot.get(t);
+                    if (stored?.price > 0) closePrice = stored.price;
+                }
+
+                if (!closePrice && useDedicatedFetch) {
                     // BUG FOUND (proven with real data): Yahoo's DAILY-interval
                     // history for thin/European-exchange listings can be missing
                     // the most recent trading day entirely — verified for every
@@ -700,7 +715,11 @@ export class HistoryCalculator {
                     if (dailyPrice > 0 && intradayPrice > 0) {
                         const dailyDay = new Date(dailyTs).toISOString().slice(0, 10);
                         const intradayDay = new Date(intradayTs).toISOString().slice(0, 10);
-                        if (intradayDay > dailyDay) {
+                        // Compare precise timestamps. A BTC daily candle stamped
+                        // 00:00 UTC and a 21:55 intraday candle share the same UTC
+                        // date, but only the intraday candle is immediately before
+                        // the portfolio's midnight boundary in Europe/Paris.
+                        if (intradayTs > dailyTs) {
                             console.log(`[HistoryCalc] ${t}: daily bar stale (${dailyDay}=${dailyPrice}) — using fresher intraday candle (${intradayDay}=${intradayPrice})`);
                             closePrice = intradayPrice;
                         } else {
@@ -867,7 +886,7 @@ export class HistoryCalculator {
     // tableau et les cartes KPI (Total Value/Var Today, qui lisent le
     // liveOverride de _buildSeries) peuvent en venir à représenter deux
     // instants différents pour le même ticker.
-    _valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset, livePriceSnapshot) {
+    _valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset, livePriceSnapshot, referenceDate = new Date()) {
         const map = new Map();
         let total = 0, found = 0;
 
@@ -887,8 +906,13 @@ export class HistoryCalculator {
                 rate = dynamicRate;
             }
 
-            const currentPrice = priceData?.price > 0 ? priceData.price : null;
             const closePrice = yesterday.prices.get(t) || null;
+            const freezeAtLastClose = isClosedExchangeDay(t, referenceDate);
+            // Weekend invariant: an exchange-traded asset contributes exactly
+            // zero to today's P&L and remains valued at its last official close.
+            const currentPrice = freezeAtLastClose && closePrice > 0
+                ? closePrice
+                : (priceData?.price > 0 ? priceData.price : null);
             const yesterdayCloseTotal = closePrice > 0 ? closePrice * qtyYesterday * rate : null;
             const todayValueOfYesterdayHoldingsTotal = currentPrice ? currentPrice * qtyYesterday * rate : null;
 
@@ -903,7 +927,7 @@ export class HistoryCalculator {
     // ========================================================
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
-    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot }) {
+    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, initialYesterdayPrices = null, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], assetValues = [], unitPrices = [];
         // `twr` is deliberately price-only. Cash never belongs to its market
         // value and dividends are exposed through a separate optional series.
@@ -1242,11 +1266,17 @@ export class HistoryCalculator {
                     if (!isSingleAsset && i === displayTimestamps.length - 1) {
                         const stored = livePriceSnapshot.get(t);
                         const liveIsFresh = stored?.price > 0 && stored.lastUpdate && (Date.now() - stored.lastUpdate) < 10 * 60 * 1000;
-                        const kpiPrice = liveIsFresh ? stored.price : price;
+                        const freezeAtLastClose = isClosedExchangeDay(t, win.displayStart);
+                        const frozenClose = initialYesterdayPrices?.get(t) || null;
+                        const kpiPrice = freezeAtLastClose && frozenClose > 0
+                            ? frozenClose
+                            : (liveIsFresh ? stored.price : price);
                         resolvedPrices.set(t, {
                             price: kpiPrice,
                             currency,
-                            previousClose: stored?.previousClose ?? null,
+                            previousClose: freezeAtLastClose && frozenClose > 0
+                                ? frozenClose
+                                : (stored?.previousClose ?? null),
                             lastUpdate: stored?.lastUpdate ?? null
                         });
                     }

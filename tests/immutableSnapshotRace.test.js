@@ -19,9 +19,15 @@
 // réécrit le cache pendant que ce calcul est en cours). Avant le fix, chaque
 // site de lecture aurait capté une valeur différente ; après le fix, une seule
 // valeur (celle capturée en tout premier) doit être utilisée partout.
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 
 describe('Snapshot immuable — un flux concurrent qui réécrit storage pendant le calcul ne doit jamais être vu', () => {
     it('resolvedPrices, Total Value et holdings restent tous alignés sur le TOUT PREMIER prix lu', async () => {

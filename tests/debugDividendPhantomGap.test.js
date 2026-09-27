@@ -5,9 +5,15 @@
 // meta-test: it doesn't re-prove the bug, it proves the DIAGNOSTIC TOOL is
 // trustworthy before asking the user to rely on its output for their real
 // portfolio.
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 
 describe('debugDividendPhantomGap — l\'outil de diagnostic lui-même est correct', () => {
     it('rapproche exactement Σphantom - Σdividendes == graphBefore - holdingsTotal, sur un compte réel simulé', async () => {

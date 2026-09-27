@@ -4,10 +4,18 @@
 // DataManager/HistoryCalculator/PortfolioKPIs classes against a fake
 // storage/api double — no network, no DOM, no mocked financial values baked
 // into production code (the fakes live only under tests/).
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { PortfolioKPIs } from '../src/portfolioKPIs.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+
+// Ces tests portent sur les mouvements d'une séance cotée. Les figer un lundi
+// évite que leur résultat dépende du jour civil où la suite est exécutée.
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 
 // RÉVISÉ (validation architecture 2026-09-24, Phase 4 — "Financial Truth
 // over KPI Reconciliation") : "le dernier point du graphique === Total

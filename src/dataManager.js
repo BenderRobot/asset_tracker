@@ -6,8 +6,8 @@ import { fetchMarketResponse } from './marketDataTransport.js?v=3';
 
 import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
-import { HistoryCalculator } from './HistoryCalculator.js?v=15';
-import { MarketDataRepository } from './marketDataRepository.js';
+import { HistoryCalculator } from './HistoryCalculator.js?v=16';
+import { MarketDataRepository } from './marketDataRepository.js?v=3';
 import { db, auth } from './firebaseConfig.js';
 import {
     getIntervalForPeriod,
@@ -262,6 +262,7 @@ export class DataManager {
             map.set(ticker, {
                 yesterdayClose: entry.yesterdayCloseTotal,
                 todayValueOfYesterdayHoldings: entry.todayValueOfYesterdayHoldingsTotal ?? null,
+                quantityYesterday: entry.quantityYesterday ?? null,
                 currency: entry.currency
             });
         });
@@ -1771,7 +1772,7 @@ export class DataManager {
         // temporairement la classification pré-fix de _buildLedger (copie
         // verbatim de la version d'avant ce fix — voir git history), puis la
         // restaure immédiatement, y compris si un throw survient.
-        const { HistoryCalculator } = await import('./HistoryCalculator.js?v=15');
+        const { HistoryCalculator } = await import('./HistoryCalculator.js?v=16');
         const { parseDate } = await import('./utils.js');
         const preFixBuildLedger = function (purchasesArg, isSingleAsset) {
             const byTicker = new Map();

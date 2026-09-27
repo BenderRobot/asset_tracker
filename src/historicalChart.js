@@ -36,7 +36,7 @@ const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // Bump whenever the financial meaning of a persisted series changes. Version 9
 // invalidates truncated charts and pre-transaction-anchor valuations.
-const HISTORY_CHART_CACHE_VERSION = 9;
+const HISTORY_CHART_CACHE_VERSION = 10;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;

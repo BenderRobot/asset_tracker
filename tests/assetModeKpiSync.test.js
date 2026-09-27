@@ -73,8 +73,16 @@ function buildScenario() {
 }
 
 describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/actif/index)', () => {
-    beforeEach(() => { portfolioKPIs.reset(); });
-    afterEach(() => { vi.restoreAllMocks(); delete global.Chart; });
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+        portfolioKPIs.reset();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+        delete global.Chart;
+    });
 
     it('TEST 1 — mode portefeuille : KPI top = snapshot portefeuille', async () => {
         const { chart } = buildScenario();

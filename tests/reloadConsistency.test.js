@@ -9,9 +9,15 @@
 //   - plusieurs tickers à la fois, certains avec un live différent de leur
 //     bougie, doivent TOUS utiliser le même snapshot figé, pas seulement le
 //     premier de la liste.
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 
 describe('TEST 5 — reload : deux calculs successifs restent chacun cohérents, l\'écart == mouvement réel', () => {
     it('un changement de prix entre deux calculs se répercute exactement, sans incohérence artificielle', async () => {

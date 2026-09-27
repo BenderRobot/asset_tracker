@@ -6,8 +6,8 @@
 import { Storage } from './storage.js?v=4';
 import { PriceAPI } from './api.js?v=11';
 import { MarketStatus } from './marketStatus.js?v=2';
-import { DataManager } from './dataManager.js?v=25';
-import { HistoricalChart } from './historicalChart.js?v=34';
+import { DataManager } from './dataManager.js?v=26';
+import { HistoricalChart } from './historicalChart.js?v=35';
 import { IndexCardChart } from './indexCardChart.js';
 import { ChartKPIManager } from './chartKPIManager.js'; // NOUVEAU : Pour sparkline
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';

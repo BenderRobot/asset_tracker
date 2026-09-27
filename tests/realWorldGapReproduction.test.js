@@ -22,7 +22,7 @@
 // See the accompanying report for the diagnostic script the user can run
 // against their REAL data to get the true per-ticker breakdown for their
 // account — this test cannot substitute for that, and does not claim to.
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 // dataManager.js imports HistoryCalculator with a cache-busting query string
 // (a cache-busting query string) — Vite/Vitest treats that as a DISTINCT
@@ -31,9 +31,15 @@ import { DataManager } from '../src/dataManager.js';
 // have zero effect on what DataManager actually calls. Import with the exact
 // same specifier dataManager.js uses to guarantee we patch the one instance in
 // play.
-import { HistoryCalculator } from '../src/HistoryCalculator.js?v=15';
+import { HistoryCalculator } from '../src/HistoryCalculator.js?v=16';
 import { parseDate } from '../src/utils.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 
 // Verbatim copy of _buildLedger's PRE-FIX classification (git history,
 // HistoryCalculator.js before this session's fix) — used ONLY inside this
@@ -80,8 +86,8 @@ describe('REPRODUCTION RÉELLE — écart 53 226,78€ (graph) vs 36 880,78€ (
     // a plusieurs mois, comme n'importe quel dividende trimestriel réel.
     const storage = createFakeStorage({
         prices: {
-            MEGA: { price: 17000, currency: 'EUR', previousClose: 16800, lastUpdate: Date.now() },
-            OTHER: { price: 19226.78, currency: 'EUR', previousClose: 19000, lastUpdate: Date.now() }
+            MEGA: { price: 17000, currency: 'EUR', previousClose: 16800, lastUpdate: new Date('2026-09-28T20:00:00Z').getTime() },
+            OTHER: { price: 19226.78, currency: 'EUR', previousClose: 19000, lastUpdate: new Date('2026-09-28T20:00:00Z').getTime() }
         },
         conversionRate: 0.9
     });

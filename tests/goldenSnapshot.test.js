@@ -6,9 +6,15 @@
 // que buildTodaySnapshot() — LA source unique lue par le graphique, les KPI
 // et le tableau (voir historicalChart.js::update()) — reste algébriquement
 // cohérent de bout en bout, pas seulement sur chaque sous-calcul isolément.
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 
 describe('TEST GOLDEN SNAPSHOT — scénario réaliste multi-broker/USD/crypto/cash/dividende', () => {
     it('graph.lastValue == holdings.totalValue + cash, et totalReturn == Σ gainEUR == totalValue - investedAssetOnly', async () => {

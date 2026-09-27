@@ -7,9 +7,18 @@
 // ne peut structurellement pas transformer un cash-flow (dépôt, retrait,
 // achat, vente, dividende) en Day P&L — parce que dayPnl est TOUJOURS une
 // somme de positions[].dayPnl, et le cash n'est jamais une position.
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+
+// Les invariants de cash-flow ci-dessous modélisent une séance ouverte.
+// Une date fixe empêche le week-end réel de transformer légitimement le
+// Day P&L des actions en zéro.
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 
 const today = () => new Date().toISOString().slice(0, 10);
 

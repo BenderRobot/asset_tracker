@@ -16,7 +16,7 @@
 // Ces tests verrouillent l'invariant requis : Var Today (KPI ET tooltip au
 // point "maintenant") = targetSummary.totalDayChangeEUR, TOUJOURS — jamais un
 // second calcul indépendant (TWR ou autre) qui pourrait numériquement diverger.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { HistoricalChart } from '../src/historicalChart.js';
 import { DataManager } from '../src/dataManager.js';
 import { portfolioKPIs } from '../src/portfolioKPIs.js';
@@ -28,8 +28,15 @@ class FakeChartJs {
 }
 
 describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio TWR indépendant)', () => {
-    beforeEach(() => { portfolioKPIs.reset(); });
-    afterEach(() => { delete global.Chart; });
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+        portfolioKPIs.reset();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        delete global.Chart;
+    });
 
     it("_computeAggregateKPIs retourne EXACTEMENT totalDayChangeEUR même quand un ratio dailyTwr très différent est présent", () => {
         const storage = createFakeStorage({});

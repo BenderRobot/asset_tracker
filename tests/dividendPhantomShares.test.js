@@ -19,9 +19,15 @@
 // calculateHoldings's (which already excludes dividend rows) — hence a
 // growing, silent divergence between the chart and the KPI cards/table that
 // gets worse the longer the portfolio has been receiving dividends.
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 
 describe('TEST — un dividende ne doit jamais créer une action fantôme dans le graphique', () => {
     it('graphique et holdings restent réconciliés (Total Value = graph.lastValue) en présence de dividendes', async () => {

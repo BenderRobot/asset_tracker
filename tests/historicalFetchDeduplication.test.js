@@ -21,14 +21,20 @@
 // introduit : un échec (429/500/502/timeout) reste un échec pour TOUS les
 // appelants concurrents qui le partagent.
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PriceAPI, isHistoricalFetchFailure } from '../src/api.js';
 import { DataManager } from '../src/dataManager.js';
 import { FilterManager } from '../src/filters.js';
 import { eventBus } from '../src/eventBus.js';
 import { createFakeStorage, purchase } from './helpers.js';
 
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+});
+
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
 });
