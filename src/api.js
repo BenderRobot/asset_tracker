@@ -1,4 +1,4 @@
-import { fetchMarketResponse } from './marketDataTransport.js?v=2';
+import { fetchMarketResponse } from './marketDataTransport.js?v=3';
 // ========================================
 // api.js - Cloudflare Workers Proxy
 // ========================================
@@ -39,13 +39,23 @@ const providerStats = {
 // façon explicite, que le résultat vide est une PANNE et non une absence de
 // donnée légitime.
 const FETCH_FAILED_FLAG = '__priceDataFetchFailed';
+const FETCH_FAILED_DETAILS = '__priceDataFetchFailureDetails';
 
 export function isHistoricalFetchFailure(historicalResult) {
   return !!(historicalResult && historicalResult[FETCH_FAILED_FLAG]);
 }
 
-function markFetchFailed(result = {}) {
+export function getHistoricalFetchFailureDetails(historicalResult) {
+  return historicalResult?.[FETCH_FAILED_DETAILS] || null;
+}
+
+function markFetchFailed(result = {}, details = null) {
   Object.defineProperty(result, FETCH_FAILED_FLAG, { value: true, enumerable: false, configurable: true });
+  Object.defineProperty(result, FETCH_FAILED_DETAILS, {
+    value: details ? Object.freeze({ ...details }) : null,
+    enumerable: false,
+    configurable: true
+  });
   return result;
 }
 
@@ -57,8 +67,8 @@ function markFetchFailed(result = {}) {
 // reproduit PAS fidèlement ce contrat pour un appelant qui ferait sa propre
 // requête sans passer par cette fonction (voir HistoryCalculator::
 // _resolvePortfolioCloseBefore, useDedicatedFetch).
-export function createFailedHistoricalResult() {
-  return markFetchFailed();
+export function createFailedHistoricalResult(details = null) {
+  return markFetchFailed({}, details);
 }
 
 export class PriceAPI {
@@ -736,6 +746,7 @@ export class PriceAPI {
     let proxyUrl = `${PRICE_PROXY_URL}?symbol=${formatted}&type=${assetType}&interval=${interval}&period1=${startTs}&period2=${endTs}`;
     console.log(`[API History] Fetching ${ticker} (${interval}):`, proxyUrl);
 
+    let failureDetails = null;
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
         const response = await _fetchTimeout(proxyUrl, 10000, 'historical');
@@ -843,6 +854,11 @@ export class PriceAPI {
         return prices;
 
       } catch (error) {
+        failureDetails = {
+          status: Number.isFinite(Number(error.status)) ? Number(error.status) : null,
+          retryAfterMs: Number.isFinite(Number(error.retryAfterMs)) ? Number(error.retryAfterMs) : null,
+          message: error.message || 'Historical request failed'
+        };
         console.warn(`Historical Proxy attempt ${attempt + 1} failed: ${error.message}`);
         // A 429 must stop immediately: retrying it only worsens the rate limit.
         // A transient Worker/upstream 5xx remains retryable; aborting on its
@@ -861,7 +877,7 @@ export class PriceAPI {
     // ligne 580 ci-dessus, qui reste un `{}` sans marqueur) — c'est un échec
     // de récupération. Ne jamais mettre ce résultat en cache (une panne
     // temporaire ne doit pas être mémorisée comme "il n'y a pas de données").
-    return markFetchFailed();
+    return markFetchFailed({}, failureDetails);
   }
 
   // ================================================

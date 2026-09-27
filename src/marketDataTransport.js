@@ -4,8 +4,10 @@ const memory = new Map();
 const pending = new Map();
 const failures = new Map();
 const MAX_ENTRIES = 200;
+const MAX_RATE_LIMIT_RETRIES = 2;
 let active = 0;
 const waiting = [];
+let rateLimitUntil = 0;
 let database;
 function db() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -54,7 +56,21 @@ function cacheable(data) {
     Number.isFinite(result.meta?.regularMarketPrice) && result.meta.regularMarketPrice > 0 ||
     result.indicators?.quote?.[0]?.close?.some(price => Number.isFinite(price) && price > 0));
 }
-export function clearMarketTransportCache() { memory.clear(); failures.clear(); }
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function waitForRateLimitWindow() {
+  const remaining = rateLimitUntil - Date.now();
+  if (remaining > 0) await wait(remaining);
+}
+function rateLimitDelay(response) {
+  const retryAfter = Number(response?.headers?.get?.('Retry-After'));
+  // Automatic waiting is an explicit Worker/client contract. Older Workers
+  // without Retry-After keep the former immediate-failure behaviour instead
+  // of making the browser guess an arbitrary minute-long delay.
+  return retryAfter > 0 ? (retryAfter * 1000) + 1000 : null;
+}
+export function clearMarketTransportCache() {
+  memory.clear(); failures.clear(); rateLimitUntil = 0;
+}
 export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 'historical', ttl = 60000) {
   const key = String(url);
   const now = Date.now();
@@ -77,22 +93,49 @@ export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 
     }
     if (active >= 6) await new Promise(resolve => waiting.push(resolve));
     active++;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const handle = marketDataMetrics.recordRequestStart(requestType);
     let res;
-    let failedStatus;
     try {
-      res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) {
-        const error = Object.assign(new Error(`Market HTTP ${res.status}`), { status: res.status });
-        const retry = Number(res.headers?.get?.('Retry-After'));
-        if (res.status === 429) {
-          const delay = Math.max(30000, Number.isFinite(retry) ? retry * 1000 : 0);
-          failures.set(key, { error, until: Date.now() + delay });
+      let rateLimitRetries = 0;
+      while (true) {
+        // Every request shares one cooldown. Once any URL receives 429, other
+        // queued chart requests wait as well instead of immediately consuming
+        // their own rejection and multiplying fallback traffic.
+        await waitForRateLimitWindow();
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const handle = marketDataMetrics.recordRequestStart(requestType);
+        let attemptError = null;
+        res = null;
+        try {
+          res = await fetch(url, { signal: controller.signal });
+          if (!res.ok) {
+            attemptError = Object.assign(new Error(`Market HTTP ${res.status}`), { status: res.status });
+          }
+        } catch (error) {
+          attemptError = error;
+        } finally {
+          marketDataMetrics.recordRequestEnd(handle,
+            res?.status || (attemptError?.name === 'AbortError' || controller.signal.aborted ? 'timeout' : 0), res);
+          clearTimeout(timer);
         }
-        throw error;
+
+        if (attemptError?.status === 429) {
+          const delay = rateLimitDelay(res);
+          attemptError.retryAfterMs = delay || null;
+          if (delay) rateLimitUntil = Math.max(rateLimitUntil, Date.now() + delay);
+          if (delay && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+            rateLimitRetries++;
+            console.warn(`[MarketData] Rate limit reached; retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES} in ${Math.ceil(delay / 1000)}s.`);
+            continue;
+          }
+          const failureUntil = delay ? rateLimitUntil : Date.now() + 30_000;
+          failures.set(key, { error: attemptError, until: failureUntil });
+        }
+        if (attemptError) throw attemptError;
+        break;
       }
+
       const data = await res.json();
       const entry = { data, fetchedAt: Date.now(), source: 'provider', requestType };
       if (cacheable(data)) {
@@ -102,7 +145,6 @@ export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 
       }
       return { ok: true, status: res.status || 200, fetchedAt: entry.fetchedAt, headers: res.headers, json: async () => structuredClone(data) };
     } catch (error) {
-      failedStatus = error.name === 'AbortError' ? 'timeout' : 0;
       // Stale-if-error for REAL provider payloads only. This is the persistent
       // cache-first path for immutable past candles: a temporary Worker/Yahoo
       // failure must not erase an already validated history. No live quote,
@@ -115,8 +157,6 @@ export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 
       }
       throw error;
     } finally {
-      marketDataMetrics.recordRequestEnd(handle, res?.status || failedStatus || (controller.signal.aborted ? 'timeout' : 0), res);
-      clearTimeout(timer);
       active--;
       waiting.shift()?.();
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fetchMarketResponse } from '../src/marketDataTransport.js?v=2';
+import { fetchMarketResponse } from '../src/marketDataTransport.js?v=3';
 import { marketDataMetrics } from '../src/marketDataMetrics.js';
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 const url = 'https://example.test/?symbol=AAA';
 const valid = { chart: { result: [{ timestamp: [1], indicators: { quote: [{ close: [100] }] } }] } };
 describe('Shared provider transport', () => {
@@ -14,11 +14,22 @@ describe('Shared provider transport', () => {
     await fetchMarketResponse(url);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
-  it('backs off on 429 without turning it into a cached quote', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 429 })));
-    await expect(fetchMarketResponse(url)).rejects.toMatchObject({ status: 429 });
-    await expect(fetchMarketResponse(url)).rejects.toMatchObject({ status: 429 });
-    expect(fetch).toHaveBeenCalledTimes(1);
+  it('keeps the request pending during a 429 cooldown and retries automatically', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 429, headers: new Headers({ 'Retry-After': '1' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => valid });
+    vi.stubGlobal('fetch', fetchMock);
+
+    let settled = false;
+    const pendingResult = fetchMarketResponse(url).finally(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1100);
+
+    const result = await pendingResult;
+    expect(result.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
   it('counts actual requests, excludes Binance 5xx from worker5xx', async () => {
     marketDataMetrics.reset();

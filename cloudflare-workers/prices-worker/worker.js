@@ -66,6 +66,7 @@ function corsHeaders(origin) {
     'Access-Control-Allow-Origin': allowed ? origin : ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Expose-Headers': 'Retry-After, X-Yahoo-Attempts, X-Yahoo-Final-Status',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -82,6 +83,7 @@ function jsonResponse(data, status = 200, origin = '', diag = null) {
   if (diag) {
     if (diag.attempts != null) headers['X-Yahoo-Attempts'] = String(diag.attempts);
     if (diag.finalStatus != null) headers['X-Yahoo-Final-Status'] = String(diag.finalStatus);
+    if (diag.retryAfter != null) headers['Retry-After'] = String(diag.retryAfter);
   }
   return new Response(JSON.stringify(data), { status, headers });
 }
@@ -378,7 +380,10 @@ export default {
         try { console.error('[PricesProxy][RateLimiter] Erreur inattendue, requête autorisée par défaut.', err?.message || err); } catch (e) { /* noop */ }
       }
       if (!rateLimit.allowed) {
-        return jsonResponse({ error: 'Too many requests' }, 429, origin);
+        // The browser keeps its graph loader visible and retries after this
+        // cooldown. Exposing it explicitly avoids both a page reload and a
+        // blind interval fallback that would create even more rejected calls.
+        return jsonResponse({ error: 'Too many requests' }, 429, origin, { retryAfter: 60 });
       }
 
       const url = new URL(request.url);

@@ -196,6 +196,8 @@ describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)
         expect(r1.status).toBe(200);
         expect(r2.status).toBe(200);
         expect(r3.status).toBe(429); // le binding natif a bien tranché, pas le repli mémoire
+        expect(r3.headers.get('Retry-After')).toBe('60');
+        expect(r3.headers.get('Access-Control-Expose-Headers')).toContain('Retry-After');
     });
 
     it('binding natif défaillant (erreur à l\'appel) → repli automatique sur le compteur mémoire, jamais un 500', async () => {

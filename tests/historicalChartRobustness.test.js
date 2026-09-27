@@ -269,6 +269,30 @@ describe('Long-period request plan', () => {
         expect(result.values.some(Number.isFinite)).toBe(true);
     });
 
+    it('does not multiply requests with an interval fallback after a 429', async () => {
+        const calls = [];
+        const api = createFakeApi({
+            async getHistoricalPricesWithRetry(ticker, _start, _end, interval) {
+                calls.push([ticker, interval]);
+                return createFailedHistoricalResult({ status: 429, retryAfterMs: 61_000 });
+            }
+        });
+        const dm = new DataManager(createFakeStorage({ conversionRate: 1 }), api);
+
+        const result = await dm.calculateHistory([
+            purchase({ ticker: 'AAPL', date: '2024-01-01' })
+        ], 30);
+
+        expect(calls).toEqual([['AAPL', '90m']]);
+        expect(result.dataQuality).toMatchObject({
+            valid: false,
+            reason: 'RATE_LIMITED',
+            retryable: true,
+            retryAfterMs: 61_000,
+            failedInstruments: ['AAPL']
+        });
+    });
+
     it('reuses the buffered intraday candles for 2D anchors without daily refetches', async () => {
         const intervals = [];
         const api = createFakeApi({

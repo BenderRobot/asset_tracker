@@ -38,7 +38,7 @@
 import { parseDate } from './utils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { getGlobalWindow } from './TimeRangeEngine.js';
-import { isHistoricalFetchFailure } from './api.js';
+import { getHistoricalFetchFailureDetails, isHistoricalFetchFailure } from './api.js?v=11';
 import {
     getIntervalForPeriod,
     getLabelFormat,
@@ -130,7 +130,7 @@ export class HistoryCalculator {
         const interval = getIntervalForPeriod(days);
         const labelFormatFunc = getLabelFormat(days);
 
-        const { map: historicalDataMap, failedTickers, recoveredTickers } = await this._fetchHistoricalData(tickers, win.dataStartTs, win.dataEndTs, interval);
+        const { map: historicalDataMap, failedTickers, recoveredTickers, failureDetails } = await this._fetchHistoricalData(tickers, win.dataStartTs, win.dataEndTs, interval);
         await this._fillCryptoGapsFromBinance(tickers, historicalDataMap, days);
         await this._recoverFromClosedMarket(tickers, historicalDataMap, win, days, isCrypto, interval);
 
@@ -143,11 +143,24 @@ export class HistoryCalculator {
         // liste (voir dataQuality ci-dessous).
         for (const t of failedTickers) {
             const hist = historicalDataMap.get(t);
-            if (hist && Object.keys(hist).length > 0) failedTickers.delete(t);
+            if (hist && Object.keys(hist).length > 0) {
+                failedTickers.delete(t);
+                failureDetails.delete(t);
+            }
         }
+        const failureDetailsObject = Object.fromEntries(failureDetails);
+        const failedStatuses = [...failureDetails.values()].map(details => details?.status).filter(Number.isFinite);
+        const rateLimited = failedTickers.size > 0 && failedStatuses.length === failedTickers.size && failedStatuses.every(status => status === 429);
+        const retryAfterMs = rateLimited
+            ? Math.max(0, ...[...failureDetails.values()].map(details => Number(details?.retryAfterMs) || 0))
+            : null;
         const dataQuality = failedTickers.size > 0
-            ? { valid: false, reason: 'PRICE_DATA_UNAVAILABLE', failedInstruments: [...failedTickers], recoveredInstruments: Object.fromEntries(recoveredTickers) }
-            : { valid: true, reason: null, failedInstruments: [], recoveredInstruments: Object.fromEntries(recoveredTickers) };
+            ? {
+                valid: false, reason: rateLimited ? 'RATE_LIMITED' : 'PRICE_DATA_UNAVAILABLE',
+                failedInstruments: [...failedTickers], recoveredInstruments: Object.fromEntries(recoveredTickers),
+                failureDetails: failureDetailsObject, retryable: rateLimited, retryAfterMs
+            }
+            : { valid: true, reason: null, failedInstruments: [], recoveredInstruments: Object.fromEntries(recoveredTickers), failureDetails: {} };
 
         const lastKnownPrices = this._seedLastKnownPrices(tickers, historicalDataMap, win, days, livePriceSnapshot);
 
@@ -440,6 +453,7 @@ export class HistoryCalculator {
         const map = new Map();
         const failedTickers = new Set();
         const recoveredTickers = new Map();
+        const failureDetails = new Map();
         const fallbackInterval = {
             '5m': '15m',
             '15m': '1h',
@@ -461,7 +475,12 @@ export class HistoryCalculator {
                     // aliases such as GOLD-ETFP, so the long-period GOLD.PA
                     // conversion could no longer find its live EUR reference.
                     let hist = await this.getHistoryWithCache(t, startTs, endTs, interval);
-                    if (isHistoricalFetchFailure(hist) && fallbackInterval) {
+                    const initialFailure = getHistoricalFetchFailureDetails(hist);
+                    // A different candle interval can recover an unsupported or
+                    // transient provider response. It cannot recover an IP rate
+                    // limit; firing 1wk immediately after a rejected 1d request
+                    // only doubles the traffic and extends the cooldown.
+                    if (isHistoricalFetchFailure(hist) && fallbackInterval && initialFailure?.status !== 429) {
                         const recovered = await this.getHistoryWithCache(t, startTs, endTs, fallbackInterval);
                         if (!isHistoricalFetchFailure(recovered) && Object.keys(recovered || {}).length > 0) {
                             hist = recovered;
@@ -470,14 +489,22 @@ export class HistoryCalculator {
                         }
                     }
                     map.set(t, hist || {});
-                    if (isHistoricalFetchFailure(hist)) failedTickers.add(t);
+                    if (isHistoricalFetchFailure(hist)) {
+                        failedTickers.add(t);
+                        failureDetails.set(t, getHistoricalFetchFailureDetails(hist) || {});
+                    }
                 } catch (err) {
                     map.set(t, {});
                     failedTickers.add(t);
+                    failureDetails.set(t, {
+                        status: Number.isFinite(Number(err?.status)) ? Number(err.status) : null,
+                        retryAfterMs: Number.isFinite(Number(err?.retryAfterMs)) ? Number(err.retryAfterMs) : null,
+                        message: err?.message || 'Historical request failed'
+                    });
                 }
             }));
         }
-        return { map, failedTickers, recoveredTickers };
+        return { map, failedTickers, recoveredTickers, failureDetails };
     }
 
     // Yahoo sometimes has no intraday data for a crypto ticker — Binance is a
