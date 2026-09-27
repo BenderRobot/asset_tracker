@@ -5,7 +5,7 @@
 // See src/HistoryCalculator.js::_computeDisplayWindow and
 // src/MarketCalendarEngine.js::getSession's own doc comments for the full
 // rationale; this file proves each decision, it doesn't restate it.
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { getGlobalWindow, getAssetWindow } from '../src/TimeRangeEngine.js';
 import { MarketCalendarEngine } from '../src/MarketCalendarEngine.js';
 import { DataManager } from '../src/dataManager.js';
@@ -29,6 +29,8 @@ const MONDAY = new Date('2024-06-17T15:00:00Z');
 const FRIDAY = new Date('2024-06-21T15:00:00Z');
 const SATURDAY = new Date('2024-06-22T15:00:00Z');
 const SUNDAY = new Date('2024-06-23T15:00:00Z');
+
+afterEach(() => vi.useRealTimers());
 
 describe('TEST 1-4 — Global 2D : définition exacte (aujourd\'hui + dernier jour de référence réel)', () => {
     // Phase 3.6 : le booléen `hasExchangeTradedAssets` (Phase 3.5) est remplacé
@@ -111,13 +113,7 @@ describe('TEST 5-7 — 2D Asset : session tradée précédente via MarketCalenda
     });
 });
 
-describe('TEST 8-11 — weekend, portefeuille 100% actions : Global 1D reste 00:00->maintenant (plus de saut vers le dernier jour de bourse)', () => {
-    // Ce test a révélé, en le construisant, un DEUXIÈME chemin parallèle non
-    // repéré à l'audit initial : HistoryCalculator._recoverFromClosedMarket
-    // ramenait toute la fenêtre au dernier jour de bourse dès qu'aucune bougie
-    // n'existait encore pour "aujourd'hui" (exactement le même anti-pattern
-    // que la branche isWeekend déjà supprimée) — désactivé, voir son propre
-    // commentaire dans HistoryCalculator.js.
+describe('TEST 8-11 — weekend, portefeuille 100% actions : Global 1D conserve la dernière séance', () => {
     async function buildTodayGraph(ticker) {
         const storage = createFakeStorage({
             prices: { [ticker]: { price: 180, currency: 'EUR', previousClose: 178, lastUpdate: Date.now() } },
@@ -128,16 +124,28 @@ describe('TEST 8-11 — weekend, portefeuille 100% actions : Global 1D reste 00:
         return dm.calculateGenericHistory(assetPurchases, 1, false);
     }
 
-    it("TEST 8/10 — action US, aucune donnée fraîche disponible (marché fermé/weekend) : timestamps[0] reste minuit Paris d'AUJOURD'HUI", async () => {
+    it("TEST 8 — samedi, une action US affiche encore la séance du vendredi", async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(SATURDAY);
         const graphData = await buildTodayGraph('AAPL');
-        const expectedTodayMidnight = getGlobalWindow(1, TZ, new Date()).startMs;
-        expect(graphData.timestamps[0]).toBe(expectedTodayMidnight);
+        const expectedFridayMidnight = getGlobalWindow(1, TZ, FRIDAY).startMs;
+        expect(graphData.timestamps[0]).toBe(expectedFridayMidnight);
     });
 
-    it("TEST 9/11 — action Europe, même règle : timestamps[0] reste minuit Paris d'aujourd'hui", async () => {
+    it("TEST 9 — dimanche, une action Europe affiche encore la séance du vendredi", async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(SUNDAY);
         const graphData = await buildTodayGraph('SAP.PA');
-        const expectedTodayMidnight = getGlobalWindow(1, TZ, new Date()).startMs;
-        expect(graphData.timestamps[0]).toBe(expectedTodayMidnight);
+        const expectedFridayMidnight = getGlobalWindow(1, TZ, FRIDAY).startMs;
+        expect(graphData.timestamps[0]).toBe(expectedFridayMidnight);
+    });
+
+    it("TEST 10 — le lundi, la vue reprend automatiquement sur la journée courante", async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(MONDAY);
+        const graphData = await buildTodayGraph('AAPL');
+        const expectedMondayMidnight = getGlobalWindow(1, TZ, MONDAY).startMs;
+        expect(graphData.timestamps[0]).toBe(expectedMondayMidnight);
     });
 });
 

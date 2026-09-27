@@ -29,11 +29,11 @@
 //     inconsistent.
 //  4. Stock candles never snap forward across a weekend/holiday gap
 //     (findClosestPrice(..., allowForward=false) for non-crypto tickers).
-//  5. The Global 1D window is 00:00 → now in the portfolio timezone (see
-//     TimeRangeEngine.getGlobalWindow + MarketCalendarEngine.
-//     getPortfolioTimezone), never the first exchange's open time — a closed
-//     market is valorized at its last real price (lastKnownPrices carry-
-//     forward / midnightValuationSeed), never given a fabricated candle.
+//  5. A 1D portfolio containing a 24/7 asset is 00:00 → now in the portfolio
+//     timezone. When every selected instrument is exchange-traded and today is
+//     closed, the window shows the most recent real session instead. This keeps
+//     asset/broker drill-downs useful on weekends without changing mixed BTC
+//     portfolios or fabricating a candle.
 
 import { parseDate } from './utils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
@@ -354,17 +354,8 @@ export class HistoryCalculator {
         const today = new Date();
         let displayStart;
         let bufferDays = 5;
-        // Phase 3.5 removed the last branch that ever set this (the stocks-only
-        // "weekend -> jump to last trading day" jump, see section B of that
-        // phase's audit) — it conflicted with the Phase 2 rule that Global 1D is
-        // ALWAYS 00:00 -> now, and that branch ran BEFORE the days===1 branch
-        // below due to `if` ordering, so it silently won every weekend for a
-        // stocks-only portfolio. A closed weekend now shows a flat line at the
-        // last real price (lastKnownPrices carry-forward / midnightValuationSeed)
-        // instead of silently substituting Friday's whole trading day — an
-        // honest "nothing happened" is not the same as no information (see the
-        // audit's own top-level rule). Kept only as a `null` default; nothing
-        // below ever sets it again.
+        // The end of a rolled-back closed-market session is still derived from
+        // its start below; no independent hard stop is needed here.
         const hardStopTs = null;
 
         // Phase 3 — toute fenêtre GLOBALE dont la définition ne dépend PAS d'un
@@ -415,19 +406,31 @@ export class HistoryCalculator {
                 ? 7
                 : ((typeof days === 'number' && days <= 7) ? 2 : 14);
         } else if (days === 1) {
-            // Phase 2 — Global 1D MUST be 00:00 → maintenant in the portfolio
-            // timezone (see MarketCalendarEngine.getPortfolioTimezone), not the
-            // first exchange's open time, WEEKEND INCLUDED (Phase 3.5). Before
-            // market open (or all day on a closed weekend), the loop below
-            // carries forward each ticker's last known price (yesterday's close —
-            // see lastKnownPrices/_resolveMidnightValuationSeed) instead of
-            // fabricating a new candle: the flat segment this produces is a
-            // genuine PORTFOLIO VALUATION at a real, already-known price, not an
-            // invented observation. getCloseCutoffForTicker (used everywhere
-            // "yesterday" is resolved for this same 1D view) is unaffected —
-            // extending the window's own start earlier does not change what
-            // counts as "yesterday" for a given ticker.
-            displayStart = new Date(getGlobalWindow(1, portfolioTz, today).startMs);
+            const exchangeTickers = portfolioTickers.filter(t =>
+                !t.startsWith('CASH-') && marketCalendarEngine.getTradingModel(t) !== 'crypto_24_7');
+            const allSelectedMarketsClosed = exchangeTickers.length > 0
+                && exchangeTickers.every(t => !marketCalendarEngine.isTradingDay(t, today));
+
+            if (allSelectedMarketsClosed) {
+                // Asset/broker weekend rule: display the last actual trading
+                // day. Select the most recent session represented by the
+                // filtered portfolio, then align it to portfolio-local midnight
+                // so the chart, daily anchor and table all describe that same
+                // session. MarketCalendarEngine owns weekend/session decisions.
+                const previousSessions = exchangeTickers
+                    .map(t => marketCalendarEngine.getPreviousTradingSession(t, today))
+                    .filter(Boolean)
+                    .sort((a, b) => b.closeUTCMs - a.closeUTCMs);
+                const latestSession = previousSessions[0] || null;
+                displayStart = latestSession
+                    ? new Date(getGlobalWindow(1, portfolioTz, new Date(latestSession.openUTCMs)).startMs)
+                    : new Date(getGlobalWindow(1, portfolioTz, today).startMs);
+            } else {
+                // Trading day: start at today's portfolio-local midnight. Before
+                // the opening bell, the last close is carried forward until the
+                // first real candle arrives.
+                displayStart = new Date(getGlobalWindow(1, portfolioTz, today).startMs);
+            }
             bufferDays = 5;
         } else if (days === 2) {
             displayStart = new Date(getGlobalWindow(2, portfolioTz, today, { assets: portfolioTickers, calendarEngine: marketCalendarEngine }).startMs);
@@ -545,21 +548,11 @@ export class HistoryCalculator {
         }
     }
 
-    // Phase 3.5 — DISABLED (kept as a documented no-op, not deleted, so the
-    // call site and its history stay traceable). This used to roll the WHOLE
-    // window back to the last complete trading day whenever no candle existed
-    // yet for "today" (e.g. queried right after midnight, or — as a Phase 3.5
-    // test caught — whenever a fetch simply returns nothing). That is exactly
-    // the same anti-pattern as the removed isWeekend branch in
-    // _computeDisplayWindow (see that method's own comment): it silently
-    // substitutes a DIFFERENT day for "today" instead of showing today
-    // honestly. Phase 2's own machinery already covers the real need this was
-    // trying to serve — _seedLastKnownPrices/_resolveMidnightValuationSeed
-    // value "today" at the last known real price when no fresh candle exists
-    // yet, without ever pretending a different day is the current one. Left
-    // in place only so a future audit doesn't wonder where this went; it must
-    // NOT be revived without first re-solving the same problem this Phase
-    // fixed (see HistoryCalculator.js's design-rules header, point 5).
+    // Kept as a no-op: window selection is decided before the fetch from the
+    // market calendar. An empty or failed response must never move the date on
+    // its own. This distinction lets a confirmed weekend intentionally display
+    // the previous session while a transient provider failure remains visible
+    // as missing data for the originally selected day.
     async _recoverFromClosedMarket() {
         return;
     }

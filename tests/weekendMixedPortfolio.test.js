@@ -216,6 +216,99 @@ describe('Portefeuille mixte pendant le week-end', () => {
         expect(beforeMondayOpen.filter(row => row.ticker === 'CSPX.L').every(row => row.price === 50)).toBe(true);
     });
 
+    it('le dimanche, un actif coté seul conserve son graphique et son Day P&L du vendredi', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-27T12:00:00+02:00'));
+
+        const thursdayClose = new Date('2026-09-24T15:25:00Z').getTime();
+        const fridayOpen = new Date('2026-09-25T07:00:00Z').getTime();
+        const fridayClose = new Date('2026-09-25T15:25:00Z').getTime();
+        const purchases = [purchase({
+            ticker: 'STEC', name: 'iShares STOXX Europe 600 Tech', assetType: 'ETF',
+            broker: 'PEA', price: 5.8987, quantity: 300, date: '2024-01-01'
+        })];
+        const candles = { [thursdayClose]: 7.5, [fridayOpen]: 7.6, [fridayClose]: 7.752 };
+        const storage = createFakeStorage({
+            prices: { STEC: { price: 7.752, previousClose: 7.5, currency: 'EUR', lastUpdate: Date.now() } },
+            conversionRate: 1
+        });
+        const api = createFakeApi({
+            async getHistoricalPricesWithRetry(ticker, startSec, endSec) {
+                if (ticker !== 'STEC') return {};
+                return Object.fromEntries(Object.entries(candles).filter(([ts]) => {
+                    const time = Number(ts);
+                    return time >= startSec * 1000 && time <= endSec * 1000;
+                }));
+            }
+        });
+        const dm = new DataManager(storage, api);
+        const trace = [];
+
+        const graph = await dm.calculateGenericHistory(purchases, 1, true, 1, new Map(), trace);
+        const snapshot = dm.buildAssetPortfolioSnapshot('STEC', purchases, graph, new Map());
+        const displayedDate = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(graph.timestamps[0]);
+
+        expect(displayedDate).toBe('2026-09-25');
+        expect(graph.unitPrices[0]).toBeCloseTo(7.5, 8);
+        expect(graph.unitPrices.at(-1)).toBeCloseTo(7.752, 8);
+        expect(snapshot.holdings[0].currentPrice).toBeCloseTo(7.752, 8);
+        expect(snapshot.holdings[0].dayChange).toBeCloseTo((7.752 - 7.5) * 300, 8);
+        expect(snapshot.holdings[0].dayPct).toBeCloseTo(((7.752 - 7.5) / 7.5) * 100, 8);
+    });
+
+    it('le samedi, un broker sans crypto conserve la valorisation et le tableau du vendredi', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-26T12:00:00+02:00'));
+
+        const candles = {
+            AAPL: {
+                [new Date('2026-09-24T19:55:00Z').getTime()]: 100,
+                [new Date('2026-09-25T14:30:00Z').getTime()]: 105,
+                [new Date('2026-09-25T19:55:00Z').getTime()]: 110
+            },
+            'CSPX.L': {
+                [new Date('2026-09-24T15:25:00Z').getTime()]: 50,
+                [new Date('2026-09-25T08:00:00Z').getTime()]: 52,
+                [new Date('2026-09-25T15:25:00Z').getTime()]: 55
+            }
+        };
+        const purchases = [
+            purchase({ ticker: 'AAPL', broker: 'PEA', price: 80, quantity: 2, date: '2024-01-01' }),
+            purchase({ ticker: 'CSPX.L', broker: 'PEA', assetType: 'ETF', price: 40, quantity: 3, date: '2024-01-01' })
+        ];
+        const storage = createFakeStorage({
+            prices: {
+                AAPL: { price: 110, previousClose: 100, currency: 'EUR', lastUpdate: Date.now() },
+                'CSPX.L': { price: 55, previousClose: 50, currency: 'EUR', lastUpdate: Date.now() }
+            },
+            conversionRate: 1
+        });
+        const api = createFakeApi({
+            async getHistoricalPricesWithRetry(ticker, startSec, endSec) {
+                return Object.fromEntries(Object.entries(candles[ticker] || {}).filter(([ts]) => {
+                    const time = Number(ts);
+                    return time >= startSec * 1000 && time <= endSec * 1000;
+                }));
+            }
+        });
+        const dm = new DataManager(storage, api);
+
+        const result = await dm.buildTodaySnapshot(purchases, []);
+        const positions = Object.fromEntries(result.holdings.map(position => [position.ticker, position]));
+        const displayedDate = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(result.todayGraphData.timestamps[0]);
+
+        expect(displayedDate).toBe('2026-09-25');
+        expect(result.todayGraphData.values[0]).toBeCloseTo(350, 8);
+        expect(result.todayGraphData.values.at(-1)).toBeCloseTo(385, 8);
+        expect(positions.AAPL.dayChange).toBeCloseTo(20, 8);
+        expect(positions['CSPX.L'].dayChange).toBeCloseTo(15, 8);
+        expect(result.portfolioSnapshot.dayPnl).toBeCloseTo(35, 8);
+    });
+
     it('le lundi repart de la clôture de vendredi pour les marchés et de la valeur BTC de dimanche soir', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(new Date('2026-09-28T22:00:00+02:00'));

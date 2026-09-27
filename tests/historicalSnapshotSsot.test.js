@@ -28,7 +28,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('TEST A/B/C — auto-cohérence de chaque point historique (totalReturn = (totalValue - cash) - investedAssetOnly, partout)', () => {
     it('tient pour CHAQUE point non-null d\'une série réelle multi-jours (1M)', async () => {
@@ -70,6 +70,8 @@ describe('TEST A/B/C — auto-cohérence de chaque point historique (totalReturn
 
 describe('TEST D/E/F/12 — le graphique ne force plus son dernier point à égaler le PortfolioSnapshot live (bug des 297,18€, RÉVISÉ)', () => {
     it("le dernier point du graphique reste la dernière bougie RÉELLE, même quand un prix live frais et très différent est disponible", async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-24T12:00:00+02:00'));
         const storage = createFakeStorage({
             // Prix live volontairement très différent de la bougie — c'est
             // exactement le cas que l'ancien alignLastPointToLiveSnapshot
@@ -94,6 +96,8 @@ describe('TEST D/E/F/12 — le graphique ne force plus son dernier point à éga
     });
 
     it("le PortfolioSnapshot live (KPI/tableau) PEUT légitimement différer du dernier point du graphique — ce n'est plus un bug à corriger", async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-24T12:00:00+02:00'));
         const storage = createFakeStorage({
             prices: { AAPL: { price: 999, currency: 'EUR', previousClose: 190, lastUpdate: Date.now() } },
             conversionRate: 0.9

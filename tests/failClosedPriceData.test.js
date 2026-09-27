@@ -9,11 +9,13 @@
 // midnightValuationSeed substitué silencieusement, jamais 0€ (une vraie
 // valeur financière) à la place de "indisponible".
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { HistoricalChart } from '../src/historicalChart.js';
 import { createFailedHistoricalResult } from '../src/api.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
+
+afterEach(() => vi.useRealTimers());
 
 // IMPORTANT : le VRAI getHistoricalPricesWithRetry() ne lève JAMAIS d'exception
 // — il catch systématiquement en interne et renvoie un résultat marqué "échec"
@@ -164,6 +166,8 @@ describe('TEST 6/7/8 — aucune source de repli silencieuse ne comble un trou hi
 // deux cas, plutôt que son comportement.
 describe('TEST 9/10 — le graphique n\'est plus jamais aligné sur le snapshot live, valide ou invalide', () => {
     it('TEST 9 — snapshot live VALIDE mais très différent de la bougie réelle : le graphique garde sa propre observation', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-24T12:00:00+02:00'));
         const storage = createFakeStorage({
             prices: { AAPL: { price: 999, currency: 'EUR', previousClose: 190, lastUpdate: Date.now() } },
             conversionRate: 0.9
