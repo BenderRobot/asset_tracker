@@ -67,9 +67,25 @@ function stubFetch({ yahooOk = true } = {}) {
     }));
 }
 
+// Le repli mémoire du rate limiter compte sur une fenêtre FIXE alignée sur la
+// minute (`floor(Date.now() / 60000)`). Avec l'horloge réelle, un test qui
+// chevauchait un changement de minute voyait son compteur repartir à zéro en
+// pleine rafale (200 au lieu du 429 attendu, échec intermittent qui bloquait
+// deploy.ps1). L'horloge est figée au milieu d'une minute. Seul `Date` est
+// simulé : le Worker attend entre ses tentatives Yahoo via setTimeout, qui
+// doit rester réel.
+const FROZEN_NOW = new Date('2026-01-15T12:00:30.000Z');
+
 describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)', () => {
-    beforeEach(() => { _resetRateLimiterStateForTests(); });
-    afterEach(() => { vi.unstubAllGlobals(); });
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(FROZEN_NOW);
+        _resetRateLimiterStateForTests();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
 
     it('symbol au format invalide (caractères interdits) → 400, jamais transmis à Yahoo', async () => {
         stubFetch();
@@ -120,6 +136,16 @@ describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)
         expect(r1.status).toBe(200);
         expect(r2.status).toBe(200);
         expect(r3.status).toBe(429);
+    });
+
+    it('le compteur repart à zéro à la fenêtre suivante (frontière de minute maîtrisée)', async () => {
+        stubFetch();
+        const env = makeEnv({ PRICE_RATE_LIMIT_PER_MINUTE: '1' });
+        vi.setSystemTime(new Date('2026-01-15T12:00:59.999Z'));
+        expect((await worker.fetch(getRequest('symbol=AAPL'), env)).status).toBe(200);
+        expect((await worker.fetch(getRequest('symbol=MSFT'), env)).status).toBe(429);
+        vi.setSystemTime(new Date('2026-01-15T12:01:00.000Z'));
+        expect((await worker.fetch(getRequest('symbol=NVDA'), env)).status).toBe(200);
     });
 
     it('la limite de débit est isolée PAR IP', async () => {
