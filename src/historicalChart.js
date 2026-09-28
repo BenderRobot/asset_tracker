@@ -1585,6 +1585,7 @@ export class HistoricalChart {
 }
 .hc-tooltip .hc-tt-marker.positive { background: #20c997; box-shadow: 0 0 0 3px rgba(32,201,151,0.10); }
 .hc-tooltip .hc-tt-marker.negative { background: #ff5c5c; box-shadow: 0 0 0 3px rgba(255,92,92,0.10); }
+.hc-tooltip .hc-tt-marker.buy { background: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
 .hc-tooltip .hc-tt-label { color: #cbd5e1; font-size: 11.5px; font-weight: 550; }
 .hc-tooltip .hc-tt-values { display: flex; align-items: baseline; justify-content: flex-end; gap: 6px; font-variant-numeric: tabular-nums; }
 .hc-tooltip .hc-tt-eur { color: #f8fafc; font-size: 12.5px; font-weight: 700; }
@@ -1605,7 +1606,7 @@ export class HistoricalChart {
     _renderKpiRowsHtml(titleText, rows) {
         const rowsHtml = rows.map(r => {
             const tone = r.positive ? 'positive' : 'negative';
-            return `<div class="hc-tt-row"><span class="hc-tt-marker ${tone}"></span><span class="hc-tt-label">${r.label}</span><span class="hc-tt-values"><span class="hc-tt-eur">${r.eur ?? ''}</span>${r.pct != null ? `<span class="hc-tt-pct ${tone}">${r.pct}</span>` : ''}</span></div>`;
+            return `<div class="hc-tt-row"><span class="hc-tt-marker ${r.marker || tone}"></span><span class="hc-tt-label">${r.label}</span><span class="hc-tt-values"><span class="hc-tt-eur">${r.eur ?? ''}</span>${r.pct != null ? `<span class="hc-tt-pct ${tone}">${r.pct}</span>` : ''}</span></div>`;
         }).join('');
         return `<div class="hc-tt-title">${titleText}</div>${rowsHtml}`;
     }
@@ -1678,7 +1679,7 @@ export class HistoricalChart {
             const qty = Number(p.quantity);
             rows.push({
                 label: `${sell ? 'Vente' : 'Achat'} · ${Number.isFinite(qty) ? qtyFmt(qty) : '?'} ${qty > 1 ? 'parts' : 'part'}`,
-                eur: eurFmt(p.y), pct: null, positive: !sell
+                eur: eurFmt(p.y), pct: null, positive: !sell, marker: sell ? 'negative' : 'buy'
             });
         }
     }
@@ -1935,10 +1936,10 @@ export class HistoricalChart {
                 datasets.push({ label: 'PRU', data: Array(graphData.labels.length).fill(avgPrice), borderColor: '#FF9F43', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
             }
             if (isUnitView && graphData.purchasePoints?.length) {
-                // Buys ▲ green, sells ▼ red. `x` is the point index (see
+                // Buys ▲ blue (green would vanish on the green curve), sells ▼ red. `x` is the point index (see
                 // HistoryCalculator._buildPurchasePoints).
                 const markers = [
-                    { side: 'buy', label: 'Achats', color: '#20c997', rotation: 0 },
+                    { side: 'buy', label: 'Achats', color: '#3b82f6', rotation: 0 },
                     { side: 'sell', label: 'Ventes', color: '#ff5c5c', rotation: 180 }
                 ];
                 for (const m of markers) {
@@ -1953,8 +1954,9 @@ export class HistoricalChart {
                     datasets.push({
                         label: m.label, data, isTransactionMarker: true, showLine: false, spanGaps: false, fill: false,
                         pointStyle: 'triangle', rotation: m.rotation,
-                        backgroundColor: m.color, borderColor: '#0b1220', borderWidth: 1.5,
-                        pointRadius: 7, pointHoverRadius: 9
+                        // White outline keeps the marker readable over the curve and its fill.
+                        backgroundColor: m.color, borderColor: '#ffffff', borderWidth: 2,
+                        pointRadius: 11, pointHoverRadius: 14, pointHoverBorderWidth: 2
                     });
                 }
             }

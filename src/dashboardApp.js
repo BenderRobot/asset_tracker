@@ -7,7 +7,7 @@ import { Storage } from './storage.js?v=5';
 import { PriceAPI } from './api.js?v=12';
 import { MarketStatus } from './marketStatus.js?v=2';
 import { DataManager } from './dataManager.js?v=33';
-import { HistoricalChart } from './historicalChart.js?v=51';
+import { HistoricalChart } from './historicalChart.js?v=52';
 import { mountViewToggle } from './chartViewToggle.js?v=1';
 import { IndexCardChart } from './indexCardChart.js';
 import { ChartKPIManager } from './chartKPIManager.js?v=4'; // NOUVEAU : Pour sparkline
