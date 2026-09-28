@@ -26,7 +26,7 @@
 // dataManager.buildTodaySnapshot's own doc comment for the full audit).
 
 import { eventBus } from './eventBus.js';
-import { ChartKPIManager } from './chartKPIManager.js?v=4';
+import { ChartKPIManager } from './chartKPIManager.js?v=5';
 import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js';
@@ -43,8 +43,8 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // history had been skipped (dividend record read as the ticker's type — see
 // storage.getAssetType).
 // Version 18: transaction markers are positioned by point index and carry
-// their side (buy/sell).
-const HISTORY_CHART_CACHE_VERSION = 18;
+// their side (buy/sell). Version 19 adds periodPnlWithDividends.
+const HISTORY_CHART_CACHE_VERSION = 19;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 // IndexedDB is not bound by the ~5 MB localStorage quota shared by the app:
 // every period of the portfolio and of recently viewed assets fits.
@@ -131,6 +131,13 @@ export class HistoricalChart {
             : graphData.twr;
         if (!Array.isArray(twr)) return null;
         return twr.map(value => Number.isFinite(value) ? (value - 1) * 100 : null);
+    }
+
+    _getPortfolioPeriodPnlSeries(graphData) {
+        const series = this.includeDividends && Array.isArray(graphData.periodPnlWithDividends)
+            ? graphData.periodPnlWithDividends
+            : graphData.periodPnl;
+        return Array.isArray(series) ? series : null;
     }
 
     _getPortfolioReturnSeries(graphData) {
@@ -1350,12 +1357,20 @@ export class HistoricalChart {
         // Cash is excluded; dividends are included only when explicitly enabled.
         let perfAbs = 0, perfPct = 0;
         const portfolioPctSeries = this._getPortfolioPerformanceSeries(graphData);
-        const portfolioReturnSeries = this._getPortfolioReturnSeries(graphData);
         if (!isIndexMode && !isUnitView && portfolioPctSeries?.length > lastIndex) {
             perfPct = Number(portfolioPctSeries[lastIndex]) || 0;
-            const endReturn = Number(portfolioReturnSeries?.[lastIndex]) || 0;
-            const startReturn = Number(portfolioReturnSeries?.[firstIndex]) || 0;
-            perfAbs = this.currentPeriod === 'all' ? endReturn : endReturn - startReturn;
+            if (this.currentPeriod === 'all') {
+                // All: the Total Return KPI of the portfolio (since inception).
+                perfAbs = Number(this._getPortfolioReturnSeries(graphData)?.[lastIndex]) || 0;
+            } else {
+                // Euro counterpart of the TWR: market P&L accumulated interval
+                // by interval, purchases/sales neutralised as flows. The former
+                // difference of totalReturn (unrealised return of the positions
+                // still held) dropped the gain of every sale made during the
+                // period, e.g. -122 € shown over a +1.11 % period.
+                const pnl = this._getPortfolioPeriodPnlSeries(graphData);
+                perfAbs = pnl ? (Number(pnl[lastIndex]) || 0) - (Number(pnl[firstIndex]) || 0) : 0;
+            }
         } else {
             perfAbs = priceEnd - priceStart;
             perfPct = priceStart !== 0 ? (perfAbs / priceStart) * 100 : 0;

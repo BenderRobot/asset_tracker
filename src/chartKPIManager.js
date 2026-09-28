@@ -311,17 +311,21 @@ export class ChartKPIManager {
      */
     _updatePeriodReturn({ isIndexMode, currentPeriod, perfAbs, perfPct, isPositive, decimals }) {
         const { performanceLabel, performancePercent } = this.elements;
+        // `isPositive` is the chart's day colour (Var Today). PÉRIODE is coloured
+        // by its own sign: a positive period was shown in red on a negative day.
+        const absPositive = perfAbs >= 0;
+        const pctPositive = perfPct >= 0;
 
         // Pour le mode index en 1D, on masque ces stats car elles ne sont pas pertinentes
         // AFFICHER TOUJOURS : La logique de masquage pour Index 1D est supprimée
         if (performanceLabel) {
             const currencySymbol = isIndexMode ? '' : '€';
             performanceLabel.textContent = `${perfAbs > 0 ? '+' : ''}${perfAbs.toFixed(decimals)} ${currencySymbol}`;
-            performanceLabel.className = 'value ' + (isPositive ? 'positive' : 'negative');
+            performanceLabel.className = 'value ' + (absPositive ? 'positive' : 'negative');
         }
         if (performancePercent) {
             performancePercent.textContent = `(${perfPct > 0 ? '+' : ''}${perfPct.toFixed(2)}%)`;
-            performancePercent.className = 'pct ' + (isPositive ? 'positive' : 'negative');
+            performancePercent.className = 'pct ' + (pctPositive ? 'positive' : 'negative');
         }
     }
 

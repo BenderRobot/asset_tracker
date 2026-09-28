@@ -129,6 +129,10 @@ describe('Long-range portfolio performance', () => {
         // +20%, sale at unchanged price, then +10% = +32%.
         expect(validTwr.at(-1)).toBeCloseTo(1.32, 8);
         expect(graph.periodPnl.at(-1)).toBeCloseTo(52, 8);
+        expect(graph.periodPnlWithDividends.at(-1)).toBeCloseTo(52, 8);
+        // The unrealised return of the share still held (132 - 100) misses the
+        // +20 € realised on the sale: it must never be the period P&L.
+        expect(graph.totalReturn.filter(Number.isFinite).at(-1)).toBeCloseTo(32, 8);
     });
 
     it('counts dividends as performance instead of neutralising them as deposits', async () => {
@@ -153,6 +157,8 @@ describe('Long-range portfolio performance', () => {
         expect(graph.twrWithDividends.filter(Number.isFinite).at(-1)).toBeCloseTo(1.10, 8);
         expect(graph.totalReturnPct.filter(Number.isFinite).at(-1)).toBeCloseTo(0, 8);
         expect(graph.totalReturnPctWithDividends.filter(Number.isFinite).at(-1)).toBeCloseTo(10, 8);
+        expect(graph.periodPnl.filter(Number.isFinite).at(-1)).toBeCloseTo(0, 8);
+        expect(graph.periodPnlWithDividends.filter(Number.isFinite).at(-1)).toBeCloseTo(10, 8);
     });
 
     it('values USD holdings with historical daily FX instead of today’s FX', async () => {

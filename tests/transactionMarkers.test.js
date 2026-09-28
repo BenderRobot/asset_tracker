@@ -55,3 +55,48 @@ describe('Transaction markers', () => {
         ]);
     });
 });
+
+describe('PÉRIODE (period return) of the portfolio chart', () => {
+    function chartWithSpy() {
+        const storage = createFakeStorage();
+        const chart = new HistoricalChart(storage, new DataManager(storage, createFakeApi()), null, {
+            filterManager: { getSelectedTickers: () => new Set() },
+            getFilteredPurchasesFromPage: () => [], getChartTitleConfig: () => ({}), renderData: vi.fn()
+        });
+        chart._renderChartJs = vi.fn();
+        chart._renderTitle = vi.fn();
+        chart.kpiManager.updateKPIs = vi.fn();
+        chart.kpiManager.updateAthStats = vi.fn();
+        return chart;
+    }
+    // A sale inside the window turns +20 € of unrealised gain into a realised
+    // one: totalReturn drops while the market P&L of the period is positive.
+    const graphData = {
+        labels: ['a', 'b', 'c', 'd'], timestamps: [1, 2, 3, 4],
+        values: [200, 240, 120, 132], twr: [1, 1.2, 1.2, 1.32],
+        totalReturn: [0, 40, 20, 32], periodPnl: [0, 40, 40, 52],
+        periodPnlWithDividends: [0, 40, 40, 57], dataQuality: { valid: true }
+    };
+
+    it('reports the flow-neutral euro P&L, consistent with the TWR', () => {
+        const chart = chartWithSpy();
+        chart.currentPeriod = 90;
+        chart.renderChart(document.createElement('canvas'), graphData, {}, { mode: 'global' }, null, null, null, { varTodayAbs: -30, varTodayPct: -1 });
+        const kpis = chart.kpiManager.updateKPIs.mock.calls[0][0];
+        expect(kpis.perfAbs).toBeCloseTo(52, 8);
+        expect(kpis.perfPct).toBeCloseTo(32, 8);
+    });
+
+    it('includes dividends only through the toggle, and keeps Total Return for All', () => {
+        const chart = chartWithSpy();
+        chart.currentPeriod = 90;
+        chart.includeDividends = true;
+        chart.renderChart(document.createElement('canvas'), graphData, {}, { mode: 'global' }, null, null, null, null);
+        expect(chart.kpiManager.updateKPIs.mock.calls[0][0].perfAbs).toBeCloseTo(57, 8);
+
+        const all = chartWithSpy();
+        all.currentPeriod = 'all';
+        all.renderChart(document.createElement('canvas'), graphData, {}, { mode: 'global' }, null, null, null, null);
+        expect(all.kpiManager.updateKPIs.mock.calls[0][0].perfAbs).toBeCloseTo(32, 8);
+    });
+});

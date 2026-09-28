@@ -7,10 +7,10 @@ import { Storage } from './storage.js?v=5';
 import { PriceAPI } from './api.js?v=12';
 import { MarketStatus } from './marketStatus.js?v=2';
 import { DataManager } from './dataManager.js?v=33';
-import { HistoricalChart } from './historicalChart.js?v=52';
+import { HistoricalChart } from './historicalChart.js?v=53';
 import { mountViewToggle } from './chartViewToggle.js?v=1';
 import { IndexCardChart } from './indexCardChart.js';
-import { ChartKPIManager } from './chartKPIManager.js?v=4'; // NOUVEAU : Pour sparkline
+import { ChartKPIManager } from './chartKPIManager.js?v=5'; // NOUVEAU : Pour sparkline
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 import { UIComponents } from './ui.js?v=5';
 import { NotificationManager } from './NotificationManager.js';
