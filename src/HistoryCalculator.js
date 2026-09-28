@@ -37,6 +37,7 @@
 
 import { parseDate } from './utils.js';
 import { quoteInEur, withHistoryCurrency } from './currency.js';
+import { splitTransactions, transactionKind } from './financialTransactions.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { getGlobalWindow } from './TimeRangeEngine.js';
 import { getHistoricalFetchFailureDetails, isHistoricalFetchFailure } from './api.js?v=12';
@@ -328,82 +329,27 @@ export class HistoryCalculator {
     _buildLedger(purchases, isSingleAsset) {
         const byTicker = new Map();
         let firstPurchaseDate = null;
-
-        const addEntry = (t, entry) => {
-            if (!byTicker.has(t)) byTicker.set(t, []);
-            byTicker.get(t).push(entry);
+        // Security rows precede their dividend cash buckets in both scopes.
+        const { assets, cash } = splitTransactions(purchases);
+        for (const p of [...assets, ...cash]) {
+            const kind = transactionKind(p);
+            const isCash = kind === 'cash' || kind === 'dividend';
+            const currency = p.currency || 'EUR';
+            const ticker = isCash ? 'CASH-' + currency : p.ticker.toUpperCase();
+            const entry = {
+                date: parseDate(p.date), price: isCash ? 1 : Number(p.price),
+                quantity: isCash ? Number(p.price || 0) * Number(p.quantity ?? 1) : Number(p.quantity),
+                currency, broker: p.broker || 'RV-CT',
+                isExternalFlow: kind !== 'dividend', isDividend: kind === 'dividend'
+            };
+            if (!byTicker.has(ticker)) byTicker.set(ticker, []);
+            byTicker.get(ticker).push(entry);
             if (!firstPurchaseDate || entry.date < firstPurchaseDate) firstPurchaseDate = entry.date;
-        };
-
-        if (isSingleAsset) {
-            const t = purchases[0].ticker.toUpperCase();
-            purchases.forEach(p => addEntry(t, {
-                date: parseDate(p.date),
-                price: parseFloat(p.price),
-                quantity: parseFloat(p.quantity),
-                currency: p.currency || 'EUR',
-                // Same ticker held across two brokers has the same cost-basis
-                // isolation need as the portfolio view below — see
-                // costBasisByBrokerTicker in _buildSeries.
-                broker: p.broker || 'RV-CT'
-            }));
-        } else {
-            purchases.forEach(p => {
-                const type = (p.assetType || '').toLowerCase();
-                // BUG FOUND (root cause of the 53 226,78€ vs 36 880,78€ report) : cette
-                // classification ne reconnaissait QUE `assetType === 'cash'` — pas les
-                // dividendes (assetType 'Dividend' / p.type === 'dividend'), alors que
-                // dataManager.calculateCashReserve (qui alimente investedAssetOnly/
-                // cashReserve — voir buildTodaySnapshot) traite déjà les deux comme
-                // équivalents : `type === 'cash' || type === 'dividend' || p.type ===
-                // 'dividend'`. Un dividende est enregistré (voir achatsPage.js::
-                // handleConfirmDividends/handleManualDividend) avec le TICKER DE
-                // L'ACTION SOUS-JACENTE (ex: "AAPL"), `price = montant net reçu`,
-                // `quantity = 1` — jamais un vrai achat d'action. Sans ce cas dans
-                // `isCash`, chaque dividende tombait dans la branche "achat" ci-dessous :
-                // +1 action fantôme d'AAPL, achetée au prix du montant du dividende, et
-                // valorisée ensuite au prix COURANT d'AAPL dans _buildSeries — une action
-                // fantôme par dividende versé, qui s'accumule indéfiniment (jamais
-                // "vendue") et gonfle le dernier point du graphique (Total Value/FIN/
-                // tooltip) d'autant de quantité fictive que de dividendes reçus au fil
-                // des ans, alors que calculateHoldings (le tableau/les cartes KPI) exclut
-                // déjà correctement les lignes dividende de son propre calcul de
-                // position. Fix : router un dividende exactement comme un mouvement de
-                // cash (même bucket `CASH-{currency}`, même formule `quantity =
-                // parseFloat(p.price)` — sûr ici car ces deux types de lignes ont
-                // toujours `quantity: 1` à la création, voir app.js/achatsPage.js).
-                const isCash = type === 'cash' || type === 'dividend' || p.type === 'dividend'
-                    || p.ticker.toUpperCase() === 'CASH' || p.ticker.toUpperCase() === 'EUR';
-                const currency = p.currency || 'EUR';
-                const t = isCash ? `CASH-${currency}` : p.ticker.toUpperCase();
-                const broker = p.broker || 'RV-CT';
-                if (isCash) {
-                    addEntry(t, {
-                        date: parseDate(p.date), price: 1.0,
-                        quantity: (parseFloat(p.price) || 0) * (p.quantity == null ? 1 : Number(p.quantity)), currency, broker,
-                        // A dividend is investment income, not capital supplied
-                        // by the user. It must increase TWR rather than being
-                        // neutralised like a deposit/withdrawal.
-                        isExternalFlow: !(type === 'dividend' || p.type === 'dividend'),
-                        isDividend: type === 'dividend' || p.type === 'dividend'
-                    });
-                } else {
-                    addEntry(t, {
-                        date: parseDate(p.date), price: parseFloat(p.price),
-                        quantity: parseFloat(p.quantity), currency, broker,
-                        isExternalFlow: true
-                    });
-                }
-            });
         }
-
         byTicker.forEach(list => list.sort((a, b) => a.date - b.date));
         return { byTicker, firstPurchaseDate };
     }
 
-    // ========================================================
-    // 2. Display window per period (DST-aware, weekend-aware)
-    // ========================================================
     _computeDisplayWindow(days, isCrypto, isMixed, ledger) {
         const today = new Date();
         let displayStart;
@@ -1363,7 +1309,7 @@ export class HistoryCalculator {
                         pricedAssets++;
                     }
                     hasAnyPrice = true; priced++;
-                    if (isSingleAsset) unitPrice = price * rate;
+                    if (isSingleAsset && !isCash) unitPrice = price * rate;
                     lastKnownPrices.set(t, price);
 
                     // resolvedPrices alimente la VALORISATION "maintenant"
@@ -1470,7 +1416,7 @@ export class HistoryCalculator {
             const hasCompleteAssetValuation = expectedAssets === pricedAssets;
             let pointTwr;
             let pointTwrWithDividends;
-            if (!hasCompleteAssetValuation || (!hasAnyAssetPrice && pendingAssetFlow === 0)) {
+            if (!hasCompleteAssetValuation || (!hasAnyAssetPrice && pendingAssetFlow === 0 && previousTwrValue === null)) {
                 pointTwr = null;
                 pointTwrWithDividends = null;
             } else {
@@ -1480,9 +1426,11 @@ export class HistoryCalculator {
                     // withdrawal.  There is no defined return for that interval;
                     // preserve the last valid index instead of manufacturing an
                     // infinite/negative performance factor.
-                    if (capitalBeforeMarketMove > 0 && totalAssetValue >= 0) {
-                        cumulativeTwr *= totalAssetValue / capitalBeforeMarketMove;
-                        cumulativeTwrWithDividends *= (totalAssetValue + pendingDividendIncome) / capitalBeforeMarketMove;
+                    const returnBase = previousTwrValue + Math.max(0, pendingAssetFlow);
+                    const valueIncludingSales = totalAssetValue - Math.min(0, pendingAssetFlow);
+                    if (returnBase > 0 && totalAssetValue >= 0) {
+                        cumulativeTwr *= valueIncludingSales / returnBase;
+                        cumulativeTwrWithDividends *= (valueIncludingSales + pendingDividendIncome) / returnBase;
                     }
                     // Additive euro P&L for the stats panel. Unlike multiplying
                     // TWR by the tiny first portfolio value, this remains a real
@@ -1498,8 +1446,9 @@ export class HistoryCalculator {
             }
             twr.push(pointTwr);
             twrWithDividends.push(pointTwrWithDividends);
-            periodPnl.push((hasAnyPrice || quantityChanged) ? cumulativePeriodPnl : null);
-            periodPnlWithDividends.push((hasAnyPrice || quantityChanged) ? cumulativePeriodPnlWithDividends : null);
+            const hasValuation = hasAnyPrice || quantityChanged || previousTwrValue !== null;
+            periodPnl.push(hasCompleteAssetValuation && hasValuation ? cumulativePeriodPnl : null);
+            periodPnlWithDividends.push(hasCompleteAssetValuation && hasValuation ? cumulativePeriodPnlWithDividends : null);
             cumulativeDividendIncome += dividendIncome;
 
             // Only a fully valued point may become the next interval's capital.
@@ -1511,7 +1460,7 @@ export class HistoryCalculator {
             dailyTwrWithDividends.push(pointTwrWithDividends);
 
             labels.push(labelFormatFunc(ts));
-            if ((hasAnyPrice || quantityChanged) && hasCompleteAssetValuation) {
+            if (hasValuation && hasCompleteAssetValuation) {
                 invested.push(totalInvested);
                 investedAssetOnly.push(totalInvestedAssetOnly);
                 values.push(totalValue);

@@ -1,5 +1,7 @@
 import { marketDataMetrics } from './marketDataMetrics.js';
 import { quoteInEur } from './currency.js';
+import { splitTransactions, assetHistoryTransactions, transactionKind } from './financialTransactions.js';
+import { periodPerformance } from './financialSeries.js';
 import { fetchMarketResponse } from './marketDataTransport.js?v=3';
 // ========================================
 // dataManager.js - (v8 - Ajout support Indices)
@@ -295,20 +297,7 @@ export class DataManager {
     }
 
     calculateCashReserve(allPurchases, dynamicRate = this.storage.getConversionRate('USD_TO_EUR')) {
-        // Include Dividends in Cash Reserve calculation
-        // CRITICAL FIX: Exclude sale transactions (negative quantity assets)
-        // Sale creates 2 lines: 1) asset with qty=-1000, 2) cash with price=+75€
-        // We only want the cash line, not the asset sale line
-        const cashMovements = allPurchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            const isCashOrDiv = type === 'cash' || type === 'dividend' || p.type === 'dividend';
-
-            // If it's a cash/dividend type, include it
-            if (isCashOrDiv) return true;
-
-            // Otherwise, exclude it (it's a sale transaction with negative quantity)
-            return false;
-        });
+        const { cash: cashMovements } = this.splitCanonicalPurchases(allPurchases);
 
         const byBroker = {};
         const byCurrency = {};
@@ -472,7 +461,8 @@ export class DataManager {
     // courtiers égale le total du portefeuille par construction algébrique,
     // et le coût de revient de chaque courtier est réellement le sien.
     _buildPositionsByBrokerTicker(assetPurchases, dynamicRate, historicalFxMap = null) {
-        const sorted = [...assetPurchases].sort((a, b) => new Date(a.date) - new Date(b.date));
+        const sorted = assetPurchases.filter(p => ['asset', 'realEstate'].includes(transactionKind(p)))
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
         const positions = new Map(); // key: `${broker}::${ticker}`
 
         sorted.forEach(p => {
@@ -1213,17 +1203,15 @@ export class DataManager {
     }
 
     splitCanonicalPurchases(purchases) {
-        const rows = purchases || [];
-        const cash = rows.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-        });
-        const realEstate = rows.filter(p => (p.assetType || '').toLowerCase() === 'real estate');
-        const assets = rows.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-        });
-        return { assets, cash, realEstate };
+        return splitTransactions(purchases);
+    }
+
+    getAssetHistoryPurchases(purchases, ticker) {
+        return assetHistoryTransactions(purchases, ticker);
+    }
+
+    getPeriodPerformance(graph, options) {
+        return periodPerformance(graph, options);
     }
 
     getCanonicalMarketSnapshot(purchases, options = {}) {
@@ -1250,180 +1238,34 @@ export class DataManager {
         return { holdings, summary, cashReserve, portfolioSnapshot, realEstateHoldings };
     }
 
-    // Net quantity of each ticker held THROUGH each broker (buys minus sells,
-    // counting only that broker's own purchases) — the basis used below to
-    // split a merged, portfolio-wide holding's gain/invested/dayChange across
-    // the brokers that actually hold it.
-    _brokerQuantitiesByTicker(assetPurchases) {
-        const map = new Map(); // ticker -> Map(broker -> netQty)
-        assetPurchases.forEach(p => {
-            const ticker = p.ticker.toUpperCase();
-            const broker = p.broker || 'RV-CT';
-            if (!map.has(ticker)) map.set(ticker, new Map());
-            const brokerMap = map.get(ticker);
-            brokerMap.set(broker, (brokerMap.get(broker) || 0) + (parseFloat(p.quantity) || 0));
-        });
-        return map;
-    }
-
-    // SINGLE SOURCE OF TRUTH pour la ventilation par courtier — Total Value /
-    // Investi / Rendement total (utilisée par la modale "Détail — Total
-    // Value", voir ui.js).
-    //
-    // BUG FOUND (confirmé, deux fois, corrigés) :
-    // 1. L'immobilier ('real estate') était inclus ici alors que
-    //    historicalChart.js l'EXCLUT de l'agrégat "Total Return" (son
-    //    update(), filtre `type !== 'real estate'`) — exclu ici aussi.
-    // 2. (architectural) Une v1 recalculait chaque courtier INDÉPENDAMMENT
-    //    (calculateHoldings sur les seuls achats de ce courtier) ; une v2
-    //    répartissait ensuite un total déjà fusionné au prorata de la
-    //    quantité — les deux souffrent de la MÊME racine : calculateHoldings
-    //    fusionnait le coût de revient par ticker AVANT qu'une vente d'un
-    //    courtier ne s'applique, donc une vente chez un courtier pouvait
-    //    réduire le coût de revient reconstitué d'un AUTRE courtier qui
-    //    n'avait rien vendu (voir _buildPositionsByBrokerTicker ci-dessus).
-    //
-    // Fix définitif : ne calcule plus rien ici. Agrège directement les
-    // positions (courtier, ticker) déjà correctement isolées — LA MÊME
-    // source que calculateHoldings (vue par ticker) — juste groupées par
-    // courtier au lieu du ticker. Les deux vues sont deux agrégations
-    // différentes des mêmes positions, jamais deux calculs séparés : la somme
-    // des courtiers égale le total du portefeuille par construction, ET le
-    // coût de revient de chaque courtier est réellement le sien.
-    //
-    // BUG FOUND (confirmé, un 3e niveau) : même avec le coût de revient
-    // (invested) désormais correct par courtier, la VALEUR DE MARCHÉ
-    // courante restait calculée différemment d'ici (storage.getCurrentPrice
-    // brut, sans condition) et de l'agrégat affiché ailleurs dans l'app
-    // (historicalChart.js → HistoryCalculator, qui ne réutilise le prix
-    // "live" pour le dernier point du jour QUE s'il a moins de 10 minutes,
-    // sinon retombe sur la dernière bougie intraday déjà récupérée). Sur un
-    // titre dont le snapshot live n'a pas été rafraîchi depuis >10 min au
-    // moment du calcul, les deux méthodes peuvent choisir un prix différent
-    // — confirmé comme cause d'un écart de ~300€ sur ce portefeuille (la
-    // page filtrée sur un courtier, qui passe par HistoryCalculator, et la
-    // modale, qui ne l'utilisait pas, ne choisissaient pas le même prix pour
-    // le même titre au même instant).
-    //
-    // Fix : recalculer le rendement PAR COURTIER en relançant EXACTEMENT le
-    // même moteur (calculateHistory → HistoryCalculator) que l'agrégat — pas
-    // storage.getCurrentPrice en direct. Contrairement à Var Today (voir
-    // calculateDayChangeByBroker plus bas, qui NE PEUT PAS faire ça à cause
-    // du rescaling non-linéaire du TWR), Total Value est une simple somme
-    // prix × quantité : linéaire, donc un rejeu par courtier se recompose
-    // exactement en le total du portefeuille. Async (un appel réseau par
-    // courtier) — ne se déclenche qu'à l'ouverture de la modale (voir ui.js).
-    async calculateReturnByBroker(purchases) {
+    async _buildBrokerSnapshots(purchases) {
+        const { assets } = this.splitCanonicalPurchases(purchases);
+        const prices = new Map([...new Set(assets.map(p => p.ticker.toUpperCase()))]
+            .map(ticker => [ticker, this.storage.getCurrentPrice(ticker)]));
         const brokers = [...new Set(purchases.map(p => p.broker || 'RV-CT'))];
-        const historicalFxMap = await this.getHistoricalFxMap(purchases);
-
-        const results = await Promise.all(brokers.map(async (broker) => {
-            const brokerPurchases = purchases.filter(p => (p.broker || 'RV-CT') === broker);
-            const assetPurchases = brokerPurchases.filter(p => {
-                const type = (p.assetType || 'Stock').toLowerCase();
-                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-            });
-            const cashPurchases = brokerPurchases.filter(p => {
-                const type = (p.assetType || 'Stock').toLowerCase();
-                return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-            });
-
-            const cashReserve = this.calculateCashReserve(cashPurchases);
-            const cash = cashReserve.total;
-            if (cashReserve.fxUnavailable) {
-                return { broker, invested: null, totalReturn: null, totalReturnPct: null, totalValue: null, cash: null };
-            }
-
-            if (assetPurchases.length === 0) {
-                return { broker, invested: 0, totalReturn: 0, totalReturnPct: 0, totalValue: cash, cash };
-            }
-
-            // Coût de revient : synchrone, déjà correct (positions isolées
-            // par courtier, voir _buildPositionsByBrokerTicker ci-dessus).
-            const holdings = this.calculateHoldings([...assetPurchases], null, historicalFxMap).filter(h => (h.quantity || 0) > 0.0001);
-            const invested = holdings.reduce((s, h) => s + (h.invested || 0), 0);
-
-            // Valeur de marché : LE MÊME appel que historicalChart.js fait
-            // pour l'agrégat portefeuille (this.dataManager.calculateHistory),
-            // juste restreint aux achats de ce courtier.
-            const graphData = await this.calculateHistory([...assetPurchases, ...cashPurchases], 1);
-            const values = graphData?.values;
-            let totalValue = null;
-            if (values) {
-                for (let i = values.length - 1; i >= 0; i--) {
-                    if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) { totalValue = values[i]; break; }
-                }
-            }
-            if (totalValue === null) {
-                // Repli si le graphique n'a rien retourné (ex: marché fermé
-                // sans historique disponible) plutôt que de perdre ce courtier.
-                totalValue = holdings.reduce((s, h) => s + (h.currentValue || 0), 0) + cash;
-            }
-
-            const totalReturn = totalValue - cash - invested;
-            return {
-                broker,
-                invested,
-                totalReturn,
-                totalReturnPct: invested > 0 ? (totalReturn / invested) * 100 : 0,
-                totalValue,
-                cash
-            };
+        return Promise.all(brokers.map(async broker => {
+            const rows = purchases.filter(p => (p.broker || 'RV-CT') === broker);
+            const { assets, cash } = this.splitCanonicalPurchases(rows);
+            const result = await this.buildTodaySnapshot(assets, cash, prices);
+            return { broker, snapshot: result.portfolioSnapshot };
         }));
-
-        return results.sort((a, b) => b.totalValue - a.totalValue);
     }
 
-    // SINGLE SOURCE OF TRUTH pour la variation du jour par courtier — même
-    // principe que calculateByBroker ci-dessus (répartition d'un calcul
-    // fusionné, pas un recalcul indépendant par courtier), appliqué à la
-    // variation du jour plutôt qu'au rendement total.
-    //
-    // Une première version relançait le moteur TWR (calculateHistory) une
-    // fois PAR courtier — en apparence plus rigoureux, mais souffre du même
-    // problème que calculateByBroker v1 dès qu'un titre est partagé entre
-    // courtiers (l'ancrage TWR ne se répartit pas linéairement). Remplacé par
-    // calculateAllAssetsYesterdayClose() — LE MÊME calcul déjà utilisé pour la
-    // colonne "Day P&L" du tableau des positions — appelé UNE SEULE FOIS pour
-    // tout le portefeuille, puis réparti par courtier au prorata de la
-    // quantité, exactement comme ci-dessus. Async (un seul appel réseau,
-    // partagé) — ne se déclenche qu'à l'ouverture de la modale (voir ui.js).
+    // Broker details select the same live metrics as the portfolio cards.
+    // Period returns belong to getPeriodPerformance, never to this snapshot.
+    async calculateReturnByBroker(purchases) {
+        const results = await this._buildBrokerSnapshots(purchases);
+        return results.map(({ broker, snapshot }) => ({
+            broker, invested: snapshot.invested, totalReturn: snapshot.totalReturn,
+            totalReturnPct: snapshot.totalReturnPct, totalValue: snapshot.totalValue, cash: snapshot.cash
+        })).sort((a, b) => (b.totalValue ?? -Infinity) - (a.totalValue ?? -Infinity));
+    }
+
     async calculateDayChangeByBroker(purchases) {
-        const brokers = [...new Set(purchases.map(p => p.broker || 'RV-CT'))];
-        const assetPurchases = purchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-        });
-        if (assetPurchases.length === 0) return brokers.map(broker => ({ broker, dayChange: 0, dayChangePct: 0 }));
-
-        const yesterdayCloseMap = await this.calculateAllAssetsYesterdayClose(assetPurchases);
-        const holdings = this.calculateHoldings([...assetPurchases], yesterdayCloseMap).filter(h => (h.quantity || 0) > 0.0001);
-        const qtyByTickerByBroker = this._brokerQuantitiesByTicker(assetPurchases);
-
-        const perBroker = new Map(brokers.map(b => [b, { dayChange: 0, yesterdayValue: 0 }]));
-        holdings.forEach(h => {
-            if (h.dayChange == null) return;
-            const brokerQtys = qtyByTickerByBroker.get(h.ticker) || new Map();
-            const totalQty = [...brokerQtys.values()].reduce((s, q) => s + q, 0);
-            if (Math.abs(totalQty) < 0.000001) return;
-            const yesterdayValue = (h.currentValue || 0) - h.dayChange;
-            brokerQtys.forEach((qty, broker) => {
-                const entry = perBroker.get(broker);
-                if (!entry) return;
-                const fraction = qty / totalQty;
-                entry.dayChange += h.dayChange * fraction;
-                entry.yesterdayValue += yesterdayValue * fraction;
-            });
-        });
-
-        return brokers.map(broker => {
-            const entry = perBroker.get(broker);
-            return {
-                broker,
-                dayChange: entry.dayChange,
-                dayChangePct: entry.yesterdayValue > 0 ? (entry.dayChange / entry.yesterdayValue) * 100 : 0
-            };
-        });
+        const results = await this._buildBrokerSnapshots(purchases);
+        return results.map(({ broker, snapshot }) => ({
+            broker, dayChange: snapshot.dayPnl, dayChangePct: snapshot.dayPnlPct
+        }));
     }
 
     calculateDiversification(holdings) {
@@ -1536,20 +1378,12 @@ export class DataManager {
     }
 
     async calculateHistory(purchases, days) {
-        const assetPurchases = purchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type !== 'dividend' && p.type !== 'dividend';
-        });
-        return this.calculateGenericHistory(assetPurchases, days, false);
+        const { assets, cash } = this.splitCanonicalPurchases(purchases);
+        return this.calculateGenericHistory([...assets, ...cash], days, false);
     }
 
     async calculateAssetHistory(ticker, days) {
-        const purchases = this.storage.getPurchases()
-            .filter(p => p.ticker.toUpperCase() === ticker.toUpperCase())
-            .filter(p => {
-                const type = (p.assetType || 'Stock').toLowerCase();
-                return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
-            });
+        const purchases = this.getAssetHistoryPurchases(this.storage.getPurchases(), ticker);
         if (purchases.length === 0) return { labels: [], invested: [], values: [], yesterdayClose: null, unitPrices: [], purchasePoints: [], twr: [] };
         return this.calculateGenericHistory(purchases, days, true);
     }
@@ -1682,6 +1516,7 @@ export class DataManager {
     // le comportement précédent est conservé à l'identique.
     async buildTodaySnapshot(assetPurchases, cashPurchases = [], livePriceSnapshot = null) {
         const snapshotStartedAt = Date.now();
+        ({ assets: assetPurchases, cash: cashPurchases } = this.splitCanonicalPurchases([...assetPurchases, ...cashPurchases]));
         livePriceSnapshot ??= new Map([...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))]
             .map(t => [t, this.storage.getCurrentPrice(t)]));
         // FAIL-CLOSED FX : jamais de taux hardcodé (ex. ancien 0.925).
@@ -1748,11 +1583,12 @@ export class DataManager {
     // calculateHoldings → calculateSummary → PortfolioSnapshot (cash toujours
     // 0 : un actif seul n'a pas de réserve de cash à lui).
     buildAssetPortfolioSnapshot(ticker, assetPurchases, todayGraphData, historicalFxMap) {
+        const { assets, cash } = this.splitCanonicalPurchases(assetPurchases);
         const yesterdayCloseMap = this.buildYesterdayCloseMapFromGraphData(todayGraphData);
         const invalidTickers = new Set(todayGraphData.dataQuality?.failedInstruments || []);
-        const holdings = this.calculateHoldings(assetPurchases, yesterdayCloseMap, historicalFxMap, null, invalidTickers);
+        const holdings = this.calculateHoldings(assets, yesterdayCloseMap, historicalFxMap, null, invalidTickers);
         const summary = this.calculateSummary(holdings);
-        const cashReserve = { total: 0, byBroker: {} };
+        const cashReserve = this.calculateCashReserve(cash);
 
         const resolvedTicker = ticker || assetPurchases[0]?.ticker || null;
         const portfolioSnapshot = this.buildPortfolioSnapshot({

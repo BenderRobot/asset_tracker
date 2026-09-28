@@ -26,6 +26,7 @@
 // dataManager.buildTodaySnapshot's own doc comment for the full audit).
 
 import { eventBus } from './eventBus.js';
+import { performanceSeries, periodPerformance } from './financialSeries.js';
 import { ChartKPIManager } from './chartKPIManager.js?v=6';
 import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
@@ -44,7 +45,7 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // storage.getAssetType).
 // Version 18: transaction markers are positioned by point index and carry
 // their side (buy/sell). Version 19 adds periodPnlWithDividends.
-const HISTORY_CHART_CACHE_VERSION = 20;
+const HISTORY_CHART_CACHE_VERSION = 21;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 // IndexedDB is not bound by the ~5 MB localStorage quota shared by the app:
 // every period of the portfolio and of recently viewed assets fits.
@@ -126,11 +127,7 @@ export class HistoricalChart {
     // Broker-comparable performance: security-only TWR. HistoryCalculator
     // excludes cash and emits null for every incomplete portfolio valuation.
     _getPortfolioPerformanceSeries(graphData) {
-        const twr = this.includeDividends && Array.isArray(graphData.twrWithDividends)
-            ? graphData.twrWithDividends
-            : graphData.twr;
-        if (!Array.isArray(twr)) return null;
-        return twr.map(value => Number.isFinite(value) ? (value - 1) * 100 : null);
+        return performanceSeries(graphData, this.includeDividends);
     }
 
     _getPortfolioPeriodPnlSeries(graphData) {
@@ -141,9 +138,9 @@ export class HistoricalChart {
     }
 
     _getPortfolioReturnSeries(graphData) {
-        return this.includeDividends && Array.isArray(graphData.totalReturnWithDividends)
-            ? graphData.totalReturnWithDividends
-            : graphData.totalReturn;
+        // Unrealised position gain, matching the live Total Return definition.
+        // Dividend income belongs to the separate period-performance metric.
+        return graphData.totalReturn;
     }
 
     destroy() {
@@ -360,17 +357,13 @@ export class HistoricalChart {
 
     _isValidHistoryData(data) {
         if (!data || data.dataQuality?.valid === false || !Array.isArray(data.labels) || !data.labels.length) return false;
-        const values = this.currentMode === 'asset' && Array.isArray(data.unitPrices) && data.unitPrices.length
+        const values = this.currentMode === 'asset' && Number.isFinite(data.unitPrices?.at(-1))
             ? data.unitPrices
             : data.values;
         if (!Array.isArray(values) || values.length !== data.labels.length) return false;
         const lastValue = values.at(-1);
         if (lastValue === null || lastValue === undefined || !Number.isFinite(Number(lastValue))) return false;
-        if (this.currentMode === 'portfolio') {
-            if (!Array.isArray(data.twr) || data.twr.length !== data.labels.length) return false;
-            const lastTwr = data.twr.at(-1);
-            if (lastTwr === null || lastTwr === undefined || !Number.isFinite(Number(lastTwr))) return false;
-        }
+        // A cash-only value is traceable even when security TWR is undefined.
         return true;
     }
 
@@ -896,11 +889,7 @@ export class HistoricalChart {
                 if (forceApi) await this.dataManager.repository.getPrice(currentTicker, { forceRefresh: true });
 
                 const pagePurchases = this.getFilteredPurchasesFromPage(false);
-                const targetAssetPurchases = pagePurchases.filter(p => {
-                    const type = (p.assetType || 'Stock').toLowerCase();
-                    return p.ticker.toUpperCase() === currentTicker.toUpperCase() &&
-                        type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-                });
+                const targetAssetPurchases = this.dataManager.getAssetHistoryPurchases(pagePurchases, currentTicker);
 
                 // ATH: complete history of this asset, prefetched now so it builds
                 // in parallel with the period history below (see _getAthHistory).
@@ -954,14 +943,7 @@ export class HistoricalChart {
             } else {
                 titleConfig = this.investmentsPage.getChartTitleConfig();
                 const allPurchases = this.getFilteredPurchasesFromPage(false);
-                const assetPurchases = allPurchases.filter(p => {
-                    const type = (p.assetType || 'Stock').toLowerCase();
-                    return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend' && type !== 'real estate';
-                });
-                const cashPurchases = allPurchases.filter(p => {
-                    const type = (p.assetType || 'Stock').toLowerCase();
-                    return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-                });
+                const { assets: assetPurchases, cash: cashPurchases } = this.dataManager.splitCanonicalPurchases(allPurchases);
 
                 // Whole ledger of the view (securities + cash) — shared by the period
                 // history below and the ATH's all-time history, which is prefetched
@@ -1300,7 +1282,7 @@ export class HistoricalChart {
         const dividendBtn = container.querySelector('.chart-chip');
         dividendBtn?.classList.toggle('active', this.includeDividends);
         dividendBtn?.setAttribute('aria-pressed', String(this.includeDividends));
-        container.style.display = (!isSingleAssetMode && !isIndexMode) ? '' : 'none';
+        container.style.display = !isIndexMode ? '' : 'none';
     }
 
     // ========================================================
@@ -1324,8 +1306,7 @@ export class HistoricalChart {
         const displayValues = isUnitView ? graphData.unitPrices : graphData.values;
         const decimals = (isUnitView || isIndexMode) ? 4 : 2;
 
-        const isMeaningfulPoint = (v) => v !== null && Number.isFinite(Number(v)) &&
-            (isIndexMode || isUnitView || Math.abs(Number(v)) > 1e-9);
+        const isMeaningfulPoint = (v) => v !== null && v !== undefined && Number.isFinite(Number(v));
         let firstIndex = displayValues.findIndex(isMeaningfulPoint);
         let lastIndex = displayValues.length - 1;
         while (lastIndex >= 0 && !isMeaningfulPoint(displayValues[lastIndex], lastIndex)) lastIndex--;
@@ -1672,6 +1653,10 @@ export class HistoricalChart {
             : graphData.totalReturnPct?.[idx];
         if (totalReturn != null && !isNaN(totalReturn)) {
             rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(canonicalPct), positive: totalReturn >= 0 });
+        }
+        const period = periodPerformance(graphData, { includeDividends: this.includeDividends, lastIndex: idx });
+        if (period.amount !== null || period.percent !== null) {
+            rows.push({ label: 'Période', eur: eurFmt(period.amount), pct: pctFmt(period.percent), positive: period.amount >= 0 });
         }
 
         // En vue 1D, HistoryCalculator fournit une Var Today explicite pour

@@ -268,7 +268,7 @@ export class ChartKPIManager {
     }
 
     _fmtPct(n) {
-        if (!Number.isFinite(Number(n))) return '—';
+        if (n === null || n === undefined || !Number.isFinite(Number(n))) return '—';
         const value = Number(n);
         return `${value > 0 ? '+' : ''}${value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`;
     }
