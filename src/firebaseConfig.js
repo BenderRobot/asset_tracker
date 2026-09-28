@@ -23,4 +23,26 @@ const db = firebase.firestore(); // Si vous utilisez Firestore plus tard
 // VAPID Key for FCM (Firebase Cloud Messaging)
 const VAPID_KEY = 'BJnN3DZD50ykqv7DYcDrl-MkhifND4orSwjNPB72tcll7P5yL0_2anaz_bPS742o_rtW3LhWMwXxQWduY0ms8AE';
 
-export { auth, db, firebaseConfig, VAPID_KEY };
+// Resolves once Firebase has restored the persisted session. Before that,
+// auth.currentUser is null even for a signed-in user, so every per-user cache
+// (market snapshot, chart series) would be read under an "anonymous" scope and
+// miss. Bounded so a stalled SDK never blocks the page.
+let authReadyPromise = null;
+function authReady(timeoutMs = 5000) {
+    return authReadyPromise ||= new Promise(resolve => {
+        let settled = false;
+        let unsubscribe = null;
+        const finish = user => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            unsubscribe?.();
+            resolve(user || null);
+        };
+        const timer = setTimeout(() => finish(auth.currentUser), timeoutMs);
+        unsubscribe = auth.onAuthStateChanged(finish);
+        if (settled) unsubscribe?.();
+    });
+}
+
+export { auth, db, firebaseConfig, VAPID_KEY, authReady };

@@ -681,6 +681,8 @@ export class PriceAPI {
     // for each historical date. Keeping a live-FX value in this layer caused a
     // second conversion downstream and distorted portfolio TWR.
     const pointKey = `native-v1:${formatted}|gold:${goldReference ?? 'none'}`;
+    // Points already known from a previous page/session (IndexedDB hydration).
+    if (deltaEligible) await historicalPointStore.ready;
     const plan = deltaEligible
       ? historicalPointStore.planFetch(pointKey, interval, startTs, endTs)
       : { plan: 'full', fetchStartTs: startTs, fetchEndTs: endTs };

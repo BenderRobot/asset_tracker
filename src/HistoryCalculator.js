@@ -38,7 +38,7 @@
 import { parseDate } from './utils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { getGlobalWindow } from './TimeRangeEngine.js';
-import { getHistoricalFetchFailureDetails, isHistoricalFetchFailure } from './api.js?v=11';
+import { getHistoricalFetchFailureDetails, isHistoricalFetchFailure } from './api.js?v=12';
 import {
     getIntervalForPeriod,
     getLabelFormat,

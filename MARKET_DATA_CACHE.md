@@ -24,9 +24,17 @@ Legacy marketData snapshot reads now share a document/promise. This is not a
 distributed leader lease across devices; Worker caching reduces their upstream load.
 
 Raw provider responses are cached in memory and IndexedDB (200 response limit).
-Daily transformed points retain the existing financial transformation, segregated
-by FX rate and ticker/interval; their bounded localStorage cache is best effort.
+Daily native points (historicalPointStore, per ticker/interval) are persisted in
+IndexedDB (400 buckets, debounced writes, flushed on pagehide); a previous
+localStorage copy is migrated once. Without IndexedDB they stay in localStorage.
 A missing/quota-blocked cache falls back to the network, never synthetic prices.
+
+Chart series (every period except 1D, which is the canonical snapshot) are
+persisted per UID in IndexedDB (48 series, one record each plus an eviction
+index) and shared by the Dashboard and Investments pages: a series built on one
+page is painted immediately on the other. Legacy localStorage series are
+migrated on first load. Pages wait for Firebase to restore the session before
+the first render, otherwise every per-user cache was read as "anonymous".
 
 ## Freshness
 
@@ -39,6 +47,11 @@ A missing/quota-blocked cache falls back to the network, never synthetic prices.
 - Delta daily only: explicit successful range, weekday-gap rejection, 3-day overlap.
   Empty delta is an unavailable result, not a complete historical series.
 - Weekly/monthly intervals: complete requests with TTL, no speculative delta merge.
+- Chart series: served immediately, then rebuilt in the background only when
+  the period TTL has elapsed AND a new point can exist: the civil day changed, a
+  24/7 asset is held, or one of the series' markets traded or closed less than
+  30 minutes before the series was built. A series built after the close is
+  kept as-is until the next session. A refresh keeps the painted chart visible.
 
 Exchange holidays with insufficient provider information conservatively cause a
 full fetch. Source corrections outside the overlapping tail are picked up at archive

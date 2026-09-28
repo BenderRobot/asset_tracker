@@ -4,16 +4,17 @@
 // app.js - (v13 - FIX INDICES LOADING)
 // ========================================
 import { Storage } from './storage.js?v=5';
-import { PriceAPI } from './api.js?v=11';
+import { PriceAPI } from './api.js?v=12';
 import { UIComponents } from './ui.js?v=5';
 import { FilterManager } from './filters.js';
 import { AchatsPage } from './achatsPage.js?v=7';
 import { InvestmentsPage } from './investmentsPage.js?v=18';
-import { HistoricalChart } from './historicalChart.js?v=49';
+import { HistoricalChart } from './historicalChart.js?v=50';
 import { DataManager } from './dataManager.js?v=35';
 import { initMarketStatus } from './marketStatus.js?v=3';
 import { ASSET_TYPES, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED, DASHBOARD_INDICES, PRICE_PROXY_URL } from './config.js';
 import { getBrokers, getBrokersSync, fillSelect, attachAddBrokerHandler } from './brokerService.js';
+import { authReady } from './firebaseConfig.js';
 
 
 class App {
@@ -84,7 +85,10 @@ class App {
   async init() {
     console.log('Initialisation de l\'application...');
 
-    await this.initConversionRates();
+    // Per-user caches (snapshot, chart series) are scoped by UID: rendering
+    // before Firebase restores the session read them as "anonymous" and
+    // rebuilt everything from the network. Same wait as the Dashboard.
+    await Promise.all([authReady(), this.initConversionRates()]);
 
     this.storage.cleanExpiredCache();
     this.filterManager.updateTickerFilter(() => this.renderCurrentPage());
@@ -123,8 +127,11 @@ class App {
       }
     }
 
-    console.log('Lancement du rafraîchissement des prix en arrière-plan...');
-    this.refreshPrices().then(() => {
+    // Investments: the first chart update above already revalidates a stale
+    // snapshot in the background (MarketDataRepository SWR) and repaints via
+    // its subscription. A forced refresh here re-fetched every live price and
+    // hid the chart that was just painted from cache.
+    if (!this.isInvestmentsPage()) this.refreshPrices().then(() => {
       console.log('Mise à jour des prix terminée. Le tableau est mis à jour.');
       this.renderCurrentPage(false);
     }).catch(error => {
@@ -711,7 +718,8 @@ class App {
 
     try {
       if (this.isInvestmentsPage() && this.historicalChart) {
-        await this.historicalChart.update(showLoading, true);
+        // Keep the painted chart visible while it is being refreshed.
+        await this.historicalChart.update(showLoading && !this.historicalChart.chart, true);
       } else {
         const purchases = this.storage.getPurchases();
         let tickers = [...new Set(purchases

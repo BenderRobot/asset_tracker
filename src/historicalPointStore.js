@@ -1,18 +1,54 @@
 // Conservative daily coverage cache. Weekly/monthly open bars are not immutable.
+import { cacheGet, cacheSet, isPersistentCacheAvailable } from './persistentCache.js';
+
 const STORAGE_KEY = 'historicalPointStore_v2';
 const DAY = 86400000;
-const MAX_BUCKETS = 80;
+// localStorage is shared by every cache of the app (~5 MB); IndexedDB is not.
+const MAX_BUCKETS_LOCAL = 80;
+const MAX_BUCKETS_PERSISTENT = 400;
+const PERSIST_DEBOUNCE_MS = 300;
 export const isDeltaFetchEligible = interval => interval === '1d';
 const keyFor = (ticker, interval) => `${ticker.toUpperCase()}|${interval}`;
 export class HistoricalPointStore {
   constructor() {
-    try { this._buckets = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
-    catch { this._buckets = {}; }
+    this._persistent = isPersistentCacheAvailable();
+    this._timer = null;
+    let legacy = null;
+    try { legacy = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { legacy = null; }
+    this._buckets = legacy || {};
+    if (!this._persistent) { this.ready = Promise.resolve(); return; }
+    // A navigation right after a burst of merges must not lose the write.
+    globalThis.addEventListener?.('pagehide', () => this.flush());
+    // Closed daily points survive across pages and sessions in IndexedDB.
+    // Buckets merged before hydration completes keep the most recent fetch.
+    this.ready = cacheGet(STORAGE_KEY).then(stored => {
+      for (const [key, bucket] of Object.entries(stored || {})) {
+        if (!this._buckets[key] || (bucket?.fetchedAt || 0) > (this._buckets[key].fetchedAt || 0)) this._buckets[key] = bucket;
+      }
+      if (legacy) {
+        // One-time migration: free the shared localStorage quota.
+        try { localStorage.removeItem(STORAGE_KEY); } catch { /* best effort */ }
+        this._persist();
+      }
+    }).catch(() => { /* memory only */ });
   }
   _persist() {
+    const max = this._persistent ? MAX_BUCKETS_PERSISTENT : MAX_BUCKETS_LOCAL;
     const keys = Object.keys(this._buckets).sort((a,b) => this._buckets[b].fetchedAt - this._buckets[a].fetchedAt);
-    keys.slice(MAX_BUCKETS).forEach(key => delete this._buckets[key]);
+    keys.slice(max).forEach(key => delete this._buckets[key]);
+    if (this._persistent) {
+      // Several tickers merge in the same burst: write once, off the hot path.
+      clearTimeout(this._timer);
+      this._timer = setTimeout(() => this.flush(), PERSIST_DEBOUNCE_MS);
+      return;
+    }
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this._buckets)); } catch { /* memory only */ }
+  }
+  flush() {
+    if (!this._timer) return;
+    clearTimeout(this._timer);
+    this._timer = null;
+    void cacheSet(STORAGE_KEY, this._buckets);
   }
   planFetch(ticker, interval, startTs, endTs, now = Date.now()) {
     const full = { plan: 'full', fetchStartTs: startTs, fetchEndTs: endTs };

@@ -159,7 +159,9 @@ describe('Historical chart robustness and cache', () => {
         await seed._getCachedHistory('portfolio', rows, 2, async () => oldData);
         const storageKey = seed._historyStorageKey();
         const persisted = JSON.parse(localStorage.getItem(storageKey));
-        Object.values(persisted)[0].createdAt = Date.now() - 10 * 60_000;
+        // Built on a previous civil day: stale whatever the market hours are
+        // (within the same day, freshness also depends on market sessions).
+        Object.values(persisted)[0].createdAt = Date.now() - 2 * 86_400_000;
         localStorage.setItem(storageKey, JSON.stringify(persisted));
 
         let release;

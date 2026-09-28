@@ -32,6 +32,8 @@ import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js';
 import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js?v=2';
 import { mountViewToggle } from './chartViewToggle.js?v=1';
+import { marketCalendarEngine } from './MarketCalendarEngine.js';
+import { cacheDelete, cacheGet, cacheSet, isPersistentCacheAvailable } from './persistentCache.js';
 
 const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -42,6 +44,12 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // storage.getAssetType).
 const HISTORY_CHART_CACHE_VERSION = 17;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
+// IndexedDB is not bound by the ~5 MB localStorage quota shared by the app:
+// every period of the portfolio and of recently viewed assets fits.
+const HISTORY_CHART_PERSISTENT_MAX_ENTRIES = 48;
+const HISTORY_CHART_MEMORY_MAX_ENTRIES = 32;
+// Provider daily/intraday candles of a session are settled after its close.
+const MARKET_SETTLE_MS = 30 * 60_000;
 const ATH_RETRY_DELAY_MS = 5 * 60 * 1000;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
@@ -101,6 +109,7 @@ export class HistoricalChart {
         this._athPending = new Set();
         this._athFailedAt = new Map();
         this._athRepaintKeys = new Set();
+        this._migrateLegacyHistory();
 
         this._onShowAsset = (e) => {
             this.showAssetChart(e.detail.ticker);
@@ -199,12 +208,53 @@ export class HistoricalChart {
         return (hash >>> 0).toString(36);
     }
 
+    // Moves series persisted in localStorage by previous versions to IndexedDB
+    // (same keys and signatures), then frees the shared localStorage quota.
+    _migrateLegacyHistory() {
+        if (!isPersistentCacheAvailable()) return;
+        let keys = [];
+        try {
+            keys = Object.keys(localStorage).filter(k => k.startsWith('historicalChart_snapshots_v'));
+        } catch { return; }
+        const current = `historicalChart_snapshots_v${HISTORY_CHART_CACHE_VERSION}:`;
+        for (const storageKey of keys) {
+            let store = null;
+            try { if (storageKey.startsWith(current)) store = JSON.parse(localStorage.getItem(storageKey), historyDecode); } catch { store = null; }
+            try { localStorage.removeItem(storageKey); } catch { /* best effort */ }
+            if (!store) continue;
+            const write = async () => {
+                const index = { ...((await cacheGet(`${storageKey}:index`)) || {}) };
+                for (const [id, record] of Object.entries(store)) {
+                    if (index[id] >= record?.createdAt) continue;
+                    if (await cacheSet(`${storageKey}:${id}`, record)) index[id] = record.createdAt;
+                }
+                await cacheSet(`${storageKey}:index`, index);
+            };
+            this._persistQueue = (this._persistQueue || Promise.resolve()).then(write, write);
+            this._legacyMigration = this._persistQueue;
+        }
+    }
+
+    _isUsablePersistedEntry(entry, key) {
+        return entry?.signature === key && this._isValidHistoryData(entry.data) &&
+            Number.isFinite(entry.createdAt) && entry.createdAt <= Date.now();
+    }
+
+    // Asynchronous IndexedDB read. Series persisted by the other page are
+    // reused here; the localStorage fallback is read by _readPersistentHistory.
+    async _loadPersistentHistory(key, period) {
+        if (period === 1 || !isPersistentCacheAvailable()) return null;
+        if (this._legacyMigration) await this._legacyMigration;
+        const entry = await cacheGet(`${this._historyStorageKey()}:${this._historyCacheId(key)}`);
+        return this._isUsablePersistedEntry(entry, key) ? entry : null;
+    }
+
     _readPersistentHistory(key) {
+        if (isPersistentCacheAvailable()) return null;
         try {
             const store = JSON.parse(localStorage.getItem(this._historyStorageKey()), historyDecode) || {};
             const entry = store[this._historyCacheId(key)];
-            if (entry?.signature === key && this._isValidHistoryData(entry.data) &&
-                Number.isFinite(entry.createdAt) && entry.createdAt <= Date.now()) return entry;
+            if (this._isUsablePersistedEntry(entry, key)) return entry;
         } catch { /* corrupt/unavailable storage is a normal cache miss */ }
         return null;
     }
@@ -213,27 +263,90 @@ export class HistoricalChart {
         // 1D belongs to the canonical live snapshot cache. Persisting it here
         // would duplicate volatile financial state in a visual cache.
         if (period === 1) return;
+        // Raw per-ticker candles and diagnostic provenance are already
+        // persisted by the market-data layer and can be very large. The
+        // chart snapshot stores only the final canonical series needed to
+        // paint the graph and its period KPIs.
+        const {
+            historicalDataMap: _rawCandles,
+            resolvedPrices: _resolvedPrices,
+            perTickerYesterdayClose: _perTickerClose,
+            pointMeta: _pointMeta,
+            ...renderData
+        } = entry.data;
+        const record = { signature: key, createdAt: entry.createdAt, data: renderData };
+        if (isPersistentCacheAvailable()) {
+            // IndexedDB rejects non-cloneable values; JSON drops them, as the
+            // localStorage cache always did.
+            try { structuredClone(renderData); }
+            catch { record.data = JSON.parse(JSON.stringify(renderData, historyEncode), historyDecode); }
+            void this._persistHistoryEntry(key, record);
+            return;
+        }
         try {
             const storageKey = this._historyStorageKey();
             const store = JSON.parse(localStorage.getItem(storageKey), historyDecode) || {};
-            // Raw per-ticker candles and diagnostic provenance are already
-            // persisted by the market-data layer and can be very large. The
-            // chart snapshot stores only the final canonical series needed to
-            // paint the graph and its period KPIs.
-            const {
-                historicalDataMap: _rawCandles,
-                resolvedPrices: _resolvedPrices,
-                perTickerYesterdayClose: _perTickerClose,
-                pointMeta: _pointMeta,
-                ...renderData
-            } = entry.data;
-            store[this._historyCacheId(key)] = { signature: key, createdAt: entry.createdAt, data: renderData };
+            store[this._historyCacheId(key)] = record;
             const ids = Object.keys(store).sort((a, b) => (store[b]?.createdAt || 0) - (store[a]?.createdAt || 0));
             ids.slice(HISTORY_CHART_CACHE_MAX_ENTRIES).forEach(id => delete store[id]);
             localStorage.setItem(storageKey, JSON.stringify(store, historyEncode));
         } catch {
             // Quota/storage failure never invalidates the in-memory graph.
         }
+    }
+
+    // One IndexedDB record per series plus a small index used for eviction.
+    // Writes are serialized so concurrent commits never lose index entries.
+    _persistHistoryEntry(key, record) {
+        const storageKey = this._historyStorageKey();
+        const id = this._historyCacheId(key);
+        const write = async () => {
+            if (!(await cacheSet(`${storageKey}:${id}`, record))) return;
+            const index = { ...((await cacheGet(`${storageKey}:index`)) || {}), [id]: record.createdAt };
+            const ids = Object.keys(index).sort((a, b) => index[b] - index[a]);
+            for (const evicted of ids.slice(HISTORY_CHART_PERSISTENT_MAX_ENTRIES)) {
+                delete index[evicted];
+                await cacheDelete(`${storageKey}:${evicted}`);
+            }
+            await cacheSet(`${storageKey}:index`, index);
+        };
+        this._persistQueue = (this._persistQueue || Promise.resolve()).then(write, write);
+        return this._persistQueue;
+    }
+
+    // Tickers whose market can move this series (cash/dividend lines cannot).
+    _historyTickers(key) {
+        try {
+            const [scope, , ledger] = JSON.parse(key);
+            const tickers = new Set();
+            if (typeof scope === 'string' && scope.startsWith('asset:')) tickers.add(scope.slice(6).toUpperCase());
+            for (const [ticker, , , , type, assetType] of ledger || []) {
+                const kind = String(assetType || 'Stock').toLowerCase();
+                if (type === 'dividend' || ['cash', 'dividend', 'real estate'].includes(kind)) continue;
+                if (ticker) tickers.add(String(ticker).toUpperCase());
+            }
+            return [...tickers];
+        } catch { return null; }
+    }
+
+    // Past points never change: a series is only worth rebuilding when a new
+    // point can exist, i.e. one of its markets traded (or settled its close)
+    // after the series was built, or the civil day changed (sliding window).
+    _isHistoryStale(key, entry, period, now = Date.now()) {
+        if (now - entry.createdAt < this._historyCacheTtl(period)) return false;
+        if (new Date(entry.createdAt).toDateString() !== new Date(now).toDateString()) return true;
+        const tickers = this._historyTickers(key);
+        if (!tickers) return true;
+        try {
+            return tickers.some(ticker => {
+                if (marketCalendarEngine.getTradingModel(ticker) === 'crypto_24_7') return true;
+                if (marketCalendarEngine.isMarketOpen(ticker, now)) return true;
+                let session = marketCalendarEngine.getSession(ticker, new Date(now));
+                if (!session || session.openUTCMs > now) session = marketCalendarEngine.getPreviousTradingSession(ticker, new Date(now));
+                const lastClose = session?.closeUTCMs;
+                return !Number.isFinite(lastClose) || entry.createdAt < lastClose + MARKET_SETTLE_MS;
+            });
+        } catch { return true; }
     }
 
     _isValidHistoryData(data) {
@@ -256,7 +369,7 @@ export class HistoricalChart {
         if (!this._isValidHistoryData(data)) return false;
         const entry = { createdAt: Date.now(), data };
         this._historyCache.set(key, entry);
-        while (this._historyCache.size > 12) this._historyCache.delete(this._historyCache.keys().next().value);
+        while (this._historyCache.size > HISTORY_CHART_MEMORY_MAX_ENTRIES) this._historyCache.delete(this._historyCache.keys().next().value);
         this._persistHistory(key, entry, period);
         return true;
     }
@@ -288,7 +401,7 @@ export class HistoricalChart {
             if (cached) this._historyCache.set(key, cached);
         }
         if (!cached) return null;
-        if (Date.now() - cached.createdAt >= this._historyCacheTtl(period)) this._refreshCachedHistory(key, period, producer);
+        if (this._isHistoryStale(key, cached, period)) this._refreshCachedHistory(key, period, producer);
         return cached.data;
     }
 
@@ -297,6 +410,15 @@ export class HistoricalChart {
         const cached = this._peekCachedHistory(key, period, producer);
         if (cached) return cached;
         if (this._historyInFlight.has(key)) return this._historyInFlight.get(key);
+        // Series already built on the other page (or a previous session).
+        // Without IndexedDB, _peekCachedHistory already read localStorage.
+        if (period !== 1 && isPersistentCacheAvailable()) {
+            const persisted = await this._loadPersistentHistory(key, period);
+            if (persisted && !this._historyCache.has(key)) this._historyCache.set(key, persisted);
+            const restored = this._peekCachedHistory(key, period, producer);
+            if (restored) return restored;
+            if (this._historyInFlight.has(key)) return this._historyInFlight.get(key);
+        }
 
         const promise = producer().then(data => {
             this._commitHistory(key, data, period);
