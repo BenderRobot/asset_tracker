@@ -224,7 +224,7 @@ export class HistoryCalculator {
         });
 
         const purchasePoints = isSingleAsset
-            ? this._buildPurchasePoints(ledger, tickers[0], displayTimestamps, series.labels, days, win, dynamicRate, historicalFxMap)
+            ? this._buildPurchasePoints(ledger, tickers[0], displayTimestamps, series.labels, days, win, dynamicRate, historicalFxMap, series.unitPrices)
             : [];
 
         // FAIL-CLOSED (audit incident 2026-09-23) : quand dataQuality.valid ===
@@ -1596,26 +1596,57 @@ export class HistoryCalculator {
     // ========================================================
     // 9. Purchase markers (single-asset unit-price view)
     // ========================================================
-    _buildPurchasePoints(ledger, ticker, displayTimestamps, labels, days, win, dynamicRate, historicalFxMap = null) {
+    // `x` is the index of the displayed point, never its label: intraday
+    // periods repeat the same label ("24 sept. 26") on every candle of a day,
+    // and Chart.js resolves a duplicated category label to the dataset index
+    // (the marker then landed on the first point of the chart).
+    _buildPurchasePoints(ledger, ticker, displayTimestamps, labels, days, win, dynamicRate, historicalFxMap = null, unitPrices = null) {
         const points = [];
         const entries = ledger.byTicker.get(ticker) || [];
         const endTs = (win.displayEndTs === Infinity) ? Date.now() : win.displayEndTs;
         const tolerance = (days === 1) ? 2 * 3600000 : 4 * DAY_MS;
+        // Transactions carry a civil date only ("YYYY-MM-DD" parses to UTC
+        // midnight, "DD/MM/YYYY" to local midnight); candles are compared on
+        // the portfolio's civil day.
+        const pad = n => String(n).padStart(2, '0');
+        const txDay = d => (d.getUTCHours() === 0 && d.getUTCMinutes() === 0)
+            ? `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
+            : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        const candleDayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' });
+        const candleDays = displayTimestamps.map(ts => candleDayFmt.format(new Date(ts)));
 
         for (const entry of entries) {
             const buyTs = entry.date.getTime();
-            if (buyTs < win.displayStartTs || buyTs > endTs) continue;
+            if (!(entry.quantity) || buyTs < win.displayStartTs || buyTs > endTs) continue;
+            const rate = entry.currency === 'USD'
+                ? resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker, broker: entry.broker })
+                : 1;
+            const price = entry.price * rate;
 
-            let closestIdx = -1, minDiff = Infinity;
-            for (let i = 0; i < displayTimestamps.length; i++) {
-                const diff = Math.abs(displayTimestamps[i] - buyTs);
-                if (diff < minDiff) { minDiff = diff; closestIdx = i; }
+            // Same civil day: the candle whose price is closest to the
+            // executed price (no execution time is recorded).
+            const day = txDay(entry.date);
+            let closestIdx = -1, best = Infinity;
+            for (let i = 0; i < candleDays.length; i++) {
+                if (candleDays[i] !== day) continue;
+                const unit = unitPrices?.[i];
+                const diff = Number.isFinite(unit) ? Math.abs(unit - price) : Math.abs(displayTimestamps[i] - buyTs) / DAY_MS;
+                if (diff < best) { best = diff; closestIdx = i; }
             }
-            if (closestIdx !== -1 && minDiff <= tolerance) {
-                const rate = entry.currency === 'USD'
-                    ? resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker, broker: entry.broker })
-                    : 1;
-                points.push({ x: labels[closestIdx], y: entry.price * rate, quantity: entry.quantity, date: entry.date });
+            // Non-trading day (weekend/holiday order date): nearest point.
+            if (closestIdx === -1) {
+                let minDiff = Infinity;
+                for (let i = 0; i < displayTimestamps.length; i++) {
+                    const diff = Math.abs(displayTimestamps[i] - buyTs);
+                    if (diff < minDiff) { minDiff = diff; closestIdx = i; }
+                }
+                if (minDiff > tolerance) closestIdx = -1;
+            }
+            if (closestIdx !== -1) {
+                points.push({
+                    x: closestIdx, y: price, label: labels[closestIdx],
+                    quantity: Math.abs(entry.quantity), side: entry.quantity < 0 ? 'sell' : 'buy', date: entry.date
+                });
             }
         }
         return points;

@@ -42,7 +42,9 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // Version 17 drops single-point series of distributing assets whose price
 // history had been skipped (dividend record read as the ticker's type — see
 // storage.getAssetType).
-const HISTORY_CHART_CACHE_VERSION = 17;
+// Version 18: transaction markers are positioned by point index and carry
+// their side (buy/sell).
+const HISTORY_CHART_CACHE_VERSION = 18;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 // IndexedDB is not bound by the ~5 MB localStorage quota shared by the app:
 // every period of the portfolio and of recently viewed assets fits.
@@ -1625,6 +1627,7 @@ export class HistoricalChart {
             if (isUnitView && this.currentPeriod === 1) {
                 this._pushDayPnlRow(rows, idx, graphData, eurFmt, pctFmt);
             }
+            if (isUnitView) this._pushTransactionRows(rows, idx, graphData, eurFmt);
             return rows;
         }
 
@@ -1664,6 +1667,20 @@ export class HistoricalChart {
 
         this._pushBenchmarkRows(rows, idx, pct, opts);
         return rows;
+    }
+
+    // Buys/sells executed on the hovered point: quantity and unit price.
+    _pushTransactionRows(rows, idx, graphData, eurFmt) {
+        const qtyFmt = n => n.toLocaleString('fr-FR', { maximumFractionDigits: 6 });
+        for (const p of graphData.purchasePoints || []) {
+            if (p.x !== idx || !Number.isFinite(p.y)) continue;
+            const sell = p.side === 'sell';
+            const qty = Number(p.quantity);
+            rows.push({
+                label: `${sell ? 'Vente' : 'Achat'} · ${Number.isFinite(qty) ? qtyFmt(qty) : '?'} ${qty > 1 ? 'parts' : 'part'}`,
+                eur: eurFmt(p.y), pct: null, positive: !sell
+            });
+        }
     }
 
     _pushDayPnlRow(rows, idx, graphData, eurFmt, pctFmt) {
@@ -1741,7 +1758,9 @@ export class HistoricalChart {
             el.classList.remove('visible');
             return;
         }
-        const dataPoints = tt.dataPoints.filter(dp => dp.dataset.label !== 'Base 0%');
+        // Transaction markers are listed by _pushTransactionRows, not as a
+        // curve value.
+        const dataPoints = tt.dataPoints.filter(dp => dp.dataset.label !== 'Base 0%' && !dp.dataset.isTransactionMarker);
         if (!dataPoints.length) { el.classList.remove('visible'); return; }
 
         const idx = dataPoints[0].dataIndex;
@@ -1916,7 +1935,28 @@ export class HistoricalChart {
                 datasets.push({ label: 'PRU', data: Array(graphData.labels.length).fill(avgPrice), borderColor: '#FF9F43', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
             }
             if (isUnitView && graphData.purchasePoints?.length) {
-                datasets.push({ type: 'scatter', label: "Points d'achat", data: graphData.purchasePoints, backgroundColor: '#FFFFFF', borderColor: '#3b82f6', borderWidth: 2, pointRadius: 5, pointHoverRadius: 8, parsing: { yAxisKey: 'y' } });
+                // Buys ▲ green, sells ▼ red. `x` is the point index (see
+                // HistoryCalculator._buildPurchasePoints).
+                const markers = [
+                    { side: 'buy', label: 'Achats', color: '#20c997', rotation: 0 },
+                    { side: 'sell', label: 'Ventes', color: '#ff5c5c', rotation: 180 }
+                ];
+                for (const m of markers) {
+                    // Aligned on the labels: Chart.js 4 resolves both a
+                    // duplicated category label and a numeric x to the
+                    // dataset index, never to the axis position.
+                    const data = Array(graphData.labels.length).fill(null);
+                    for (const p of graphData.purchasePoints) {
+                        if ((p.side || 'buy') === m.side && Number.isInteger(p.x) && p.x < data.length) data[p.x] = p.y;
+                    }
+                    if (!data.some(v => v !== null)) continue;
+                    datasets.push({
+                        label: m.label, data, isTransactionMarker: true, showLine: false, spanGaps: false, fill: false,
+                        pointStyle: 'triangle', rotation: m.rotation,
+                        backgroundColor: m.color, borderColor: '#0b1220', borderWidth: 1.5,
+                        pointRadius: 7, pointHoverRadius: 9
+                    });
+                }
             }
         }
 
