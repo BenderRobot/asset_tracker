@@ -426,6 +426,13 @@ async function handleConnect(request, env, origin) {
   } catch (err) {
     return jsonResponse({ error: `Token Firebase invalide : ${err.message}` }, 401, origin);
   }
+  // SECURITY FIX (audit P1) : tout compte Firebase du projet a un token
+  // valide ; seul un compte invité (claim posé par redeemInvitation) peut
+  // lancer une connexion bancaire. Le /callback reste lié à ce contrôle via
+  // le `state` signé, émis uniquement ici.
+  if (firebasePayload.invited !== true) {
+    return jsonResponse({ error: 'Compte non invité' }, 403, origin);
+  }
 
   const body = await request.json().catch(() => ({}));
   const { aspspName, aspspCountry } = body;

@@ -1,4 +1,5 @@
 import { auth, db } from './firebaseConfig.js';
+import { callAdminFunction } from './accessClaims.js';
 
 // ── n8n Webhook ───────────────────────────────────────────────────────────
 // Colle l'URL de ton webhook n8n ici (Webhook node → "Test URL" ou "Production URL")
@@ -46,6 +47,7 @@ function init() {
     setupTabs();
     setupGenerateBtn();
     setupEmailModal();
+    setupClaimsSync();
     loadCodes();
     loadUsers();
     loadStats();
@@ -68,8 +70,40 @@ function setupTabs() {
 
 function generateRandomCode() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const rand = (n) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const rand = (n) => Array.from(crypto.getRandomValues(new Uint32Array(n)), v => chars[v % chars.length]).join('');
     return `INV-${rand(4)}-${rand(4)}`;
+}
+
+// ── Safe DOM helpers ──────────────────────────────────────────────────────
+// Les champs affichés ici (usedBy, email, invitationCode…) proviennent de
+// documents qu'un utilisateur a pu écrire : ils ne passent JAMAIS par
+// innerHTML, uniquement par textContent via el().
+
+function el(tag, props = {}, children = []) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(props)) {
+        if (value == null) continue;
+        if (key === 'className') node.className = value;
+        else if (key === 'text') node.textContent = value;
+        else if (key === 'style') node.style.cssText = value;
+        else if (key === 'dataset') Object.assign(node.dataset, value);
+        else if (key.startsWith('on')) node.addEventListener(key.slice(2).toLowerCase(), value);
+        else node.setAttribute(key, value);
+    }
+    for (const child of [].concat(children)) {
+        if (child == null || child === false) continue;
+        node.append(child instanceof Node ? child : String(child));
+    }
+    return node;
+}
+
+function iconButton(iconClass, title, onClick, danger = false) {
+    return el('button', { className: danger ? 'btn-icon danger' : 'btn-icon', title, onClick },
+        el('i', { className: iconClass }));
+}
+
+function showListError(container, err) {
+    container.replaceChildren(el('p', { style: 'color:var(--accent-red)', text: `Erreur : ${err.message}` }));
 }
 
 // ── Module selection modal ────────────────────────────────────────────────
@@ -195,40 +229,43 @@ async function loadCodes() {
             container.innerHTML = '<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>Aucun code d\'invitation.</p></div>';
             return;
         }
-        container.innerHTML = snap.docs.map(doc => {
+        container.replaceChildren(...snap.docs.map(doc => {
             const d = doc.data();
+            const code = String(d.code ?? doc.id);
             const expired = d.expiresAt && Date.now() > d.expiresAt;
             const statusKey = expired ? 'expired' : d.status;
-            const statusLabel = { available: 'Disponible', used: 'Utilisé', expired: 'Expiré' }[statusKey] || statusKey;
-            const badgeClass = { available: 'badge-available', used: 'badge-used', expired: 'badge-expired' }[statusKey];
+            const statusLabel = { available: 'Disponible', used: 'Utilisé', expired: 'Expiré' }[statusKey] || String(statusKey);
+            const badgeClass = { available: 'badge-available', used: 'badge-used', expired: 'badge-expired' }[statusKey] || '';
             const usedInfo = d.usedBy
-                ? `Utilisé par <strong>${d.usedBy}</strong> le ${new Date(d.usedAt).toLocaleDateString('fr-FR')}`
-                : `Expire le ${new Date(d.expiresAt).toLocaleDateString('fr-FR')}`;
+                ? ['Utilisé par ', el('strong', { text: String(d.usedBy) }), ` le ${new Date(d.usedAt).toLocaleDateString('fr-FR')}`]
+                : [`Expire le ${new Date(d.expiresAt).toLocaleDateString('fr-FR')}`];
             const modCount = d.modules ? Object.values(d.modules).filter(Boolean).length : MODULES.length;
             const modLabel = `${modCount}/${MODULES.length} module${modCount > 1 ? 's' : ''}`;
-            return `
-                <div class="code-item">
-                    <div style="flex:1;min-width:0;">
-                        <div class="code-value">${d.code}</div>
-                        <div class="code-meta">${usedInfo} · <span style="color:var(--accent-blue)">${modLabel}</span></div>
-                    </div>
-                    <span class="status-badge ${badgeClass}">${statusLabel}</span>
-                    ${statusKey === 'available' ? `<button class="btn-icon" onclick="openSendModal('${d.code}')" title="Envoyer par email"><i class="fas fa-envelope"></i></button>` : ''}
-                    <button class="btn-icon" onclick="copyCode('${d.code}')" title="Copier"><i class="fas fa-copy"></i></button>
-                    <button class="btn-icon danger" onclick="deleteCode('${doc.id}')" title="Supprimer"><i class="fas fa-trash"></i></button>
-                </div>`;
-        }).join('');
+            return el('div', { className: 'code-item' }, [
+                el('div', { style: 'flex:1;min-width:0;' }, [
+                    el('div', { className: 'code-value', text: code }),
+                    el('div', { className: 'code-meta' }, [
+                        ...usedInfo, ' · ',
+                        el('span', { style: 'color:var(--accent-blue)', text: modLabel }),
+                    ]),
+                ]),
+                el('span', { className: `status-badge ${badgeClass}`, text: statusLabel }),
+                statusKey === 'available' && iconButton('fas fa-envelope', 'Envoyer par email', () => openEmailModal(code)),
+                iconButton('fas fa-copy', 'Copier', () => copyCode(code)),
+                iconButton('fas fa-trash', 'Supprimer', () => deleteCode(doc.id), true),
+            ]);
+        }));
     } catch (err) {
-        container.innerHTML = `<p style="color:var(--accent-red)">Erreur : ${err.message}</p>`;
+        showListError(container, err);
     }
 }
 
-window.copyCode = (code) => {
+function copyCode(code) {
     navigator.clipboard.writeText(code).catch(() => {});
     showToast(`Code copié : ${code}`);
-};
+}
 
-window.deleteCode = async (id) => {
+async function deleteCode(id) {
     if (!confirm('Supprimer ce code ?')) return;
     try {
         await db.collection('invitationCodes').doc(id).delete();
@@ -238,7 +275,7 @@ window.deleteCode = async (id) => {
     } catch (err) {
         showToast('Erreur : ' + err.message, true);
     }
-};
+}
 
 // ── Email via n8n webhook ─────────────────────────────────────────────────
 
@@ -311,8 +348,6 @@ function setupEmailModal() {
     });
 }
 
-window.openSendModal = (code) => openEmailModal(code);
-
 // ── Users + Module management ─────────────────────────────────────────────
 
 async function loadUsers() {
@@ -328,75 +363,68 @@ async function loadUsers() {
         const docs = [];
         snap.forEach(doc => docs.push(doc));
         docs.sort((a, b) => (b.data().createdAt || 0) - (a.data().createdAt || 0));
-        container.innerHTML = '';
-        docs.forEach(doc => {
-            const d = doc.data();
-            const uid = doc.id;
-            const email = d.email || 'Email inconnu';
-            const isAdmin = d.isAdmin === true;
-            const initial = email.charAt(0).toUpperCase();
-            const createdDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString('fr-FR') : '—';
-            const modules = { ...defaultModules(), ...(d.modules || {}) };
-            // Admin always has all modules
-            const effectiveModules = isAdmin ? defaultModules() : modules;
-
-            const modulesHtml = MODULES.map(mod => {
-                const enabled = isAdmin ? true : (effectiveModules[mod.id] !== false);
-                const locked = isAdmin ? 'pointer-events:none;opacity:0.6;' : '';
-                return `
-                    <span class="module-chip ${enabled ? 'enabled' : 'disabled'}"
-                          style="${locked}"
-                          data-uid="${uid}"
-                          data-module="${mod.id}"
-                          onclick="toggleModule(this, '${uid}', '${mod.id}')">
-                        <span class="module-dot"></span>
-                        ${mod.icon} ${mod.label}
-                    </span>`;
-            }).join('');
-
-            const card = document.createElement('div');
-            card.className = 'user-card';
-            card.id = `user-${uid}`;
-            card.innerHTML = `
-                <div class="user-card-header">
-                    <div class="user-avatar">${initial}</div>
-                    <div>
-                        <div class="user-email">${email}</div>
-                        <div class="user-meta">Inscrit le ${createdDate}${d.invitationCode ? ` · Code : ${d.invitationCode}` : ''}</div>
-                    </div>
-                    <div class="user-badges">
-                        ${isAdmin ? '<span class="badge-admin"><i class="fas fa-star"></i> Admin</span>' : ''}
-                        <span class="saving-indicator" id="saving-${uid}"><i class="fas fa-circle-notch fa-spin"></i> Sauvegarde…</span>
-                        ${!isAdmin ? `<button class="btn-icon danger" onclick="deleteUser('${uid}', '${email.replace(/'/g, "\\'")}')" title="Supprimer l'utilisateur"><i class="fas fa-trash"></i></button>` : ''}
-                    </div>
-                </div>
-                <div class="modules-label">Modules accessibles</div>
-                <div class="modules-grid">${modulesHtml}</div>`;
-            container.appendChild(card);
-        });
+        container.replaceChildren(...docs.map(buildUserCard));
     } catch (err) {
-        container.innerHTML = `<p style="color:var(--accent-red)">Erreur : ${err.message}</p>`;
+        showListError(container, err);
     }
 }
 
-window.toggleModule = async (chip, uid, moduleId) => {
+function buildUserCard(doc) {
+    const d = doc.data();
+    const uid = doc.id;
+    const email = String(d.email || 'Email inconnu');
+    const isAdmin = d.isAdmin === true;
+    const createdDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString('fr-FR') : '—';
+    // Admin always has all modules
+    const effectiveModules = isAdmin ? defaultModules() : { ...defaultModules(), ...(d.modules || {}) };
+
+    const indicator = el('span', { className: 'saving-indicator' }, [
+        el('i', { className: 'fas fa-circle-notch fa-spin' }), ' Sauvegarde…',
+    ]);
+
+    const chips = MODULES.map(mod => {
+        const enabled = isAdmin || effectiveModules[mod.id] !== false;
+        const chip = el('span', {
+            className: `module-chip ${enabled ? 'enabled' : 'disabled'}`,
+            style: isAdmin ? 'pointer-events:none;opacity:0.6;' : null,
+            dataset: { module: mod.id },
+        }, [el('span', { className: 'module-dot' }), `${mod.icon} ${mod.label}`]);
+        if (!isAdmin) chip.addEventListener('click', () => toggleModule(chip, uid, chips, indicator));
+        return chip;
+    });
+
+    const meta = `Inscrit le ${createdDate}${d.invitationCode ? ` · Code : ${d.invitationCode}` : ''}`;
+    const card = el('div', { className: 'user-card' }, [
+        el('div', { className: 'user-card-header' }, [
+            el('div', { className: 'user-avatar', text: email.charAt(0).toUpperCase() }),
+            el('div', {}, [
+                el('div', { className: 'user-email', text: email }),
+                el('div', { className: 'user-meta', text: meta }),
+            ]),
+            el('div', { className: 'user-badges' }, [
+                isAdmin && el('span', { className: 'badge-admin' }, [el('i', { className: 'fas fa-star' }), ' Admin']),
+                indicator,
+                !isAdmin && iconButton('fas fa-trash', "Supprimer l'utilisateur", () => deleteUser(uid, email, card), true),
+            ]),
+        ]),
+        el('div', { className: 'modules-label', text: 'Modules accessibles' }),
+        el('div', { className: 'modules-grid' }, chips),
+    ]);
+    return card;
+}
+
+async function toggleModule(chip, uid, chips, indicator) {
     const wasEnabled = chip.classList.contains('enabled');
     const nowEnabled = !wasEnabled;
 
     // Optimistic UI update
     chip.classList.toggle('enabled', nowEnabled);
     chip.classList.toggle('disabled', !nowEnabled);
-
-    const indicator = document.getElementById(`saving-${uid}`);
-    if (indicator) indicator.classList.add('visible');
+    indicator.classList.add('visible');
 
     try {
         // Build the updated modules object from current UI state
-        const card = document.getElementById(`user-${uid}`);
-        const modules = {};
-        card.querySelectorAll('.module-chip[data-uid]').forEach(c => {
-            modules[c.dataset.module] = c.classList.contains('enabled');
-        });
+        const modules = Object.fromEntries(chips.map(c => [c.dataset.module, c.classList.contains('enabled')]));
         await db.collection('users').doc(uid).update({ modules });
     } catch (err) {
         // Revert on failure
@@ -404,21 +432,86 @@ window.toggleModule = async (chip, uid, moduleId) => {
         chip.classList.toggle('disabled', !wasEnabled);
         showToast('Erreur de sauvegarde : ' + err.message, true);
     } finally {
-        if (indicator) indicator.classList.remove('visible');
+        indicator.classList.remove('visible');
     }
-};
+}
 
-window.deleteUser = async (uid, email) => {
-    if (!confirm(`Supprimer l'utilisateur ${email} ?\n\nSon profil et ses données seront supprimés. Son compte de connexion Firebase reste actif (il ne pourra plus accéder à l'app).`)) return;
+async function deleteUser(uid, email, card) {
+    if (!confirm(`Supprimer l'utilisateur ${email} ?\n\nSon profil et ses données seront supprimés et son accès aux API retiré. Son compte de connexion Firebase reste actif (il ne pourra plus accéder à l'app).`)) return;
     try {
+        // Retirer d'abord le claim `invited` : sans lui, le compte garderait
+        // l'accès aux Workers (Gemini, banque) malgré la suppression du profil.
+        await callAdminFunction('setUserInvited', { uid, invited: false }).catch(err => {
+            if (err.code !== 'functions/not-found') throw err; // compte Auth déjà supprimé
+        });
         await db.collection('users').doc(uid).delete();
-        document.getElementById(`user-${uid}`)?.remove();
+        card.remove();
         showToast(`Utilisateur supprimé : ${email}`);
         loadStats();
     } catch (err) {
         showToast('Erreur : ' + err.message, true);
     }
-};
+}
+
+// ── Claims `invited` (accès aux API) ──────────────────────────────────────
+// Migration des comptes créés avant le claim : un premier passage à blanc
+// montre ce qui sera accordé, puis l'admin confirme. Les comptes dont
+// l'invitation n'est pas vérifiable (ex. anciens comptes Google) sont listés
+// pour un accord manuel, un par un.
+
+function setupClaimsSync() {
+    const btn = document.getElementById('sync-claims-btn');
+    btn?.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+            const preview = await callAdminFunction('syncInvitedClaims', { dryRun: true });
+            let report = preview;
+            if (preview.granted.length && confirm(
+                `${preview.granted.length} compte(s) vérifié(s) recevront l'accès aux API :\n` +
+                preview.granted.map(u => `• ${u.email || u.uid}`).join('\n') + '\n\nConfirmer ?'
+            )) {
+                report = await callAdminFunction('syncInvitedClaims', { dryRun: false });
+                showToast(`Accès accordé à ${report.granted.length} compte(s).`);
+            } else if (!preview.granted.length) {
+                showToast('Aucun compte vérifiable à migrer.');
+            }
+            renderClaimsReport(report);
+        } catch (err) {
+            showToast('Erreur : ' + err.message, true);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+}
+
+function renderClaimsReport(report) {
+    const container = document.getElementById('claims-report');
+    if (!report.unverified.length) {
+        container.replaceChildren();
+        return;
+    }
+    const rows = report.unverified.map(u => {
+        const label = u.email || u.uid;
+        const row = el('div', { className: 'code-item' }, [
+            el('div', { style: 'flex:1;min-width:0;', text: label }),
+        ]);
+        row.append(iconButton('fas fa-key', "Accorder l'accès aux API", async () => {
+            if (!confirm(`Accorder l'accès aux API à ${label} ?`)) return;
+            try {
+                await callAdminFunction('setUserInvited', { uid: u.uid, invited: true });
+                row.remove();
+                showToast(`Accès accordé : ${label}`);
+            } catch (err) {
+                showToast('Erreur : ' + err.message, true);
+            }
+        }));
+        return row;
+    });
+    container.replaceChildren(
+        el('div', { className: 'modules-label', text: `Invitation non vérifiable (${rows.length}) — accorder manuellement si légitime` }),
+        ...rows,
+    );
+}
 
 // ── Stats ─────────────────────────────────────────────────────────────────
 

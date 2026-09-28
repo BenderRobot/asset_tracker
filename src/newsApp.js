@@ -5,6 +5,7 @@ import { Storage } from './storage.js?v=5';
 import { PriceAPI } from './api.js';
 import { DataManager } from './dataManager.js';
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
+import { getAuthHeader } from './authFetchHeaders.js';
 
 // Même proxy que dashboardApp.js — fonctionne avec timeout 30s
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url=';
@@ -75,7 +76,9 @@ class NewsApp {
         const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(feed.query)}&hl=fr&gl=FR&ceid=FR:fr`;
         const url = PROXY_URL + encodeURIComponent(rssUrl);
 
-        return fetch(url, { signal: AbortSignal.timeout(30000) })
+        // fetchRSS exige le token d'un compte invité
+        return getAuthHeader()
+            .then(headers => fetch(url, { signal: AbortSignal.timeout(30000), headers }))
             .then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.text();

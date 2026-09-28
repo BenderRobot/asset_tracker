@@ -526,6 +526,13 @@
 
                 <!-- Users tab -->
                 <div id="tab-users" class="tab-panel">
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+                        <button id="sync-claims-btn" class="btn-secondary" style="display:flex;align-items:center;gap:8px;"
+                                title="Attribue le claim « invited » aux comptes existants dont l'invitation est vérifiable">
+                            <i class="fas fa-key"></i> Synchroniser les accès API
+                        </button>
+                    </div>
+                    <div id="claims-report"></div>
                     <div id="users-list">
                         <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Chargement...</p></div>
                     </div>
@@ -588,7 +595,8 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
-    <script type="module" src="./src/adminInvitations.js?v=5"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-functions-compat.js"></script>
+    <script type="module" src="./src/adminInvitations.js?v=6"></script>
     <script type="module" src="./src/sidebar.js?v=31"></script>
 </body>
 

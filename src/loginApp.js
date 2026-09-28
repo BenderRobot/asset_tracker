@@ -1,5 +1,6 @@
 // loginApp.js
 import { auth, db } from './firebaseConfig.js';
+import { hasAppAccess, redeemInvitation } from './accessClaims.js';
 
 const form = document.getElementById('login-form');
 const emailInput = document.getElementById('email');
@@ -12,17 +13,9 @@ const googleLoginBtn = document.getElementById('google-login-btn');
 const submitBtn = document.getElementById('submit-btn');
 const cardTitle = document.querySelector('.login-card h2');
 
-// All modules enabled — used for admin and for legacy codes without a modules field
-function allModulesEnabled() {
-    return {
-        dashboard: true, assets: true, transactions: true,
-        analytics: true, watchlist: true, screener: true,
-        news: true, realestate: true, assistant: true
-    };
-}
-
 let isLoginMode = true;
 let isRegistering = false; // Bloque le redirect automatique pendant l'inscription
+let isInvitationStep = false; // Compte connecté mais pas encore invité : seul le code est demandé
 
 const FIREBASE_ERRORS = {
     'auth/user-not-found':        "Aucun compte associé à cet email.",
@@ -41,18 +34,67 @@ function displayError(message) {
     errorMessage.style.display = 'block';
 }
 
+// Erreurs renvoyées par redeemInvitation (HttpsError) : leur message est
+// rédigé côté serveur pour l'utilisateur.
+const INVITATION_ERROR_CODES = ['functions/invalid-argument', 'functions/failed-precondition'];
+
 function firebaseError(error) {
+    if (INVITATION_ERROR_CODES.includes(error.code)) return displayError(error.message);
     displayError(FIREBASE_ERRORS[error.code] || "Une erreur est survenue. Veuillez réessayer.");
+}
+
+function submitLabel() {
+    if (isInvitationStep) return 'Valider le code';
+    return isLoginMode ? 'Se connecter' : "S'inscrire";
 }
 
 function setLoading(loading) {
     submitBtn.disabled = loading;
     submitBtn.innerHTML = loading
         ? '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>' + (isLoginMode ? 'Connexion...' : 'Inscription...')
-        : (isLoginMode ? 'Se connecter' : "S'inscrire");
+        : submitLabel();
+}
+
+function setFieldVisible(input, visible) {
+    input.style.display = visible ? 'block' : 'none';
+    input.required = visible;
+}
+
+// Compte authentifié (email ou Google) sans claim `invited` : on ne demande
+// plus que le code d'invitation, consommé côté serveur.
+function showInvitationStep() {
+    isInvitationStep = true;
+    isLoginMode = false;
+    cardTitle.textContent = "Code d'invitation requis";
+    setFieldVisible(emailInput, false);
+    setFieldVisible(passwordInput, false);
+    setFieldVisible(confirmPasswordInput, false);
+    setFieldVisible(invitationCodeInput, true);
+    if (googleLoginBtn) googleLoginBtn.style.display = 'none';
+    toggleModeBtn.textContent = 'Se déconnecter';
+    setLoading(false);
+    displayError("Ce compte n'a pas encore été invité. Saisissez votre code d'invitation.");
+}
+
+async function enterApp(user) {
+    await cacheUserModules(user);
+    window.location.href = 'dashboard.html';
+}
+
+async function routeSignedInUser(user) {
+    try {
+        if (await hasAppAccess(user)) return enterApp(user);
+    } catch (e) {
+        console.warn('[login] access check failed:', e.message);
+    }
+    showInvitationStep();
 }
 
 function toggleMode() {
+    if (isInvitationStep) {
+        auth.signOut().then(() => window.location.reload());
+        return;
+    }
     isLoginMode = !isLoginMode;
     errorMessage.style.display = 'none';
 
@@ -82,22 +124,6 @@ if (toggleModeBtn) {
     });
 }
 
-// Validate and atomically consume an invitation code (prevents TOCTOU race)
-async function validateAndConsumeInvitationCode(code, userEmail) {
-    const ref = db.collection('invitationCodes').doc(code.toUpperCase());
-    let codeData = null;
-    await db.runTransaction(async (txn) => {
-        const doc = await txn.get(ref);
-        if (!doc.exists) throw new Error('invalid');
-        const data = doc.data();
-        if (data.status !== 'available') throw new Error('invalid');
-        if (data.expiresAt && Date.now() > data.expiresAt) throw new Error('invalid');
-        codeData = { id: doc.id, ...data };
-        txn.update(ref, { status: 'used', usedBy: userEmail, usedAt: Date.now() });
-    });
-    return codeData;
-}
-
 // Charger et mettre en cache les modules de l'utilisateur dans localStorage
 async function cacheUserModules(user) {
     try {
@@ -123,12 +149,19 @@ form.addEventListener('submit', async (e) => {
     errorMessage.style.display = 'none';
     setLoading(true);
 
-    if (isLoginMode) {
-        // LOGIN
+    if (isInvitationStep) {
+        // Compte déjà connecté : seul le code est consommé
         try {
-            const userCredential = await auth.signInWithEmailAndPassword(email, password);
-            await cacheUserModules(userCredential.user);
-            window.location.href = 'dashboard.html';
+            await redeemInvitation(invitationCodeInput.value.trim());
+            await enterApp(auth.currentUser);
+        } catch (error) {
+            setLoading(false);
+            firebaseError(error);
+        }
+    } else if (isLoginMode) {
+        // LOGIN — la redirection (ou l'étape d'invitation) est faite par onAuthStateChanged
+        try {
+            await auth.signInWithEmailAndPassword(email, password);
         } catch (error) {
             setLoading(false);
             firebaseError(error);
@@ -151,59 +184,23 @@ form.addEventListener('submit', async (e) => {
         }
 
         try {
-            // Atomically claim the code before creating the account — prevents race conditions
-            let codeDoc;
-            try {
-                codeDoc = await validateAndConsumeInvitationCode(invitationCode, email);
-            } catch {
-                setLoading(false);
-                displayError("Code d'invitation invalide, expiré ou déjà utilisé.");
-                return;
-            }
-
             // Bloquer le redirect automatique de onAuthStateChanged pendant l'inscription
             isRegistering = true;
 
-            // Create account — if Auth fails, rollback the invitation code
-            let userCredential;
+            // Le compte Auth est créé d'abord : redeemInvitation exige un
+            // appelant authentifié, et c'est elle (côté serveur) qui valide le
+            // code, crée le profil et pose le claim `invited`.
+            const userCredential = await auth.createUserWithEmailAndPassword(email, password);
             try {
-                userCredential = await auth.createUserWithEmailAndPassword(email, password);
-            } catch (authError) {
-                try {
-                    await db.collection('invitationCodes').doc(invitationCode.toUpperCase())
-                        .update({ status: 'available', usedBy: null, usedAt: null });
-                } catch (_) {}
-                throw authError;
-            }
-
-            // Apply modules from the invitation code (fallback: all enabled)
-            const modules = (codeDoc.modules && typeof codeDoc.modules === 'object')
-                ? codeDoc.modules
-                : allModulesEnabled();
-
-            // Create user document in Firestore — if Firestore fails, delete the Auth account
-            try {
-                await db.collection('users').doc(userCredential.user.uid).set({
-                    email: email,
-                    createdAt: Date.now(),
-                    invitationCode: invitationCode,
-                    modules
-                });
-            } catch (firestoreError) {
-                try {
-                    await db.collection('invitationCodes').doc(invitationCode.toUpperCase())
-                        .update({ status: 'available', usedBy: null, usedAt: null });
-                } catch (_) {}
+                await redeemInvitation(invitationCode);
+            } catch (redeemError) {
+                // Code refusé : supprimer le compte pour permettre un nouvel essai avec le même email
                 try { await userCredential.user.delete(); } catch (_) {}
-                throw firestoreError;
+                throw redeemError;
             }
-
-            // Mettre en cache les modules du nouveau compte
-            localStorage.setItem('isAdmin', 'false');
-            localStorage.setItem('userModules', JSON.stringify(modules));
 
             isRegistering = false;
-            window.location.href = 'dashboard.html';
+            await enterApp(userCredential.user);
         } catch (error) {
             isRegistering = false;
             setLoading(false);
@@ -215,23 +212,13 @@ form.addEventListener('submit', async (e) => {
 // 5. Gestion de la connexion Google
 if (googleLoginBtn) {
     googleLoginBtn.addEventListener('click', () => {
+        // La redirection (ou l'étape d'invitation) est faite par onAuthStateChanged
         const provider = new firebase.auth.GoogleAuthProvider();
-        auth.signInWithPopup(provider)
-            .then(async (result) => {
-                await cacheUserModules(result.user);
-                window.location.href = 'dashboard.html';
-            })
-            .catch((error) => {
-                firebaseError(error);
-            });
+        auth.signInWithPopup(provider).catch(firebaseError);
     });
 }
 
-// 6. Vérifier si l'utilisateur est déjà connecté
-auth.onAuthStateChanged(async user => {
-    if (user && !isRegistering) {
-        // Mettre en cache les modules avant la redirection
-        await cacheUserModules(user);
-        window.location.href = 'dashboard.html';
-    }
+// 6. Utilisateur connecté : entrer dans l'app s'il est invité, sinon demander le code
+auth.onAuthStateChanged(user => {
+    if (user && !isRegistering) routeSignedInUser(user);
 });

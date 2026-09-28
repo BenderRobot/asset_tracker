@@ -1,4 +1,5 @@
 import { auth, db } from './firebaseConfig.js';
+import { hasAppAccess } from './accessClaims.js';
 
 const PAGE_TO_MODULE = {
     'dashboard.html':   'dashboard',
@@ -16,6 +17,17 @@ auth.onAuthStateChanged(async user => {
     if (!user) {
         window.location.href = 'login.html';
         return;
+    }
+
+    // Compte non invité (ex. connexion Google sans code) : la page de
+    // connexion lui demande son code d'invitation.
+    try {
+        if (!(await hasAppAccess(user))) {
+            window.location.href = 'login.html';
+            return;
+        }
+    } catch (e) {
+        // En cas d'erreur réseau, laisser l'accès : les API restent protégées côté serveur
     }
 
     // Vérifier si cette page nécessite un module

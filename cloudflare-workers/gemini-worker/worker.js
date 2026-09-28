@@ -31,7 +31,14 @@ const EXTRA_ORIGINS = [
 ];
 
 // ─── Limites anti-abus (coût Gemini) ─────────────────────────────────────────
-const MAX_TEXT_LEN = 8000;       // par champ (prompt/message/system/un message d'historique)
+// `system` et `prompt` portent le contexte généré par l'app (positions,
+// budget, article) : ils sont légitimement longs. `message` est la saisie de
+// l'utilisateur. Une limite unique de 8000 caractères rejetait le prompt
+// système de l'assistant dès un portefeuille de taille moyenne.
+const MAX_CONTEXT_LEN = 60000;         // system, prompt
+const MAX_MESSAGE_LEN = 8000;          // message saisi par l'utilisateur
+const MAX_HISTORY_ITEM_LEN = 20000;    // un message d'historique (les réponses IA peuvent être longues)
+const MAX_TOTAL_LEN = 200000;          // somme de tous les champs texte
 const MAX_HISTORY_MESSAGES = 40; // nombre de tours de conversation transmis
 const DEFAULT_DAILY_QUOTA = 200; // requêtes / utilisateur / jour (env.GEMINI_DAILY_QUOTA peut l'ajuster)
 
@@ -116,8 +123,7 @@ async function authenticate(request) {
   const authHeader = request.headers.get('Authorization') || '';
   const match = authHeader.match(/^Bearer (.+)$/);
   if (!match) throw new Error('missing_token');
-  const payload = await verifyFirebaseIdToken(match[1], FIREBASE_PROJECT_ID);
-  return payload.sub;
+  return verifyFirebaseIdToken(match[1], FIREBASE_PROJECT_ID);
 }
 
 // ─── Quota journalier par utilisateur (KV) ───────────────────────────────────
@@ -144,17 +150,20 @@ async function checkAndIncrementQuota(env, uid) {
 
 // ─── Validation stricte des entrées ──────────────────────────────────────────
 function validateBody(body) {
-  const tooLong = (s) => typeof s === 'string' && s.length > MAX_TEXT_LEN;
-  if (tooLong(body.prompt) || tooLong(body.system) || tooLong(body.message)) {
-    return `Champ texte trop volumineux (max ${MAX_TEXT_LEN} caractères)`;
-  }
+  const len = (s) => (typeof s === 'string' ? s.length : 0);
+  if (len(body.system) > MAX_CONTEXT_LEN) return `Contexte système trop volumineux (max ${MAX_CONTEXT_LEN} caractères)`;
+  if (len(body.prompt) > MAX_CONTEXT_LEN) return `Prompt trop volumineux (max ${MAX_CONTEXT_LEN} caractères)`;
+  if (len(body.message) > MAX_MESSAGE_LEN) return `Message trop long (max ${MAX_MESSAGE_LEN} caractères)`;
+  let total = len(body.system) + len(body.prompt) + len(body.message);
   if (body.history !== undefined) {
     if (!Array.isArray(body.history)) return 'history doit être un tableau';
     if (body.history.length > MAX_HISTORY_MESSAGES) return `history trop long (max ${MAX_HISTORY_MESSAGES} messages)`;
     for (const msg of body.history) {
-      if (tooLong(msg?.text)) return `Message d'historique trop volumineux (max ${MAX_TEXT_LEN} caractères)`;
+      if (len(msg?.text) > MAX_HISTORY_ITEM_LEN) return `Message d'historique trop volumineux (max ${MAX_HISTORY_ITEM_LEN} caractères)`;
+      total += len(msg?.text);
     }
   }
+  if (total > MAX_TOTAL_LEN) return `Requête trop volumineuse (max ${MAX_TOTAL_LEN} caractères au total)`;
   return null;
 }
 
@@ -173,13 +182,22 @@ export default {
     // Identité — FAIL CLOSED : un token absent, malformé, expiré ou signé par
     // une autre autorité (mauvais projet Firebase) est TOUJOURS rejeté. Jamais
     // de repli sur un uid fourni par le client (body.uid ou équivalent).
-    let uid;
+    let payload;
     try {
-      uid = await authenticate(request);
+      payload = await authenticate(request);
     } catch (err) {
       console.warn('[GeminiProxy] Auth rejected:', err.message);
       return jsonResponse({ error: 'Unauthorized' }, 401, origin);
     }
+    // SECURITY FIX (audit P1) : n'importe qui peut créer un compte Firebase
+    // du projet (clé API publique, connexion Google). Seuls les comptes
+    // invités — claim posé par la Cloud Function redeemInvitation — ont
+    // accès à cette API payante.
+    if (payload.invited !== true) {
+      console.warn('[GeminiProxy] Uninvited account rejected:', payload.sub);
+      return jsonResponse({ error: 'Forbidden' }, 403, origin);
+    }
+    const uid = payload.sub;
 
     const apiKey = env.GEMINI_API_KEY;
     if (!apiKey) {

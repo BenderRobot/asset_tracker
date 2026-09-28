@@ -40,10 +40,12 @@ async function makeToken({
     aud = PROJECT_ID,
     iss = `https://securetoken.google.com/${PROJECT_ID}`,
     kid = 'test-kid',
-    privateKey = keyPair.privateKey
+    privateKey = keyPair.privateKey,
+    invited = true
 } = {}) {
     const header = { alg: 'RS256', kid };
     const payload = { sub: uid, aud, iss, exp, iat: Math.floor(Date.now() / 1000) };
+    if (invited !== null) payload.invited = invited; // null = claim absent
     const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
     const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', privateKey, new TextEncoder().encode(signingInput));
     return `${signingInput}.${base64url(sig)}`;
@@ -120,6 +122,17 @@ describe('Gemini Worker — authentification et quotas (P0)', () => {
         expect(res.status).toBe(401);
     });
 
+    it('token valide d\'un compte NON invité (sans claim invited) → 403, jamais transmis à Gemini', async () => {
+        stubFetch();
+        const geminiSpy = vi.mocked(fetch);
+        for (const invited of [null, false]) {
+            const token = await makeToken({ uid: 'mallory', invited });
+            const res = await worker.fetch(postRequest({ prompt: 'salut' }, { Authorization: `Bearer ${token}` }), makeEnv());
+            expect(res.status).toBe(403);
+        }
+        expect(geminiSpy.mock.calls.some(([u]) => String(u).startsWith(GEMINI_URL_PREFIX))).toBe(false);
+    });
+
     it('utilisateur authentifié avec un token valide → autorisé (200)', async () => {
         stubFetch();
         const token = await makeToken({ uid: 'alice' });
@@ -133,11 +146,27 @@ describe('Gemini Worker — authentification et quotas (P0)', () => {
         stubFetch();
         const geminiSpy = vi.mocked(fetch);
         const token = await makeToken();
-        const hugePrompt = 'x'.repeat(20000);
+        const hugePrompt = 'x'.repeat(70000);
         const res = await worker.fetch(postRequest({ prompt: hugePrompt }, { Authorization: `Bearer ${token}` }), makeEnv());
         expect(res.status).toBe(400);
         // Seul le JWKS a dû être appelé — jamais l'API Gemini avec ce prompt.
         expect(geminiSpy.mock.calls.some(([u]) => String(u).startsWith(GEMINI_URL_PREFIX))).toBe(false);
+    });
+
+    it('message utilisateur trop long (> 8000) → 400', async () => {
+        stubFetch();
+        const token = await makeToken();
+        const res = await worker.fetch(postRequest({ system: 'ctx', message: 'x'.repeat(9000) }, { Authorization: `Bearer ${token}` }), makeEnv());
+        expect(res.status).toBe(400);
+    });
+
+    it('prompt système réaliste de l\'assistant (> 8000 caractères : positions + budget) → accepté', async () => {
+        stubFetch();
+        const token = await makeToken();
+        const system = 'Règles et contexte portefeuille. '.repeat(900); // ~30 000 caractères
+        const history = [{ role: 'user', text: 'q' }, { role: 'assistant', text: 'r'.repeat(12000) }];
+        const res = await worker.fetch(postRequest({ system, history, message: 'hello' }, { Authorization: `Bearer ${token}` }), makeEnv());
+        expect(res.status).toBe(200);
     });
 
     it('history avec trop de messages → 400', async () => {

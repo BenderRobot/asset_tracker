@@ -59,12 +59,9 @@ describe('PRIVILEGE ESCALATION — users/{userId}.isAdmin', () => {
         );
     });
 
-    it('un utilisateur normal peut créer son document SANS isAdmin (ou isAdmin=false)', async () => {
+    it('un utilisateur normal peut créer son document avec des champs non protégés', async () => {
         await assertSucceeds(
-            asAlice().doc(`users/${ALICE}`).set({ email: 'alice@test.dev' })
-        );
-        await assertSucceeds(
-            asBob().doc(`users/${BOB}`).set({ email: 'bob@test.dev', isAdmin: false })
+            asAlice().doc(`users/${ALICE}`).set({ brokers: ['BB-PEA'] }, { merge: true })
         );
     });
 
@@ -110,6 +107,60 @@ describe('PRIVILEGE ESCALATION — users/{userId}.isAdmin', () => {
 
     it('un admin réel peut lister les invitationCodes', async () => {
         await assertSucceeds(asAdmin().collection('invitationCodes').get());
+    });
+});
+
+// Audit P1 : les champs rendus dans le panneau admin (usedBy, email,
+// invitationCode) et les droits (modules) ne doivent plus être écrits par
+// l'utilisateur. L'utilisation d'un code passe par la Cloud Function
+// `redeemInvitation` (Admin SDK), jamais par le client.
+describe('INVITATIONS & PROFIL — champs verrouillés côté client', () => {
+    const CODE = 'INV-TEST-0001';
+    const XSS = '<img src=x onerror=alert(1)>';
+
+    beforeEach(async () => {
+        await seedAdminFlag();
+        await testEnv.withSecurityRulesDisabled(async (ctx) => {
+            await ctx.firestore().doc(`invitationCodes/${CODE}`).set({
+                code: CODE, status: 'available', usedBy: null, usedAt: null,
+                modules: { dashboard: true }, expiresAt: Date.now() + 86400000
+            });
+            await ctx.firestore().doc(`users/${BOB}`).set({
+                email: 'bob@test.dev', invitationCode: 'INV-OLD', modules: { dashboard: true }
+            });
+        });
+    });
+
+    it('un utilisateur ne peut plus marquer un code comme utilisé (usedBy libre)', async () => {
+        await assertFails(
+            asAlice().doc(`invitationCodes/${CODE}`).update({ status: 'used', usedBy: XSS, usedAt: Date.now() })
+        );
+    });
+
+    it('un visiteur non authentifié ou un utilisateur ne peut pas lire un code', async () => {
+        await assertFails(asAnon().doc(`invitationCodes/${CODE}`).get());
+        await assertFails(asAlice().doc(`invitationCodes/${CODE}`).get());
+    });
+
+    it('un utilisateur ne peut pas créer son profil avec email, invitationCode ou modules', async () => {
+        await assertFails(asAlice().doc(`users/${ALICE}`).set({ email: XSS }));
+        await assertFails(asAlice().doc(`users/${ALICE}`).set({ invitationCode: XSS }));
+        await assertFails(asAlice().doc(`users/${ALICE}`).set({ modules: { assistant: true } }));
+    });
+
+    it('un utilisateur ne peut pas modifier email, invitationCode ou modules de son profil', async () => {
+        await assertFails(asBob().doc(`users/${BOB}`).update({ email: XSS }));
+        await assertFails(asBob().doc(`users/${BOB}`).update({ invitationCode: XSS }));
+        await assertFails(asBob().doc(`users/${BOB}`).update({ 'modules.assistant': true }));
+    });
+
+    it('un utilisateur peut toujours mettre à jour ses courtiers', async () => {
+        await assertSucceeds(asBob().doc(`users/${BOB}`).set({ brokers: ['RV-CT'] }, { merge: true }));
+    });
+
+    it('l\'admin peut toujours gérer codes et modules', async () => {
+        await assertSucceeds(asAdmin().doc(`invitationCodes/${CODE}`).get());
+        await assertSucceeds(asAdmin().doc(`users/${BOB}`).update({ modules: { dashboard: false } }));
     });
 });
 

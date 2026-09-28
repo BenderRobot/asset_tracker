@@ -17,6 +17,7 @@ import { FCMManager } from './fcmManager.js'; // NEW: FCM for Android notificati
 
 import { GEMINI_PROXY_URL } from './config.js';
 import { auth } from './firebaseConfig.js';
+import { getAuthHeader } from './authFetchHeaders.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
 import { marketDataMetrics } from './marketDataMetrics.js';
 
@@ -821,7 +822,9 @@ export class DashboardApp {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-        return fetch(url, { signal: controller.signal })
+        // fetchRSS exige le token d'un compte invité
+        return getAuthHeader()
+            .then(headers => fetch(url, { signal: controller.signal, headers }))
             .then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.text();

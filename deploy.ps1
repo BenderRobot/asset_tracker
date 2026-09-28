@@ -1,5 +1,5 @@
 param(
-    # Opt-out explicite. Par defaut le Worker prix est redeploye a chaque execution.
+    # Opt-out explicite. Par defaut TOUS les Workers Cloudflare sont redeployes a chaque execution.
     [switch]$SkipWorker
 )
 
@@ -94,19 +94,30 @@ if ($commitsAhead -gt 0) {
 }
 
 # ─────────────────────────────────────────────
-# STEP 2 - CLOUDFLARE WORKER PRIX
+# STEP 2 - CLOUDFLARE WORKERS (tous)
 # ─────────────────────────────────────────────
-Write-Step "[2/3] Cloudflare Worker prix"
+Write-Step "[2/3] Cloudflare Workers"
 
 if ($SkipWorker) {
-    Write-Warn "Worker non deploye (-SkipWorker explicite)."
+    Write-Warn "Workers non deployes (-SkipWorker explicite)."
 } else {
-    # Deploiement systematique et idempotent : il ne depend plus d'un diff avec
-    # origin/main, vide des qu'un push a reussi avant un echec Wrangler.
-    Write-Warn "Deploying asset-tracker-prices..."
-    npm exec -- wrangler deploy --config .\cloudflare-workers\prices-worker\wrangler.toml
-    if ($LASTEXITCODE -ne 0) { Write-Err "Cloudflare Worker deploy failed. Relancez le script : le Worker sera redeploye."; exit 1 }
-    Write-Ok "Cloudflare Worker deployed."
+    # Chaque sous-dossier de cloudflare-workers/ contenant un wrangler.toml est
+    # deploye : un Worker ajoute plus tard ne peut pas etre oublie (seul le
+    # Worker prix l'etait auparavant, Gemini et Enable Banking divergeaient du
+    # depot). Deploiement systematique et idempotent, sans diff avec origin/main.
+    $workerConfigs = @(Get-ChildItem -Path .\cloudflare-workers -Directory |
+        ForEach-Object { Join-Path $_.FullName 'wrangler.toml' } |
+        Where-Object { Test-Path $_ })
+    if ($workerConfigs.Count -eq 0) { Write-Err "Aucun wrangler.toml trouve dans cloudflare-workers/."; exit 1 }
+
+    foreach ($config in $workerConfigs) {
+        $workerName = Split-Path (Split-Path $config -Parent) -Leaf
+        Write-Warn "Deploying $workerName..."
+        npm exec -- wrangler deploy --config $config
+        if ($LASTEXITCODE -ne 0) { Write-Err "Deploiement du Worker $workerName echoue. Relancez le script : tous les Workers seront redeployes."; exit 1 }
+        Write-Ok "$workerName deployed."
+    }
+    Write-Ok "$($workerConfigs.Count) Worker(s) Cloudflare deployes."
 }
 
 # ─────────────────────────────────────────────
