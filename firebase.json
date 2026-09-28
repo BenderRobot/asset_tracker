@@ -6,9 +6,20 @@
       "ignore": [
         "firebase.json",
         "**/.*",
+        "**/.*/**",
         "**/node_modules/**",
-        "cloudflare-workers/enable-banking-worker/tv_channels_m2NP1yPEmt_plus.m3u",
-        "cloudflare-workers/enable-banking-worker/web-cli_Tizen_SDK_10.0_windows-64.exe"
+        "audit/**",
+        "tests/**",
+        "functions/**",
+        "cloudflare-workers/**",
+        "Microsoft/**",
+        "**/*.md",
+        "**/*.ps1",
+        "**/*.log",
+        "package.json",
+        "package-lock.json",
+        "vitest*.config.js",
+        "firestore.rules"
       ],
       "rewrites": [],
       "headers": [
@@ -29,9 +40,20 @@
       "ignore": [
         "firebase.json",
         "**/.*",
+        "**/.*/**",
         "**/node_modules/**",
-        "cloudflare-workers/enable-banking-worker/tv_channels_m2NP1yPEmt_plus.m3u",
-        "cloudflare-workers/enable-banking-worker/web-cli_Tizen_SDK_10.0_windows-64.exe"
+        "audit/**",
+        "tests/**",
+        "functions/**",
+        "cloudflare-workers/**",
+        "Microsoft/**",
+        "**/*.md",
+        "**/*.ps1",
+        "**/*.log",
+        "package.json",
+        "package-lock.json",
+        "vitest*.config.js",
+        "firestore.rules"
       ],
       "rewrites": [],
       "headers": [
