@@ -148,7 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // portefeuille...). Sur un appareil partagé, l'utilisateur
                     // SUIVANT à se connecter pouvait momentanément voir le
                     // portefeuille/les données de l'utilisateur précédent — le
-                    // rendu "cache-first" (voir dashboardApp.js::loadCachedData)
+                    // rendu "cache-first" (voir MarketDataRepository)
                     // affiche le cache local AVANT que Firestore n'ait eu le
                     // temps de le remplacer. On vide désormais tout le
                     // localStorage de l'app à la déconnexion ; seule une

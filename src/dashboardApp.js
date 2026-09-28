@@ -9,7 +9,6 @@ import { MarketStatus } from './marketStatus.js?v=2';
 import { DataManager } from './dataManager.js?v=33';
 import { HistoricalChart } from './historicalChart.js?v=54';
 import { mountViewToggle } from './chartViewToggle.js?v=1';
-import { IndexCardChart } from './indexCardChart.js';
 import { ChartKPIManager } from './chartKPIManager.js?v=6'; // NOUVEAU : Pour sparkline
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 import { UIComponents } from './ui.js?v=5';
@@ -55,9 +54,8 @@ export class DashboardApp {
         this.chartKPIManager = new ChartKPIManager(this.api, this.storage, this.dataManager, this.marketStatus);
         this.ui = new UIComponents(this.storage, this.dataManager);
         // Même convention que watchlistApp.js/analyticsApp.js/realEstateApp.js —
-        // permet d'appeler dashboardApp.dataManager.debugDividendPhantomGap()
-        // depuis la console du navigateur (voir dataManager.js, méthode
-        // DIAGNOSTIC TEMPORAIRE, à retirer une fois l'audit du 16 346,00€ conclu).
+        // expose l'application à la console du navigateur (ex. outils de
+        // diagnostic chargés à la demande depuis audit/tools/).
         window.dashboardApp = this;
         this.notificationManager = new NotificationManager(this.dataManager); // <-- NEW
 

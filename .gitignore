@@ -81,3 +81,6 @@ large-files/
 # Local Tizen SDK artifacts
 cloudflare-workers/enable-banking-worker/tv_channels_m2NP1yPEmt_plus.m3u
 cloudflare-workers/enable-banking-worker/web-cli_Tizen_SDK_10.0_windows-64.exe
+
+# Windows PowerShell module analysis cache (machine-local, never versioned)
+Microsoft/Windows/PowerShell/ModuleAnalysisCache

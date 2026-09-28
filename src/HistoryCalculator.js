@@ -169,7 +169,12 @@ export class HistoryCalculator {
         const { map: historicalDataMap, failedTickers, recoveredTickers, failureDetails } = await this._fetchHistoricalData(heldTickers, win.dataStartTs, win.dataEndTs, interval);
         await this._fillCryptoGapsFromBinance(heldTickers, historicalDataMap, days);
         for (const [ticker, history] of historicalDataMap) historicalDataMap.set(ticker, historyInEur(ticker, history));
-        await this._recoverFromClosedMarket(heldTickers, historicalDataMap, win, days, isCrypto, interval);
+        // No closed-market recovery after the fetch: window selection is
+        // decided beforehand from the market calendar (_computeDisplayWindow).
+        // An empty or failed response must never move the date on its own.
+        // This distinction lets a confirmed weekend intentionally display the
+        // previous session while a transient provider failure remains visible
+        // as missing data for the originally selected day.
 
         // Binance (voir _fillCryptoGapsFromBinance) est une VRAIE source de
         // marché alternative (klines réelles, pas une reconstruction) — un
@@ -594,15 +599,6 @@ export class HistoryCalculator {
                 console.warn(`[HistoryCalc] Binance fallback failed for ${t}:`, err.message);
             }
         }
-    }
-
-    // Kept as a no-op: window selection is decided before the fetch from the
-    // market calendar. An empty or failed response must never move the date on
-    // its own. This distinction lets a confirmed weekend intentionally display
-    // the previous session while a transient provider failure remains visible
-    // as missing data for the originally selected day.
-    async _recoverFromClosedMarket() {
-        return;
     }
 
     // ========================================================

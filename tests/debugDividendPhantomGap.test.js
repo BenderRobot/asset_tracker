@@ -1,12 +1,13 @@
-// Verifies dataManager.debugDividendPhantomGap() itself (the temporary
-// diagnostic the user runs against their REAL account data — see
-// dataManager.js's own doc comment) produces correct numbers, using the exact
+// Verifies debugDividendPhantomGap() itself (the temporary diagnostic the
+// user runs against their REAL account data — see
+// audit/tools/debugDividendPhantomGap.js's own doc comment) produces correct numbers, using the exact
 // same constructed scenario as realWorldGapReproduction.test.js. This is a
 // meta-test: it doesn't re-prove the bug, it proves the DIAGNOSTIC TOOL is
 // trustworthy before asking the user to rely on its output for their real
 // portfolio.
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
+import { debugDividendPhantomGap } from '../audit/tools/debugDividendPhantomGap.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 
 beforeEach(() => {
@@ -36,7 +37,7 @@ describe('debugDividendPhantomGap — l\'outil de diagnostic lui-même est corre
         const tableSpy = vi.spyOn(console, 'table').mockImplementation(() => {});
         let result;
         try {
-            result = await dm.debugDividendPhantomGap();
+            result = await debugDividendPhantomGap(dm);
         } finally {
             logSpy.mockRestore();
             tableSpy.mockRestore();
@@ -49,7 +50,7 @@ describe('debugDividendPhantomGap — l\'outil de diagnostic lui-même est corre
         // retombe sur previousClose(MEGA)=16800/previousClose(OTHER)=19000
         // au lieu du prix live. `totalPhantomValue` (lu directement sur
         // storage.getCurrentPrice, PAS via le graphique — voir
-        // dataManager.debugDividendPhantomGap) reste, lui, basé sur le prix
+        // audit/tools/debugDividendPhantomGap.js) reste, lui, basé sur le prix
         // live (17000), inchangé.
         expect(result.rows.length).toBe(1);
         expect(result.rows[0].Ticker).toBe('MEGA');

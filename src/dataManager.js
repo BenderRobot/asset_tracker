@@ -11,7 +11,6 @@ import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
 import { HistoryCalculator } from './HistoryCalculator.js?v=22';
 import { MarketDataRepository } from './marketDataRepository.js?v=8';
-import { db, auth } from './firebaseConfig.js';
 import {
     getIntervalForPeriod,
     getLabelFormat,
@@ -41,6 +40,9 @@ export class DataManager {
         // chemins non attendus les uns par rapport aux autres (init), qui
         // peuvent tous manquer ce cache avant qu'aucun n'ait résolu.
         this._historicalFxMapInFlight = null;
+        // Ancien cache portefeuille (loadCachedData/saveCacheSnapshot, retirés) :
+        // clé non liée à l'utilisateur, remplacée par MarketDataRepository.
+        try { globalThis.localStorage?.removeItem('portfolio_snapshot_cache'); } catch { /* best effort */ }
     }
 
     // ============================================================
@@ -1044,112 +1046,6 @@ export class DataManager {
         });
     }
 
-    // === CACHE MANAGEMENT FOR FAST LOADING ===
-
-    /**
-     * Load cached portfolio data from Firestore
-     * @returns {Object|null} Cached data or null if not available/fresh
-     */
-    /**
-     * Load cached portfolio data (Priority: LocalStorage -> Firestore)
-     * @returns {Object|null} Cached data or null if not available/fresh
-     */
-    async loadCachedData() {
-        const CACHE_KEY = 'portfolio_snapshot_cache';
-        const MAX_AGE = 3600000; // 1 hour
-
-        // 1. Try LocalStorage FIRST (Fastest, Offline-capable)
-        try {
-            const localRaw = localStorage.getItem(CACHE_KEY);
-            if (localRaw) {
-                const localCache = JSON.parse(localRaw);
-                const age = Date.now() - localCache.timestamp;
-                if (age < MAX_AGE) {
-                    console.log(`[Cache] ✅ Loaded from LocalStorage (age: ${Math.round(age / 1000)}s)`);
-                    return localCache.data;
-                }
-            }
-        } catch (e) {
-            console.warn('[Cache] LocalStorage read failed:', e);
-        }
-
-        // 2. Fallback to Firestore (if online & user logged in)
-        const user = auth.currentUser;
-        if (!user) return null;
-
-        try {
-            const cacheDoc = await db.collection('users')
-                .doc(user.uid)
-                .collection('cache')
-                .doc('portfolioSnapshot')
-                .get();
-
-            if (cacheDoc.exists) {
-                const cached = cacheDoc.data();
-                const normalizedTs = cached.timestamp?.toMillis ? cached.timestamp.toMillis() : cached.timestamp;
-                const cacheAge = Date.now() - normalizedTs;
-
-                if (cacheAge < MAX_AGE) {
-                    console.log(`[Cache] ✅ Loaded from Firestore (age: ${Math.round(cacheAge / 1000)}s)`);
-                    try {
-                        localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cached, timestamp: normalizedTs }));
-                    } catch (e) { }
-                    return cached.data;
-                } else {
-                    console.log(`[Cache] ⏰ Firestore Cache expired (age: ${Math.round(cacheAge / 1000)}s)`);
-                }
-            }
-        } catch (error) {
-            console.warn('[Cache] Firestore load failed:', error);
-        }
-
-        return null;
-    }
-
-    /**
-     * Save portfolio snapshot (Dual Write: LocalStorage + Firestore)
-     * @param {Object} data - Full report data to cache
-     */
-    async saveCacheSnapshot(data) {
-        const CACHE_KEY = 'portfolio_snapshot_cache';
-        const payload = {
-            data: data,
-            timestamp: Date.now(),
-            version: '1.0'
-        };
-
-        // 1. Save to LocalStorage (Always works, synchronous)
-        try {
-            localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
-            console.log('[Cache] 💾 Snapshot saved to LocalStorage');
-        } catch (e) {
-            console.error('[Cache] LocalStorage save failed (Quota?):', e);
-        }
-
-        // 2. Save to Firestore (Best effort with TIMEOUT)
-        // We use a timeout because Firestore SDK hangs indefinitely on "Quota Exceeded" retries
-        const user = auth.currentUser;
-        if (user) {
-            try {
-                const firestoreWrite = db.collection('users')
-                    .doc(user.uid)
-                    .collection('cache')
-                    .doc('portfolioSnapshot')
-                    .set(payload);
-
-                const timeout = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('Firestore write timed out (Quota/Network)')), 2000)
-                );
-
-                await Promise.race([firestoreWrite, timeout]);
-                console.log('[Cache] ☁️ Snapshot saved to Firestore');
-            } catch (error) {
-                // Do NOT throw. Just log warning. This prevents UI blocking.
-                console.warn('[Cache] ⚠️ Firestore save failed/skipped:', error.message);
-            }
-        }
-    }
-
     generateFullReport(purchases, yesterdayCloseMap = null, historicalFxMap = null) {
         // Exclude Dividends from Asset Holdings
         const assetPurchases = purchases.filter(p => {
@@ -1682,131 +1578,9 @@ export class DataManager {
         return { summary, portfolioSnapshot };
     }
 
-    // ============================================================
-    // DIAGNOSTIC TEMPORAIRE — à retirer une fois l'audit du 16 346,00€ conclu.
-    // ============================================================
-    // Rapprochement par ticker des "actions fantômes" créées par
-    // HistoryCalculator._buildLedger avant son fix (voir dividendPhantomShares.
-    // test.js / realWorldGapReproduction.test.js) — calculé sur les VRAIS achats
-    // de ce compte (this.storage.getPurchases()), pas sur des données inventées.
-    // Lecture seule : ne modifie ni ne persiste rien. Usage depuis la console du
-    // navigateur, sur le Dashboard : dashboardApp.dataManager.debugDividendPhantomGap()
-    async debugDividendPhantomGap() {
-        const purchases = this.storage.getPurchases();
-        const marketPurchases = purchases.filter(p => p.assetType !== 'Real Estate');
-        const assetPurchases = marketPurchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type !== 'cash' && type !== 'dividend' && p.type !== 'dividend';
-        });
-        const cashPurchases = marketPurchases.filter(p => {
-            const type = (p.assetType || 'Stock').toLowerCase();
-            return type === 'cash' || type === 'dividend' || p.type === 'dividend';
-        });
-
-        // "Après correction" : le code actuel, tel qu'il tourne réellement dans
-        // cette session — donne aussi resolvedPrices, réutilisé ci-dessous pour
-        // que "Prix final utilisé" soit EXACTEMENT le prix que le graphique et
-        // les holdings utilisent déjà, pas une 3e lecture indépendante.
-        const snapshotAfter = await this.buildTodaySnapshot(assetPurchases, cashPurchases);
-        const graphAfter = snapshotAfter.todayGraphData.values[snapshotAfter.todayGraphData.values.length - 1];
-        const holdingsTotal = snapshotAfter.summary.totalCurrentEUR + snapshotAfter.cashReserve.total;
-
-        // "Avant correction" : rejoue EXACTEMENT le même calcul en réintroduisant
-        // temporairement la classification pré-fix de _buildLedger (copie
-        // verbatim de la version d'avant ce fix — voir git history), puis la
-        // restaure immédiatement, y compris si un throw survient.
-        const { HistoryCalculator } = await import('./HistoryCalculator.js?v=22');
-        const { parseDate } = await import('./utils.js');
-        const preFixBuildLedger = function (purchasesArg, isSingleAsset) {
-            const byTicker = new Map();
-            let firstPurchaseDate = null;
-            const addEntry = (t, entry) => {
-                if (!byTicker.has(t)) byTicker.set(t, []);
-                byTicker.get(t).push(entry);
-                if (!firstPurchaseDate || entry.date < firstPurchaseDate) firstPurchaseDate = entry.date;
-            };
-            if (isSingleAsset) {
-                const t = purchasesArg[0].ticker.toUpperCase();
-                purchasesArg.forEach(p => addEntry(t, {
-                    date: parseDate(p.date), price: parseFloat(p.price), quantity: parseFloat(p.quantity),
-                    currency: p.currency || 'EUR', broker: p.broker || 'RV-CT'
-                }));
-            } else {
-                purchasesArg.forEach(p => {
-                    const type = (p.assetType || '').toLowerCase();
-                    const isCash = type === 'cash' || p.ticker.toUpperCase() === 'CASH' || p.ticker.toUpperCase() === 'EUR';
-                    const currency = p.currency || 'EUR';
-                    const t = isCash ? `CASH-${currency}` : p.ticker.toUpperCase();
-                    const broker = p.broker || 'RV-CT';
-                    if (isCash) {
-                        addEntry(t, { date: parseDate(p.date), price: 1.0, quantity: parseFloat(p.price) || 0, currency, broker });
-                    } else {
-                        addEntry(t, { date: parseDate(p.date), price: parseFloat(p.price), quantity: parseFloat(p.quantity), currency, broker });
-                    }
-                });
-            }
-            byTicker.forEach(list => list.sort((a, b) => a.date - b.date));
-            return { byTicker, firstPurchaseDate };
-        };
-
-        const originalBuildLedger = HistoryCalculator.prototype._buildLedger;
-        let graphBefore = null;
-        try {
-            HistoryCalculator.prototype._buildLedger = preFixBuildLedger;
-            const snapshotBefore = await this.buildTodaySnapshot(assetPurchases, cashPurchases);
-            graphBefore = snapshotBefore.todayGraphData.values[snapshotBefore.todayGraphData.values.length - 1];
-        } finally {
-            HistoryCalculator.prototype._buildLedger = originalBuildLedger;
-        }
-
-        // --- Rapprochement par ticker ---
-        const dividendsByTicker = new Map(); // ticker -> { count, phantomQty, amountSum }
-        cashPurchases.forEach(p => {
-            const type = (p.assetType || '').toLowerCase();
-            const isDividend = type === 'dividend' || p.type === 'dividend';
-            const isRealCashTicker = p.ticker.toUpperCase() === 'CASH' || p.ticker.toUpperCase() === 'EUR';
-            if (!isDividend || isRealCashTicker) return;
-            const ticker = p.ticker.toUpperCase();
-            if (!dividendsByTicker.has(ticker)) dividendsByTicker.set(ticker, { count: 0, phantomQty: 0, amountSum: 0 });
-            const entry = dividendsByTicker.get(ticker);
-            entry.count += 1;
-            entry.phantomQty += parseFloat(p.quantity) || 0;
-            entry.amountSum += parseFloat(p.price) || 0;
-        });
-
-        const rows = [];
-        let totalPhantomValue = 0;
-        let totalDividendAmount = 0;
-        dividendsByTicker.forEach((entry, ticker) => {
-            const resolved = snapshotAfter.todayGraphData.resolvedPrices.get(ticker);
-            const finalPrice = resolved?.price ?? null;
-            const phantomValue = finalPrice != null ? entry.phantomQty * finalPrice : null;
-            if (phantomValue != null) totalPhantomValue += phantomValue;
-            totalDividendAmount += entry.amountSum;
-            rows.push({
-                Ticker: ticker,
-                'Nb dividendes': entry.count,
-                'Qté fantôme cumulée': entry.phantomQty,
-                'Prix final utilisé': finalPrice,
-                'Valeur fantôme finale (€)': phantomValue != null ? phantomValue.toFixed(2) : 'N/A (pas de resolvedPrice)',
-                'Montant dividendes cumulé (€)': entry.amountSum.toFixed(2)
-            });
-        });
-
-        console.table(rows);
-        console.log(`[debugDividendPhantomGap] Σ valeur fantôme = ${totalPhantomValue.toFixed(2)}€, Σ dividendes (cash) = ${totalDividendAmount.toFixed(2)}€`);
-        console.log(`[debugDividendPhantomGap] Écart PRÉDIT par les dividendes = ${(totalPhantomValue - totalDividendAmount).toFixed(2)}€`);
-        console.log(`[debugDividendPhantomGap] Graphique AVANT correction (rejoué) = ${graphBefore?.toFixed(2)}€`);
-        console.log(`[debugDividendPhantomGap] Graphique APRÈS correction (code actuel) = ${graphAfter?.toFixed(2)}€`);
-        console.log(`[debugDividendPhantomGap] Holdings + cash (inchangé par le bug) = ${holdingsTotal.toFixed(2)}€`);
-        console.log(`[debugDividendPhantomGap] Écart RÉEL observé (avant - holdings) = ${(graphBefore - holdingsTotal).toFixed(2)}€`);
-        const predicted = totalPhantomValue - totalDividendAmount;
-        const observed = graphBefore - holdingsTotal;
-        const residual = observed - predicted;
-        console.log(`[debugDividendPhantomGap] Résidu inexpliqué par les dividendes = ${residual.toFixed(2)}€ ${Math.abs(residual) <= 0.01 ? '(dividendes = cause UNIQUE)' : '(⚠️ AUTRE CAUSE PRÉSENTE — audit à poursuivre)'}`);
-
-        return { rows, totalPhantomValue, totalDividendAmount, graphBefore, graphAfter, holdingsTotal, predicted, observed, residual };
-    }
+    // debugDividendPhantomGap() déplacée hors du moteur (audit 2026-09-28) :
+    // outil de diagnostic chargé à la demande, voir
+    // audit/tools/debugDividendPhantomGap.js.
 
     // debugLastPointDivergence() supprimée (validation architecture
     // 2026-09-24, Phase 4) — ce diagnostic existait pour investiguer un écart
