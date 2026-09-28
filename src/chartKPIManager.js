@@ -254,6 +254,26 @@ export class ChartKPIManager {
     }
 
     /**
+     * Stats-bar number format, shared by every cell: French grouping and
+     * decimal comma, € unless it is an index level. Prices shown with 4
+     * decimals (unit/index views) keep them only below 1.
+     * @private
+     */
+    _fmt(n, decimals, { isIndexMode = false, signed = false } = {}) {
+        if (n === null || n === undefined || !Number.isFinite(Number(n))) return '—';
+        const value = Number(n);
+        const digits = decimals > 2 && Math.abs(value) >= 1 ? 2 : decimals;
+        const text = value.toLocaleString('fr-FR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+        return `${signed && value > 0 ? '+' : ''}${text}${isIndexMode ? '' : ' €'}`;
+    }
+
+    _fmtPct(n) {
+        if (!Number.isFinite(Number(n))) return '—';
+        const value = Number(n);
+        return `${value > 0 ? '+' : ''}${value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`;
+    }
+
+    /**
      * Méthode principale pour mettre à jour tous les KPIs
      * @param {Object} config - Configuration contenant toutes les données nécessaires
      */
@@ -288,7 +308,7 @@ export class ChartKPIManager {
 
         // Mise à jour des différents groupes de KPIs
         this._updatePeriodReturn({ isIndexMode, currentPeriod, perfAbs, perfPct, isPositive, decimals });
-        this._updateBasicStats({ priceStart, priceEnd, priceHigh, priceLow, decimals });
+        this._updateBasicStats({ priceStart, priceEnd, priceHigh, priceLow, decimals, isIndexMode });
         this._updateDailyStats({
             isIndexMode,
             isSingleAsset,
@@ -319,13 +339,13 @@ export class ChartKPIManager {
         // Pour le mode index en 1D, on masque ces stats car elles ne sont pas pertinentes
         // AFFICHER TOUJOURS : La logique de masquage pour Index 1D est supprimée
         if (performanceLabel) {
-            const currencySymbol = isIndexMode ? '' : '€';
-            performanceLabel.textContent = `${perfAbs > 0 ? '+' : ''}${perfAbs.toFixed(decimals)} ${currencySymbol}`;
+            performanceLabel.textContent = this._fmt(perfAbs, decimals, { isIndexMode, signed: true });
             performanceLabel.className = 'value ' + (absPositive ? 'positive' : 'negative');
         }
+        // Own cell ("PERFORMANCE"), same size as every other value.
         if (performancePercent) {
-            performancePercent.textContent = `(${perfPct > 0 ? '+' : ''}${perfPct.toFixed(2)}%)`;
-            performancePercent.className = 'pct ' + (pctPositive ? 'positive' : 'negative');
+            performancePercent.textContent = this._fmtPct(perfPct);
+            performancePercent.className = 'value ' + (pctPositive ? 'positive' : 'negative');
         }
     }
 
@@ -333,27 +353,27 @@ export class ChartKPIManager {
      * Met à jour les statistiques de base (START / END / HIGH / LOW)
      * @private
      */
-    _updateBasicStats({ priceStart, priceEnd, priceHigh, priceLow, decimals }) {
+    _updateBasicStats({ priceStart, priceEnd, priceHigh, priceLow, decimals, isIndexMode = false }) {
         const { priceStart: priceStartEl, priceEnd: priceEndEl, priceHigh: priceHighEl, priceLow: priceLowEl } = this.elements;
 
         if (priceStartEl) {
             if (priceStartEl.previousElementSibling) priceStartEl.previousElementSibling.textContent = "DÉBUT";
-            priceStartEl.textContent = `${priceStart.toFixed(decimals)}`;
+            priceStartEl.textContent = this._fmt(priceStart, decimals, { isIndexMode });
             priceStartEl.className = 'value';
         }
         if (priceEndEl) {
             if (priceEndEl.previousElementSibling) priceEndEl.previousElementSibling.textContent = "FIN";
-            priceEndEl.textContent = `${priceEnd.toFixed(decimals)}`;
+            priceEndEl.textContent = this._fmt(priceEnd, decimals, { isIndexMode });
             priceEndEl.className = 'value';
         }
         if (priceHighEl) {
             if (priceHighEl.previousElementSibling) priceHighEl.previousElementSibling.textContent = "HAUT";
-            priceHighEl.textContent = `${priceHigh.toFixed(decimals)}`;
+            priceHighEl.textContent = this._fmt(priceHigh, decimals, { isIndexMode });
             priceHighEl.className = 'value positive';
         }
         if (priceLowEl) {
             if (priceLowEl.previousElementSibling) priceLowEl.previousElementSibling.textContent = "BAS";
-            priceLowEl.textContent = `${priceLow.toFixed(decimals)}`;
+            priceLowEl.textContent = this._fmt(priceLow, decimals, { isIndexMode });
             priceLowEl.className = 'value negative';
         }
     }
@@ -406,8 +426,8 @@ export class ChartKPIManager {
                 statUnitPrice.style.display = isIndexMode ? 'none' : 'flex';
                 const label = statUnitPrice.querySelector('.label');
                 const value = statUnitPrice.querySelector('.value');
-                if (label) label.textContent = isIndexMode ? 'PRIX ACTUEL' : 'PRIX UNT';
-                if (value) value.textContent = priceEnd !== null ? `${priceEnd.toFixed(decimals)}` : '-';
+                if (label) label.textContent = isIndexMode ? 'PRIX ACTUEL' : 'PRIX';
+                if (value) value.textContent = priceEnd !== null ? this._fmt(priceEnd, decimals, { isIndexMode }) : '—';
             }
 
             if (statPru) {
@@ -415,7 +435,7 @@ export class ChartKPIManager {
                     statPru.style.display = 'flex';
                     const value = statPru.querySelector('.value');
                     if (value) {
-                        value.textContent = `${avgPrice.toFixed(4)} €`;
+                        value.textContent = this._fmt(avgPrice, 4);
                         value.style.color = '#FF9F43';
                     }
                 } else {
@@ -433,8 +453,8 @@ export class ChartKPIManager {
                 else if (vsYesterdayAbs < -0.001) dayClass = 'negative';
 
                 if (statDayVar && statYesterdayClose && dayVarLabel && dayVarPercent && yesterdayCloseValue) {
-                    dayVarLabel.innerHTML = `${vsYesterdayAbs > 0 ? '+' : ''}${vsYesterdayAbs.toFixed(decimals)}`;
-                    dayVarPercent.innerHTML = `(${vsYesterdayPct > 0 ? '+' : ''}${vsYesterdayPct.toFixed(2)}%)`;
+                    dayVarLabel.textContent = this._fmt(vsYesterdayAbs, decimals, { isIndexMode, signed: true });
+                    dayVarPercent.textContent = this._fmtPct(vsYesterdayPct);
                     dayVarLabel.className = `value ${dayClass}`;
                     dayVarPercent.className = `pct ${dayClass}`;
 
@@ -442,7 +462,7 @@ export class ChartKPIManager {
                     if (dayVarLabelEl) dayVarLabelEl.textContent = 'VAR. JOUR';
                     statDayVar.style.display = 'flex';
 
-                    yesterdayCloseValue.textContent = `${referenceClose.toFixed(decimals)}`;
+                    yesterdayCloseValue.textContent = this._fmt(referenceClose, decimals, { isIndexMode });
                     const yesterdayCloseLabelEl = statYesterdayClose.querySelector('.label');
                     if (yesterdayCloseLabelEl) yesterdayCloseLabelEl.textContent = 'CLÔTURE HIER';
                     statYesterdayClose.style.display = 'flex';
@@ -461,15 +481,9 @@ export class ChartKPIManager {
                 statYesterdayClose.style.display = 'none';
                 if (yesterdayCloseValue) yesterdayCloseValue.textContent = '';
             }
-            if (statUnitPrice) {
-                statUnitPrice.style.display = 'none';
-                // Force empty content to prevent ghosting
-                const label = statUnitPrice.querySelector('.label');
-                const value = statUnitPrice.querySelector('.value');
-                if (label) label.textContent = '';
-                if (value) value.textContent = '';
-                statUnitPrice.innerHTML = ''; // NUCLEAR OPTION: Vider complètement
-            }
+            // Hidden only: emptying it left a blank cell in the stats bar once
+            // the asset view showed it again.
+            if (statUnitPrice) statUnitPrice.style.display = 'none';
             if (statPru) {
                 statPru.style.setProperty('display', 'none', 'important');
                 const pruValue = statPru.querySelector('.value');
@@ -496,8 +510,8 @@ export class ChartKPIManager {
                     else if (displayVar < -0.001) dayClass = 'negative';
 
                     if (dayVarLabel && dayVarPercent) {
-                        dayVarLabel.innerHTML = `${displayVar > 0 ? '+' : ''}${displayVar.toFixed(decimals)} €`;
-                        dayVarPercent.innerHTML = `(${displayPct > 0 ? '+' : ''}${displayPct.toFixed(2)}%)`;
+                        dayVarLabel.textContent = this._fmt(displayVar, decimals, { signed: true });
+                        dayVarPercent.textContent = this._fmtPct(displayPct);
                         dayVarLabel.className = `value ${dayClass}`;
                         dayVarPercent.className = `pct ${dayClass}`;
                         statDayVar.style.display = 'flex';
@@ -507,7 +521,7 @@ export class ChartKPIManager {
                     const labelEl = statYesterdayClose.querySelector('.label');
 
                     if (yesterdayCloseValue && labelEl) {
-                        yesterdayCloseValue.textContent = `${referenceClose.toFixed(decimals)} €`;
+                        yesterdayCloseValue.textContent = this._fmt(referenceClose, decimals);
                         labelEl.textContent = finalYesterdayClose ? 'CLÔTURE HIER' : 'OUVERTURE';
                         statYesterdayClose.style.display = 'flex';
                     }
@@ -550,7 +564,7 @@ export class ChartKPIManager {
 
         const eur = (n) => `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
         const signed = (n, text) => `${n >= 0 ? '+' : ''}${text}`;
-        const pct = (n) => signed(n, `${n.toFixed(2)}%`);
+        const pct = (n) => this._fmtPct(n);
         const setText = (id, text, tone = null) => {
             const el = document.getElementById(id);
             if (!el) return;
@@ -571,7 +585,7 @@ export class ChartKPIManager {
         if (!isPrice) {
             const r = details.totalReturn;
             setText('ath-total-return', r !== null ? signed(r, eur(r)) : '—', tone(r));
-            setText('ath-total-return-pct', details.totalReturnPct !== null ? `(${pct(details.totalReturnPct)})` : '', tone(details.totalReturnPct));
+            setText('ath-total-return-pct', details.totalReturnPct !== null ? pct(details.totalReturnPct) : '', tone(details.totalReturnPct));
         }
 
         let dateText = '—';

@@ -131,66 +131,48 @@
 
 /* --------------------------------------------------------------------------
    View switch — #view-toggle (built by src/chartViewToggle.js)
-   Icon-only € / % (or € / unit price) with a thumb that slides to the
-   selected option; the full name is in the tooltip and aria-label.
+   Same chip grammar as PRU / ATH: one bordered chip per option, the
+   selected one tinted blue (never a solid fill), so every control of the
+   toolbar reads as one family.
    -------------------------------------------------------------------------- */
 .chart-toolbar #view-toggle {
-    --vs-btn: 34px;
-    --vs-gap: 2px;
     align-items: center;
     height: var(--ct-h);
 }
 
 .chart-toolbar #view-toggle .toggle-group {
-    position: relative;
     display: inline-flex;
-    align-items: stretch;
-    gap: var(--vs-gap);
+    align-items: center;
+    gap: 4px;
     height: var(--ct-h);
     margin: 0;
-    padding: 3px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--ct-radius);
-    box-sizing: border-box;
+    padding: 0;
+    background: none;
+    border: none;
 }
 
 .chart-toolbar #view-toggle .toggle-group::before {
-    content: '';
-    position: absolute;
-    top: 3px;
-    bottom: 3px;
-    left: 3px;
-    width: var(--vs-btn);
-    border-radius: var(--ct-inner-radius);
-    background: var(--accent-blue);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-    transition: transform 0.22s cubic-bezier(0.3, 0.7, 0.4, 1);
-}
-
-.chart-toolbar #view-toggle .toggle-group[data-active="1"]::before {
-    transform: translateX(calc(var(--vs-btn) + var(--vs-gap)));
+    content: none;
 }
 
 .chart-toolbar #view-toggle .toggle-btn {
-    position: relative;
-    z-index: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: var(--vs-btn);
-    height: auto;
-    min-width: 0;
-    padding: 0;
+    min-width: 34px;
+    width: auto;
+    height: var(--ct-h);
+    padding: 0 11px;
     font: 700 13px/1 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     color: var(--text-secondary);
-    background: transparent;
-    border: none;
-    border-radius: var(--ct-inner-radius);
+    background: var(--ct-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--ct-radius);
     box-shadow: none;
+    box-sizing: border-box;
     transform: none;
     cursor: pointer;
-    transition: color 0.15s ease;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .chart-toolbar #view-toggle .toggle-btn i {
@@ -199,11 +181,14 @@
 
 .chart-toolbar #view-toggle .toggle-btn:hover:not(.active) {
     color: var(--text-primary);
+    background: var(--ct-surface-hover);
+    border-color: rgba(59, 130, 246, 0.5);
 }
 
 .chart-toolbar #view-toggle .toggle-btn.active {
-    color: #fff;
-    background: transparent;
+    color: var(--text-primary);
+    background: rgba(59, 130, 246, 0.14);
+    border-color: rgba(59, 130, 246, 0.5);
 }
 
 .chart-toolbar #view-toggle .toggle-btn:focus-visible {
@@ -413,6 +398,63 @@
 }
 
 /* --------------------------------------------------------------------------
+   Period bars (Dashboard header, Investments under the stats) — chips too:
+   the same size, border and blue tint as the view switch and PRU / ATH.
+   Mobile keeps its own compact bars (the *-mobile.css sheets).
+   -------------------------------------------------------------------------- */
+@media (min-width: 769px) {
+    .chart-controls-inline,
+    .historical-chart-container .chart-controls {
+        gap: 4px;
+        height: auto;
+        padding: 0;
+        background: none;
+        border: none;
+        border-radius: 0;
+    }
+
+    .chart-controls-inline .period-btn,
+    .historical-chart-container .chart-controls .period-btn {
+        height: 32px;
+        padding: 0 10px;
+        font: 600 12px/1 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        color: var(--text-secondary);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border-color);
+        border-radius: 9px;
+        box-shadow: none;
+        box-sizing: border-box;
+        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .chart-controls-inline .period-btn:hover:not(.active),
+    .historical-chart-container .chart-controls .period-btn:hover:not(.active) {
+        color: var(--text-primary);
+        background: rgba(255, 255, 255, 0.07);
+        border-color: rgba(59, 130, 246, 0.5);
+    }
+
+    .chart-controls-inline .period-btn.active,
+    .historical-chart-container .chart-controls .period-btn.active {
+        color: var(--text-primary);
+        font-weight: 600;
+        background: rgba(59, 130, 246, 0.14);
+        border-color: rgba(59, 130, 246, 0.5);
+        box-shadow: none;
+    }
+
+    .chart-header > .chart-controls-inline .period-btn {
+        padding: 0 10px;
+    }
+}
+
+@container chart-card (min-width: 980px) and (max-width: 1100px) {
+    .chart-header > .chart-controls-inline .period-btn {
+        padding: 0 8px;
+    }
+}
+
+/* --------------------------------------------------------------------------
    Period bars (both pages) — zoom toggle
    -------------------------------------------------------------------------- */
 .period-btn:focus-visible {
@@ -438,10 +480,13 @@
 }
 
 /* Purple = zoom, same colour as the zoom selection drawn on the chart. */
-.period-btn.selection-mode-toggle.active {
+.period-btn.selection-mode-toggle.active,
+.chart-controls-inline .period-btn.selection-mode-toggle.active,
+.historical-chart-container .chart-controls .period-btn.selection-mode-toggle.active {
     color: #e9d5ff;
-    background: rgba(168, 85, 247, 0.2);
-    box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.5);
+    background: rgba(168, 85, 247, 0.16);
+    border-color: rgba(168, 85, 247, 0.55);
+    box-shadow: none;
 }
 
 /* --------------------------------------------------------------------------
@@ -479,64 +524,140 @@
     white-space: nowrap;
 }
 
-/* Total Return ATH: amount, then its % underneath (keeps the cell narrow). */
+/* Total Return ATH: amount and its % on one line, like every other value. */
 .stat-group-ath .stat-inline {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
 }
 
 .stat-group-ath .stat-inline .pct {
     margin-left: 0 !important;
-    font-size: 12px;
 }
 
 .stat-group-ath .positive { color: #10b981 !important; }
 .stat-group-ath .negative { color: #ef4444 !important; }
 
-/* Wide card: one row of blocks. Columns are created only for the VISIBLE
-   groups (auto-flow) — e.g. VAR. JOUR is hidden outside 1D, and a fixed
-   4-column template left an empty column on the right. Each block's
-   content is centred in its column, 2×2 blocks included. */
+/* --------------------------------------------------------------------------
+   Stats bar — unified layout (wide card, both pages).
+   One table of two shared rows: every group is a subgrid of the bar's two
+   rows, so every label and every value sits at the same height across
+   PÉRIODE / VAR. JOUR / DÉBUT–BAS / ATH. Groups get equal columns and
+   centre their cells; one type scale for all values, only VAR. JOUR (1D)
+   is larger. Hidden groups/cells (inline display:none set by
+   chartKPIManager) take no column.
+   -------------------------------------------------------------------------- */
 @container chart-card (min-width: 861px) {
-    .chart-stats-bar.has-ath {
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar {
+        display: grid !important;
         grid-template-columns: none !important;
+        grid-template-rows: auto auto;
         grid-auto-flow: column;
-        grid-auto-columns: minmax(0, 1fr);
-        align-items: center !important;
+        grid-auto-columns: minmax(max-content, 1fr);
+        row-gap: 14px;
+        column-gap: 0;
+        align-items: start !important;
+        padding: 18px 8px;
     }
 
-    .chart-stats-bar.has-ath > .stat-group {
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar > .stat-group {
+        grid-row: 1 / span 2;
         grid-column: auto !important;
-        padding: 0 16px !important;
-        border-right: 1px solid var(--border-color) !important;
-        border-bottom: none !important;
-    }
-
-    .chart-stats-bar.has-ath > .stat-group:first-child {
-        padding-left: 0 !important;
-    }
-
-    .chart-stats-bar.has-ath > .stat-group-ath {
-        border-right: none !important;
-        padding-right: 0 !important;
-    }
-
-    .chart-stats-bar.has-ath > .stat-group-3,
-    .chart-stats-bar.has-ath > .stat-group-ath {
-        grid-template-columns: repeat(2, minmax(0, max-content)) !important;
+        display: grid !important;
+        grid-template-rows: subgrid;
+        grid-template-columns: max-content !important;
+        grid-auto-flow: row;
         justify-content: center;
-        column-gap: clamp(16px, 3cqi, 40px) !important;
+        align-items: start;
+        column-gap: clamp(20px, 2.6cqi, 40px);
+        min-width: 0;
+        margin: 0 !important;
+        padding: 0 20px !important;
+        border: none !important;
+        border-left: 1px solid var(--border-color) !important;
     }
 
-    /* Dashboard: a viewport rule (≤1400px) restyles groups 1/2 as stacked
-       rows; in the single row they keep their column look. */
-    .dashboard-chart-section .chart-stats-bar.has-ath > .stat-group-1,
-    .dashboard-chart-section .chart-stats-bar.has-ath > .stat-group-2 {
-        flex-direction: column !important;
-        justify-content: center !important;
-        align-items: normal !important;
-        padding-bottom: 0 !important;
+    /* 2×2 blocks, filled row by row: DÉBUT | FIN / HAUT | BAS. */
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar > :is(.stat-group-3, .stat-group-ath) {
+        grid-template-columns: repeat(2, max-content) !important;
+    }
+
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar > .stat-group:first-child {
+        border-left: none !important;
+    }
+
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .stat {
+        display: flex !important;
+        flex-direction: column;
+        align-items: flex-start !important;
+        justify-content: flex-start;
+        gap: 5px;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+    }
+
+    /* Amount and its % share one line. */
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .stat:has(> .pct) {
+        display: grid !important;
+        grid-template-columns: auto auto;
+        grid-template-areas: "label label" "value pct";
+        justify-content: start;
+        align-items: last baseline !important;
+        column-gap: 8px;
+        row-gap: 5px;
+    }
+
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .stat:has(> .pct) > .label { grid-area: label; }
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .stat:has(> .pct) > .value { grid-area: value; }
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .stat:has(> .pct) > .pct { grid-area: pct; }
+
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .label {
+        margin: 0 !important;
+        font: 600 10.5px/1.2 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        white-space: nowrap;
+    }
+
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .value {
+        margin: 0 !important;
+        font: 700 16px/1.25 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .pct {
+        margin: 0 !important;
+        font: 600 12.5px/1.25 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-variant-numeric: tabular-nums;
+        opacity: 1;
+        white-space: nowrap;
+    }
+
+    /* The only headline: day variation, shown on the 1D view. */
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar #stat-day-var .value {
+        font-size: 24px !important;
+        line-height: 1.1 !important;
+    }
+
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar #stat-day-var .pct {
+        font-size: 14px !important;
+    }
+
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .value.positive,
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .pct.positive { color: #10b981 !important; }
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .value.negative,
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .pct.negative { color: #ef4444 !important; }
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .value.neutral,
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .pct.neutral { color: var(--text-primary) !important; }
+
+    /* Last, so no display rule above can bring a hidden group/cell back. */
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar > .stat-group:is([hidden], [style*="display: none"], [style*="display:none"]),
+    :is(.dashboard-chart-section, .historical-chart-container) .chart-stats-bar .stat:is([hidden], [style*="display: none"], [style*="display:none"], :empty) {
+        display: none !important;
     }
 }
 

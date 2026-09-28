@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="css/investments.css?v=56">
     <link rel="stylesheet" href="css/investments-mobile.css?v=4">
     <link rel="stylesheet" href="css/investments-table-compact.css?v=6">
-    <link rel="stylesheet" href="css/chart-toolbar.css?v=5">
+    <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -159,12 +159,19 @@
                     <div class="stat-group stat-group-1">
                         <div class="stat stat-period">
                             <span class="label">PÉRIODE</span>
-                            <span id="performance-label" class="value neutral">+0.00 €</span>
-                            <span id="performance-percent" class="pct neutral">(0.00%)</span>
+                            <span id="performance-label" class="value neutral">--</span>
+                        </div>
+                        <div class="stat stat-performance">
+                            <span class="label">PERFORMANCE</span>
+                            <span id="performance-percent" class="value neutral">--</span>
                         </div>
                     </div>
 
                     <div class="stat-group stat-group-2">
+                        <div class="stat" id="unit-price-row" style="display:none;">
+                            <span class="label">UNITE</span>
+                            <span id="unit-price" class="value">0.00 €</span>
+                        </div>
                         <div class="stat" id="stat-day-var" style="display: none;">
                             <span class="label">VAR. JOUR</span>
                             <span id="day-var-label" class="value neutral">+0.00 €</span>
@@ -192,10 +199,6 @@
                         <div class="stat">
                             <span class="label">BAS</span>
                             <span id="price-low" class="value negative">0.00 €</span>
-                        </div>
-                        <div class="stat" id="unit-price-row" style="display:none;">
-                            <span class="label">UNITE</span>
-                            <span id="unit-price" class="value">0.00 €</span>
                         </div>
                     </div>
                     <!-- ATH (filled by chartKPIManager.updateAthStats, hidden unless the ATH line is shown — 4th 2×2 block of the stats bar, see css/chart-toolbar.css) -->

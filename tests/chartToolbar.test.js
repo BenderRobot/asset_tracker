@@ -102,9 +102,9 @@ describe('ATH stats group', () => {
         expect(text('ath-value-label')).toBe('Total Value ATH');
         expect(text('ath-total-value').replace(/\s/g, ' ')).toBe('36 717,02 €');
         expect(text('ath-total-return').replace(/\s/g, ' ')).toBe('+1 964,79 €');
-        expect(text('ath-total-return-pct')).toBe('(+7.45%)');
+        expect(text('ath-total-return-pct')).toBe('+7,45 %');
         expect(text('ath-date')).toBe('12 mars 2026');
-        expect(text('ath-gap')).toBe('-1.30%');
+        expect(text('ath-gap')).toBe('-1,30 %');
         expect(document.getElementById('ath-gap').classList.contains('negative')).toBe(true);
     });
 
@@ -150,7 +150,7 @@ describe('ATH stats group — loading', () => {
 
         kpi.updateAthStats({ kind: 'price', timestamp: 0, price: 10, fromAthPct: -5 });
         expect(group.classList.contains('is-loading')).toBe(false);
-        expect(document.getElementById('ath-gap').textContent).toBe('-5.00%');
+        expect(document.getElementById('ath-gap').textContent).toBe('-5,00 %');
 
         kpi.updateAthStats(null);
         expect(bar.classList.contains('has-ath')).toBe(false);
