@@ -27,8 +27,10 @@
 //     weekend fallback) still compute their own boundaries directly — not yet
 //     routed through the engine, flagged as follow-up work, not silently left
 //     inconsistent.
-//  4. Stock candles never snap forward across a weekend/holiday gap
-//     (findClosestPrice(..., allowForward=false) for non-crypto tickers).
+//  4. Valuation is causal: a point at instant T only reads observations
+//     available at T (findClosestPrice is past-only; daily candles are placed
+//     at min(end of their session day, now)). No asset, crypto included,
+//     snaps forward onto a future candle.
 //  5. A 1D portfolio containing a 24/7 asset is 00:00 → now in the portfolio
 //     timezone. When every selected instrument is exchange-traded and today is
 //     closed, the window shows the most recent real session instead. This keeps
@@ -157,10 +159,17 @@ export class HistoryCalculator {
         const interval = getIntervalForPeriod(days);
         const labelFormatFunc = getLabelFormat(days);
 
-        const { map: historicalDataMap, failedTickers, recoveredTickers, failureDetails } = await this._fetchHistoricalData(tickers, win.dataStartTs, win.dataEndTs, interval);
-        await this._fillCryptoGapsFromBinance(tickers, historicalDataMap, days);
+        // Holding intervals: only instruments held during this window (from its
+        // reference close onwards) are downloaded and may invalidate it. A line
+        // sold long before the window has quantity 0 on every point; its
+        // missing/delisted quotes must not blank the current curve (audit A3).
+        // The full ledger still drives quantities and cost basis below.
+        const heldTickers = this._selectHeldTickers(ledger, tickers, win);
+
+        const { map: historicalDataMap, failedTickers, recoveredTickers, failureDetails } = await this._fetchHistoricalData(heldTickers, win.dataStartTs, win.dataEndTs, interval);
+        await this._fillCryptoGapsFromBinance(heldTickers, historicalDataMap, days);
         for (const [ticker, history] of historicalDataMap) historicalDataMap.set(ticker, historyInEur(ticker, history));
-        await this._recoverFromClosedMarket(tickers, historicalDataMap, win, days, isCrypto, interval);
+        await this._recoverFromClosedMarket(heldTickers, historicalDataMap, win, days, isCrypto, interval);
 
         // Binance (voir _fillCryptoGapsFromBinance) est une VRAIE source de
         // marché alternative (klines réelles, pas une reconstruction) — un
@@ -182,7 +191,7 @@ export class HistoryCalculator {
         const retryAfterMs = rateLimited
             ? Math.max(0, ...[...failureDetails.values()].map(details => Number(details?.retryAfterMs) || 0))
             : null;
-        for (const ticker of tickers) {
+        for (const ticker of heldTickers) {
             const currency = ticker.startsWith('CASH-') ? ticker.slice(5) : null;
             if (currency && currency !== 'EUR' && !(dynamicRate > 0)) fxUnavailable.add(ticker);
             if (livePriceSnapshot.get(ticker)?.fxUnavailable) fxUnavailable.add(ticker);
@@ -207,7 +216,7 @@ export class HistoryCalculator {
         // main loop crosses (see _resolveDailyAnchor) — never a second, parallel
         // implementation of the same question.
         const resolveCloseBefore = (refDate, label, useDedicatedFetch) =>
-            this._resolvePortfolioCloseBefore(ledger, refDate, tickers, {
+            this._resolvePortfolioCloseBefore(ledger, refDate, heldTickers, {
                 dynamicRate, isSingleAsset, historicalDataMap, useDedicatedFetch, label, livePriceSnapshot, historyInEur, historicalFxMap
             });
 
@@ -230,10 +239,14 @@ export class HistoryCalculator {
             ? this._resolveMidnightValuationSeed(tickers, historicalDataMap, win, yesterday, livePriceSnapshot)
             : null;
 
-        const displayTimestamps = this._buildTimestampGrid(days, historicalDataMap, win, ledger, interval, isCrypto);
+        // One calculation instant for the whole series: no point may be valued
+        // with an observation that did not exist yet at that instant.
+        const calculationTs = Date.now();
+        const sessionDates = new Map();
+        const displayTimestamps = this._buildTimestampGrid(days, historicalDataMap, win, ledger, interval, isCrypto, calculationTs, sessionDates);
 
         const { perTickerYesterdayClose, todayValueOfYesterdayHoldings } =
-            this._valueTodaysHoldingsAtYesterdaysQuantities(tickers, yesterday, dynamicRate, isSingleAsset, livePriceSnapshot, win.displayStart);
+            this._valueTodaysHoldingsAtYesterdaysQuantities(heldTickers, yesterday, dynamicRate, isSingleAsset, livePriceSnapshot, win.displayStart);
 
         // Sur un jour ferme, la metrique canonique "aujourd'hui" des actions
         // reste volontairement a zero (le portefeuille mixte ne doit bouger que
@@ -243,7 +256,7 @@ export class HistoryCalculator {
         // distincte : elle ne participe jamais a la Var Today du portefeuille.
         const perTickerLastSessionPerformance = days === 1
             ? await this._resolveLastClosedSessionPerformance({
-                tickers, ledger, historicalDataMap, dynamicRate,
+                tickers: heldTickers, ledger, historicalDataMap, dynamicRate,
                 livePriceSnapshot, failedTickers
             })
             : new Map();
@@ -252,7 +265,7 @@ export class HistoryCalculator {
             ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices,
             dynamicRate, isSingleAsset, isMixed, interval, days, labelFormatFunc,
             resolveCloseBefore, initialYesterdayClose: yesterday.total, initialYesterdayPrices: yesterday.prices, win, historicalFxMap,
-            midnightValuationSeed, debugCapture, livePriceSnapshot
+            midnightValuationSeed, debugCapture, livePriceSnapshot, sessionDates
         });
 
         const purchasePoints = isSingleAsset
@@ -300,10 +313,12 @@ export class HistoryCalculator {
             unitPrices: fxUnavailable.size ? nullSeries(series.unitPrices) : series.unitPrices,
             purchasePoints,
             timestamps: displayTimestamps,
-            twr: fxUnavailable.size ? nullSeries(series.twr) : series.twr,
-            twrWithDividends: fxUnavailable.size ? nullSeries(series.twrWithDividends) : series.twrWithDividends,
-            dailyTwr: fxUnavailable.size ? nullSeries(series.dailyTwr) : series.dailyTwr,
-            dailyTwrWithDividends: fxUnavailable.size ? nullSeries(series.dailyTwrWithDividends) : series.dailyTwrWithDividends,
+            // Same completeness rule as the values: a held instrument without
+            // real prices makes its performance unknown, not flat.
+            twr: gateOnValidity(series.twr),
+            twrWithDividends: gateOnValidity(series.twrWithDividends),
+            dailyTwr: gateOnValidity(series.dailyTwr),
+            dailyTwrWithDividends: gateOnValidity(series.dailyTwrWithDividends),
             historicalDataMap,
             isMixed,
             // SINGLE SOURCE OF TRUTH pour "le prix couramment utilisé, par
@@ -348,6 +363,39 @@ export class HistoryCalculator {
         }
         byTicker.forEach(list => list.sort((a, b) => a.date - b.date));
         return { byTicker, firstPurchaseDate };
+    }
+
+    // Useful holding interval of each instrument for one window. Required:
+    // cash (no market fetch), any line with a non-zero quantity at the window's
+    // reference instant — the earlier of the previous-close cutoff (quantity
+    // held "yesterday", which anchors the day's P&L) and the window start — and
+    // any line traded between that reference and now (today's purchases and
+    // sales). Every other line has quantity 0 on every point of the window.
+    _selectHeldTickers(ledger, tickers, win, nowTs = Date.now()) {
+        return tickers.filter(t => {
+            if (t.startsWith('CASH-')) return true;
+            const referenceTs = Math.min(getCloseCutoffForTicker(t, win.displayStart), win.displayStartTs - 1);
+            let quantityAtReference = 0;
+            for (const entry of ledger.byTicker.get(t) || []) {
+                const ts = entry.date.getTime();
+                if (ts <= referenceTs) quantityAtReference += entry.quantity;
+                else if (ts <= nowTs) return true;
+            }
+            return Math.abs(quantityAtReference) > 0.000001;
+        });
+    }
+
+    // Market instruments a caller must price (live quote) for this period —
+    // the same rule as the history calculation itself, never a second one.
+    requiredMarketTickers(purchases, days, isSingleAsset = false) {
+        const ledger = this._buildLedger(purchases, isSingleAsset);
+        if (!ledger.firstPurchaseDate) return [];
+        const tickers = Array.from(ledger.byTicker.keys());
+        const marketTickers = tickers.filter(t => !t.startsWith('CASH-'));
+        const isCrypto = isSingleAsset ? isCryptoTicker(tickers[0] || '') : marketTickers.some(t => isCryptoTicker(t));
+        const isMixed = !isSingleAsset && isMixedPortfolio(tickers);
+        const win = this._computeDisplayWindow(days, isCrypto, isMixed, ledger);
+        return this._selectHeldTickers(ledger, marketTickers, win);
     }
 
     _computeDisplayWindow(days, isCrypto, isMixed, ledger) {
@@ -788,7 +836,7 @@ export class HistoryCalculator {
                 if (pd?.previousClose > 0) price = pd.previousClose;
                 else if (isCryptoTicker(t) && pd?.price > 0) price = pd.price;
             }
-            if (!price && hist) price = findClosestPrice(hist, win.displayStartTs - 3600000, '1h', isCryptoTicker(t));
+            if (!price && hist) price = findClosestPrice(hist, win.displayStartTs - 3600000, '1h');
 
             if (price > 0) seed.set(t, price);
         }
@@ -798,21 +846,32 @@ export class HistoryCalculator {
     // ========================================================
     // 6. Timestamp grid to iterate over
     // ========================================================
-    _buildTimestampGrid(days, historicalDataMap, win, ledger, interval, isCrypto) {
+    // Every returned timestamp is an OBSERVATION instant, never later than
+    // `nowTs` (the instant being calculated). A daily/weekly bar has two
+    // distinct notions: its session date (the bar's UTC period start, exposed
+    // through `sessionDates`) and the instant its close becomes available (end
+    // of that period). A period still in progress is observed now, not at a
+    // future 23:59:59.999 (audit 2026-09-28, A5).
+    _buildTimestampGrid(days, historicalDataMap, win, ledger, interval, isCrypto, nowTs = Date.now(), sessionDates = null) {
         const allTs = new Set();
+        const periodMs = interval === '1wk' ? 7 * DAY_MS : (interval === '1d' ? DAY_MS : null);
         historicalDataMap.forEach(hist => {
             Object.keys(hist).forEach(k => {
-                let ts = parseInt(k);
-                if (interval === '1d' || interval === '1wk') {
-                    const d = new Date(ts); d.setUTCHours(23, 59, 59, 999); ts = d.getTime();
+                const barTs = parseInt(k);
+                if (!Number.isFinite(barTs) || barTs > nowTs) return;
+                let ts = barTs;
+                if (periodMs) {
+                    const d = new Date(barTs); d.setUTCHours(0, 0, 0, 0);
+                    ts = Math.min(d.getTime() + periodMs - 1, nowTs);
+                    sessionDates?.set(ts, d.toISOString().slice(0, 10));
                 }
                 allTs.add(ts);
             });
         });
-        allTs.add(win.displayStartTs);
+        if (win.displayStartTs <= nowTs) allTs.add(win.displayStartTs);
 
         if (days === 1) {
-            const dayEnd = win.displayStartTs + DAY_MS;
+            const dayEnd = Math.min(win.displayStartTs + DAY_MS, nowTs);
             for (const list of ledger.byTicker.values()) {
                 for (const entry of list) {
                     const ts = entry.date.getTime();
@@ -828,7 +887,7 @@ export class HistoryCalculator {
         // weekend) doesn't distort the shape of the curve relative to the others.
         if (days === 7) {
             const step = { '1h': 3600000, '60m': 3600000, '30m': 1800000, '15m': 900000 }[interval] || 3600000;
-            const safeEnd = win.displayEndTs === Infinity ? Date.now() : win.displayEndTs;
+            const safeEnd = Math.min(win.displayEndTs, nowTs);
             const grid = [];
             for (let ts = Math.ceil(win.displayStartTs / step) * step; ts <= safeEnd; ts += step) {
                 if (ts >= win.displayStartTs) grid.push(ts);
@@ -837,7 +896,7 @@ export class HistoryCalculator {
         }
 
         let filtered = sorted.filter(ts => {
-            if (ts < win.displayStartTs || ts > win.displayEndTs) return false;
+            if (ts < win.displayStartTs || ts > win.displayEndTs || ts > nowTs) return false;
             return true;
         });
 
@@ -994,7 +1053,7 @@ export class HistoryCalculator {
     // ========================================================
     // 8. Main per-timestamp valuation + TWR loop
     // ========================================================
-    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, isMixed, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, initialYesterdayPrices = null, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot }) {
+    async _buildSeries({ ledger, tickers, historicalDataMap, displayTimestamps, lastKnownPrices, dynamicRate, isSingleAsset, isMixed, interval, days, labelFormatFunc, resolveCloseBefore, initialYesterdayClose, initialYesterdayPrices = null, win, historicalFxMap = null, midnightValuationSeed = null, debugCapture = null, livePriceSnapshot, sessionDates = null }) {
         const labels = [], invested = [], investedAssetOnly = [], values = [], assetValues = [], unitPrices = [];
         // `twr` is deliberately price-only. Cash never belongs to its market
         // value and dividends are exposed through a separate optional series.
@@ -1277,7 +1336,9 @@ export class HistoryCalculator {
                     if (frozenWeekendClose > 0) { price = frozenWeekendClose; priceSource = 'closedMarketClose'; }
                     else if (ts === win.displayStartTs && midnightValuationSeed?.has(t)) { price = midnightValuationSeed.get(t); priceSource = 'midnightSeed'; }
                     else if (hist?.[ts] != null) { price = hist[ts]; priceSource = 'candle'; }
-                    else if (hist) { price = findClosestPrice(hist, ts, interval, isCryptoTicker(t)); if (price != null) priceSource = 'closestPrice'; }
+                    // Strictly causal: the last observation at or before ts, for crypto
+                    // as for stocks — never a nearer future quote.
+                    else if (hist) { price = findClosestPrice(hist, ts, interval); if (price != null) priceSource = 'closestPrice'; }
                     if (price == null && lastKnownPrices.has(t)) { price = lastKnownPrices.get(t); priceSource = 'lastKnown'; }
                 }
                 if (tickerSourcesThisPoint) tickerSourcesThisPoint[t] = priceSource;
@@ -1339,7 +1400,11 @@ export class HistoryCalculator {
                             previousClose: freezeAtLastClose && frozenClose > 0
                                 ? frozenClose
                                 : (stored?.previousClose ?? null),
-                            lastUpdate: stored?.lastUpdate ?? null
+                            lastUpdate: stored?.lastUpdate ?? null,
+                            // Source freshness travels with the price to the
+                            // snapshot: a quote kept after a failed refresh.
+                            stale: !!stored?.stale,
+                            refreshError: stored?.refreshError ?? null
                         });
                     }
                 }
@@ -1520,7 +1585,10 @@ export class HistoryCalculator {
                 : (distinctSources.size === 1 && distinctSources.has('historical_candle') ? 'historical_candle' : 'valuation');
 
             pointMeta.push({
+                // Observation instant (≤ calculation instant) vs trading session
+                // date of the daily bar valued there (null for intraday grids).
                 timestamp: ts,
+                sessionDate: sessionDates?.get(ts) ?? null,
                 source: aggregateSource,
                 tickerSources: marketSources,
                 isHistoricalObservation: aggregateSource === 'historical_candle',

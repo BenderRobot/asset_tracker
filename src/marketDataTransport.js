@@ -47,8 +47,13 @@ async function disk(key, value) {
     } catch { resolve(null); }
   });
 }
-function response(entry, stale = false) {
-  return { ok: true, status: 200, fetchedAt: entry.fetchedAt, stale, headers: new Headers(), json: async () => structuredClone(entry.data) };
+// A stale response is the last validated payload, served because the refresh
+// failed. It keeps its real `fetchedAt` and carries that failure (`error`) so
+// callers can report the degraded state instead of a fresh success.
+function response(entry, stale = false, error = null) {
+  return { ok: true, status: 200, fetchedAt: entry.fetchedAt, stale,
+    error: stale && error ? { status: Number.isFinite(error.status) ? error.status : null, message: error.message || 'Market refresh failed' } : null,
+    headers: new Headers(), json: async () => structuredClone(entry.data) };
 }
 function cacheable(data) {
   if (Number.isFinite(data?.rates?.EUR) && data.rates.EUR > 0) return true;
@@ -87,7 +92,7 @@ export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 
       const staleEntry = stored?.data ? stored : cached;
       if (staleEntry?.data && cacheable(staleEntry.data)) {
         marketDataMetrics.recordCacheHit();
-        return response(staleEntry, true);
+        return response(staleEntry, true, failure.error);
       }
       throw failure.error;
     }
@@ -143,7 +148,7 @@ export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 
         if (memory.size > MAX_ENTRIES) memory.delete(memory.keys().next().value);
         void disk(key, entry);
       }
-      return { ok: true, status: res.status || 200, fetchedAt: entry.fetchedAt, headers: res.headers, json: async () => structuredClone(data) };
+      return { ok: true, status: res.status || 200, fetchedAt: entry.fetchedAt, stale: false, error: null, headers: res.headers, json: async () => structuredClone(data) };
     } catch (error) {
       // Stale-if-error for REAL provider payloads only. This is the persistent
       // cache-first path for immutable past candles: a temporary Worker/Yahoo
@@ -153,7 +158,7 @@ export async function fetchMarketResponse(url, timeoutMs = 10000, requestType = 
       if (staleEntry?.data && cacheable(staleEntry.data)) {
         memory.set(key, staleEntry);
         marketDataMetrics.recordCacheHit();
-        return response(staleEntry, true);
+        return response(staleEntry, true, error);
       }
       throw error;
     } finally {

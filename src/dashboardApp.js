@@ -294,7 +294,9 @@ export class DashboardApp {
         if (stale || degraded) {
             this.showCacheBadge();
             const badge = document.getElementById('cache-badge');
-            if (badge) badge.textContent = `Dernier état connu · ${new Date(snapshot.generatedAt).toLocaleString()}${degraded ? ' · actualisation indisponible' : ''}`;
+            // Date réelle des cotations utilisées, pas celle du recalcul.
+            const asOf = result.pricesAsOf ?? snapshot.generatedAt;
+            if (badge) badge.textContent = `Dernier état connu · ${new Date(asOf).toLocaleString()}${degraded ? ' · actualisation indisponible' : ''}`;
         } else this.hideCacheBadge();
         if (snapshot.portfolioSnapshot.status === 'valid') marketDataMetrics.recordInitialRender();
         if (!stale && !degraded && snapshot.portfolioSnapshot.status === 'valid' && this._notifiedSnapshotId !== snapshot.snapshotId) {

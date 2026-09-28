@@ -1,7 +1,8 @@
 // Cache orchestration only. DataManager remains the financial engine.
 import { marketDataMetrics } from './marketDataMetrics.js';
 
-const VERSION = 10;
+// v11: snapshots carry source freshness (sourceStale/staleInstruments).
+const VERSION = 11;
 const FRESH_TTL_MS = 30_000;
 const RETRY_MS = 30_000;
 const encode = (_, value) => value instanceof Map ? { $marketMap: [...value] } : value;
@@ -60,10 +61,17 @@ export class MarketDataRepository {
   subscribe(listener) { this._listeners.add(listener); return () => this._listeners.delete(listener); }
   _result(fromCache = true) {
     const entry = this._memory;
+    const portfolio = entry.snapshot.portfolioSnapshot;
+    // Freshness of the SOURCE, not only of this cache entry: a snapshot built
+    // from quotes kept after a failed refresh is degraded however recent its
+    // own construction is. `pricesAsOf` is the real date of those quotes.
+    const sourceStale = !!portfolio?.sourceStale;
     return { snapshot: entry.snapshot, fromCache,
       previousSession: !sameDay(entry.computedAt, Date.now()),
-      stale: !sameDay(entry.computedAt, Date.now()) || Date.now() - entry.computedAt >= FRESH_TTL_MS || !!entry.degraded,
-      degraded: !!entry.degraded, lastRefreshFailure: entry.lastRefreshFailure };
+      stale: !sameDay(entry.computedAt, Date.now()) || Date.now() - entry.computedAt >= FRESH_TTL_MS || !!entry.degraded || sourceStale,
+      degraded: !!entry.degraded || sourceStale, lastRefreshFailure: entry.lastRefreshFailure,
+      sourceStale, staleInstruments: portfolio?.staleInstruments || [],
+      pricesAsOf: portfolio?.pricesTimestamp ?? entry.computedAt };
   }
   _publish(background) {
     const result = { ...this._result(false), background };
@@ -170,11 +178,14 @@ export class MarketDataRepository {
           this._memory = { ...previous, degraded: true, retryAt: Date.now() + RETRY_MS,
             lastRefreshFailure: snapshot.portfolioSnapshot.invalidReason || 'PRICE_DATA_UNAVAILABLE' };
         } else {
+          const staleInstruments = snapshot.portfolioSnapshot.staleInstruments || [];
+          const healthy = valid && staleInstruments.length === 0;
           this._memory = { schemaVersion: VERSION, engineVersion: 1, userId: scope,
-            snapshot, computedAt: snapshot.generatedAt, purchasesSignature: key, degraded: !valid,
+            snapshot, computedAt: snapshot.generatedAt, purchasesSignature: key, degraded: !healthy,
             fxRate: snapshot._engine?.dynamicRate ?? this.dataManager.storage.getConversionRate?.('USD_TO_EUR') ?? null,
-            retryAt: valid ? 0 : Date.now() + RETRY_MS,
-            lastRefreshFailure: valid ? null : snapshot.portfolioSnapshot.invalidReason };
+            retryAt: healthy ? 0 : Date.now() + RETRY_MS,
+            lastRefreshFailure: !valid ? snapshot.portfolioSnapshot.invalidReason
+              : (healthy ? null : `STALE_PRICE_DATA: ${staleInstruments.join(', ')}`) };
         }
         this._persist();
         if (valid) {
@@ -204,8 +215,16 @@ export class MarketDataRepository {
   }
 
   async _computeSnapshot(assetPurchases, cashPurchases, forceLive = false) {
-    const tickers = [...new Set((assetPurchases || []).map(p => p.ticker.toUpperCase()))];
-    if ([...assetPurchases, ...cashPurchases].some(p => p.currency === 'USD')) await this.dataManager.api.ensureConversionRate?.();
+    // Only instruments held for today's measure (yesterday's quantity, today's
+    // trades) are priced live. A line sold long ago may no longer be quoted;
+    // its failure must not block the current snapshot. The engine owns the
+    // holding-interval rule; a data manager without it keeps every ticker.
+    const tickers = this.dataManager.requiredMarketTickers?.([...assetPurchases, ...cashPurchases], 1)
+      ?? [...new Set((assetPurchases || []).map(p => p.ticker.toUpperCase()))];
+    const required = new Set(tickers);
+    if (cashPurchases.some(p => p.currency === 'USD') ||
+        assetPurchases.some(p => p.currency === 'USD' && required.has(p.ticker.toUpperCase())))
+      await this.dataManager.api.ensureConversionRate?.();
     if (tickers.length > 0) {
       await this.dataManager.api.fetchBatchPrices(tickers, forceLive);
     }
@@ -213,7 +232,14 @@ export class MarketDataRepository {
       const quote = this.dataManager.storage.getCurrentPrice(t);
       return quote?.currency === 'USD' || quote?.originalCurrency === 'USD';
     })) await this.dataManager.api.ensureConversionRate?.();
-    const failures = tickers.filter(t => this.dataManager.api.liveFailures?.has(t));
+    // A failure with an older validated quote kept (`stale`) is not missing
+    // data: the snapshot is built from it and flagged degraded with its real
+    // date (see DataManager.resolvePriceStatus). A failure without any quote
+    // still blocks it.
+    const failures = tickers.filter(t => {
+      const failure = this.dataManager.api.liveFailures?.get(t);
+      return failure && !(failure.stale && this.dataManager.storage.getCurrentPrice(t)?.price > 0);
+    });
     if (failures.length) throw new Error(`PRICE_DATA_UNAVAILABLE: ${failures.join(', ')}`);
     const livePriceSnapshot = new Map(tickers.map(t => [t, this.dataManager.storage.getCurrentPrice(t)]));
 

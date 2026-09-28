@@ -45,7 +45,9 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // storage.getAssetType).
 // Version 18: transaction markers are positioned by point index and carry
 // their side (buy/sell). Version 19 adds periodPnlWithDividends.
-const HISTORY_CHART_CACHE_VERSION = 21;
+// Version 22: causal timestamps (no point after the calculation instant),
+// holding-interval validity and pointMeta.sessionDate.
+const HISTORY_CHART_CACHE_VERSION = 22;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 // IndexedDB is not bound by the ~5 MB localStorage quota shared by the app:
 // every period of the portfolio and of recently viewed assets fits.
@@ -1011,7 +1013,9 @@ export class HistoricalChart {
                     this.showMessage(`Dernier portefeuille connu : ${new Date(repoResult.snapshot.generatedAt).toLocaleString()}. Actualisation en cours.`);
                     return;
                 }
-                this.snapshotFreshness = { stale: repoResult.stale, degraded: repoResult.degraded, generatedAt: repoResult.snapshot.generatedAt };
+                // Degraded: show when the prices were really observed.
+                this.snapshotFreshness = { stale: repoResult.stale, degraded: repoResult.degraded,
+                    generatedAt: repoResult.degraded ? (repoResult.pricesAsOf ?? repoResult.snapshot.generatedAt) : repoResult.snapshot.generatedAt };
                 todayGraphData = snapshot.todayGraphData;
                 targetHoldings = snapshot.holdings;
                 targetSummary = snapshot.summary;

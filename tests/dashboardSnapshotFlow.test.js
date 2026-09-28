@@ -57,7 +57,11 @@ it('dashboard and chart share one computation; reload restores a snapshot with z
   );
   const cold = marketDataMetrics.snapshot();
   expect(cold.historicalCalculations).toBe(1);
-  expect(cold.networkRequests).toBe(8); // 2 live + 2 intraday + 4 daily reference requests in this fixture
+  // 2 live + 2 intraday + 2 daily reference requests. The fixture also returns
+  // a candle at 22:00Z (already tomorrow in Paris, after "now"): it is not an
+  // observation available at the calculation instant, so it no longer opens a
+  // second day anchor with its own daily requests.
+  expect(cold.networkRequests).toBe(6);
   const urls = fetch.mock.calls.map(([url]) => url);
   expect(new Set(urls).size).toBe(urls.length);
   marketDataMetrics.reset();

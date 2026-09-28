@@ -585,17 +585,44 @@ export class PriceAPI {
         const finalPreviousClose = result.previousClose;
         if (!Number.isFinite(finalPrice) || finalPrice <= 0) throw new Error('Invalid provider price');
 
-        this.storage.setCurrentPrice(ticker.toUpperCase(), {
-          price: finalPrice,
-          previousClose: finalPreviousClose,
-          previousCloseUnavailable: !!result.previousCloseUnavailable,
-          currency: result.currency,
-          marketState: result.marketState,
-          lastUpdate: res.fetchedAt || Date.now(),
-          source: source
-        });
+        const upperTicker = ticker.toUpperCase();
+        // STALE-IF-ERROR (audit 2026-09-28, B3) : the transport served the last
+        // validated payload because this refresh failed. The quote stays
+        // displayable with its real observation date, but it is not a success:
+        // the failure is kept in liveFailures (flagged `stale`, so consumers can
+        // tell "old data available" from "no data") and on the quote itself,
+        // which is what travels to the financial snapshot.
+        const refreshError = res.stale ? (res.error?.message || 'Market refresh failed') : null;
+        const staleMarks = refreshError ? { stale: true, refreshError } : {};
+        const observedAt = res.fetchedAt || Date.now();
+        const existing = this.storage.getCurrentPrice(upperTicker);
+        if (refreshError && existing?.price > 0 && (existing.lastUpdate || 0) > observedAt) {
+          // A newer quote is already known (other tab/device): never replace
+          // it with an older payload, only mark that its refresh failed.
+          this.storage.setCurrentPrice(upperTicker, { ...existing, ...staleMarks });
+        } else {
+          this.storage.setCurrentPrice(upperTicker, {
+            price: finalPrice,
+            previousClose: finalPreviousClose,
+            previousCloseUnavailable: !!result.previousCloseUnavailable,
+            currency: result.currency,
+            marketState: result.marketState,
+            lastUpdate: observedAt,
+            source: source,
+            ...staleMarks
+          });
+        }
 
-        this.liveFailures.delete(ticker.toUpperCase());
+        if (refreshError) {
+          this.liveFailures.set(upperTicker, {
+            reason: refreshError, status: res.error?.status ?? null, at: Date.now(),
+            stale: true, lastUpdate: this.storage.getCurrentPrice(upperTicker)?.lastUpdate ?? observedAt
+          });
+          console.warn(`Price Proxy refresh failed for ${ticker}: ${refreshError} — last quote kept (${new Date(observedAt).toISOString()}).`);
+          providerStats.GCP_PROXY.fails++;
+          continue;
+        }
+        this.liveFailures.delete(upperTicker);
         tickersResult.push(ticker);
 
       } catch (err) {

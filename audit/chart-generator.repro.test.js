@@ -68,7 +68,7 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         expect(fetchHistory).not.toHaveBeenCalled();
     });
 
-    it('A3: one unavailable, long-sold instrument invalidates a healthy current week', async () => {
+    it('A3 fixed: an unavailable instrument sold long ago no longer invalidates the current week', async () => {
         const dm = new DataManager(createFakeStorage({ conversionRate: 1 }), createFakeApi({
             async getHistoricalPricesWithRetry(ticker) { return ticker === 'OLD' ? createFailedHistoricalResult() : flatHistory; }
         }));
@@ -77,8 +77,8 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
             purchase({ ticker: 'OLD', date: '2025-01-01', quantity: -1 }),
             purchase({ ticker: 'HELD', date: '2026-09-01' })
         ], 7);
-        expect(graph.dataQuality).toMatchObject({ valid: false, failedInstruments: ['OLD'] });
-        expect(graph.values.every(v => v === null)).toBe(true);
+        expect(graph.dataQuality).toMatchObject({ valid: true, failedInstruments: [] });
+        expect(graph.values.some(Number.isFinite)).toBe(true);
         expect(graph.twr.some(Number.isFinite)).toBe(true);
     });
 
@@ -93,18 +93,18 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         expect(routed.twrWithDividends.at(-1)).toBe(1);
     });
 
-    it('A5: daily candles are moved to a future end-of-day timestamp', async () => {
+    it('A5 fixed: the session in progress is observed now, not at a future end of day', async () => {
         const graph = await manager({ ...flatHistory, [Date.parse('2026-09-26T08:00:00Z')]: 101 })
             .calculateHistory([purchase({ date: '2026-09-01' })], 90);
-        expect(graph.timestamps.at(-1)).toBe(Date.parse('2026-09-26T23:59:59.999Z'));
-        expect(graph.timestamps.at(-1)).toBeGreaterThan(Date.now());
+        expect(graph.timestamps.at(-1)).toBe(Date.now());
+        expect(graph.pointMeta.at(-1).sessionDate).toBe('2026-09-26');
     });
 
-    it('A6: a crypto valuation can borrow tomorrow\'s price', () => {
+    it('A6 fixed: the valuation lookup is causal by default (forward snapping is a visual-only opt-in)', () => {
         const target = ts('2026-09-24');
         const history = { [target - 23 * 3600000]: 100, [target + 3600000]: 120 };
+        expect(findClosestPrice(history, target, '1d')).toBe(100);
         expect(findClosestPrice(history, target, '1d', true)).toBe(120);
-        expect(findClosestPrice(history, target, '1d', false)).toBe(100);
     });
 
     it('A7: period euro KPI loses realised gains from partial sales', async () => {

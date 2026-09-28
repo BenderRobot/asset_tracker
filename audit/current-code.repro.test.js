@@ -1,5 +1,5 @@
-// B1/B2 now assert the corrected currency behavior (also covered in the normal
-// regression suite). B3-B6 still characterize the outstanding audit defects.
+// B1/B2/B3 now assert the corrected behavior (also covered in the normal
+// regression suite). B4-B6 still characterize the outstanding audit defects.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { Storage } from '../src/storage.js';
@@ -39,7 +39,7 @@ it('B2 fixed: USD cash is converted before adding it to the EUR reserve', () => 
     expect(cash.total).toBe(80);
 });
 
-it('B3: a failed live refresh served from transport cache clears the failure state', async () => {
+it('B3 fixed: a failed live refresh served from transport cache keeps its failure state', async () => {
     const payload = { chart: { result: [{
         meta: { currency: 'EUR', regularMarketPrice: 100, regularMarketPreviousClose: 95 },
         timestamp: [1, 2], indicators: { quote: [{ close: [95, 100] }] }
@@ -53,11 +53,11 @@ it('B3: a failed live refresh served from transport cache clears the failure sta
     const observedAt = storage.getCurrentPrice('AAPL').lastUpdate;
     vi.setSystemTime(new Date(Date.now() + 86400000));
     api.liveFailures.set('AAPL', { reason: 'previous error' });
-    expect(await api.fetchPricesViaProxy(['AAPL'], true)).toBe(true);
+    expect(await api.fetchPricesViaProxy(['AAPL'], true)).toBe(false);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(storage.getCurrentPrice('AAPL').lastUpdate).toBe(observedAt);
-    expect(api.liveFailures.has('AAPL')).toBe(false);
-    expect(storage.getCurrentPrice('AAPL').stale).toBeUndefined();
+    expect(api.liveFailures.get('AAPL')).toMatchObject({ stale: true, status: 502 });
+    expect(storage.getCurrentPrice('AAPL').stale).toBe(true);
 });
 
 it('B4: a dividend creates a negative return in the broker detail at a constant price', async () => {

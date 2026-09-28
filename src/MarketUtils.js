@@ -367,20 +367,23 @@ export function formatTicker(ticker) {
 }
 
 /**
- * Finds the price closest to a target timestamp in history.
+ * Finds the price available at a target timestamp in history.
+ *
+ * Default (financial valuation): strictly causal — the latest observation at or
+ * before `targetTs`. A price observed after `targetTs` did not exist yet at that
+ * instant; using it would leak the future into the valuation (audit 2026-09-28,
+ * A6: at T, a 120 quote at T+1h was chosen over the last known 100 at T−23h).
+ * A sparse series on a dense grid is therefore carried forward, never pulled back.
+ *
  * @param {Object} hist - Map or Array of prices
  * @param {number} targetTs
  * @param {string} interval
- * @param {boolean} [allowForward=true] - allow snapping to a future candle within
- *   tolerance. Needed for crypto (sparse weekend data on a dense grid) — but for
- *   stocks it lets a Monday-morning candle (often a thin/illiquid pre-market print)
- *   leak backward onto Saturday/Sunday grid points, producing a fake cliff right at
- *   the weekend boundary on any 1W+ view (the "bug lundi" already fixed for 1D/2D
- *   elsewhere, but this generic distance search had no ticker-type awareness).
- *   Callers should pass false for non-crypto tickers.
+ * @param {boolean} [allowForward=false] - VISUAL interpolation only: allow
+ *   snapping to a nearer future candle within tolerance. Never pass true for a
+ *   value that enters a financial calculation (portfolio value, TWR, P&L).
  * @returns {number|null}
  */
-export function findClosestPrice(hist, targetTs, interval, allowForward = true) {
+export function findClosestPrice(hist, targetTs, interval, allowForward = false) {
     if (!hist) return null;
     let timestamps = historicalTimestampIndex.get(hist);
     if (!timestamps) {
@@ -389,16 +392,8 @@ export function findClosestPrice(hist, targetTs, interval, allowForward = true) 
     }
     if (timestamps.length === 0) return null;
 
-    // REWRITTEN LOGIC: Robust Distance-Based Search
-    // Goal: Find the 'best' price for the target timestamp.
-    // 1. If we have a future point within tolerance, it's a good candidate (snap forward).
-    // 2. We always have past points (last known).
-    // We want the closest one overall, but biasing towards 'valid' data.
-
-    // Define forward tolerance based on interval
-    // CRITICAL: For 1W view (15m interval), we need MUCH larger tolerance because crypto weekend data
-    // is sparse (1 point every 2-3 hours) but our uniform grid generates points every 15 minutes.
-    // If tolerance is too strict, grid points can't find nearby data → fallback to Friday close → flatline!
+    // Past observation = last known price. A future point is only a candidate
+    // for visual interpolation (allowForward), within an interval-based tolerance.
     let forwardTolerance = allowForward ? 3600000 : 0; // Default 1h (0 = never snap forward)
     if (allowForward) {
         if (interval === '5m') forwardTolerance = 300000;        // 5 min (intraday, dense data)

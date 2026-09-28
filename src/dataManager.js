@@ -124,7 +124,7 @@ export class DataManager {
     //     snapshot.dayPnl        === Σ snapshot.positions[].dayPnl   (par construction : summary.totalDayChangeEUR est DÉJÀ cette somme — voir calculateSummary)
     //     snapshot.totalValue    === Σ positions[].currentValue + snapshot.cash
     //     snapshot.totalReturn   === Σ positions[].totalReturn        (= totalValue des actifs - invested, cash exclu — définition actuelle de gainTotal)
-    buildPortfolioSnapshot({ holdings, summary, cashReserve, snapshotStartedAt = null, pricesTimestamp = null, meta = null }) {
+    buildPortfolioSnapshot({ holdings, summary, cashReserve, snapshotStartedAt = null, pricesTimestamp = null, priceStatus = null, meta = null }) {
         const cash = cashReserve?.total ?? (cashReserve?.fxUnavailable ? null : 0);
         const invested = summary.totalInvestedEUR || 0;
 
@@ -160,6 +160,13 @@ export class DataManager {
             // appelant qui connaît l'âge réel des prix (ex: dernier
             // lastUpdate résolu) peut le préciser.
             pricesTimestamp: pricesTimestamp ?? snapshotStartedAt,
+            // Fraîcheur de la SOURCE (audit 2026-09-28, B3) : cotations
+            // conservées après un rafraîchissement en échec. Le snapshot reste
+            // valide et affichable (données réelles, datées par
+            // pricesTimestamp), mais n'est jamais présenté comme à jour.
+            sourceStale: !!priceStatus?.staleInstruments?.length,
+            staleInstruments: Object.freeze([...(priceStatus?.staleInstruments || [])]),
+            refreshErrors: Object.freeze({ ...(priceStatus?.refreshErrors || {}) }),
             // FAIL-CLOSED — voir règle ci-dessus. 'valid' | 'invalid'.
             status: isValid ? 'valid' : 'invalid',
             invalidReason: isValid ? null : dataQuality.reason,
@@ -220,6 +227,9 @@ export class DataManager {
             generatedAt: snapshot.generatedAt,
             snapshotStartedAt: snapshot.snapshotStartedAt,
             pricesTimestamp: snapshot.pricesTimestamp,
+            sourceStale: snapshot.sourceStale ?? false,
+            staleInstruments: snapshot.staleInstruments ?? Object.freeze([]),
+            refreshErrors: snapshot.refreshErrors ?? Object.freeze({}),
             status: isValid ? 'valid' : 'invalid',
             invalidReason: isValid ? null : (snapshot.cash === null ? 'FX_DATA_UNAVAILABLE' : 'PRICE_DATA_UNAVAILABLE'),
             invalidInstruments: Object.freeze(invalidInFilter),
@@ -1233,6 +1243,10 @@ export class DataManager {
             holdings, summary, cashReserve,
             snapshotStartedAt: marketResult.snapshot.portfolioSnapshot.snapshotStartedAt,
             pricesTimestamp: marketResult.snapshot.portfolioSnapshot.pricesTimestamp,
+            priceStatus: {
+                staleInstruments: marketResult.snapshot.portfolioSnapshot.staleInstruments,
+                refreshErrors: marketResult.snapshot.portfolioSnapshot.refreshErrors
+            },
             meta: { mode: 'analytics', includesRealEstate: true, marketSnapshotId: marketResult.snapshot.snapshotId }
         });
         return { holdings, summary, cashReserve, portfolioSnapshot, realEstateHoldings };
@@ -1444,6 +1458,31 @@ export class DataManager {
         }
     }
 
+    // Freshness of the prices actually used for "now" (resolvedPrices of the
+    // engine's last point): the oldest real quote date and the instruments
+    // whose refresh failed while an older validated quote was kept.
+    resolvePriceStatus(resolvedPrices) {
+        const staleInstruments = [];
+        const refreshErrors = {};
+        let oldestQuoteAt = null;
+        for (const [ticker, quote] of resolvedPrices || []) {
+            if (Number.isFinite(quote?.lastUpdate)) oldestQuoteAt = Math.min(oldestQuoteAt ?? Infinity, quote.lastUpdate);
+            if (quote?.stale) {
+                staleInstruments.push(ticker);
+                refreshErrors[ticker] = quote.refreshError || 'Market refresh failed';
+            }
+        }
+        return { oldestQuoteAt, staleInstruments, refreshErrors };
+    }
+
+    // Instruments to price for a period: held at its reference close or traded
+    // since (see HistoryCalculator._selectHeldTickers). Same ledger split as
+    // buildTodaySnapshot, so the snapshot fetches exactly what it values.
+    requiredMarketTickers(purchases, days = 1) {
+        const { assets, cash } = this.splitCanonicalPurchases(purchases);
+        return this.historyCalculator.requiredMarketTickers([...assets, ...cash], days);
+    }
+
     // === SMART SYNC (Délégué) ===
     async getHistoryWithCache(ticker, startTs, endTs, interval) {
         return this.historyCalculator.getHistoryWithCache(ticker, startTs, endTs, interval);
@@ -1562,8 +1601,10 @@ export class DataManager {
         // cashReserve continuent de fonctionner à l'identique). C'est CE
         // champ que historicalChart.js doit désormais lire pour produire ses
         // KPI — voir _computeAggregateKPIs.
+        const priceStatus = this.resolvePriceStatus(todayGraphData.resolvedPrices);
         const portfolioSnapshot = this.buildPortfolioSnapshot({
             holdings, summary, cashReserve, snapshotStartedAt,
+            pricesTimestamp: priceStatus.oldestQuoteAt, priceStatus,
             meta: { mode: 'portfolio' }
         });
 
