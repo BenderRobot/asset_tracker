@@ -742,9 +742,22 @@ export class Storage {
         return `${purchase.ticker.toUpperCase()}|${purchase.date}|${purchase.price}|${purchase.quantity}|${ts}`;
     }
 
+    // Type of the INSTRUMENT behind a ticker. A distributing ETF/stock also
+    // carries dividend records under the same ticker (assetType 'Dividend',
+    // see achatsPage.js); those describe cash income, not the instrument.
+    // BUG FOUND (EUEA — iShares Core EURO STOXX 50, distributing): this used
+    // to return the type of whichever record came first, so a dividend line
+    // made the ticker read as 'Dividend' → api.getHistoricalPricesWithRetry
+    // skipped its price history as a "legitimately empty" result (no failure
+    // marker, so fail-closed never triggered) → the chart collapsed to the
+    // single first-purchase point. A position record now always wins; a
+    // dividend/cash-only ticker keeps its own type.
     getAssetType(ticker) {
-        const purchase = this.purchases.find(p => p.ticker.toUpperCase() === ticker.toUpperCase());
-        return purchase?.assetType || 'Stock';
+        const upper = ticker.toUpperCase();
+        const records = this.purchases.filter(p => p.ticker?.toUpperCase() === upper);
+        const isIncomeRecord = (p) => p.type === 'dividend' || (p.assetType || '').toLowerCase() === 'dividend';
+        const position = records.find(p => !isIncomeRecord(p));
+        return (position ?? records[0])?.assetType || 'Stock';
     }
 
     isMarketOpen(category = 'EUR') {

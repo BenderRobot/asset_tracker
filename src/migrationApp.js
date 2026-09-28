@@ -2,7 +2,7 @@
 // migrationApp.js - Migration et Modification en Masse
 // ========================================
 
-import { Storage } from './storage.js?v=4';
+import { Storage } from './storage.js?v=5';
 import { BROKERS, ASSET_TYPES, CURRENCIES } from './config.js';
 
 class MigrationApp {

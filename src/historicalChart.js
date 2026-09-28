@@ -37,7 +37,10 @@ const AUTO_REFRESH_FIRST_MS = 30 * 1000;
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // Bump whenever the financial meaning of a persisted series changes. Version 14
 // invalidates closed-weekend 1D series that showed an empty current civil day.
-const HISTORY_CHART_CACHE_VERSION = 16;
+// Version 17 drops single-point series of distributing assets whose price
+// history had been skipped (dividend record read as the ticker's type — see
+// storage.getAssetType).
+const HISTORY_CHART_CACHE_VERSION = 17;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 const ATH_RETRY_DELAY_MS = 5 * 60 * 1000;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
@@ -1938,7 +1941,26 @@ export class HistoricalChart {
                         grid: { display: false },
                         ticks: { autoSkip: true, maxTicksLimit: 10, maxRotation: 0 }
                     },
-                    y: { ticks: { callback: (v) => isPerformanceMode ? `${v.toFixed(2)}%` : v } }
+                    // Tick values are raw floats (53.400000000000006): format them
+                    // with just enough decimals for the tick step, never more.
+                    y: {
+                        ticks: {
+                            callback: (v, _i, ticks) => {
+                                const step = ticks?.length > 1 ? Math.abs(ticks[1].value - ticks[0].value) : 0;
+                                // Fewest decimals that write the step exactly (0.2 → 1, 0.25 → 2, 500 → 0).
+                                let decimals = 2;
+                                if (step > 0) {
+                                    decimals = 4;
+                                    for (let d = 0; d <= 4; d++) {
+                                        const scaled = step * 10 ** d;
+                                        if (Math.abs(scaled - Math.round(scaled)) < 1e-6 * Math.max(1, scaled)) { decimals = d; break; }
+                                    }
+                                }
+                                if (isPerformanceMode) return `${v.toFixed(Math.max(2, decimals))}%`;
+                                return Number(v).toLocaleString('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+                            }
+                        }
+                    }
                 }
             }
         });
