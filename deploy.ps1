@@ -1,9 +1,22 @@
+param(
+    # Opt-out explicite. Par defaut le Worker prix est redeploye a chaque execution.
+    [switch]$SkipWorker
+)
+
 $ErrorActionPreference = 'Stop'
 
 function Write-Step($msg) { Write-Host "`n$msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "  $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "  $msg" -ForegroundColor Yellow }
 function Write-Err($msg)  { Write-Host "  ERROR: $msg" -ForegroundColor Red }
+
+# Barriere bloquante : aucun push ni deploiement si la suite de tests echoue.
+function Invoke-TestGate($label) {
+    Write-Step "[Tests] npm test ($label)"
+    npm test
+    if ($LASTEXITCODE -ne 0) { Write-Err "Tests en echec - deploiement annule, rien n'a ete publie."; exit 1 }
+    Write-Ok "Tests OK."
+}
 
 Set-Location $PSScriptRoot
 
@@ -17,6 +30,10 @@ if ($currentBranch -ne "main") {
     git checkout main
     if ($LASTEXITCODE -ne 0) { Write-Err "git checkout main failed."; exit 1 }
 }
+
+# Apres la bascule sur main : on teste le code qui sera reellement deploye
+# (arbre de travail inclus, il est commite plus bas), avant toute ecriture.
+Invoke-TestGate "code a deployer"
 
 # --- COMMIT MESSAGE ---
 $defaultMsg = "deploy: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
@@ -37,6 +54,7 @@ if ($status) {
 }
 
 # Récupérer les dernières modifications du serveur
+$headBeforePull = git rev-parse HEAD
 git pull origin main --rebase
 if ($LASTEXITCODE -ne 0) { 
     if ($stashed) { git stash pop }
@@ -51,6 +69,9 @@ if ($stashed) {
     }
 }
 
+# Des commits distants recuperes par le pull n'ont pas encore ete testes.
+if ((git rev-parse HEAD) -ne $headBeforePull) { Invoke-TestGate "apres synchronisation avec origin/main" }
+
 git add .
 
 $changed = git status --porcelain
@@ -60,12 +81,6 @@ if ($changed) {
 } else {
     Write-Warn "No changes to commit."
 }
-
-# Déterminer avant le push si les commits à publier modifient le Worker prix.
-# Après le push, origin/main pointerait déjà sur HEAD et cette information serait perdue.
-$workerChanges = git diff --name-only origin/main..HEAD -- cloudflare-workers/prices-worker
-if ($LASTEXITCODE -ne 0) { Write-Err "Unable to inspect Worker changes."; exit 1 }
-$workerChanged = [bool]$workerChanges
 
 $commitsAhead = [int](git rev-list --count origin/main..HEAD)
 if ($LASTEXITCODE -ne 0) { Write-Err "Unable to compare main with origin/main."; exit 1 }
@@ -83,13 +98,15 @@ if ($commitsAhead -gt 0) {
 # ─────────────────────────────────────────────
 Write-Step "[2/3] Cloudflare Worker prix"
 
-if ($workerChanged) {
-    Write-Warn "Worker changes detected - deploying asset-tracker-prices..."
-    npm exec -- wrangler deploy --config .\cloudflare-workers\prices-worker\wrangler.toml
-    if ($LASTEXITCODE -ne 0) { Write-Err "Cloudflare Worker deploy failed."; exit 1 }
-    Write-Ok "Cloudflare Worker deployed."
+if ($SkipWorker) {
+    Write-Warn "Worker non deploye (-SkipWorker explicite)."
 } else {
-    Write-Ok "No Worker changes - deployment skipped."
+    # Deploiement systematique et idempotent : il ne depend plus d'un diff avec
+    # origin/main, vide des qu'un push a reussi avant un echec Wrangler.
+    Write-Warn "Deploying asset-tracker-prices..."
+    npm exec -- wrangler deploy --config .\cloudflare-workers\prices-worker\wrangler.toml
+    if ($LASTEXITCODE -ne 0) { Write-Err "Cloudflare Worker deploy failed. Relancez le script : le Worker sera redeploye."; exit 1 }
+    Write-Ok "Cloudflare Worker deployed."
 }
 
 # ─────────────────────────────────────────────
