@@ -71,9 +71,13 @@ describe('PÉRIODE (period return) of the portfolio chart', () => {
     }
     // A sale inside the window turns +20 € of unrealised gain into a realised
     // one: totalReturn drops while the market P&L of the period is positive.
+    // A 5 € dividend is received on the last interval (120 -> 132 + 5), hence
+    // twrWithDividends = 1.2 × 137 / 120 = 1.37. Like the engine, the fixture
+    // provides both series: the chart never substitutes the price-only TWR for
+    // the dividend one.
     const graphData = {
         labels: ['a', 'b', 'c', 'd'], timestamps: [1, 2, 3, 4],
-        values: [200, 240, 120, 132], twr: [1, 1.2, 1.2, 1.32],
+        values: [200, 240, 120, 132], twr: [1, 1.2, 1.2, 1.32], twrWithDividends: [1, 1.2, 1.2, 1.37],
         totalReturn: [0, 40, 20, 32], periodPnl: [0, 40, 40, 52],
         periodPnlWithDividends: [0, 40, 40, 57], dataQuality: { valid: true }
     };
@@ -93,6 +97,7 @@ describe('PÉRIODE (period return) of the portfolio chart', () => {
         chart.includeDividends = true;
         chart.renderChart(document.createElement('canvas'), graphData, {}, { mode: 'global' }, null, null, null, null);
         expect(chart.kpiManager.updateKPIs.mock.calls[0][0].perfAbs).toBeCloseTo(57, 8);
+        expect(chart.kpiManager.updateKPIs.mock.calls[0][0].perfPct).toBeCloseTo(37, 8);
 
         const all = chartWithSpy();
         all.currentPeriod = 'all';

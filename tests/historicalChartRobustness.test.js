@@ -31,6 +31,23 @@ describe('Historical chart robustness and cache', () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
+    function renderPortfolioKpis(chart, graphData, snapshot) {
+        chart._renderChartJs = vi.fn();
+        chart._syncViewToggle = vi.fn();
+        chart._syncReferenceLineToggles = vi.fn();
+        chart._renderTitle = vi.fn();
+        chart.kpiManager.updateKPIs = vi.fn();
+        chart.renderChart(
+            document.querySelector('canvas'), graphData,
+            {}, { mode: 'global', label: 'Portfolio' }, null, null, null,
+            { portfolioSnapshot: snapshot, snapshotStartedAt: 1, varTodayAbs: 0, varTodayPct: 0 }
+        );
+        return chart.kpiManager.updateKPIs.mock.calls[0][0];
+    }
+
+    // HistoryCalculator marks a point before the first investment with null
+    // (no valuation), never 0: 0 € is a real value (e.g. a fully sold
+    // portfolio without cash) and must count as Start/End when it occurs.
     it('ignores the empty pre-investment point when computing Start/End/High/Low', () => {
         const chart = makeChart();
         chart.currentPeriod = 'all';
@@ -47,7 +64,7 @@ describe('Historical chart robustness and cache', () => {
 
         chart.renderChart(
             document.querySelector('canvas'),
-            { labels: ['empty', 'start', 'end'], timestamps: [1, 2, 3], values: [0, 100, 120], invested: [0, 100, 100], totalReturn: [null, 0, 20], totalReturnPct: [null, 0, 20], twr: [1, 1, 1.2] },
+            { labels: ['empty', 'start', 'end'], timestamps: [1, 2, 3], values: [null, 100, 120], invested: [null, 100, 100], totalReturn: [null, 0, 20], totalReturnPct: [null, 0, 20], twr: [null, 1, 1.2] },
             {}, { mode: 'global', label: 'Portfolio' }, null, null, null,
             { portfolioSnapshot: snapshot, snapshotStartedAt: 1, varTodayAbs: 0, varTodayPct: 0 }
         );
@@ -56,6 +73,18 @@ describe('Historical chart robustness and cache', () => {
         expect(config).toMatchObject({ priceStart: 100, priceEnd: 120, priceHigh: 120, priceLow: 100 });
         expect(config.perfAbs).toBeCloseTo(20, 8);
         expect(config.perfPct).toBeCloseTo(20, 8);
+    });
+
+    it('keeps a real 0 € valuation as the End of a fully sold portfolio', () => {
+        const config = renderPortfolioKpis(makeChart(), {
+            labels: ['start', 'peak', 'sold'], timestamps: [1, 2, 3], values: [100, 120, 0],
+            invested: [100, 100, 0], totalReturn: [0, 20, 0], totalReturnPct: [0, 20, 0], twr: [1, 1.2, 1.2]
+        }, {
+            status: 'valid', snapshotId: 'sold', snapshotStartedAt: 1, totalValue: 0, invested: 0, cash: 0,
+            totalReturn: 0, totalReturnPct: 0, dayPnl: 0, dayPnlPct: 0, positions: []
+        });
+        expect(config).toMatchObject({ priceStart: 100, priceHigh: 120, priceLow: 0 });
+        expect(config.priceEnd).toBe(0);
     });
 
     it('coalesces concurrent builds and reuses a completed long-period series', async () => {
@@ -121,9 +150,12 @@ describe('Historical chart robustness and cache', () => {
         expect(chart._getPortfolioReturnSeries(graphData)).toEqual([0, -93.24, 8238.02]);
         expect(chart._getPortfolioPerformanceSeries(graphData).at(-1)).not.toBe(29.23);
 
+        // The dividend toggle changes the period performance only. Total
+        // Return stays the unrealised gain of the positions, the same
+        // definition as the live KPI (audit 2026-09-28, points 3 and 5).
         chart.includeDividends = true;
         expect(chart._getPortfolioPerformanceSeries(graphData).at(-1)).toBeCloseTo(36, 8);
-        expect(chart._getPortfolioReturnSeries(graphData)).toEqual([0, -80, 8300]);
+        expect(chart._getPortfolioReturnSeries(graphData)).toEqual([0, -93.24, 8238.02]);
     });
 
     it('persists a validated complete graph and restores it without rebuilding', async () => {
