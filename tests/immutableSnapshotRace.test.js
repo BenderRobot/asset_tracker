@@ -50,9 +50,9 @@ describe('Snapshot immuable — un flux concurrent qui réécrit storage pendant
         const graphLastValue = values[values.length - 1];
         const holdingsValue = snapshot.holdings[0].currentValue;
 
-        // Storage EST bien interrogé plusieurs fois en interne (currency lookups
-        // notamment) — sinon ce test ne prouverait rien.
-        expect(callCount).toBeGreaterThan(1);
+        // FX detection and close resolution now also use the captured quote;
+        // even currency-only lookups must not reread mutable storage.
+        expect(callCount).toBe(1);
 
         // La VALEUR utilisée pour resolvedPrices/holdings (valorisation LIVE,
         // KPI/tableau) reste celle du tout premier appel (401), jamais une

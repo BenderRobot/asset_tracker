@@ -1,4 +1,5 @@
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
+import { quoteInEur } from './currency.js';
 // ========================================
 // storage.js - (v6 - Firestore Integration)
 // ========================================
@@ -537,8 +538,11 @@ export class Storage {
 
     // === GESTION DES PRIX AVEC CACHE INTELLIGENT ===
     getCurrentPrice(ticker) {
-        // On retourne directement la donnée mémoire (qui est maintenant synchro)
-        return this.currentData[ticker.toUpperCase()];
+        // Keep native amounts so a new FX rate can revalue a cached quote.
+        const quote = this.currentData[ticker.toUpperCase()];
+        const nativeUnits = ticker.startsWith('^') || ticker.endsWith('=F') || ticker.endsWith('=X');
+        return quote && !nativeUnits && (quote.nativeQuote || quote.currency === 'USD')
+            ? quoteInEur(quote, this.getConversionRate('USD_TO_EUR')) : quote;
     }
 
     setCurrentPrice(ticker, data) {
@@ -576,14 +580,7 @@ export class Storage {
                     // via priceDataUnavailable, jamais une conversion silencieuse.
                     console.warn(`[FX] USD_TO_EUR indisponible — refus de convertir ${upperTicker} (devise reste USD).`);
                 } else {
-                    data = {
-                        ...data,
-                        price: data.price * rate,
-                        previousClose: data.previousClose ? data.previousClose * rate : null,
-                        lastTradingDayClose: data.lastTradingDayClose ? data.lastTradingDayClose * rate : null,
-                        originalCurrency: 'USD',
-                        currency: 'EUR'
-                    };
+                    data = quoteInEur(data, rate);
                 }
             }
 
@@ -616,6 +613,10 @@ export class Storage {
 
     isCacheValid(ticker, assetType = 'Stock') {
         const upperTicker = ticker.toUpperCase();
+        // Old converted quotes lost the USD amounts needed for revaluation.
+        const quote = this.currentData[upperTicker];
+        if (quote?.currencyMetadataUnavailable) return false;
+        if (quote?.originalCurrency === 'USD' && !quote.nativeQuote) return false;
         const ts = this.priceTimestamps[upperTicker];
 
         if (!ts) return false;
@@ -866,7 +867,9 @@ export class Storage {
             const normalized = (data && data.lastUpdate === undefined && data.lastUpdated !== undefined)
                 ? { ...data, lastUpdate: data.lastUpdated }
                 : data;
-            this.setCurrentPrice(ticker, normalized);
+            // Previous sync envelopes discarded the native currency. They may
+            // still be displayed, but must be refreshed before cache reuse.
+            this.setCurrentPrice(ticker, { ...normalized, currencyMetadataUnavailable: data?.currencySchemaVersion !== 1 });
         });
 
         console.log(`[Storage] Applied ${pricesMap.size} cached prices from Firestore`);

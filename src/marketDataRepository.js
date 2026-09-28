@@ -1,7 +1,7 @@
 // Cache orchestration only. DataManager remains the financial engine.
 import { marketDataMetrics } from './marketDataMetrics.js';
 
-const VERSION = 8;
+const VERSION = 9;
 const FRESH_TTL_MS = 30_000;
 const RETRY_MS = 30_000;
 const encode = (_, value) => value instanceof Map ? { $marketMap: [...value] } : value;
@@ -205,10 +205,14 @@ export class MarketDataRepository {
 
   async _computeSnapshot(assetPurchases, cashPurchases, forceLive = false) {
     const tickers = [...new Set((assetPurchases || []).map(p => p.ticker.toUpperCase()))];
-    if (assetPurchases.some(p => p.currency === 'USD')) await this.dataManager.api.ensureConversionRate?.();
+    if ([...assetPurchases, ...cashPurchases].some(p => p.currency === 'USD')) await this.dataManager.api.ensureConversionRate?.();
     if (tickers.length > 0) {
       await this.dataManager.api.fetchBatchPrices(tickers, forceLive);
     }
+    if (tickers.some(t => {
+      const quote = this.dataManager.storage.getCurrentPrice(t);
+      return quote?.currency === 'USD' || quote?.originalCurrency === 'USD';
+    })) await this.dataManager.api.ensureConversionRate?.();
     const failures = tickers.filter(t => this.dataManager.api.liveFailures?.has(t));
     if (failures.length) throw new Error(`PRICE_DATA_UNAVAILABLE: ${failures.join(', ')}`);
     const livePriceSnapshot = new Map(tickers.map(t => [t, this.dataManager.storage.getCurrentPrice(t)]));

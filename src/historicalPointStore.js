@@ -1,5 +1,6 @@
 // Conservative daily coverage cache. Weekly/monthly open bars are not immutable.
 import { cacheGet, cacheSet, isPersistentCacheAvailable } from './persistentCache.js';
+import { withHistoryCurrency } from './currency.js';
 
 const STORAGE_KEY = 'historicalPointStore_v2';
 const DAY = 86400000;
@@ -78,8 +79,9 @@ export class HistoricalPointStore {
     return { plan: from > startTs ? 'delta' : 'full', fetchStartTs: from, fetchEndTs: endTs };
   }
   getKnownPoints(ticker, interval, startTs, endTs) {
-    const points = this._buckets[keyFor(ticker,interval)]?.points || {};
-    return Object.fromEntries(Object.entries(points).filter(([ts]) => Number(ts) >= startTs*1000 && Number(ts) <= endTs*1000));
+    const bucket = this._buckets[keyFor(ticker,interval)];
+    const points = bucket?.points || {};
+    return withHistoryCurrency(Object.fromEntries(Object.entries(points).filter(([ts]) => Number(ts) >= startTs*1000 && Number(ts) <= endTs*1000)), bucket?.currency);
   }
   merge(ticker, interval, points, coverage = null) {
     if (!isDeltaFetchEligible(interval) || !points || !Object.keys(points).length) return;
@@ -94,7 +96,7 @@ export class HistoricalPointStore {
     Object.assign(combined, points);
     const contiguous = old?.coverage && coverage && coverage.startTs <= old.coverage.endTs && coverage.endTs >= old.coverage.startTs;
     const coversOld = !old?.coverage || (coverage && coverage.startTs <= old.coverage.startTs && coverage.endTs >= old.coverage.endTs);
-    this._buckets[key] = { points: combined, fetchedAt: Date.now(),
+    this._buckets[key] = { points: combined, currency: points.currency || old?.currency, fetchedAt: Date.now(),
       validatedAt: coversOld ? Date.now() : (old.validatedAt || old.fetchedAt), source: 'Yahoo',
       coverage: contiguous ? { startTs: Math.min(old.coverage.startTs,coverage.startTs), endTs: Math.max(old.coverage.endTs,coverage.endTs) } : coverage };
     this._persist();

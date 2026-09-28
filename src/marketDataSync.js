@@ -78,6 +78,9 @@ export class MarketDataSync {
                     dayChange: data.dayChange ?? null,
                     dayChangePct: data.dayChangePct ?? null,
                     currency: data.currency || 'EUR',
+                    originalCurrency: data.originalCurrency || data.currency || 'EUR',
+                    nativeQuote: data.nativeQuote ? JSON.parse(JSON.stringify(data.nativeQuote)) : null,
+                    currencySchemaVersion: 1,
                     source: data.source || 'API',
                     lastUpdated: data.lastUpdate || data.lastUpdated || 0
                 };

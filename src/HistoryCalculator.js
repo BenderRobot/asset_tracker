@@ -36,6 +36,7 @@
 //     portfolios or fabricating a candle.
 
 import { parseDate } from './utils.js';
+import { quoteInEur, withHistoryCurrency } from './currency.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { getGlobalWindow } from './TimeRangeEngine.js';
 import { getHistoricalFetchFailureDetails, isHistoricalFetchFailure } from './api.js?v=12';
@@ -122,8 +123,27 @@ export class HistoryCalculator {
         const dynamicRate = dynamicRateOverride ?? this.storage.getConversionRate('USD_TO_EUR');
         const tickers = Array.from(ledger.byTicker.keys());
 
-        const livePriceSnapshot = livePriceSnapshotOverride
+        const sourceQuotes = livePriceSnapshotOverride
             ?? new Map(tickers.filter(t => !t.startsWith('CASH-')).map(t => [t, this.storage.getCurrentPrice(t)]));
+        const livePriceSnapshot = new Map([...sourceQuotes].map(([ticker, quote]) => [ticker, quoteInEur(quote, dynamicRate)]));
+        const fxUnavailable = new Set();
+        // All security prices inside the valuation engine are EUR. Raw provider
+        // histories stay native and unchanged in the shared caches.
+        const historyInEur = (ticker, history) => {
+            if (!history || isHistoricalFetchFailure(history)) return history;
+            const quote = sourceQuotes.get(ticker);
+            const currency = history.currency || quote?.nativeQuote?.currency || quote?.originalCurrency
+                || quote?.currency || ledger.byTicker.get(ticker)?.[0]?.currency || 'EUR';
+            if (currency === 'EUR') return history;
+            const converted = {};
+            for (const [ts, price] of Object.entries(history)) {
+                const rate = currency === 'USD'
+                    ? resolveHistoricalUsdToEurRate(new Date(Number(ts)), historicalFxMap, dynamicRate, { ticker }) : null;
+                if (!(rate > 0)) fxUnavailable.add(ticker);
+                converted[ts] = rate > 0 ? price * rate : null;
+            }
+            return withHistoryCurrency(converted, 'EUR');
+        };
 
         const isCrypto = isSingleAsset
             ? isCryptoTicker(tickers[0] || '')
@@ -138,6 +158,7 @@ export class HistoryCalculator {
 
         const { map: historicalDataMap, failedTickers, recoveredTickers, failureDetails } = await this._fetchHistoricalData(tickers, win.dataStartTs, win.dataEndTs, interval);
         await this._fillCryptoGapsFromBinance(tickers, historicalDataMap, days);
+        for (const [ticker, history] of historicalDataMap) historicalDataMap.set(ticker, historyInEur(ticker, history));
         await this._recoverFromClosedMarket(tickers, historicalDataMap, win, days, isCrypto, interval);
 
         // Binance (voir _fillCryptoGapsFromBinance) est une VRAIE source de
@@ -160,9 +181,19 @@ export class HistoryCalculator {
         const retryAfterMs = rateLimited
             ? Math.max(0, ...[...failureDetails.values()].map(details => Number(details?.retryAfterMs) || 0))
             : null;
+        for (const ticker of tickers) {
+            const currency = ticker.startsWith('CASH-') ? ticker.slice(5) : null;
+            if (currency && currency !== 'EUR' && !(dynamicRate > 0)) fxUnavailable.add(ticker);
+            if (livePriceSnapshot.get(ticker)?.fxUnavailable) fxUnavailable.add(ticker);
+            for (const entry of ledger.byTicker.get(ticker) || []) {
+                if (entry.currency === 'USD' && entry.price * entry.quantity !== 0
+                    && !(resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker }) > 0)) fxUnavailable.add(ticker);
+            }
+        }
+        for (const ticker of fxUnavailable) failedTickers.add(ticker);
         const dataQuality = failedTickers.size > 0
             ? {
-                valid: false, reason: rateLimited ? 'RATE_LIMITED' : 'PRICE_DATA_UNAVAILABLE',
+                valid: false, reason: fxUnavailable.size ? 'FX_DATA_UNAVAILABLE' : (rateLimited ? 'RATE_LIMITED' : 'PRICE_DATA_UNAVAILABLE'),
                 failedInstruments: [...failedTickers], recoveredInstruments: Object.fromEntries(recoveredTickers),
                 failureDetails: failureDetailsObject, retryable: rateLimited, retryAfterMs
             }
@@ -176,7 +207,7 @@ export class HistoryCalculator {
         // implementation of the same question.
         const resolveCloseBefore = (refDate, label, useDedicatedFetch) =>
             this._resolvePortfolioCloseBefore(ledger, refDate, tickers, {
-                dynamicRate, isSingleAsset, historicalDataMap, useDedicatedFetch, label, livePriceSnapshot
+                dynamicRate, isSingleAsset, historicalDataMap, useDedicatedFetch, label, livePriceSnapshot, historyInEur, historicalFxMap
             });
 
         // For a 1D view "yesterday" is relative to the day actually displayed
@@ -234,6 +265,11 @@ export class HistoryCalculator {
         // vraie valeur financière). `invested`/`investedAssetOnly` restent
         // réels : ce sont des coûts de revient, jamais dépendants d'un prix.
         const nullSeries = (arr) => Array.isArray(arr) ? arr.map(() => null) : arr;
+        if (fxUnavailable.size) {
+            dataQuality.valid = false;
+            dataQuality.reason = 'FX_DATA_UNAVAILABLE';
+            dataQuality.failedInstruments = [...new Set([...dataQuality.failedInstruments, ...fxUnavailable])];
+        }
         const gateOnValidity = (arr) => dataQuality.valid ? arr : nullSeries(arr);
 
         return {
@@ -260,13 +296,13 @@ export class HistoryCalculator {
             todayValueOfYesterdayHoldings: dataQuality.valid ? todayValueOfYesterdayHoldings : null,
             perTickerYesterdayClose,
             perTickerLastSessionPerformance,
-            unitPrices: series.unitPrices,
+            unitPrices: fxUnavailable.size ? nullSeries(series.unitPrices) : series.unitPrices,
             purchasePoints,
             timestamps: displayTimestamps,
-            twr: series.twr,
-            twrWithDividends: series.twrWithDividends,
-            dailyTwr: series.dailyTwr,
-            dailyTwrWithDividends: series.dailyTwrWithDividends,
+            twr: fxUnavailable.size ? nullSeries(series.twr) : series.twr,
+            twrWithDividends: fxUnavailable.size ? nullSeries(series.twrWithDividends) : series.twrWithDividends,
+            dailyTwr: fxUnavailable.size ? nullSeries(series.dailyTwr) : series.dailyTwr,
+            dailyTwrWithDividends: fxUnavailable.size ? nullSeries(series.dailyTwrWithDividends) : series.dailyTwrWithDividends,
             historicalDataMap,
             isMixed,
             // SINGLE SOURCE OF TRUTH pour "le prix couramment utilisé, par
@@ -344,7 +380,7 @@ export class HistoryCalculator {
                 if (isCash) {
                     addEntry(t, {
                         date: parseDate(p.date), price: 1.0,
-                        quantity: parseFloat(p.price) || 0, currency, broker,
+                        quantity: (parseFloat(p.price) || 0) * (p.quantity == null ? 1 : Number(p.quantity)), currency, broker,
                         // A dividend is investment income, not capital supplied
                         // by the user. It must increase TWR rather than being
                         // neutralised like a deposit/withdrawal.
@@ -645,7 +681,7 @@ export class HistoryCalculator {
     // request — otherwise Yahoo can return a marginally different closing candle
     // for "the same" day depending on which view triggered the fetch, and the
     // 1D/2D/1W views would each anchor on a different close for the same day.
-    async _resolvePortfolioCloseBefore(ledger, refDate, tickers, { dynamicRate, isSingleAsset, historicalDataMap, useDedicatedFetch, label = '', livePriceSnapshot }) {
+    async _resolvePortfolioCloseBefore(ledger, refDate, tickers, { dynamicRate, isSingleAsset, historicalDataMap, useDedicatedFetch, label = '', livePriceSnapshot, historyInEur = (_, history) => history, historicalFxMap = null }) {
         const quantities = new Map();
         const prices = new Map();
         let total = 0, assetsFound = 0;
@@ -682,7 +718,9 @@ export class HistoryCalculator {
                 // guard) already included it correctly — the two disagreed on the
                 // same day's close by that exact amount.
                 if (t.startsWith('CASH-')) {
-                    total += qty; assetsFound++; prices.set(t, 1.0); return;
+                    const rate = t === 'CASH-EUR' ? 1 : resolveHistoricalUsdToEurRate(new Date(cutoffTs), historicalFxMap, dynamicRate, { ticker: t });
+                    if (rate > 0) { total += qty * rate; assetsFound++; prices.set(t, rate); }
+                    return;
                 }
                 if (qty <= 0) return;
 
@@ -713,12 +751,12 @@ export class HistoryCalculator {
                     // "always the daily one". This also makes the now-removed
                     // _patchOfficialClose obsolete (it used to force-overwrite the
                     // intraday data with this same unreliable daily value).
-                    const dailyBars = await this.api.getHistoricalPricesWithRetry(
+                    const dailyBars = historyInEur(t, await this.api.getHistoricalPricesWithRetry(
                         t,
                         Math.floor(cutoffTs / 1000) - 7 * 86400,
                         Math.floor(cutoffTs / 1000),
                         '1d'
-                    );
+                    ));
                     let dailyTs = null, dailyPrice = null;
                     if (dailyBars) {
                         const keys = Object.keys(dailyBars).map(Number).sort((a, b) => a - b);
@@ -752,7 +790,7 @@ export class HistoryCalculator {
 
                 if (!closePrice) {
                     const resolved = await resolveTickerPreviousClose(t, {
-                        storage: this.storage,
+                        storage: { getCurrentPrice: ticker => livePriceSnapshot.get(ticker) },
                         refDate,
                         preferLiveClose: false,
                         historicalDataMap: useDedicatedFetch ? null : (historicalDataMap.get(t) || null),
@@ -762,28 +800,10 @@ export class HistoryCalculator {
                 }
 
                 if (closePrice > 0) {
-                    let rate = 1;
-                    if (!isSingleAsset) {
-                        const currency = livePriceSnapshot.get(t)?.currency || 'EUR';
-                        if (currency === 'USD') {
-                            if (!(dynamicRate > 0)) {
-                                // FAIL-CLOSED : pas de clôture EUR inventée
-                            } else {
-                                rate = dynamicRate;
-                                prices.set(t, closePrice);
-                                total += closePrice * rate * qty;
-                                assetsFound++;
-                            }
-                        } else {
-                            prices.set(t, closePrice);
-                            total += closePrice * rate * qty;
-                            assetsFound++;
-                        }
-                    } else {
-                        prices.set(t, closePrice);
-                        total += closePrice * rate * qty;
-                        assetsFound++;
-                    }
+                    // Every candidate (history, live, fallback) is already EUR.
+                    prices.set(t, closePrice);
+                    total += closePrice * qty;
+                    assetsFound++;
                 }
             }));
         }
@@ -992,7 +1012,7 @@ export class HistoryCalculator {
             if (!(sessionClosePrice > 0)) continue;
 
             const previous = await resolveTickerPreviousClose(ticker, {
-                storage: this.storage,
+                storage: { getCurrentPrice: t => livePriceSnapshot.get(t) },
                 refDate: new Date(session.openUTCMs),
                 preferLiveClose: false,
                 historicalDataMap: history,
@@ -1006,17 +1026,9 @@ export class HistoryCalculator {
             }
             if (!(quantityAtPreviousClose > 0)) continue;
 
-            const currency = livePriceSnapshot.get(ticker)?.currency
-                || ledger.byTicker.get(ticker)?.[0]?.currency || 'EUR';
-            // Meme convention que la metrique Day P&L canonique : les deux
-            // clotures sont converties avec le taux courant du snapshot. Cela
-            // mesure la variation du titre sans y injecter une variation FX
-            // differente de celle utilisee le reste de l'application.
-            const rate = currency === 'USD' ? dynamicRate : 1;
-            if (!(rate > 0)) continue;
-
-            const previousTotal = previous.closePrice * quantityAtPreviousClose * rate;
-            const sessionTotal = sessionClosePrice * quantityAtPreviousClose * rate;
+            const currency = 'EUR'; // Both histories and frozen live quotes are normalized above.
+            const previousTotal = previous.closePrice * quantityAtPreviousClose;
+            const sessionTotal = sessionClosePrice * quantityAtPreviousClose;
             const dayChange = sessionTotal - previousTotal;
 
             result.set(ticker, {
@@ -1161,20 +1173,14 @@ export class HistoryCalculator {
             for (const entry of ledger.byTicker.get(t) || []) {
                 if (entry.date.getTime() <= cutoff) {
                     quantities.set(t, quantities.get(t) + entry.quantity);
-                    let rate = 1;
-                    let canConvert = true;
-                    if (!isSingleAsset) {
-                        const currency = livePriceSnapshot.get(t)?.currency || entry.currency || 'EUR';
-                        if (currency === 'USD') {
-                            if (!(dynamicRate > 0)) canConvert = false;
-                            else rate = dynamicRate;
-                        }
-                    }
+                    const rate = entry.currency === 'USD'
+                        ? resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker: t, broker: entry.broker }) : 1;
+                    const canConvert = Number.isFinite(rate) && rate > 0;
                     if (canConvert) {
                         investedByTicker.set(t, investedByTicker.get(t) + entry.price * entry.quantity * rate);
                     }
                     applyCostBasisEntry(t, entry);
-                    if (!t.startsWith('CASH-') && entry.price > 0) latestTransactionPrice = entry.price;
+                    if (!t.startsWith('CASH-') && entry.price > 0 && canConvert) latestTransactionPrice = entry.price * rate;
                 }
             }
             // A transaction execution price is a real historical observation.
@@ -1245,18 +1251,12 @@ export class HistoryCalculator {
                     const entryTs = entry.date.getTime();
                     if (entryTs > lowerBound && entryTs <= ts) {
                         quantities.set(t, quantities.get(t) + entry.quantity);
-                        if (!t.startsWith('CASH-') && entry.price > 0) {
-                            lastKnownPrices.set(t, entry.price);
+                        const rate = entry.currency === 'USD'
+                            ? resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker: t, broker: entry.broker }) : 1;
+                        const canConvert = Number.isFinite(rate) && rate > 0;
+                        if (!t.startsWith('CASH-') && entry.price > 0 && canConvert) {
+                            lastKnownPrices.set(t, entry.price * rate);
                             tickerSourcesThisPoint[t] = 'transaction';
-                        }
-                        let rate = 1;
-                        let canConvert = true;
-                        if (!isSingleAsset) {
-                            const currency = livePriceSnapshot.get(t)?.currency || entry.currency || 'EUR';
-                            if (currency === 'USD') {
-                                rate = resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker: t, broker: entry.broker });
-                                if (!(rate > 0)) canConvert = false;
-                            }
                         }
                         if (canConvert) {
                             const flow = entry.price * entry.quantity * rate;
@@ -1339,16 +1339,10 @@ export class HistoryCalculator {
                 let rate = 1;
                 let currency = 'EUR';
                 if (price != null) {
-                    if (!isSingleAsset) {
-                        // Lecture "currency" seule (jamais une valeur volatile — voir
-                        // l'audit du ticket précédent) : peut rester une lecture live
-                        // directe sans risque de course, mais on réutilise déjà
-                        // `livePriceSnapshot` ici par cohérence avec la ligne
-                        // ci-dessous (même ticker, même objet).
-                        currency = livePriceSnapshot.get(t)?.currency ||
-                            ledger.byTicker.get(t)?.[0]?.currency || 'EUR';
-                        // FAIL-CLOSED FX : jamais rate=1 silencieux ni taux inventé
-                        // pour un actif encore coté en USD.
+                    if (isCash) {
+                        // Cash quantities are native balances; securities above
+                        // have already been normalized to EUR at observation time.
+                        currency = t.slice(5);
                         if (currency === 'USD') {
                             const historicalRate = resolveHistoricalUsdToEurRate(new Date(ts), historicalFxMap, dynamicRate, { ticker: t });
                             if (!(historicalRate > 0)) {
@@ -1369,7 +1363,7 @@ export class HistoryCalculator {
                         pricedAssets++;
                     }
                     hasAnyPrice = true; priced++;
-                    if (isSingleAsset) unitPrice = price;
+                    if (isSingleAsset) unitPrice = price * rate;
                     lastKnownPrices.set(t, price);
 
                     // resolvedPrices alimente la VALORISATION "maintenant"
@@ -1625,6 +1619,7 @@ export class HistoryCalculator {
             const rate = entry.currency === 'USD'
                 ? resolveHistoricalUsdToEurRate(entry.date, historicalFxMap, dynamicRate, { ticker, broker: entry.broker })
                 : 1;
+            if (!(rate > 0)) continue;
             const price = entry.price * rate;
 
             // Same civil day: the candle whose price is closest to the

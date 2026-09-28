@@ -8,6 +8,7 @@ import { resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js'
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { marketDataMetrics } from './marketDataMetrics.js';
 import { historicalPointStore, isDeltaFetchEligible } from './historicalPointStore.js';
+import { withHistoryCurrency } from './currency.js';
 
 // Les anciennes clés et proxys ont été retirés pour la sécurité
 
@@ -680,7 +681,7 @@ export class PriceAPI {
     // Currency conversion belongs to HistoryCalculator, which has the FX rate
     // for each historical date. Keeping a live-FX value in this layer caused a
     // second conversion downstream and distorted portfolio TWR.
-    const pointKey = `native-v1:${formatted}|gold:${goldReference ?? 'none'}`;
+    const pointKey = `native-v2:${formatted}|gold:${goldReference ?? 'none'}`;
     // Points already known from a previous page/session (IndexedDB hydration).
     if (deltaEligible) await historicalPointStore.ready;
     const plan = deltaEligible
@@ -788,7 +789,7 @@ export class PriceAPI {
           return {};
         }
 
-        const prices = {};
+        const prices = withHistoryCurrency({}, isGoldSwapped ? 'EUR' : result.meta?.currency);
 
         // CALCUL DU RATIO GOLD SI NÉCESSAIRE
         let goldRatio = 1;
@@ -918,7 +919,7 @@ export class PriceAPI {
         console.warn(`[Binance Fallback] USD_TO_EUR indisponible — refus de fabriquer des prix EUR pour ${ticker}.`);
         return {};
       }
-      const prices = {};
+      const prices = withHistoryCurrency({}, 'EUR');
 
       for (const candle of data) {
         const openTime = candle[0]; // ms

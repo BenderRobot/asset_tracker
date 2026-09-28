@@ -119,7 +119,7 @@ export class AchatsPage {
             <td><strong>${escHtml(p.ticker)}</strong></td>
             <td>${escHtml(p.name)}</td>
             <td>${currencyBadge}</td>
-            <td>-</td> <td>-</td> <td class="${cashColor}">${formatCurrency(p.gainEUR, 'EUR')}</td> <td>-</td> <td class="${cashColor}">${formatCurrency(p.buyPriceOriginal, 'EUR')}</td> <td>-</td> <td>-</td> <td class="action-cell">
+            <td>-</td> <td>-</td> <td class="${cashColor}">${formatCurrency(p.gainEUR, 'EUR')}</td> <td>-</td> <td class="${cashColor}">${formatCurrency(p.buyPriceOriginal, p.currency)}</td> <td>-</td> <td>-</td> <td class="action-cell">
               <div class="action-trigger" data-key="${key}">...</div>
             </td>
           </tr>

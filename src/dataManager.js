@@ -1,4 +1,5 @@
 import { marketDataMetrics } from './marketDataMetrics.js';
+import { quoteInEur } from './currency.js';
 import { fetchMarketResponse } from './marketDataTransport.js?v=3';
 // ========================================
 // dataManager.js - (v8 - Ajout support Indices)
@@ -122,7 +123,7 @@ export class DataManager {
     //     snapshot.totalValue    === Σ positions[].currentValue + snapshot.cash
     //     snapshot.totalReturn   === Σ positions[].totalReturn        (= totalValue des actifs - invested, cash exclu — définition actuelle de gainTotal)
     buildPortfolioSnapshot({ holdings, summary, cashReserve, snapshotStartedAt = null, pricesTimestamp = null, meta = null }) {
-        const cash = cashReserve?.total || 0;
+        const cash = cashReserve?.total ?? (cashReserve?.fxUnavailable ? null : 0);
         const invested = summary.totalInvestedEUR || 0;
 
         // FAIL-CLOSED (audit incident 2026-09-23) : summary.dataQuality vient de
@@ -130,7 +131,9 @@ export class DataManager {
         // leur propre `summary` à la main sans jamais passer par calculateHoldings/
         // calculateSummary (mode indice, voir buildIndexSnapshot) : dans ce cas il
         // n'y a pas de "prix historique manquant" à représenter, valid=true par défaut.
-        const dataQuality = summary.dataQuality || { valid: true, reason: null, failedInstruments: [] };
+        const dataQuality = cashReserve?.fxUnavailable
+            ? { valid: false, reason: 'FX_DATA_UNAVAILABLE', failedInstruments: ['CASH-USD', ...(summary.dataQuality?.failedInstruments || [])] }
+            : summary.dataQuality || { valid: true, reason: null, failedInstruments: [] };
         const isValid = dataQuality.valid !== false;
 
         // Un snapshot INVALID ne publie AUCUN nombre calculé à partir d'un prix —
@@ -191,6 +194,7 @@ export class DataManager {
         // exclus par le filtre — on réévalue sur LES POSITIONS FILTRÉES,
         // jamais en héritant aveuglément du statut du snapshot parent.
         const invalidInFilter = positions.filter(p => p.priceDataUnavailable).map(p => p.ticker);
+        if (snapshot.cash === null) invalidInFilter.push('CASH-USD');
         const isValid = invalidInFilter.length === 0;
 
         // Même formule EXACTE que calculateSummary (celle qui produit
@@ -215,7 +219,7 @@ export class DataManager {
             snapshotStartedAt: snapshot.snapshotStartedAt,
             pricesTimestamp: snapshot.pricesTimestamp,
             status: isValid ? 'valid' : 'invalid',
-            invalidReason: isValid ? null : 'PRICE_DATA_UNAVAILABLE',
+            invalidReason: isValid ? null : (snapshot.cash === null ? 'FX_DATA_UNAVAILABLE' : 'PRICE_DATA_UNAVAILABLE'),
             invalidInstruments: Object.freeze(invalidInFilter),
             totalValue,
             cash: snapshot.cash,
@@ -290,7 +294,7 @@ export class DataManager {
         return yesterdayCloseMap;
     }
 
-    calculateCashReserve(allPurchases) {
+    calculateCashReserve(allPurchases, dynamicRate = this.storage.getConversionRate('USD_TO_EUR')) {
         // Include Dividends in Cash Reserve calculation
         // CRITICAL FIX: Exclude sale transactions (negative quantity assets)
         // Sale creates 2 lines: 1) asset with qty=-1000, 2) cash with price=+75€
@@ -307,7 +311,8 @@ export class DataManager {
         });
 
         const byBroker = {};
-        let total = 0;
+        const byCurrency = {};
+        const byBrokerCurrency = {};
         cashMovements.forEach(move => {
             // Même valeur par défaut que _buildPositionsByBrokerTicker ('RV-CT', pas
             // 'Unknown') : sinon un mouvement de cash sans broker explicite (ex: import
@@ -315,12 +320,26 @@ export class DataManager {
             // les positions du même courtier par défaut, et validatePortfolioConsistency
             // ne peut plus faire correspondre son cash à son broker.
             const broker = move.broker || 'RV-CT';
-            if (!byBroker[broker]) byBroker[broker] = 0;
-            const amount = (move.price || 0) * (move.quantity || 1);
-            byBroker[broker] += amount;
-            total += amount;
+            const currency = move.currency || 'EUR';
+            const amount = Number(move.price || 0) * Number(move.quantity ?? 1);
+            byCurrency[currency] = (byCurrency[currency] || 0) + amount;
+            const balances = byBrokerCurrency[broker] ||= {};
+            balances[currency] = (balances[currency] || 0) + amount;
         });
-        return { total, byBroker };
+        let total = 0;
+        let fxUnavailable = false;
+        for (const [broker, balances] of Object.entries(byBrokerCurrency)) {
+            let value = 0;
+            for (const [currency, amount] of Object.entries(balances)) {
+                if (amount === 0) continue;
+                const rate = currency === 'EUR' ? 1 : (currency === 'USD' ? dynamicRate : null);
+                if (!Number.isFinite(rate) || rate <= 0) { value = null; fxUnavailable = true; break; }
+                value += amount * rate;
+            }
+            byBroker[broker] = value;
+            if (value !== null) total += value;
+        }
+        return { total: fxUnavailable ? null : total, byBroker, byCurrency, byBrokerCurrency, fxUnavailable };
     }
 
     // SINGLE SOURCE OF TRUTH pour un taux de change HISTORIQUE (date -> taux),
@@ -361,10 +380,15 @@ export class DataManager {
     // courant — voir _resolveHistoricalUsdToEurRate ci-dessous et invariant 9 :
     // une variation du taux courant ne doit jamais modifier rétroactivement
     // l'investi historique). Mémoïsée par plage d'années couverte (1h de cache) ;
-    // ne fait AUCUN appel réseau si le portefeuille ne contient aucun achat USD.
-    async getHistoricalFxMap(purchases) {
+    // Inclut les mouvements de cash et les titres cotés en USD même lorsque
+    // leur transaction a été réglée en EUR.
+    async getHistoricalFxMap(purchases, priceSnapshot = null) {
         const usdBuyDates = (purchases || [])
-            .filter(p => p.currency === 'USD' && p.quantity > 0 && p.date)
+            .filter(p => {
+                const quote = p.ticker ? (priceSnapshot ? priceSnapshot.get(p.ticker.toUpperCase()) : this.storage.getCurrentPrice(p.ticker)) : null;
+                return p.date && (p.currency === 'USD' || quote?.currency === 'USD'
+                    || quote?.originalCurrency === 'USD' || quote?.nativeQuote?.currency === 'USD');
+            })
             .map(p => new Date(p.date))
             .filter(d => !isNaN(d.getTime()));
 
@@ -549,14 +573,14 @@ export class DataManager {
             };
         }
 
-        const d = resolvedPrices?.get(ticker) || this.storage.getCurrentPrice(ticker) || {};
+        const d = quoteInEur(resolvedPrices?.get(ticker) || this.storage.getCurrentPrice(ticker) || {}, dynamicRate);
         const currency = d.currency || 'EUR';
 
         // FAIL-CLOSED FX : un prix encore en USD sans taux réel valide ne doit
         // jamais être multiplié par un taux inventé — même chemin que
         // priceDataUnavailable (agrégats portefeuille invalidés). Idem si le
         // coût de revient USD n'a pas pu être converti (fxUnavailable).
-        if (data.fxUnavailable || (currency === 'USD' && !(dynamicRate > 0))) {
+        if (data.fxUnavailable || d.fxUnavailable || (currency === 'USD' && !(dynamicRate > 0))) {
             const avgPriceEUR = (data.quantity > 0 && data.invested > 0) ? data.invested / data.quantity : 0;
             console.warn(`[FX] USD_TO_EUR indisponible pour ${ticker} — position marquée priceDataUnavailable.`);
             return {
@@ -931,15 +955,17 @@ export class DataManager {
 
         return filteredPurchases.map(p => {
             if (p.assetType === 'Cash') {
+                const rate = p.currency === 'USD'
+                    ? this._resolveHistoricalUsdToEurRate(p.date, historicalFxMap, dynamicRate, { ticker: p.ticker, broker: p.broker }) : 1;
                 return {
                     ...p,
-                    currency: 'EUR',
+                    currency: p.currency || 'EUR',
                     currentPriceOriginal: null,
                     buyPriceOriginal: p.price,
                     currentPriceEUR: null,
                     investedEUR: null,
                     currentValueEUR: null,
-                    gainEUR: p.price,
+                    gainEUR: rate > 0 ? p.price * (p.quantity ?? 1) * rate : null,
                     gainPct: null
                 };
             }
@@ -964,13 +990,14 @@ export class DataManager {
             }
 
             const t = p.ticker.toUpperCase();
-            const d = this.storage.getCurrentPrice(t) || {};
-            const assetCurrency = d.currency || p.currency || 'EUR';
-            const currentPriceOriginal = d.price ?? null;
+            const d = quoteInEur(this.storage.getCurrentPrice(t) || {}, dynamicRate);
+            const assetCurrency = p.currency || 'EUR';
+            const currentPriceOriginal = assetCurrency === 'USD'
+                ? (d.nativeQuote?.price ?? (dynamicRate > 0 && d.price != null ? d.price / dynamicRate : null)) : d.price ?? null;
             const buyPriceOriginal = p.price;
 
-            // currentPriceOriginal is already in EUR — storage.js converts USD→EUR at storage time
-            const currentPriceEUR = currentPriceOriginal ?? null;
+            // The display price retains the transaction's units; valuation is EUR.
+            const currentPriceEUR = d.price ?? null;
             // buyPriceOriginal is in p.currency (original purchase currency, never converted by storage).
             // Figé au taux DE CETTE TRANSACTION (invariant 9) — jamais au taux courant,
             // sinon "Investi" bouge tout seul quand le taux change sans nouvelle transaction.
@@ -978,7 +1005,7 @@ export class DataManager {
                 ? this._resolveHistoricalUsdToEurRate(p.date, historicalFxMap, dynamicRate, { ticker: t, broker: p.broker })
                 : 1;
             // FAIL-CLOSED FX : pas d'investi EUR inventé.
-            if (p.currency === 'USD' && !(buyRate > 0)) {
+            if (d.fxUnavailable || (p.currency === 'USD' && !(buyRate > 0))) {
                 return {
                     ...p,
                     assetType: p.assetType || 'Stock',
@@ -1303,6 +1330,9 @@ export class DataManager {
 
             const cashReserve = this.calculateCashReserve(cashPurchases);
             const cash = cashReserve.total;
+            if (cashReserve.fxUnavailable) {
+                return { broker, invested: null, totalReturn: null, totalReturnPct: null, totalValue: null, cash: null };
+            }
 
             if (assetPurchases.length === 0) {
                 return { broker, invested: 0, totalReturn: 0, totalReturnPct: 0, totalValue: cash, cash };
@@ -1599,11 +1629,14 @@ export class DataManager {
     // appelants : mode actif, calculateAssetHistory, calculateIndexData...),
     // HistoryCalculator capture lui-même son propre snapshot, comme avant.
     async calculateGenericHistory(purchases, days, isSingleAsset = false, dynamicRateOverride = null, historicalFxMapOverride = null, debugCapture = null, livePriceSnapshot = null) {
+        dynamicRateOverride ??= this.storage.getConversionRate('USD_TO_EUR');
+        livePriceSnapshot ??= new Map([...new Set(purchases.map(p => p.ticker.toUpperCase()))]
+            .map(t => [t, this.storage.getCurrentPrice(t)]));
         // Le coût de revient du graphique (tooltip "Investi") doit être figé au même
         // taux historique que calculateHoldings pour la même transaction — sinon le
         // tooltip peut afficher un "Investi" différent du KPI "Investi" affiché juste
         // au-dessus, pour la même date, à cause du seul taux de change (invariant 9).
-        const historicalFxMap = historicalFxMapOverride ?? await this.getHistoricalFxMap(purchases);
+        const historicalFxMap = historicalFxMapOverride ?? await this.getHistoricalFxMap(purchases, livePriceSnapshot);
         const finish = marketDataMetrics.startCalculation();
         return this.historyCalculator.calculateGenericHistory(purchases, days, isSingleAsset, historicalFxMap, dynamicRateOverride, debugCapture, livePriceSnapshot).finally(finish);
     }
@@ -1649,9 +1682,11 @@ export class DataManager {
     // le comportement précédent est conservé à l'identique.
     async buildTodaySnapshot(assetPurchases, cashPurchases = [], livePriceSnapshot = null) {
         const snapshotStartedAt = Date.now();
+        livePriceSnapshot ??= new Map([...new Set(assetPurchases.map(p => p.ticker.toUpperCase()))]
+            .map(t => [t, this.storage.getCurrentPrice(t)]));
         // FAIL-CLOSED FX : jamais de taux hardcodé (ex. ancien 0.925).
         const dynamicRate = this.storage.getConversionRate('USD_TO_EUR');
-        const historicalFxMap = await this.getHistoricalFxMap(assetPurchases);
+        const historicalFxMap = await this.getHistoricalFxMap([...assetPurchases, ...cashPurchases], livePriceSnapshot);
 
         const todayGraphData = await this.calculateGenericHistory(
             [...assetPurchases, ...cashPurchases], 1, false, dynamicRate, historicalFxMap, null, livePriceSnapshot
@@ -1684,7 +1719,7 @@ export class DataManager {
             dynamicRate, prices: todayGraphData.resolvedPrices
         }, invalidTickers);
         const summary = this.calculateSummary(holdings);
-        const cashReserve = this.calculateCashReserve(cashPurchases);
+        const cashReserve = this.calculateCashReserve(cashPurchases, dynamicRate);
 
         // PortfolioSnapshot canonique (audit architecture SSOT) — ajouté en
         // plus des champs existants (jamais en remplacement : tous les
