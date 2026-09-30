@@ -42,7 +42,7 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         view.destroy();
     });
 
-    it('A1: a fully liquidated portfolio with real cash is rejected after the sale', async () => {
+    it('A1 fixed: a fully liquidated portfolio keeps its cash value and a defined TWR', async () => {
         const dm = manager();
         const graph = await dm.calculateHistory([
             purchase({ date: '2026-09-22', price: 100 }),
@@ -51,9 +51,9 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         ], 'all');
         expect(graph.dataQuality.valid).toBe(true);
         expect(graph.values.at(-1)).toBe(100);
-        expect(graph.twr.at(-1)).toBeNull();
+        expect(graph.twr.at(-1)).toBe(1);
         const view = chart(dm);
-        expect(view._isValidHistoryData(graph)).toBe(false);
+        expect(view._isValidHistoryData(graph)).toBe(true);
         view.destroy();
     });
 

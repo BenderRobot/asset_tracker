@@ -60,6 +60,8 @@ Les identifiants A1 à A10 correspondent aux reproductions dans `chart-generator
 
 ### A1 — P1 : validation de toute la courbe conditionnée au dernier TWR
 
+**Suivi du 30 septembre 2026 : corrigé.** La validation accepte désormais une série de valeur dont le dernier point est fini sans exiger un TWR terminal indépendant. Le moteur conserve en outre la dernière base TWR définie après une liquidation totale ; le scénario vente complète + 100 € de cash termine donc avec une valeur de 100 et un TWR de 1, et reste affichable.
+
 **Code :** `src/historicalChart.js:228–241`, `src/HistoryCalculator.js:1297–1302`.
 
 La validation exige simultanément une dernière valeur finie et un dernier TWR fini, y compris pour la vue Valeur (€). Un seul point terminal manquant rejette également les points antérieurs exploitables. Ce durcissement fait partie des modifications locales déjà présentes.
@@ -163,9 +165,9 @@ L'impact final concerne surtout les points sans bougie historique utilisable : u
 Ces points n'ont pas fait l'objet d'une reproduction de bout en bout avec les données utilisateur.
 
 - **Gold : risque traité le 30 septembre 2026.** `GOLD.PA` a été vérifié comme l'Amundi Physical Gold FR0013416716 coté en EUR sur Euronext Paris. L'historique substitué conserve maintenant les clôtures fournisseur telles quelles ; il ne dépend plus du prix courant. L'override EUR reste explicite pour corriger la métadonnée Yahoo `USD` incohérente.
-- **FX historique approximatif.** `src/MarketUtils.js:83–115` retourne le taux courant quand l'historique manque et accepte aussi des jours futurs dans sa recherche. Le repli est logué, mais la qualité du résultat graphique ne le signale pas. `getHistoricalFxMap` décide également du besoin d'historique à partir de la devise des transactions, alors que la valorisation peut utiliser celle des cotations.
-- **Benchmark : bornes et base distinctes.** `getStartEndTs` recalcule ses bornes indépendamment de `TimeRangeEngine`. Si aucun cours du benchmark n'existe avant le premier point, `src/historicalChart.js:1540` utilise sa première observation, même future. Les lignes doivent partager une base temporelle réellement disponible.
-- **Actualisation des longues périodes.** Le rafraîchissement automatique fonctionne uniquement en 1D. Les autres périodes utilisent un cache expirant jusqu'à 24 h et une revalidation lors d'une nouvelle demande. Une courbe longue laissée ouverte ne suit donc pas automatiquement les nouvelles observations.
+- **FX historique : risque traité le 30 septembre 2026.** Seuls le taux exact du jour ou le dernier taux antérieur dans une fenêtre de sept jours sont admis. Aucun taux futur ou courant ne peut plus réécrire une conversion historique ; l’absence de taux produit `FX_DATA_UNAVAILABLE`.
+- **Benchmark : risque traité le 30 septembre 2026.** La requête utilise maintenant les timestamps de la fenêtre portefeuille déjà calculée. Lorsqu’aucune observation du benchmark n’existe encore, sa série reste `null` au lieu de projeter une base future à 0 %.
+- **Actualisation des longues périodes : risque traité le 30 septembre 2026.** Le scheduler reste actif quelle que soit la période affichée. Il conserve les lectures depuis le cache, mais reconstruit la série après expiration, changement de jour ou nouvelle clôture stabilisée ; le TTL 24 h de 2Y/All ne peut donc plus masquer une clôture disponible.
 - **Coût des requêtes.** Le chargement se fait par lots de trois et inclut des tickers historiques non pertinents pour la période. À froid, le snapshot du jour peut aussi être attendu avant le calcul long. Le Worker accepte les intervalles et ne contient pas de branche limitant le graphique à 1D ; les logs joints ne démontrent pas de panne réseau prix sur 1W. Les latences et quotas doivent être mesurés sur un compte réel avant de modifier la concurrence.
 
 ## Ce que les logs ne permettent pas d'accuser

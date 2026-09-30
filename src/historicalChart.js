@@ -31,7 +31,7 @@ import { ChartKPIManager } from './chartKPIManager.js?v=6';
 import { MarketStatus } from './marketStatus.js?v=3';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js';
-import { getMarketOpenUTCHour, isCryptoTicker } from './MarketUtils.js?v=2';
+import { isCryptoTicker } from './MarketUtils.js?v=2';
 import { mountViewToggle } from './chartViewToggle.js?v=1';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { cacheDelete, cacheGet, cacheSet, isPersistentCacheAvailable } from './persistentCache.js';
@@ -341,11 +341,24 @@ export class HistoricalChart {
     // point can exist, i.e. one of its markets traded (or settled its close)
     // after the series was built, or the civil day changed (sliding window).
     _isHistoryStale(key, entry, period, now = Date.now()) {
-        if (now - entry.createdAt < this._historyCacheTtl(period)) return false;
+        const age = now - entry.createdAt;
         if (new Date(entry.createdAt).toDateString() !== new Date(now).toDateString()) return true;
         const tickers = this._historyTickers(key);
         if (!tickers) return true;
         try {
+            // A settled daily close is a stronger freshness signal than the
+            // generic TTL. In particular, 2Y/All caches live for 24 h: without
+            // this check a series built before today's close could remain frozen
+            // until the following day even though a definitive candle exists.
+            const hasNewSettledClose = tickers.some(ticker => {
+                if (marketCalendarEngine.getTradingModel(ticker) === 'crypto_24_7') return false;
+                let session = marketCalendarEngine.getSession(ticker, new Date(now));
+                if (!session || session.openUTCMs > now) session = marketCalendarEngine.getPreviousTradingSession(ticker, new Date(now));
+                const settledAt = Number(session?.closeUTCMs) + MARKET_SETTLE_MS;
+                return Number.isFinite(settledAt) && settledAt <= now && entry.createdAt < settledAt;
+            });
+            if (hasNewSettledClose) return true;
+            if (age < this._historyCacheTtl(period)) return false;
             return tickers.some(ticker => {
                 if (marketCalendarEngine.getTradingModel(ticker) === 'crypto_24_7') return true;
                 if (marketCalendarEngine.isMarketOpen(ticker, now)) return true;
@@ -437,12 +450,11 @@ export class HistoricalChart {
     // ========================================================
     startAutoRefresh() {
         this.stopAutoRefresh();
-        if (this.currentPeriod !== 1) return;
         this._autoRefreshTimeout = setTimeout(() => {
-            if (this.currentPeriod === 1) this.silentUpdate();
+            this.silentUpdate();
         }, AUTO_REFRESH_FIRST_MS);
         this._autoRefreshInterval = setInterval(() => {
-            if (this.currentPeriod === 1) this.silentUpdate();
+            this.silentUpdate();
         }, AUTO_REFRESH_INTERVAL_MS);
     }
 
@@ -675,27 +687,47 @@ export class HistoricalChart {
         if (this._canvasEl) this._canvasEl.style.cursor = this.zoomModeEnabled ? 'zoom-in' : 'crosshair';
     }
 
-    getStartEndTs(days) {
-        const today = new Date();
-        const endTs = Math.floor(Date.now() / 1000);
-        if (days === 1) {
-            const openUTCHour = getMarketOpenUTCHour(9, 'Europe/Paris', today);
-            const h = Math.floor(openUTCHour), m = Math.round((openUTCHour - h) * 60);
-            const startTs = Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), h, m, 0) / 1000);
-            return { startTs, endTs };
-        }
-        if (days === 'all') {
-            const firstDate = this.getFilteredPurchasesFromPage(false)
-                .map(p => new Date(p.date).getTime())
-                .filter(Number.isFinite)
-                .sort((a, b) => a - b)[0];
-            const startMs = firstDate ?? (Date.now() - 3650 * 86400000);
-            return { startTs: Math.floor(startMs / 1000) - 7 * 86400, endTs };
-        }
-        const daysBack = days === 'ytd'
-            ? Math.ceil((Date.now() - new Date(today.getFullYear(), 0, 1).getTime()) / 86400000)
-            : (typeof days === 'number' ? days : 365);
-        return { startTs: endTs - daysBack * 86400, endTs };
+    _getBenchmarkWindow(graphData) {
+        const timestamps = graphData?.timestamps?.map(Number).filter(Number.isFinite) || [];
+        if (timestamps.length === 0) return null;
+        const startMs = Math.min(...timestamps);
+        const endMs = Math.max(...timestamps);
+        // Yahoo treats period2 as exclusive. One second beyond the last plotted
+        // instant includes a candle exactly aligned with that final instant while
+        // keeping the request on the portfolio's canonical display window.
+        const startTs = Math.floor(startMs / 1000);
+        const endTs = Math.max(startTs + 1, Math.ceil(endMs / 1000) + 1);
+        return { startTs, endTs };
+    }
+
+    _buildBenchmarkPerformanceSeries(benchmarkData, graphTimestamps, firstIndex = 0) {
+        if (!benchmarkData || !Array.isArray(graphTimestamps)) return null;
+        const points = Object.entries(benchmarkData)
+            .map(([timestamp, price]) => ({ timestamp: Number(timestamp), price: Number(price) }))
+            .filter(({ timestamp, price }) => Number.isFinite(timestamp) && Number.isFinite(price) && price > 0)
+            .sort((a, b) => a.timestamp - b.timestamp);
+        const startGraphTs = Number(graphTimestamps[firstIndex]);
+        if (points.length === 0 || !Number.isFinite(startGraphTs)) return null;
+
+        // Prefer the latest observation already known at the portfolio's first
+        // meaningful point. If none exists, the benchmark starts only at its own
+        // first observation: earlier portfolio points remain null, never 0%.
+        const priorPoint = points.findLast(point => point.timestamp <= startGraphTs);
+        const basePoint = priorPoint || points.find(point => point.timestamp >= startGraphTs);
+        if (!basePoint) return null;
+
+        let cursor = 0;
+        let lastKnown = null;
+        return graphTimestamps.map((rawTs, index) => {
+            const timestamp = Number(rawTs);
+            if (index < firstIndex || !Number.isFinite(timestamp) || timestamp < basePoint.timestamp) return null;
+            while (cursor < points.length && points[cursor].timestamp <= timestamp) {
+                lastKnown = points[cursor];
+                cursor++;
+            }
+            if (!lastKnown || lastKnown.timestamp < basePoint.timestamp) return null;
+            return ((lastKnown.price - basePoint.price) / basePoint.price) * 100;
+        });
     }
 
     showMessage(msg) {
@@ -1050,9 +1082,12 @@ export class HistoricalChart {
 
             let benchmarkData = null;
             if (this.currentBenchmark && !isSingleAsset && !isIndexMode) {
-                const { startTs, endTs } = this.getStartEndTs(this.currentPeriod);
-                const interval = this.dataManager.getIntervalForPeriod ? this.dataManager.getIntervalForPeriod(this.currentPeriod) : '1d';
-                benchmarkData = await this.api.getHistoricalPricesWithRetry(this.currentBenchmark, startTs, endTs, interval);
+                const benchmarkWindow = this._getBenchmarkWindow(graphData);
+                if (benchmarkWindow) {
+                    const interval = this.dataManager.getIntervalForPeriod ? this.dataManager.getIntervalForPeriod(this.currentPeriod) : '1d';
+                    benchmarkData = await this.api.getHistoricalPricesWithRetry(
+                        this.currentBenchmark, benchmarkWindow.startTs, benchmarkWindow.endTs, interval);
+                }
             }
 
             // A period/filter/mode request issued while this calculation was in
@@ -1897,23 +1932,11 @@ export class HistoricalChart {
             });
 
             if (benchmarkData && graphData.timestamps) {
-                const benchTs = Object.keys(benchmarkData).map(Number).sort((a, b) => a - b);
-                if (benchTs.length > 0) {
-                    const startGraphTs = graphData.timestamps[firstIndex];
-                    let startBenchPrice = null;
-                    for (let i = benchTs.length - 1; i >= 0; i--) { if (benchTs[i] <= startGraphTs) { startBenchPrice = benchmarkData[benchTs[i]]; break; } }
-                    if (!startBenchPrice) startBenchPrice = benchmarkData[benchTs[0]];
-                    if (startBenchPrice) {
-                        let lastKnown = startBenchPrice;
-                        const benchData = graphData.timestamps.map((ts, i) => {
-                            if (i < firstIndex) return null;
-                            for (let j = benchTs.length - 1; j >= 0; j--) { if (benchTs[j] <= ts) { lastKnown = benchmarkData[benchTs[j]]; break; } }
-                            return ((lastKnown - startBenchPrice) / startBenchPrice) * 100;
-                        });
-                        datasets.push({ label: 'Benchmark (%)', data: benchData, borderColor: '#A855F7', borderWidth: 2, fill: false, pointRadius: 0, tension: 0, spanGaps: false });
-                        benchPctSeries = benchData;
-                        benchmarkLabel = document.getElementById('benchmark-select')?.selectedOptions?.[0]?.textContent?.trim() || 'Benchmark';
-                    }
+                const benchData = this._buildBenchmarkPerformanceSeries(benchmarkData, graphData.timestamps, firstIndex);
+                if (benchData?.some(value => value !== null)) {
+                    datasets.push({ label: 'Benchmark (%)', data: benchData, borderColor: '#A855F7', borderWidth: 2, fill: false, pointRadius: 0, tension: 0, spanGaps: false });
+                    benchPctSeries = benchData;
+                    benchmarkLabel = document.getElementById('benchmark-select')?.selectedOptions?.[0]?.textContent?.trim() || 'Benchmark';
                 }
             }
             datasets.push({ label: 'Base 0%', data: Array(graphData.labels.length).fill(0), borderColor: 'rgba(255,255,255,0.2)', borderWidth: 1, borderDash: [5, 5], fill: false, pointRadius: 0 });

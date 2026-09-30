@@ -117,12 +117,41 @@ describe('Market-session-aware freshness', () => {
         expect(chart._isHistoryStale(monthKey, unsettled, 30, at('2026-09-22T21:00:00Z'))).toBe(true);
     });
 
+    it('does not let the 24-hour All TTL hide a newly settled daily close', () => {
+        const chart = makeChart();
+        const allKey = chart._historyKey('portfolio', [purchase({ ticker: 'MC.PA' })], 'all');
+        const builtBeforeClose = { createdAt: at('2026-09-22T10:00:00Z') };
+        const builtAfterSettle = { createdAt: at('2026-09-22T16:30:00Z') };
+
+        expect(chart._isHistoryStale(allKey, builtBeforeClose, 'all', at('2026-09-22T21:00:00Z'))).toBe(true);
+        expect(chart._isHistoryStale(allKey, builtAfterSettle, 'all', at('2026-09-22T21:00:00Z'))).toBe(false);
+    });
+
     it('treats 24/7 assets with the regular TTL and a new civil day as stale', () => {
         const chart = makeChart();
         const entry = { createdAt: at('2026-09-26T08:00:00Z') };
         expect(chart._isHistoryStale(key(chart, 'BTC-EUR'), entry, 365, at('2026-09-26T16:00:00Z'))).toBe(true);
         expect(chart._isHistoryStale(key(chart, 'BTC-EUR'), entry, 365, at('2026-09-26T09:00:00Z'))).toBe(false);
         expect(chart._isHistoryStale(key(chart, 'MC.PA'), entry, 365, at('2026-09-28T08:00:00Z'))).toBe(true);
+    });
+});
+
+describe('Long-period automatic refresh', () => {
+    it('keeps the refresh scheduler active when the visible period is All', () => {
+        vi.useFakeTimers();
+        const chart = makeChart();
+        chart.currentPeriod = 'all';
+        chart.silentUpdate = vi.fn();
+        try {
+            chart.startAutoRefresh();
+            vi.advanceTimersByTime(30 * 1000);
+            expect(chart.silentUpdate).toHaveBeenCalledTimes(1);
+            vi.advanceTimersByTime(4.5 * 60 * 1000);
+            expect(chart.silentUpdate).toHaveBeenCalledTimes(2);
+        } finally {
+            chart.destroy();
+            vi.useRealTimers();
+        }
     });
 });
 

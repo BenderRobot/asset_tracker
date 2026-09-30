@@ -88,6 +88,83 @@ describe('Historical chart robustness and cache', () => {
         expect(config.priceEnd).toBe(0);
     });
 
+    it('keeps a fully liquidated portfolio with real cash valid end to end', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-26T10:00:00Z'));
+        try {
+            const timestamp = date => new Date(`${date}T12:00:00Z`).getTime();
+            const flatHistory = Object.fromEntries(
+                ['2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25'].map(date => [timestamp(date), 100])
+            );
+            const storage = createFakeStorage({ conversionRate: 1 });
+            const dm = new DataManager(storage, createFakeApi({
+                async getHistoricalPricesWithRetry() { return flatHistory; }
+            }));
+            const graph = await dm.calculateHistory([
+                purchase({ date: '2026-09-22', price: 100 }),
+                purchase({ date: '2026-09-24', price: 100, quantity: -1 }),
+                purchase({ date: '2026-09-24', ticker: 'EUR', assetType: 'Cash', price: 100 })
+            ], 'all');
+            const view = new HistoricalChart(storage, dm, null, {
+                filterManager: { getSelectedTickers: () => new Set() },
+                getFilteredPurchasesFromPage: () => [],
+                getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio' }),
+                renderData: vi.fn()
+            });
+
+            expect(graph.dataQuality.valid).toBe(true);
+            expect(graph.values.at(-1)).toBe(100);
+            expect(graph.twr.at(-1)).toBe(1);
+            expect(view._isValidHistoryData(graph)).toBe(true);
+            view.destroy();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('uses the portfolio timestamps as the exact benchmark request window', () => {
+        const chart = makeChart();
+        const startMs = Date.parse('2026-09-01T00:00:00Z');
+        const endMs = Date.parse('2026-09-30T12:34:56.250Z');
+
+        expect(chart._getBenchmarkWindow({ timestamps: [startMs, endMs] })).toEqual({
+            startTs: Math.floor(startMs / 1000),
+            endTs: Math.ceil(endMs / 1000) + 1
+        });
+        expect(chart._getBenchmarkWindow({ timestamps: [] })).toBeNull();
+    });
+
+    it('leaves a gap before the first real benchmark observation', () => {
+        const chart = makeChart();
+        const day = 86400000;
+        const start = Date.parse('2026-09-01T00:00:00Z');
+        const timestamps = [start, start + day, start + 2 * day, start + 3 * day];
+        const benchmark = {
+            [start + 2 * day]: 100,
+            [start + 3 * day]: 110
+        };
+
+        expect(chart._buildBenchmarkPerformanceSeries(benchmark, timestamps, 0)).toEqual([
+            null, null, 0, 10
+        ]);
+    });
+
+    it('carries only past benchmark observations forward after a causal baseline', () => {
+        const chart = makeChart();
+        const day = 86400000;
+        const start = Date.parse('2026-09-01T00:00:00Z');
+        const timestamps = [start, start + day, start + 2 * day];
+        const benchmark = {
+            [start]: 100,
+            [start + 2 * day]: 120
+        };
+
+        const series = chart._buildBenchmarkPerformanceSeries(benchmark, timestamps, 0);
+        expect(series[0]).toBe(0);
+        expect(series[1]).toBe(0);
+        expect(series[2]).toBeCloseTo(20, 8);
+    });
+
     it('coalesces concurrent builds and reuses a completed long-period series', async () => {
         const chart = makeChart();
         const producer = vi.fn(async () => ({ labels: ['x'], values: [1], twr: [1] }));

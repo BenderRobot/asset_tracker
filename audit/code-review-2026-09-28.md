@@ -18,6 +18,12 @@
 
 **Suivi — historique Gold immuable :** corrigé localement. La substitution longue période conserve `GOLD.PA`, identifié par Euronext comme l’Amundi Physical Gold FR0013416716 coté en EUR, mais utilise désormais ses clôtures sans recalage sur le prix courant. L’override EUR reste nécessaire car Yahoo renvoie actuellement une métadonnée `USD` incohérente pour ce symbole. Les caches concernés sont versionnés et la couverture se trouve dans `tests/tickerMapping.test.js`. Aucun déploiement effectué.
 
+**Suivi — alignement causal du benchmark :** corrigé localement. La requête du benchmark reprend désormais les bornes exactes des timestamps produits pour le portefeuille, au lieu de recalculer une fenêtre parallèle. Si sa première observation est postérieure au début de la courbe, les points antérieurs restent `null` ; aucune base 0 % future n’est projetée dans le passé. Couverture dans `tests/historicalChartRobustness.test.js`. Aucun déploiement effectué.
+
+**Suivi — actualisation des périodes longues :** corrigé localement. Le scheduler du graphique reste actif sur toutes les périodes, pas seulement en 1D. Les lectures fréquentes continuent de servir le cache sans requête inutile ; une reconstruction est déclenchée lorsque le TTL expire, que le jour civil change ou qu’une nouvelle clôture de marché est stabilisée, même pour les caches 2Y/All de 24 h. Couverture dans `tests/chartSeriesCache.test.js`. Aucun déploiement effectué.
+
+**Suivi — A1 (portefeuille entièrement liquidé) :** corrigé et verrouillé. Après une vente totale, la valeur cash finale reste traçable, le TWR conserve sa dernière base définie et la validation du composant n’exige plus le TWR pour accepter une série de valeur exploitable. La reproduction A1 attend maintenant ce comportement et la couverture de non-régression se trouve dans `tests/historicalChartRobustness.test.js`. Aucun déploiement effectué.
+
 **Suivi — étape 5 (résidus, Hosting, déploiement) :** retirés : `loadCachedData`/`saveCacheSnapshot` (clé `portfolio_snapshot_cache` purgée), `indexCardChart.js`, `cacheRefresh.js` et ses balises, `_recoverFromClosedMarket`, `btc2.json` et le cache PowerShell (désormais ignoré). `debugDividendPhantomGap` est déplacé dans `audit/tools/`. Hosting prod et beta excluent `audit/`, `tests/`, `functions/`, `cloudflare-workers/`, les fichiers internes et le contenu des répertoires cachés : `**/.*` n’excluait pas `.git/`, qui faisait donc partie de l’upload (2 906 → 110 fichiers, vérifié avec `listFiles` de firebase-tools). `deploy.ps1` bloque sur `npm test` et déploie le Worker à chaque exécution (`-SkipWorker` pour l’exclure explicitement). Aucun déploiement effectué.
 
 Le code contient encore des erreurs financières reproductibles, en plus de plusieurs restes d’anciennes versions. La priorité est la cohérence des devises, des dividendes et de la qualité des prix. Un simple nettoyage des fichiers ne corrigera pas ces erreurs.
@@ -114,7 +120,7 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 
 | Problème | Preuve et emplacement | Amélioration |
 | --- | --- | --- |
-| Portefeuille entièrement liquidé rejeté par le graphique | A1 : valeur cash = 100, TWR final = `null` ; `src/historicalChart.js:361` refuse toute la courbe. | Valider séparément les vues Valeur et Performance ; conserver les points exploitables. |
+| ~~Portefeuille entièrement liquidé rejeté par le graphique~~ | A1 corrigé : valeur cash finale conservée, TWR prolongé depuis sa dernière base définie et validation fondée sur la série de valeur traçable. | Couvert par la reproduction A1 et `tests/historicalChartRobustness.test.js`. |
 | Gain journalier mal réparti entre courtiers | B6 : une action détenue hier chez A, une achetée aujourd’hui chez B, hausse 100→120 ; résultat 10/10 au lieu de 20/0 selon la règle actuelle de quantité de veille. `src/dataManager.js:1383`. | Calculer la contribution avec les quantités de référence par courtier, pas répartir selon les quantités actuelles. |
 | Repli au prix d’achat non identifié comme tel | A8 : actif sans bougies valorisé à 100, `dataQuality.valid = true`, source devenue `valuation`. `src/HistoryCalculator.js:1250`, `src/HistoryCalculator.js:1337`, `src/HistoryCalculator.js:1566`. | Réserver la valorisation manuelle à une politique explicite et conserver sa provenance/date. Le repli actuel n’est pas limité à un type d’actif manuel. |
 | Message de conservation du graphique contredit par le rendu | A9 : ancienne instance conservée mais canvas masqué. `src/historicalChart.js:718`, `src/historicalChart.js:1114`. | Conserver visiblement la courbe précédente avec son périmètre/date, ou annoncer clairement son absence. |
@@ -123,9 +129,9 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 
 **Risques supplémentaires établis par lecture, sans reproduction complète dans cette passe**
 
-- Le change historique peut utiliser un taux futur dans les sept jours suivants, puis le taux courant si aucun historique n’est trouvé (`src/MarketUtils.js:83`). Un achat ancien peut ainsi changer de coût EUR au rechargement. L’avertissement console ne suffit pas à rendre l’approximation visible dans les KPI. Préférer un taux historique documenté et conservé, ou un état explicitement estimé.
+- ~~Le change historique pouvait utiliser un taux futur, puis le taux courant.~~ Corrigé le 30 septembre 2026 : seuls le taux exact ou le dernier taux antérieur sur sept jours sont admis ; sinon le calcul échoue explicitement avec `FX_DATA_UNAVAILABLE`.
 - ~~L’historique Gold est recalibré avec le prix courant divisé par la dernière clôture source.~~ Corrigé le 30 septembre 2026 : Euronext confirme que `GOLD.PA` correspond à l’Amundi Physical Gold FR0013416716 coté en EUR ; les clôtures fournisseur sont maintenant conservées telles quelles, sans dépendance au cours courant. L’override de devise EUR compense uniquement la métadonnée Yahoo erronée.
-- Le benchmark a ses propres bornes et prend sa première observation même si elle est postérieure au début de la courbe (`src/historicalChart.js:683`, `src/historicalChart.js:1911`). Partager une fenêtre commune et laisser un trou avant sa première observation disponible.
+- ~~Le benchmark avait ses propres bornes et projetait sa première observation future au début de la courbe.~~ Corrigé le 30 septembre 2026 : il utilise la fenêtre canonique du portefeuille et conserve des points `null` jusqu’à sa première observation réelle.
 
 **Doublons et résidus réellement identifiés**
 
