@@ -311,3 +311,97 @@ describe('Prices Worker shared chart cache', () => {
         expect(cached.headers.get('X-Yahoo-Attempts')).toBe('0');
     });
 });
+
+describe('Prices Worker Yahoo authenticated session', () => {
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(FROZEN_NOW);
+        _resetRateLimiterStateForTests();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    function stubAuthenticatedYahoo({ rejectFirstQuote = false } = {}) {
+        let bootstrapCount = 0;
+        let crumbCount = 0;
+        let quoteCount = 0;
+
+        vi.stubGlobal('fetch', vi.fn(async (url) => {
+            const u = String(url);
+            if (u.startsWith('https://finance.yahoo.com/quote/AAPL?guccounter=1')) {
+                bootstrapCount++;
+                return new Response(null, {
+                    status: 301,
+                    headers: {
+                        'Location': 'https://finance.yahoo.com/quote/AAPL/',
+                        'Set-Cookie': `A1=session-${bootstrapCount}; Path=/; Domain=.yahoo.com; Secure`,
+                    },
+                });
+            }
+            if (u === 'https://query1.finance.yahoo.com/v1/test/getcrumb') {
+                crumbCount++;
+                return new Response(`crumb-${crumbCount}`, { status: 200 });
+            }
+            if (u.includes('/v10/finance/quoteSummary/AAPL')) {
+                quoteCount++;
+                if (rejectFirstQuote && quoteCount === 1) {
+                    return new Response(JSON.stringify({ finance: { error: { code: 'Unauthorized' } } }), {
+                        status: 401,
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                }
+                return new Response(JSON.stringify({
+                    quoteSummary: { result: [{ price: { longName: 'Apple Inc.' } }], error: null },
+                }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            }
+            throw new Error(`Unexpected fetch to ${u}`);
+        }));
+
+        return {
+            counts: () => ({ bootstrapCount, crumbCount, quoteCount }),
+        };
+    }
+
+    it('obtient cookie + crumb depuis une page Finance et demande seulement les modules utiles', async () => {
+        const stub = stubAuthenticatedYahoo();
+        const res = await worker.fetch(
+            getRequest('symbol=AAPL&type=QUOTE_SUMMARY'),
+            makeEnv({ PRICE_RATE_LIMIT_PER_MINUTE: '100' }),
+        );
+
+        expect(res.status).toBe(200);
+        expect(await res.json()).toMatchObject({
+            quoteSummary: { result: [{ price: { longName: 'Apple Inc.' } }] },
+        });
+        expect(stub.counts()).toEqual({ bootstrapCount: 1, crumbCount: 1, quoteCount: 1 });
+
+        const quoteUrl = vi.mocked(fetch).mock.calls
+            .map(([url]) => String(url))
+            .find(url => url.includes('/v10/finance/quoteSummary/AAPL'));
+        expect(quoteUrl).toContain('crumb=crumb-1');
+        expect(quoteUrl).toContain('earnings');
+        expect(quoteUrl).not.toContain('incomeStatementHistory');
+        expect(quoteUrl).not.toContain('balanceSheetHistory');
+        expect(quoteUrl).not.toContain('cashflowStatementHistory');
+    });
+
+    it('renouvelle réellement cookie + crumb après un 401 avant de réessayer', async () => {
+        const stub = stubAuthenticatedYahoo({ rejectFirstQuote: true });
+        const res = await worker.fetch(
+            getRequest('symbol=AAPL&type=QUOTE_SUMMARY'),
+            makeEnv({ PRICE_RATE_LIMIT_PER_MINUTE: '100' }),
+        );
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get('X-Yahoo-Attempts')).toBe('2');
+        expect(stub.counts()).toEqual({ bootstrapCount: 2, crumbCount: 2, quoteCount: 2 });
+
+        const quoteUrls = vi.mocked(fetch).mock.calls
+            .map(([url]) => String(url))
+            .filter(url => url.includes('/v10/finance/quoteSummary/AAPL'));
+        expect(quoteUrls[0]).toContain('crumb=crumb-1');
+        expect(quoteUrls[1]).toContain('crumb=crumb-2');
+    });
+});

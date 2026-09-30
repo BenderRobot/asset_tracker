@@ -577,18 +577,10 @@ class ScreenerApp {
     }
 
     async fetchQuoteSummary(symbol) {
-        const modules = [
-            'summaryProfile',
-            'financialData',
-            'defaultKeyStatistics',
-            'summaryDetail',
-            'earnings',
-            'incomeStatementHistory',
-            'balanceSheetHistory',
-            'cashflowStatementHistory',
-            'price'
-        ].join(',');
-        const url = `${PROXY}?symbol=${encodeURIComponent(symbol)}&type=QUOTE_SUMMARY&modules=${modules}`;
+        // The Worker owns the allow-listed module set. Keeping it server-side
+        // avoids a misleading client parameter and lets all callers benefit
+        // from the same lightweight Yahoo request.
+        const url = `${PROXY}?symbol=${encodeURIComponent(symbol)}&type=QUOTE_SUMMARY`;
         const data = await this.safeFetchJson(url);
         return data?.quoteSummary?.result?.[0] || null;
     }

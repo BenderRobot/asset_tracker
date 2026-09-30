@@ -109,42 +109,96 @@ const YAHOO_HEADERS = {
 let cachedCrumb = null;
 let cachedCookie = null;
 
-async function getYahooCrumb(env) {
+function clearYahooSession() {
+  cachedCrumb = null;
+  cachedCookie = null;
+}
+
+// A subrequest can expose Set-Cookie either through getSetCookie() (standard
+// server-side Headers API) or as one combined header, depending on the
+// Workers runtime version. Keep only cookie name/value pairs: attributes such
+// as Expires/Path must not be sent back in the Cookie request header.
+function readYahooCookies(headers) {
+  const setCookieHeaders = typeof headers.getSetCookie === 'function'
+    ? headers.getSetCookie()
+    : [headers.get('set-cookie')].filter(Boolean);
+  const cookies = new Map();
+
+  for (const header of setCookieHeaders) {
+    // A combined Set-Cookie header can contain commas inside Expires. A new
+    // cookie starts only at the beginning or after a comma followed by name=.
+    const cookiePattern = /(?:^|,\s*)([!#$%&'*+\-.^_`|~0-9A-Za-z]+)=([^;]*)/g;
+    for (const match of header.matchAll(cookiePattern)) {
+      cookies.set(match[1], match[2]);
+    }
+  }
+  return cookies;
+}
+
+async function acquireYahooCrumb() {
+  const sessionHeaders = {
+    'User-Agent': YAHOO_HEADERS['User-Agent'],
+    'Accept': 'text/html,application/xhtml+xml,application/xml',
+    'Accept-Language': YAHOO_HEADERS['Accept-Language'],
+  };
+
+  // The old fc.yahoo.com bootstrap still issues an A3 cookie, but Yahoo's
+  // getcrumb endpoint now rejects that flow with HTTP 406. Loading a Finance
+  // quote page first is the flow used by current Yahoo clients. The deliberately
+  // non-canonical URL usually returns a 301 together with A1/A3 cookies before
+  // rendering the page (and avoids downloading a large HTML document).
+  for (let bootstrapAttempt = 0; bootstrapAttempt < 3; bootstrapAttempt++) {
+    const sessionUrl = `https://finance.yahoo.com/quote/AAPL?guccounter=1&crumb_ts=${Date.now()}_${bootstrapAttempt}`;
+    const sessionResponse = await fetch(sessionUrl, {
+      headers: sessionHeaders,
+      redirect: 'manual',
+    });
+    const cookieMap = readYahooCookies(sessionResponse.headers);
+    const hasSessionCookie = ['A1', 'A3', 'B'].some(name => cookieMap.has(name));
+    if (!hasSessionCookie) continue;
+
+    const cookie = Array.from(cookieMap, ([name, value]) => `${name}=${value}`).join('; ');
+    const crumbResponse = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+      headers: {
+        ...sessionHeaders,
+        'Accept': '*/*',
+        'Content-Type': 'text/plain',
+        'Origin': 'https://finance.yahoo.com',
+        'Referer': sessionUrl,
+        'Cookie': cookie,
+      },
+      redirect: 'manual',
+    });
+    if (!crumbResponse.ok) continue;
+
+    const crumb = (await crumbResponse.text()).trim();
+    // Error payloads and consent pages must never be cached as a crumb.
+    if (!crumb || crumb.includes('<') || crumb.startsWith('{')) continue;
+    return { crumb, cookie };
+  }
+  throw new Error('Unable to acquire Yahoo session');
+}
+
+async function getYahooCrumb(env, forceRefresh = false) {
+  if (forceRefresh) clearYahooSession();
   if (cachedCrumb && cachedCookie) return { crumb: cachedCrumb, cookie: cachedCookie };
   const fallbackCookie = env?.YAHOO_FALLBACK_COOKIE || null;
   const fallbackCrumb = env?.YAHOO_FALLBACK_CRUMB || null;
 
   try {
-    const res1 = await fetch('https://fc.yahoo.com', {
-      headers: YAHOO_HEADERS,
-      redirect: 'manual'
-    });
-    const setCookie = res1.headers.get('set-cookie');
-    if (!setCookie) {
-        // Fallback vers le cookie/crumb de secours (secret Cloudflare)
-        cachedCrumb = fallbackCrumb;
-        cachedCookie = fallbackCookie;
-        return { crumb: fallbackCrumb, cookie: fallbackCookie };
-    }
-
-    // Extract actual cookies (A3 or B), ignoring Expires containing commas
-    const matchList = setCookie.match(/(A3|B)=([^;]+)/g) || [];
-    const cookies = matchList.join('; ');
-
-    const res2 = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
-      headers: { ...YAHOO_HEADERS, 'Cookie': cookies }
-    });
-    if (!res2.ok) throw new Error("Crumb request failed");
-
-    // Extract text block
-    const crumb = await res2.text();
-    cachedCrumb = crumb;
-    cachedCookie = cookies;
-    return { crumb, cookie: cookies };
+    const session = await acquireYahooCrumb();
+    cachedCrumb = session.crumb;
+    cachedCookie = session.cookie;
+    return session;
   } catch (err) {
-    cachedCrumb = fallbackCrumb;
-    cachedCookie = fallbackCookie;
-    return { crumb: fallbackCrumb, cookie: fallbackCookie };
+    // Fallback vers le cookie/crumb de secours (secrets Cloudflare). Refuse a
+    // half-configured pair: sending only one value just produces opaque 401s.
+    if (fallbackCrumb && fallbackCookie) {
+      cachedCrumb = fallbackCrumb;
+      cachedCookie = fallbackCookie;
+      return { crumb: fallbackCrumb, cookie: fallbackCookie };
+    }
+    throw err;
   }
 }
 
@@ -167,9 +221,7 @@ async function fetchYahoo(url, origin, env, opts = {}) {
 }
 
 async function fetchYahooUncached(url, origin, env, opts = {}) {
-  // If we need crumb, inject it and the cookie
-  let fetchUrl = url;
-  const headers = {
+  const baseHeaders = {
     ...YAHOO_HEADERS,
     'sec-ch-ua': '"Chromium";v="120", "Not)A;Brand";v="8"',
     'sec-ch-ua-mobile': '?0',
@@ -179,30 +231,20 @@ async function fetchYahooUncached(url, origin, env, opts = {}) {
     'Accept': 'application/json, text/javascript, */*; q=0.01',
   };
 
-  if (opts.useCrumb) {
-    const { crumb, cookie } = await getYahooCrumb(env);
-    if (crumb) {
-      fetchUrl += (fetchUrl.includes('?') ? '&' : '?') + `crumb=${crumb}`;
-    }
-    if (cookie) {
-      headers['Cookie'] = cookie;
-    }
-  }
-
   // Overrides
-  if (opts.referer) headers.Referer = opts.referer;
-  if (opts.userAgent) headers['User-Agent'] = opts.userAgent;
+  if (opts.referer) baseHeaders.Referer = opts.referer;
+  if (opts.userAgent) baseHeaders['User-Agent'] = opts.userAgent;
 
   // Try query2 first, then query1
   const tryUrls = [];
-  if (fetchUrl.includes('query1.finance.yahoo.com')) {
-    tryUrls.push(fetchUrl.replace('query1.finance.yahoo.com', 'query2.finance.yahoo.com'));
-    tryUrls.push(fetchUrl);
-  } else if (fetchUrl.includes('query2.finance.yahoo.com')) {
-    tryUrls.push(fetchUrl);
-    tryUrls.push(fetchUrl.replace('query2.finance.yahoo.com', 'query1.finance.yahoo.com'));
+  if (url.includes('query1.finance.yahoo.com')) {
+    tryUrls.push(url.replace('query1.finance.yahoo.com', 'query2.finance.yahoo.com'));
+    tryUrls.push(url);
+  } else if (url.includes('query2.finance.yahoo.com')) {
+    tryUrls.push(url);
+    tryUrls.push(url.replace('query2.finance.yahoo.com', 'query1.finance.yahoo.com'));
   } else {
-    tryUrls.push(fetchUrl);
+    tryUrls.push(url);
   }
 
   // attempts/finalStatus : purs compteurs diagnostiques (voir jsonResponse et
@@ -212,19 +254,31 @@ async function fetchYahooUncached(url, origin, env, opts = {}) {
   let lastErr = null;
   let attempts = 0;
   let finalStatus = null;
+  let yahooSession = opts.useCrumb ? await getYahooCrumb(env) : null;
+  let refreshYahooSession = false;
   for (const u of tryUrls) {
     for (let attempt = 0; attempt < 2; attempt++) {
       attempts++;
       try {
-        const res = await fetch(u, { headers, cf: { cacheTtl: 60 } });
+        if (opts.useCrumb && refreshYahooSession) {
+          yahooSession = await getYahooCrumb(env, true);
+          refreshYahooSession = false;
+        }
+        let requestUrl = u;
+        const requestHeaders = { ...baseHeaders };
+        if (yahooSession) {
+          requestUrl += (requestUrl.includes('?') ? '&' : '?') + `crumb=${encodeURIComponent(yahooSession.crumb)}`;
+          requestHeaders.Cookie = yahooSession.cookie;
+        }
+        const res = await fetch(requestUrl, { headers: requestHeaders, cf: { cacheTtl: 60 } });
         finalStatus = res.status;
         if (!res.ok) {
           lastErr = new Error(`Yahoo HTTP ${res.status}`);
           if (res.status === 429) throw Object.assign(lastErr, { stopRetry: true });
           // On 401, clear crumb cache and retry next loop
           if (res.status === 401) {
-            cachedCrumb = null;
-            cachedCookie = null;
+            clearYahooSession();
+            refreshYahooSession = true;
           }
           await new Promise(r => setTimeout(r, 200 + attempt * 150));
           continue;
@@ -319,6 +373,7 @@ const MAX_TRACKED_IPS = 5000;
 // production) s'accumulerait entre tests indépendants. Jamais appelé par le
 // Worker lui-même en production.
 export function _resetRateLimiterStateForTests() {
+  clearYahooSession();
   chartResponses.clear();
   chartRequests.clear();
   rateLimitBuckets.clear();
@@ -417,10 +472,8 @@ export default {
             'financialData',
             'summaryDetail',
             'price',
+            'earnings',
             'earningsTrend',
-            'incomeStatementHistory',
-            'cashflowStatementHistory',
-            'balanceSheetHistory',
           ].join(',');
           const quoteSummaryUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}&lang=en-US&region=US`;
           const { json, attempts, finalStatus } = await fetchYahoo(quoteSummaryUrl, origin, env, { useCrumb: true });
