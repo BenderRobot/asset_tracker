@@ -1697,14 +1697,20 @@ export function computeAthReference({ kind, allHistory, visibleHistory, firstInd
 
     const visible = scan(visibleTwr, firstIndex, visibleEnd);
     const rebasedAthPct = (all.max * scale - 1) * 100;
-    const visibleMaxPct = (visible.max - 1) * 100;
-    const fromVisible = visibleMaxPct > rebasedAthPct;
-    const value = fromVisible ? visibleMaxPct : rebasedAthPct;
+    // The performance ATH has one canonical owner: the complete daily
+    // history.  A short window (notably 1M, whose candles are intraday) can
+    // produce a slightly higher local TWR because its sampling and chaining
+    // differ from the all-time daily series.  Promoting that local maximum
+    // changed the ATH date/value in the stats bar when switching periods even
+    // though the portfolio's historical peak had not changed.  The visible
+    // series is therefore used only to express the canonical ATH in the
+    // window's coordinate system and to compute the current gap.
+    const value = rebasedAthPct;
     if (!Number.isFinite(value)) return null;
     const lastPct = visible.last !== null ? (visible.last - 1) * 100 : null;
     return {
         kind, value,
-        at: fromVisible ? { source: 'visible', index: visible.maxIndex } : { source: 'all', index: all.maxIndex },
+        at: { source: 'all', index: all.maxIndex },
         fromAthPct: lastPct !== null ? ((1 + lastPct / 100) / (1 + value / 100) - 1) * 100 : null
     };
 }

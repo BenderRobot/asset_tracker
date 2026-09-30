@@ -90,13 +90,18 @@ describe('computeAthReference (engine)', () => {
         expect(ath.fromAthPct).toBeCloseTo(0, 8);
     });
 
-    it('performance: a visible high above the rebased all-time high wins', () => {
+    it('performance: a short-window local high never replaces the canonical all-time point', () => {
         const ath = computeAthReference({
             kind: 'performance',
-            allHistory: { timestamps: [100, 200], twr: [1, 1.1] },
-            visibleHistory: { timestamps: [250, 260], twr: [1, 1.2] }
+            // Canonical peak at timestamp 200. The 1M/intraday series has a
+            // slightly higher local maximum after rebasing, but it must not
+            // change the ATH date/value shown in the stats bar.
+            allHistory: { timestamps: [100, 200, 300], twr: [1, 1.5, 1.2] },
+            visibleHistory: { timestamps: [300, 400], twr: [1, 1.3] }
         });
-        expect(ath.value).toBeCloseTo(20, 8);
+        expect(ath.value).toBeCloseTo(25, 8);
+        expect(ath.at).toEqual({ source: 'all', index: 1 });
+        expect(ath.fromAthPct).toBeCloseTo((1.3 / 1.25 - 1) * 100, 8);
     });
 });
 
