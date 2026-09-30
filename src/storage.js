@@ -313,7 +313,8 @@ export class Storage {
             } catch (error) {
                 console.error("Error adding document: ", error);
                 // ROLLBACK: On annule l'ajout local si ça échoue en ligne
-                this.removePurchase(this.getRowKey(newPurchase));
+                // (sans firestoreId : suppression locale uniquement, ne rejette pas)
+                await this.removePurchase(this.getRowKey(newPurchase));
                 throw error; // Propager l'erreur pour que l'appelant sache
             }
         } else {
@@ -322,7 +323,25 @@ export class Storage {
         }
     }
 
-    updatePurchase(key, updates) {
+    // Annule un changement optimiste après un échec Firestore : chaque
+    // transaction d'origine reprend sa place (par firestoreId), ou est remise
+    // si elle avait été retirée. Idempotent : l'onSnapshot peut aussi revenir
+    // à l'état serveur sans créer de doublon.
+    _restorePurchases(originals) {
+        for (const original of originals) {
+            const idx = this.purchases.findIndex(p => p.firestoreId === original.firestoreId);
+            if (idx === -1) this.purchases.push(original);
+            else this.purchases[idx] = original;
+        }
+        this.savePurchases();
+        this.rebuildIndex();
+        window.dispatchEvent(new Event('purchases-updated'));
+    }
+
+    // Les écritures attendent la confirmation de Firestore et REJETTENT en cas
+    // d'échec, après avoir annulé le changement local : l'appelant doit
+    // afficher l'erreur (voir toast.js), jamais l'avaler.
+    async updatePurchase(key, updates) {
         const idx = this.purchaseIndex.get(key);
         if (idx === undefined) return false;
 
@@ -341,9 +360,13 @@ export class Storage {
         // 2. Mise à jour Firestore
         const user = auth.currentUser;
         if (user && purchaseToUpdate.firestoreId) {
-            db.collection('users').doc(user.uid).collection('purchases').doc(purchaseToUpdate.firestoreId).update(updates)
-                .then(() => console.log("Document successfully updated!"))
-                .catch(error => console.error("Error updating document: ", error));
+            try {
+                await db.collection('users').doc(user.uid).collection('purchases').doc(purchaseToUpdate.firestoreId).update(updates);
+            } catch (error) {
+                console.error('[Storage] Update failed, local change rolled back:', error);
+                this._restorePurchases([purchaseToUpdate]);
+                throw error;
+            }
         } else {
             console.warn("Impossible de mettre à jour sur Firestore (pas d'ID ou pas connecté)");
         }
@@ -351,7 +374,7 @@ export class Storage {
         return true;
     }
 
-    removePurchase(key) {
+    async removePurchase(key) {
         const idx = this.purchaseIndex.get(key);
         if (idx === undefined) return false;
 
@@ -365,25 +388,27 @@ export class Storage {
         // 2. Suppression Firestore
         const user = auth.currentUser;
         if (user && purchaseToRemove.firestoreId) {
-            db.collection('users').doc(user.uid).collection('purchases').doc(purchaseToRemove.firestoreId).delete()
-                .then(() => console.log("Document successfully deleted!"))
-                .catch(error => console.error("Error removing document: ", error));
+            try {
+                await db.collection('users').doc(user.uid).collection('purchases').doc(purchaseToRemove.firestoreId).delete();
+            } catch (error) {
+                console.error('[Storage] Delete failed, local change rolled back:', error);
+                this._restorePurchases([purchaseToRemove]);
+                throw error;
+            }
         }
 
         return true;
     }
 
-    removePurchases(keys) {
+    async removePurchases(keys) {
         const keysArray = Array.from(keys);
 
-        // On récupère les IDs Firestore avant de supprimer localement
-        const idsToDelete = [];
-        keysArray.forEach(key => {
-            const idx = this.purchaseIndex.get(key);
-            if (idx !== undefined && this.purchases[idx].firestoreId) {
-                idsToDelete.push(this.purchases[idx].firestoreId);
-            }
-        });
+        // On récupère les transactions avant de supprimer localement
+        const removed = keysArray
+            .map(key => this.purchaseIndex.get(key))
+            .filter(idx => idx !== undefined)
+            .map(idx => this.purchases[idx]);
+        const persisted = removed.filter(p => p.firestoreId);
 
         // 1. Suppression Locale
         this.purchases = this.purchases.filter(p =>
@@ -392,18 +417,22 @@ export class Storage {
         this.savePurchases();
         this.rebuildIndex();
 
-        // 2. Suppression Firestore (Batch)
+        // 2. Suppression Firestore (Batch atomique : tout ou rien)
         const user = auth.currentUser;
-        if (user && idsToDelete.length > 0) {
+        if (user && persisted.length > 0) {
             const batch = db.batch();
-            idsToDelete.forEach(id => {
-                const ref = db.collection('users').doc(user.uid).collection('purchases').doc(id);
-                batch.delete(ref);
+            persisted.forEach(p => {
+                batch.delete(db.collection('users').doc(user.uid).collection('purchases').doc(p.firestoreId));
             });
-            batch.commit()
-                .then(() => console.log("Batch delete successful"))
-                .catch(err => console.error('[Storage] Batch delete failed:', err));
+            try {
+                await batch.commit();
+            } catch (error) {
+                console.error('[Storage] Batch delete failed, local change rolled back:', error);
+                this._restorePurchases(persisted);
+                throw error;
+            }
         }
+        return removed.length;
     }
 
     getPurchaseByKey(key) {
@@ -483,6 +512,7 @@ export class Storage {
         if (!this.isInWatchlist(upperTicker)) return false;
 
         // 1. Suppression Locale
+        const removedItem = this.watchlist.find(item => item.ticker === upperTicker);
         this.watchlist = this.watchlist.filter(item => item.ticker !== upperTicker);
         this.saveWatchlist();
 
@@ -495,6 +525,11 @@ export class Storage {
                 return true;
             } catch (error) {
                 console.error("Error removing from watchlist: ", error);
+                // ROLLBACK : la ligne reste suivie, l'appelant affiche l'erreur
+                if (!this.isInWatchlist(upperTicker)) this.watchlist.push(removedItem);
+                this.saveWatchlist();
+                window.dispatchEvent(new Event('watchlist-updated'));
+                throw error;
             }
         }
         return false;
@@ -528,9 +563,14 @@ export class Storage {
                     try {
                         await db.collection('users').doc(user.uid).collection('watchlist').doc(upperTicker).set(item);
                         return true;
-                    } catch (e) { }
+                    } catch (e) {
+                        console.error("Error updating watchlist data (set fallback): ", e);
+                    }
                 }
                 console.error("Error updating watchlist data: ", error);
+                // Données de marché rafraîchies en arrière-plan : elles restent en
+                // cache local, l'appelant journalise l'échec sans toast par ligne.
+                throw error;
             }
         }
         return false;
@@ -881,6 +921,12 @@ export class Storage {
      * Sauvegarde la résidence principale
      * @param {Object} residence - { id, name, purchasePrice, currentValue, purchaseDate, credits: [...] }
      */
+    // Remet la valeur localStorage d'avant un échec Firestore.
+    _restoreLocalItem(key, previous) {
+        if (previous === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, previous);
+    }
+
     async savePrimaryResidence(residence) {
         // Ajout ID unique si pas déjà présent
         if (!residence.id) {
@@ -888,6 +934,7 @@ export class Storage {
         }
 
         // 1. Sauvegarde Locale
+        const previous = localStorage.getItem('assetTracker_primaryResidence');
         localStorage.setItem('assetTracker_primaryResidence', JSON.stringify(residence));
 
         // 2. Sauvegarde Firestore
@@ -899,6 +946,8 @@ export class Storage {
                 console.log('[Storage] Primary residence saved to Firestore');
             } catch (error) {
                 console.error('[Storage] Error saving primary residence to Firestore:', error);
+                this._restoreLocalItem('assetTracker_primaryResidence', previous);
+                throw error;
             }
         }
 
@@ -925,6 +974,7 @@ export class Storage {
      */
     async deletePrimaryResidence() {
         // 1. Suppression Locale
+        const previous = localStorage.getItem('assetTracker_primaryResidence');
         localStorage.removeItem('assetTracker_primaryResidence');
 
         // 2. Suppression Firestore
@@ -936,6 +986,8 @@ export class Storage {
                 console.log('[Storage] Primary residence deleted from Firestore');
             } catch (error) {
                 console.error('[Storage] Error deleting primary residence from Firestore:', error);
+                this._restoreLocalItem('assetTracker_primaryResidence', previous);
+                throw error;
             }
         }
 
@@ -995,6 +1047,13 @@ export class Storage {
         return this.watchlistGroups;
     }
 
+    // Annule un changement optimiste des groupes après un échec Firestore.
+    _restoreWatchlistGroups(previous) {
+        this.watchlistGroups = previous;
+        this.saveWatchlistGroups();
+        window.dispatchEvent(new Event('watchlist-groups-updated'));
+    }
+
     async addWatchlistGroup(groupName) {
         if (!this.watchlistGroups) {
             this.watchlistGroups = this.loadWatchlistGroups();
@@ -1007,6 +1066,7 @@ export class Storage {
             createdAt: Date.now()
         };
 
+        const previous = structuredClone(this.watchlistGroups);
         this.watchlistGroups.push(newGroup);
         this.saveWatchlistGroups();
 
@@ -1017,6 +1077,8 @@ export class Storage {
                 await db.collection('users').doc(user.uid).collection('watchlistGroups').doc(newGroup.id).set(newGroup);
             } catch (e) {
                 console.error('Erreur sauvegarde groupe Firestore:', e);
+                this._restoreWatchlistGroups(previous);
+                throw e;
             }
         }
 
@@ -1032,6 +1094,7 @@ export class Storage {
         const groupIdx = this.watchlistGroups.findIndex(g => g.id === groupId);
         if (groupIdx === -1) return false;
 
+        const previous = structuredClone(this.watchlistGroups);
         this.watchlistGroups[groupIdx] = {
             ...this.watchlistGroups[groupIdx],
             ...updates,
@@ -1047,6 +1110,8 @@ export class Storage {
                 await db.collection('users').doc(user.uid).collection('watchlistGroups').doc(groupId).set(this.watchlistGroups[groupIdx]);
             } catch (e) {
                 console.error('Erreur update groupe Firestore:', e);
+                this._restoreWatchlistGroups(previous);
+                throw e;
             }
         }
 
@@ -1059,6 +1124,7 @@ export class Storage {
             this.watchlistGroups = this.loadWatchlistGroups();
         }
 
+        const previous = structuredClone(this.watchlistGroups);
         this.watchlistGroups = this.watchlistGroups.filter(g => g.id !== groupId);
         this.saveWatchlistGroups();
 
@@ -1069,6 +1135,8 @@ export class Storage {
                 await db.collection('users').doc(user.uid).collection('watchlistGroups').doc(groupId).delete();
             } catch (e) {
                 console.error('Erreur suppression groupe Firestore:', e);
+                this._restoreWatchlistGroups(previous);
+                throw e;
             }
         }
 
@@ -1085,6 +1153,7 @@ export class Storage {
         if (!group) return false;
 
         if (!group.tickers.includes(ticker)) {
+            const previous = structuredClone(this.watchlistGroups);
             group.tickers.push(ticker);
             this.saveWatchlistGroups();
 
@@ -1095,6 +1164,8 @@ export class Storage {
                     await db.collection('users').doc(user.uid).collection('watchlistGroups').doc(groupId).set(group);
                 } catch (e) {
                     console.error('Erreur update groupe Firestore:', e);
+                    this._restoreWatchlistGroups(previous);
+                    throw e;
                 }
             }
 
@@ -1111,6 +1182,7 @@ export class Storage {
         const group = this.watchlistGroups.find(g => g.id === groupId);
         if (!group) return false;
 
+        const previous = structuredClone(this.watchlistGroups);
         group.tickers = group.tickers.filter(t => t !== ticker);
         this.saveWatchlistGroups();
 
@@ -1121,6 +1193,8 @@ export class Storage {
                 await db.collection('users').doc(user.uid).collection('watchlistGroups').doc(groupId).set(group);
             } catch (e) {
                 console.error('Erreur update groupe Firestore:', e);
+                this._restoreWatchlistGroups(previous);
+                throw e;
             }
         }
 

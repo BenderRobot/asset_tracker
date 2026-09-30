@@ -5,6 +5,7 @@ import { PAGE_SIZE } from './config.js';
 import { getBrokers, getBrokersSync, fillSelect, attachAddBrokerHandler } from './brokerService.js';
 import { formatCurrency, formatPercent, formatDate, formatQuantity } from './utils.js';
 import { DividendManager } from './dividendManager.js';
+import { showToast, showWriteError } from './toast.js';
 
 // SECURITY FIX (audit XSS, P1) : `name`/`ticker`/`broker` sont du texte libre
 // (saisi manuellement ou importé depuis un CSV partagé — donc pas uniquement
@@ -296,11 +297,7 @@ export class AchatsPage {
 
         if (action === 'delete') {
           if (confirm('Confirmer la suppression ?')) {
-            this.storage.removePurchase(key);
-            this.selectedRows.delete(key);
-            this.render(this.lastSearchQuery);
-            this.filterManager.updateTickerFilter(() => this.render());
-            this.ui.showNotification('Transaction supprimée', 'success');
+            this.deletePurchaseWithFeedback(key);
           }
         } else if (action === 'edit') {
           console.log('✏️ Edit button clicked (delegated) for key:', key);
@@ -628,7 +625,7 @@ export class AchatsPage {
     setTimeout(() => { modal.style.display = 'none'; }, 300);
 
     if (count > 0) {
-      this.ui.showNotification(`${count} dividende${count > 1 ? 's' : ''} ajouté${count > 1 ? 's' : ''} !`, 'success');
+      this.showNotification(`${count} dividende${count > 1 ? 's' : ''} ajouté${count > 1 ? 's' : ''} !`, 'success');
       await this.render();
     }
   }
@@ -660,7 +657,7 @@ export class AchatsPage {
     }
 
     await this.storage.addPurchase(purchase);
-    this.ui.showNotification('Dividende ajouté', 'success');
+    this.showNotification('Dividende ajouté', 'success');
     document.getElementById('dividend-form').reset();
     await this.render();
   }
@@ -779,10 +776,7 @@ export class AchatsPage {
       detailRow.querySelector('.mobile-action-btn.delete').addEventListener('click', (ev) => {
         ev.stopPropagation();
         if (confirm('Supprimer cette transaction ?')) {
-          this.storage.removePurchase(key);
-          this.selectedRows.delete(key);
-          this.render();
-          this.filterManager.updateTickerFilter(() => this.render());
+          this.deletePurchaseWithFeedback(key);
         }
       });
     };
@@ -875,7 +869,7 @@ export class AchatsPage {
     }
   }
 
-  saveEdit() {
+  async saveEdit() {
     const key = this.currentEditKey;
     const original = this.storage.getPurchaseByKey(key);
 
@@ -908,12 +902,43 @@ export class AchatsPage {
       return;
     }
 
-    this.storage.updatePurchase(key, updates);
+    // La modale reste ouverte tant que Firestore n'a pas confirmé : en cas
+    // d'échec, la saisie n'est pas perdue et l'utilisateur voit pourquoi.
+    const submitBtn = document.querySelector('#edit-form [type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await this.storage.updatePurchase(key, updates);
+    } catch (error) {
+      showWriteError('modification de la transaction', error);
+      return;
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
     this.closeEditModal();
-    this.render();
-    this.filterManager.updateTickerFilter(() => this.render());
+    this.refreshAfterWrite();
 
     this.showNotification('Transaction modifiée avec succès', 'success');
+  }
+
+  refreshAfterWrite() {
+    this.render(this.lastSearchQuery);
+    this.filterManager.updateTickerFilter(() => this.render());
+  }
+
+  // Suppression optimiste : la ligne disparaît tout de suite (la partie
+  // locale de removePurchase est synchrone), puis on attend Firestore. En
+  // cas d'échec, storage.js a déjà remis la ligne et émis purchases-updated.
+  async deletePurchaseWithFeedback(key) {
+    const pending = this.storage.removePurchase(key);
+    this.selectedRows.delete(key);
+    this.refreshAfterWrite();
+    try {
+      await pending;
+      this.showNotification('Transaction supprimée', 'success');
+    } catch (error) {
+      showWriteError('suppression de la transaction', error);
+      this.refreshAfterWrite();
+    }
   }
 
   closeEditModal() {
@@ -1019,41 +1044,28 @@ export class AchatsPage {
     });
   }
 
-  deleteSelected() {
+  async deleteSelected() {
     if (this.selectedRows.size === 0) return;
 
     if (confirm(`Supprimer ${this.selectedRows.size} transaction(s) ?`)) {
-      this.storage.removePurchases(this.selectedRows);
+      const keys = new Set(this.selectedRows);
+      const pending = this.storage.removePurchases(keys);
       this.selectedRows.clear();
-      this.render();
-      this.filterManager.updateTickerFilter(() => this.render());
-      this.showNotification('Transactions supprimées', 'success');
+      this.refreshAfterWrite();
+      try {
+        await pending;
+        this.showNotification('Transactions supprimées', 'success');
+      } catch (error) {
+        // Batch atomique : aucune ligne n'a été supprimée côté serveur
+        showWriteError(`suppression de ${keys.size} transaction(s)`, error);
+        keys.forEach(k => this.selectedRows.add(k));
+        this.refreshAfterWrite();
+      }
     }
   }
 
   showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
-    notification.textContent = message;
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      padding: 15px 20px;
-      background: ${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6'};
-      color: white;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      z-index: 10000;
-      font-weight: 600;
-    `;
-
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-      notification.style.opacity = '0';
-      notification.style.transition = 'opacity 0.3s';
-      setTimeout(() => notification.remove(), 300);
-    }, 3000);
+    showToast(message, type);
   }
+
 }

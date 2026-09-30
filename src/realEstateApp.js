@@ -2,6 +2,7 @@ import { Storage } from './storage.js?v=5';
 import { UIComponents } from './ui.js';
 import { MortgageCalculator } from './mortgageCalculator.js';
 import { DataManager } from './dataManager.js';
+import { showWriteError } from './toast.js';
 
 export class RealEstateApp {
     constructor() {
@@ -613,7 +614,13 @@ export class RealEstateApp {
             lastUpdated: new Date().toISOString()
         };
 
-        await this.storage.savePrimaryResidence(residence);
+        try {
+            await this.storage.savePrimaryResidence(residence);
+        } catch (error) {
+            // La modale reste ouverte : la saisie n'est pas perdue
+            showWriteError('enregistrement de la résidence principale', error);
+            return;
+        }
         this.closePrimaryResidenceModal();
         this.renderPrimaryResidence();
     }

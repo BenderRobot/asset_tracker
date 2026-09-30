@@ -64,7 +64,7 @@ describe('Historical chart robustness and cache', () => {
 
         chart.renderChart(
             document.querySelector('canvas'),
-            { labels: ['empty', 'start', 'end'], timestamps: [1, 2, 3], values: [null, 100, 120], invested: [null, 100, 100], totalReturn: [null, 0, 20], totalReturnPct: [null, 0, 20], twr: [null, 1, 1.2] },
+            { labels: ['empty', 'start', 'end'], timestamps: [1, 2, 3], values: [null, 100, 120], invested: [null, 100, 100], totalReturn: [null, 0, 20], totalReturnPct: [null, 0, 20], periodPnl: [null, 0, 20], twr: [null, 1, 1.2] },
             {}, { mode: 'global', label: 'Portfolio' }, null, null, null,
             { portfolioSnapshot: snapshot, snapshotStartedAt: 1, varTodayAbs: 0, varTodayPct: 0 }
         );

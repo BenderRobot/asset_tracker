@@ -1343,19 +1343,17 @@ export class HistoricalChart {
         let perfAbs = 0, perfPct = 0;
         const portfolioPctSeries = this._getPortfolioPerformanceSeries(graphData);
         if (!isIndexMode && !isUnitView && portfolioPctSeries?.length > lastIndex) {
-            perfPct = Number(portfolioPctSeries[lastIndex]) || 0;
-            if (this.currentPeriod === 'all') {
-                // All: the Total Return KPI of the portfolio (since inception).
-                perfAbs = Number(this._getPortfolioReturnSeries(graphData)?.[lastIndex]) || 0;
-            } else {
-                // Euro counterpart of the TWR: market P&L accumulated interval
-                // by interval, purchases/sales neutralised as flows. The former
-                // difference of totalReturn (unrealised return of the positions
-                // still held) dropped the gain of every sale made during the
-                // period, e.g. -122 € shown over a +1.11 % period.
-                const pnl = this._getPortfolioPeriodPnlSeries(graphData);
-                perfAbs = pnl ? (Number(pnl[lastIndex]) || 0) - (Number(pnl[firstIndex]) || 0) : 0;
-            }
+            // Same definition for every range, including All: market P&L
+            // accumulated interval by interval, with purchases/sales neutralised
+            // as flows. `totalReturn` remains the separate unrealised-gain KPI;
+            // using it here used to lose gains realised by partial sales (A7).
+            const period = periodPerformance(graphData, {
+                includeDividends: this.includeDividends,
+                firstIndex,
+                lastIndex
+            });
+            perfAbs = period.amount ?? 0;
+            perfPct = period.percent ?? 0;
         } else {
             perfAbs = priceEnd - priceStart;
             perfPct = priceStart !== 0 ? (perfAbs / priceStart) * 100 : 0;

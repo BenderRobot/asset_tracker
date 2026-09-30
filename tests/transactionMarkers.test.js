@@ -91,7 +91,7 @@ describe('PÉRIODE (period return) of the portfolio chart', () => {
         expect(kpis.perfPct).toBeCloseTo(32, 8);
     });
 
-    it('includes dividends only through the toggle, and keeps Total Return for All', () => {
+    it('includes dividends only through the toggle, and keeps realised gains in All', () => {
         const chart = chartWithSpy();
         chart.currentPeriod = 90;
         chart.includeDividends = true;
@@ -102,6 +102,7 @@ describe('PÉRIODE (period return) of the portfolio chart', () => {
         const all = chartWithSpy();
         all.currentPeriod = 'all';
         all.renderChart(document.createElement('canvas'), graphData, {}, { mode: 'global' }, null, null, null, null);
-        expect(all.kpiManager.updateKPIs.mock.calls[0][0].perfAbs).toBeCloseTo(32, 8);
+        expect(all.kpiManager.updateKPIs.mock.calls[0][0].perfAbs).toBeCloseTo(52, 8);
+        expect(all.kpiManager.updateKPIs.mock.calls[0][0].perfPct).toBeCloseTo(32, 8);
     });
 });

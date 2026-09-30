@@ -1,6 +1,9 @@
 param(
-    # Opt-out explicite. Par defaut TOUS les Workers Cloudflare sont redeployes a chaque execution.
-    [switch]$SkipWorker
+    # Opt-out explicite : aucun Worker Cloudflare n'est deploye.
+    [switch]$SkipWorker,
+    # Redeploie tous les Workers meme si leur code n'a pas change depuis le
+    # dernier deploiement reussi (ex. apres un rollback dans le dashboard Cloudflare).
+    [switch]$ForceWorkers
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,22 +105,65 @@ if ($SkipWorker) {
     Write-Warn "Workers non deployes (-SkipWorker explicite)."
 } else {
     # Chaque sous-dossier de cloudflare-workers/ contenant un wrangler.toml est
-    # deploye : un Worker ajoute plus tard ne peut pas etre oublie (seul le
-    # Worker prix l'etait auparavant, Gemini et Enable Banking divergeaient du
-    # depot). Deploiement systematique et idempotent, sans diff avec origin/main.
+    # pris en compte : un Worker ajoute plus tard ne peut pas etre oublie.
+    #
+    # Un Worker n'est redeploye que si son code differe de celui du DERNIER
+    # DEPLOIEMENT REUSSI, et non d'origin/main : le push Git a lieu avant cette
+    # etape, donc un diff avec origin/main serait vide apres un echec Wrangler
+    # et le Worker ne serait jamais redeploye. L'empreinte n'est enregistree
+    # qu'apres un `wrangler deploy` reussi, dans un fichier local ignore par Git.
     $workerConfigs = @(Get-ChildItem -Path .\cloudflare-workers -Directory |
         ForEach-Object { Join-Path $_.FullName 'wrangler.toml' } |
         Where-Object { Test-Path $_ })
     if ($workerConfigs.Count -eq 0) { Write-Err "Aucun wrangler.toml trouve dans cloudflare-workers/."; exit 1 }
 
+    $stateFile = Join-Path $PSScriptRoot '.wrangler\deploy-state.json'
+    $deployState = @{}
+    if (Test-Path $stateFile) {
+        try {
+            (Get-Content $stateFile -Raw | ConvertFrom-Json).PSObject.Properties |
+                ForEach-Object { $deployState[$_.Name] = $_.Value }
+        } catch {
+            Write-Warn "Etat de deploiement illisible - tous les Workers seront redeployes."
+        }
+    }
+
+    # Empreinte du code d'un Worker : chemins relatifs + contenu de tous ses
+    # fichiers, hors caches locaux de Wrangler et dependances.
+    function Get-WorkerFingerprint($dir) {
+        $entries = Get-ChildItem -Path $dir -Recurse -File |
+            Where-Object { $_.FullName -notmatch '\\(\.wrangler|node_modules)\\' } |
+            Sort-Object FullName |
+            ForEach-Object { "$($_.FullName.Substring($dir.Length))|$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" }
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes(($entries -join "`n"))
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try { return ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '') } finally { $sha.Dispose() }
+    }
+
+    $deployed = 0
     foreach ($config in $workerConfigs) {
-        $workerName = Split-Path (Split-Path $config -Parent) -Leaf
+        $workerDir = Split-Path $config -Parent
+        $workerName = Split-Path $workerDir -Leaf
+        $fingerprint = Get-WorkerFingerprint $workerDir
+
+        if (-not $ForceWorkers -and $deployState[$workerName] -eq $fingerprint) {
+            Write-Ok "$workerName inchange depuis le dernier deploiement - ignore."
+            continue
+        }
+
         Write-Warn "Deploying $workerName..."
         npm exec -- wrangler deploy --config $config
-        if ($LASTEXITCODE -ne 0) { Write-Err "Deploiement du Worker $workerName echoue. Relancez le script : tous les Workers seront redeployes."; exit 1 }
+        if ($LASTEXITCODE -ne 0) { Write-Err "Deploiement du Worker $workerName echoue. Relancez le script : il sera retente."; exit 1 }
+
+        # Enregistre apres CHAQUE succes : un echec sur un Worker suivant ne
+        # fait pas redeployer ceux qui sont deja a jour.
+        $deployState[$workerName] = $fingerprint
+        New-Item -ItemType Directory -Force (Split-Path $stateFile -Parent) | Out-Null
+        $deployState | ConvertTo-Json | Out-File -FilePath $stateFile -Encoding utf8
         Write-Ok "$workerName deployed."
+        $deployed++
     }
-    Write-Ok "$($workerConfigs.Count) Worker(s) Cloudflare deployes."
+    Write-Ok "$deployed Worker(s) Cloudflare deploye(s), $($workerConfigs.Count - $deployed) inchange(s)."
 }
 
 # ─────────────────────────────────────────────

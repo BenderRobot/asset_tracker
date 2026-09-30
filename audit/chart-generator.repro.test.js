@@ -107,7 +107,7 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         expect(findClosestPrice(history, target, '1d', true)).toBe(120);
     });
 
-    it('A7: period euro KPI loses realised gains from partial sales', async () => {
+    it('A7 fixed: period euro KPI keeps realised gains from partial sales', async () => {
         const dm = manager({ [ts('2026-09-22')]: 100, [ts('2026-09-23')]: 120, [ts('2026-09-24')]: 120, [ts('2026-09-25')]: 132 });
         const graph = await dm.calculateHistory([
             purchase({ date: '2026-09-22', quantity: 2 }),
@@ -120,7 +120,7 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         for (const name of ['_renderChartJs', '_syncViewToggle', '_syncReferenceLineToggles', '_syncDividendToggle', '_renderTitle']) vi.spyOn(view, name).mockImplementation(() => {});
         vi.spyOn(view.kpiManager, 'updateKPIs').mockImplementation(() => {});
         view.renderChart(document.querySelector('canvas'), graph, {}, { mode: 'global' }, null, null, null, {});
-        expect(view.kpiManager.updateKPIs.mock.calls[0][0].perfAbs).toBe(32);
+        expect(view.kpiManager.updateKPIs.mock.calls[0][0].perfAbs).toBe(52);
         view.destroy();
     });
 

@@ -2,6 +2,7 @@ import { Storage } from './storage.js?v=5';
 import { PRICE_PROXY_URL } from './config.js';
 import { auth } from './firebaseConfig.js';
 import logger from '../utils/logger.js';
+import { showWriteError } from './toast.js';
 
 function escHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -90,10 +91,16 @@ class WatchlistApp {
                 return;
             }
 
-            if (this.currentEditingGroupId) {
-                await this.storage.updateWatchlistGroup(this.currentEditingGroupId, { name });
-            } else {
-                await this.storage.addWatchlistGroup(name);
+            try {
+                if (this.currentEditingGroupId) {
+                    await this.storage.updateWatchlistGroup(this.currentEditingGroupId, { name });
+                } else {
+                    await this.storage.addWatchlistGroup(name);
+                }
+            } catch (error) {
+                // La modale reste ouverte : le nom saisi n'est pas perdu
+                showWriteError(this.currentEditingGroupId ? 'renommage du groupe' : 'création du groupe', error);
+                return;
             }
 
             modal.style.display = 'none';
@@ -252,7 +259,11 @@ class WatchlistApp {
             deleteBtn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (confirm('Supprimer ce groupe ?')) {
-                    await this.storage.deleteWatchlistGroup(groupId);
+                    try {
+                        await this.storage.deleteWatchlistGroup(groupId);
+                    } catch (error) {
+                        showWriteError('suppression du groupe', error);
+                    }
                 }
             });
 
@@ -383,10 +394,14 @@ class WatchlistApp {
                 const ticker = btn.dataset.ticker;
                 const inGroup = btn.dataset.inGroup === 'true';
 
-                if (inGroup) {
-                    await this.storage.removeTickerFromGroup(this.currentAddingGroupId, ticker);
-                } else {
-                    await this.storage.addTickerToGroup(this.currentAddingGroupId, ticker);
+                try {
+                    if (inGroup) {
+                        await this.storage.removeTickerFromGroup(this.currentAddingGroupId, ticker);
+                    } else {
+                        await this.storage.addTickerToGroup(this.currentAddingGroupId, ticker);
+                    }
+                } catch (error) {
+                    showWriteError(inGroup ? `retrait de ${ticker} du groupe` : `ajout de ${ticker} au groupe`, error);
                 }
 
                 this.renderAssetsInModal();
@@ -599,7 +614,11 @@ class WatchlistApp {
             btn.addEventListener('click', async (e) => {
                 const ticker = e.currentTarget.dataset.ticker;
                 if(confirm(`Voulez-vous retirer ${ticker} de votre watchlist ?`)) {
-                    await this.storage.removeFromWatchlist(ticker);
+                    try {
+                        await this.storage.removeFromWatchlist(ticker);
+                    } catch (error) {
+                        showWriteError(`retrait de ${ticker} de la watchlist`, error);
+                    }
                     this.renderWatchlist();
                 }
             });
