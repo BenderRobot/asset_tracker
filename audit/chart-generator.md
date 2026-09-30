@@ -1,6 +1,8 @@
 # Audit du générateur de graphique — 26 septembre 2026
 
-Le symptôme « 1D fonctionne, 1W et toutes les périodes longues sont vides » est **reproduit sur le moteur du commit `12aa7cc`**, avec un portefeuille synthétique contenant un actif coté et un actif sans historique. Le correctif déjà présent dans le répertoire de travail rétablit les séries dans ce scénario. Il reste plusieurs défauts de sélection des données, de validation et de calcul.
+**Clôture — 30 septembre 2026 :** les scénarios A1 à A10 ont tous été convertis en assertions de non-régression du comportement corrigé. La suite d’audit est verte à **11/11** et la suite principale à **58 fichiers / 411 tests**. Les sections ci-dessous restent l’historique du diagnostic initial, pas une liste de défauts encore actifs.
+
+Le symptôme « 1D fonctionne, 1W et toutes les périodes longues sont vides » avait été **reproduit sur le moteur du commit `12aa7cc`**, avec un portefeuille synthétique contenant un actif coté et un actif sans historique. Ce document conserve le diagnostic d’origine ; les défauts A1-A10 qui en ont découlé sont désormais corrigés et couverts.
 
 Cet audit n'a modifié aucun fichier applicatif existant et n'a exécuté aucun déploiement. Les seuls ajouts sont ce rapport et ses outils de reproduction dans `audit/`.
 
@@ -178,11 +180,11 @@ Les messages « Parsing Yahoo format » prouvent l'entrée dans le parseur, pas 
 
 ## Vérifications effectuées et limites des tests actuels
 
-- `npm test -- --reporter=dot` : **45 fichiers, 302 tests réussis**. Les tests Firestore nécessitant l'émulateur sont exclus par la configuration normale ; ils ne sont pas pertinents pour les reproductions financières de cet audit et n'ont pas été lancés.
-- `npm exec -- vitest run --config audit/vitest.config.js --silent --reporter=verbose` : **11 reproductions réussies**, couvrant A1 à A10.
+- `npm test -- --reporter=dot` : **58 fichiers, 411 tests réussis**. Les tests Firestore nécessitant l'émulateur sont exclus par la configuration normale ; ils ne sont pas pertinents pour les reproductions financières de cet audit et n'ont pas été lancés.
+- `npm exec -- vitest run --config audit/vitest.config.js --silent --reporter=verbose` : **11 tests de non-régression réussis**, couvrant A1 à A10.
 - `node audit/compare-head.mjs` : **18 calculs comparés**, neuf périodes sur chacun des deux moteurs.
 
-Les 11 tests d'audit sont des tests de caractérisation : ils affirment le comportement défectueux observé pour le rendre reproductible. Leur réussite prouve la reproduction, pas la correction. Ils sont volontairement séparés de la suite de régression normale.
+Les 11 tests d'audit étaient initialement des tests de caractérisation. Ils attendent maintenant le comportement corrigé et protègent chaque constat A1-A10 contre une régression, tout en restant séparés de la suite principale.
 
 Pourquoi les tests habituels restent verts : les tests longs passent principalement par `calculateGenericHistory`, ce qui contourne le filtrage des dividendes de `calculateHistory`. Les doubles de stockage fournissent directement un type d'actif et ne reproduisent pas la recherche du premier mouvement de `Storage`. Les assertions « au moins un point fini » ne garantissent pas que le composant accepte le dernier point. Aucun test habituel ne suffit donc à certifier le parcours complet de toutes les périodes.
 

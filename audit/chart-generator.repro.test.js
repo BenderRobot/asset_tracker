@@ -1,5 +1,5 @@
-// Audit characterization: these assertions document CURRENT defects, not desired
-// behavior. Kept outside the regression suite; see audit/chart-generator.md.
+// Audit closure: these assertions now document the corrected behavior and
+// protect every A1-A10 finding from regression; see audit/chart-generator.md.
 // No real network, user data, or deployment is involved.
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
@@ -57,15 +57,16 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         view.destroy();
     });
 
-    it('A2: the first dividend row suppresses historical requests for an actual stock', async () => {
+    it("A2 fixed: a dividend row never overrides the ticker's investable asset type", async () => {
         const rows = [purchase({ ticker: 'APC', assetType: 'Dividend' }), purchase({ ticker: 'APC', assetType: 'Stock' })];
         const storage = createFakeStorage();
         storage.getAssetType = ticker => Storage.prototype.getAssetType.call({ purchases: rows }, ticker);
-        expect(storage.getAssetType('APC')).toBe('Dividend');
+        expect(storage.getAssetType('APC')).toBe('Stock');
         const api = new PriceAPI(storage);
-        const fetchHistory = vi.spyOn(api, '_doFetchHistoricalPrices');
-        expect(await api.getHistoricalPricesWithRetry('APC', ts('2026-09-22') / 1000, ts('2026-09-25') / 1000, '15m')).toEqual({});
-        expect(fetchHistory).not.toHaveBeenCalled();
+        const expectedHistory = { [ts('2026-09-22')]: 100 };
+        const fetchHistory = vi.spyOn(api, '_doFetchHistoricalPrices').mockResolvedValue(expectedHistory);
+        expect(await api.getHistoricalPricesWithRetry('APC', ts('2026-09-22') / 1000, ts('2026-09-25') / 1000, '15m')).toEqual(expectedHistory);
+        expect(fetchHistory).toHaveBeenCalledOnce();
     });
 
     it('A3 fixed: an unavailable instrument sold long ago no longer invalidates the current week', async () => {
@@ -82,15 +83,16 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         expect(graph.twr.some(Number.isFinite)).toBe(true);
     });
 
-    it('A4: calculateHistory discards dividends that calculateGenericHistory handles correctly', async () => {
+    it('A4 fixed: calculateHistory preserves dividends handled by the generic ledger', async () => {
         const rows = [purchase({ date: '2026-09-22' }), purchase({ date: '2026-09-24', type: 'dividend', assetType: 'Dividend', price: 10 })];
         const dm = manager();
         const direct = await dm.calculateGenericHistory(rows, 'all');
         const routed = await dm.calculateHistory(rows, 'all');
         expect(direct.cash.at(-1)).toBe(10);
         expect(direct.twrWithDividends.at(-1)).toBeCloseTo(1.1);
-        expect(routed.cash.at(-1)).toBe(0);
-        expect(routed.twrWithDividends.at(-1)).toBe(1);
+        expect(routed.cash.at(-1)).toBe(10);
+        expect(routed.twrWithDividends.at(-1)).toBeCloseTo(1.1);
+        expect(routed.values.at(-1)).toBe(direct.values.at(-1));
     });
 
     it('A5 fixed: the session in progress is observed now, not at a future end of day', async () => {

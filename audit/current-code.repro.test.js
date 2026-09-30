@@ -1,5 +1,5 @@
-// B1/B2/B3 now assert the corrected behavior (also covered in the normal
-// regression suite). B4-B6 still characterize the outstanding audit defects.
+// B1-B6 assert the corrected behavior and protect the audit findings from
+// regressions. The normal suite carries the corresponding product coverage.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
 import { Storage } from '../src/storage.js';
@@ -60,13 +60,13 @@ it('B3 fixed: a failed live refresh served from transport cache keeps its failur
     expect(storage.getCurrentPrice('AAPL').stale).toBe(true);
 });
 
-it('B4: a dividend creates a negative return in the broker detail at a constant price', async () => {
+it('B4 fixed: broker detail includes dividend cash without creating a negative return', async () => {
     const history = { [Date.parse('2026-09-28T10:00:00Z')]: 100 };
     const dm = new DataManager(createFakeStorage({ prices: { AAPL: { price: 100, previousClose: 100, currency: 'EUR' } } }),
         createFakeApi({ getHistoricalPricesWithRetry: async () => history }));
     const rows = [purchase({ date: '2026-09-01' }), purchase({ date: '2026-09-02', assetType: 'Dividend', type: 'dividend', price: 10 })];
     const [broker] = await dm.calculateReturnByBroker(rows);
-    expect(broker).toMatchObject({ invested: 100, cash: 10, totalValue: 100, totalReturn: -10 });
+    expect(broker).toMatchObject({ invested: 100, cash: 10, totalValue: 110, totalReturn: 0 });
 });
 
 it('B5 fixed: long-period index data preserves timestamps required by date tooltips', async () => {
@@ -77,7 +77,7 @@ it('B5 fixed: long-period index data preserves timestamps required by date toolt
     expect(graph.timestamps).toEqual(Object.keys(history).map(Number));
 });
 
-it('B6: day profit is allocated to the broker that bought today using current quantities', async () => {
+it("B6 fixed: day profit follows each broker's quantity at the previous close", async () => {
     const history = {
         [Date.parse('2026-09-25T16:00:00Z')]: 100,
         [Date.parse('2026-09-28T14:00:00Z')]: 120
@@ -87,7 +87,6 @@ it('B6: day profit is allocated to the broker that bought today using current qu
     const rows = [purchase({ date: '2026-09-01', broker: 'OLD-BROKER' }),
         purchase({ date: '2026-09-28T13:00:00Z', broker: 'NEW-BROKER', price: 120 })];
     const result = await dm.calculateDayChangeByBroker(rows);
-    expect(result.find(b => b.broker === 'OLD-BROKER').dayChange).toBe(10);
-    expect(result.find(b => b.broker === 'NEW-BROKER').dayChange).toBe(10);
-    // Under the engine's yesterday-quantity rule: OLD=20, NEW=0.
+    expect(result.find(b => b.broker === 'OLD-BROKER').dayChange).toBe(20);
+    expect(result.find(b => b.broker === 'NEW-BROKER').dayChange).toBe(0);
 });

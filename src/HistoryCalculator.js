@@ -955,10 +955,22 @@ export class HistoryCalculator {
         for (const t of tickers) {
             if (t.startsWith('CASH-')) continue;
             const qtyYesterday = yesterday.quantities.get(t) || 0;
-            if (qtyYesterday <= 0) continue;
-
             const priceData = livePriceSnapshot.get(t);
             const currency = priceData?.currency || 'EUR';
+
+            // Keep an explicit zero reference for a position opened today.
+            // Without it, DataManager falls back to the current quantity and
+            // turns today's cash flow into a (duplicated) broker day P&L.
+            if (qtyYesterday <= 0) {
+                map.set(t, {
+                    yesterdayCloseTotal: 0,
+                    todayValueOfYesterdayHoldingsTotal: 0,
+                    quantityYesterday: 0,
+                    currency
+                });
+                continue;
+            }
+
             let rate = 1;
             if (!isSingleAsset && currency === 'USD') {
                 if (!(dynamicRate > 0)) {

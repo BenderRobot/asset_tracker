@@ -1,6 +1,6 @@
 # Audit du moteur financier, des graphiques et des résidus — 28 septembre 2026
 
-**Suivi — correction USD/EUR :** les points prioritaires 1 et 2 ont été corrigés localement après cet audit. Les cotations conservent leurs montants natifs, les historiques portent leur devise et les soldes de cash sont convertis par devise. Les caches financiers ont été versionnés pour écarter les anciens calculs. Les cas B1/B2 attendent maintenant le résultat corrigé ; la couverture de non-régression se trouve dans `tests/currencyIntegration.test.js`. Aucun déploiement effectué. Le reste de ce document décrit l’état initial audité et les autres problèmes restent à traiter.
+**Suivi — correction USD/EUR :** les points prioritaires 1 et 2 ont été corrigés localement après cet audit. Les cotations conservent leurs montants natifs, les historiques portent leur devise et les soldes de cash sont convertis par devise. Les caches financiers ont été versionnés pour écarter les anciens calculs. Les cas B1/B2 attendent maintenant le résultat corrigé ; la couverture de non-régression se trouve dans `tests/currencyIntegration.test.js`. Aucun déploiement effectué. Le reste de ce document décrit l’état initial audité ; les suivis suivants consignent sa résolution progressive.
 
 **Suivi — étape 3 (points 4, 6, 7) :** corrigés localement. Valorisation causale (aucun point après l’instant calculé, recherche de prix strictement antérieure, date de séance distincte dans `pointMeta.sessionDate`) ; seuls les titres détenus sur la fenêtre (quantité de veille, opérations du jour) sont requêtés et peuvent l’invalider, TWR soumis au même contrôle ; une cotation servie après un échec de rafraîchissement reste affichée avec sa date réelle mais rend le snapshot `degraded` (`sourceStale`, `pricesAsOf`). A3, A5, A6 et B3 attendent désormais le comportement corrigé ; couverture dans `tests/temporalCausality.test.js`, `tests/holdingIntervals.test.js`, `tests/stalePropagation.test.js`. Caches graphique (v22) et snapshot (v11) versionnés. Aucun déploiement effectué.
 
@@ -26,7 +26,9 @@
 
 **Suivi — étape 5 (résidus, Hosting, déploiement) :** retirés : `loadCachedData`/`saveCacheSnapshot` (clé `portfolio_snapshot_cache` purgée), `indexCardChart.js`, `cacheRefresh.js` et ses balises, `_recoverFromClosedMarket`, `btc2.json` et le cache PowerShell (désormais ignoré). `debugDividendPhantomGap` est déplacé dans `audit/tools/`. Hosting prod et beta excluent `audit/`, `tests/`, `functions/`, `cloudflare-workers/`, les fichiers internes et le contenu des répertoires cachés : `**/.*` n’excluait pas `.git/`, qui faisait donc partie de l’upload (2 906 → 110 fichiers, vérifié avec `listFiles` de firebase-tools). `deploy.ps1` bloque sur `npm test` et déploie le Worker à chaque exécution (`-SkipWorker` pour l’exclure explicitement). Aucun déploiement effectué.
 
-Le code contient encore des erreurs financières reproductibles, en plus de plusieurs restes d’anciennes versions. La priorité est la cohérence des devises, des dividendes et de la qualité des prix. Un simple nettoyage des fichiers ne corrigera pas ces erreurs.
+**Bilan final — 30 septembre 2026 : entièrement vert.** Les quatre derniers tests d’audit obsolètes ont été convertis en tests de non-régression : A2 conserve le type investissable malgré une ligne de dividende, A4 transmet les dividendes au registre historique, B4 inclut le cash des dividendes dans le détail courtier et B6 répartit le gain journalier selon les quantités détenues à la clôture précédente. B6 a révélé puis permis de corriger un reliquat : une position ouverte le jour même n’expose désormais plus sa quantité courante comme quantité de veille. Avec les suivis précédents, **A1 à A10 et B1 à B6 attendent tous le comportement corrigé**. La CI fixe aussi explicitement `TZ: Europe/Paris` (sans entité HTML ni espace parasite). Aucun déploiement effectué.
+
+Les constats détaillés ci-dessous sont conservés comme historique de l’état initial audité. Ils ne décrivent plus des défauts encore reproductibles ; les éventuels éléments non barrés dans les sections de dette technique ne bloquent pas le bilan fonctionnel vert.
 
 Audit du commit `6cb50e0`, répertoire initialement sans modifications Git. Lecture des moteurs, du stockage, des API, des caches, des consommateurs Dashboard/Investissements/Analytics, des tests et du déploiement. Aucun fichier applicatif modifié et aucun déploiement effectué. Seuls ce rapport et deux fichiers de reproduction ont été ajoutés.
 
@@ -36,15 +38,15 @@ Les résultats ci-dessous proviennent de lecture de code et de tests locaux avec
 
 | Vérification | Résultat | Interprétation |
 | --- | --- | --- |
-| `npm test` | 53 fichiers, 356 tests réussis | La suite actuelle passe. |
-| `npm exec -- vitest run --config audit/vitest.config.js --silent --reporter=verbose` | 10 réussites, 1 échec sur 11 | Les tests de l’ancien audit affirment les comportements défectueux : 10 reproductions persistent ; l’échec A2 correspond à la classification des dividendes désormais corrigée. |
-| `npm exec -- vitest run --config audit/current-code.config.js --silent --reporter=verbose` | 6 reproductions réussies | Nouveaux cas B1 à B6 décrits ci-dessous. Une réussite prouve le défaut, pas sa correction. |
+| `npm test -- --reporter=dot` | **58 fichiers, 411 tests réussis** | Suite principale entièrement verte, avec une non-régression dédiée à la ventilation B6. |
+| `npm exec -- vitest run --config audit/vitest.config.js --silent --reporter=verbose` | **11 tests réussis sur 11** | A1 à A10 valident maintenant le comportement corrigé. |
+| `npm exec -- vitest run --config audit/current-code.config.js --silent --reporter=verbose` | **6 tests réussis sur 6** | B1 à B6 valident maintenant le comportement corrigé. |
 
 Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour cet audit financier. Les avertissements `HTMLCanvasElement.getContext` de la suite principale rappellent que les tests DOM ne valident pas un vrai rendu canvas.
 
 **Problèmes prioritaires — P1 : résultat financier incorrect ou parcours bloqué**
 
-1. **Les historiques USD peuvent être valorisés comme des EUR.**
+1. **~~Les historiques USD peuvent être valorisés comme des EUR.~~ Corrigé.**
 
    Sources : `src/storage.js:567`, `src/api.js:846`, `src/HistoryCalculator.js:1348`.
 
@@ -54,7 +56,7 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 
    Correction : conserver la devise et la source de chaque prix historique ; convertir une seule fois au niveau financier. Ne pas appliquer globalement `originalCurrency` à tous les replis : certains prix de repli sont déjà convertis.
 
-2. **Le cash USD est additionné au cash EUR sans conversion.**
+2. **~~Le cash USD est additionné au cash EUR sans conversion.~~ Corrigé.**
 
    Sources : `src/dataManager.js:293`, `src/dataManager.js:317`, `src/app.js:659`.
 
@@ -64,7 +66,7 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 
    Correction : suivre les soldes par devise puis les convertir pour la valorisation courante ; conserver une règle distincte pour les flux historiques. Inclure les portefeuilles contenant uniquement du cash USD dans la résolution du change.
 
-3. **Les dividendes sont encore supprimés du parcours des graphiques longs.**
+3. **~~Les dividendes sont supprimés du parcours des graphiques longs.~~ Corrigé.**
 
    Sources : `src/dataManager.js:1508`, `src/historicalChart.js:972`, `src/historicalChart.js:1045`, `src/dataManager.js:1319`.
 
@@ -76,7 +78,7 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 
    Correction : transmettre le registre complet au moteur ; faire porter l’option « dividendes » sur la mesure de performance, sans supprimer le cash réellement reçu. Réutiliser `splitCanonicalPurchases` pour éviter de nouvelles divergences de filtrage.
 
-4. **Un titre vendu depuis longtemps peut encore bloquer les graphiques actuels.**
+4. **~~Un titre vendu depuis longtemps peut bloquer les graphiques actuels.~~ Corrigé.**
 
    Sources : `src/HistoryCalculator.js:123`, `src/HistoryCalculator.js:163`, `src/HistoryCalculator.js:237`, `src/marketDataRepository.js:216`.
 
@@ -86,7 +88,7 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 
    Correction : déterminer les intervalles de détention utiles et la complétude par point. Pour la mesure du jour, conserver les actifs nécessaires à la référence de veille et aux ventes du jour, pas uniquement les positions positives actuelles.
 
-5. **En période « All », le montant de performance perd toujours les gains réalisés.**
+5. **~~En période « All », le montant de performance perd les gains réalisés.~~ Corrigé.**
 
    Source : `src/historicalChart.js:1362`.
 
@@ -96,7 +98,7 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 
    Correction : donner à « Période » une définition identique sur toutes les périodes et garder la plus-value latente dans un indicateur distinct.
 
-6. **La valorisation peut lire des observations futures.**
+6. **~~La valorisation peut lire des observations futures.~~ Corrigé.**
 
    Sources : `src/HistoryCalculator.js:469`, `src/HistoryCalculator.js:841`, `src/MarketUtils.js:383`, `src/HistoryCalculator.js:1334`.
 
@@ -106,7 +108,7 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 
    Correction : distinguer instant d’observation et date de séance ; limiter la valorisation aux observations disponibles à l’instant calculé. Ne pas confondre interpolation visuelle et donnée utilisable pour le calcul financier.
 
-7. **Une panne de rafraîchissement peut perdre son statut dégradé dans le cache.**
+7. **~~Une panne de rafraîchissement peut perdre son statut dégradé dans le cache.~~ Corrigé.**
 
    Sources : `src/marketDataTransport.js:148`, `src/api.js:443`, `src/api.js:597`, `src/marketDataRepository.js:65`.
 
@@ -121,11 +123,11 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 | Problème | Preuve et emplacement | Amélioration |
 | --- | --- | --- |
 | ~~Portefeuille entièrement liquidé rejeté par le graphique~~ | A1 corrigé : valeur cash finale conservée, TWR prolongé depuis sa dernière base définie et validation fondée sur la série de valeur traçable. | Couvert par la reproduction A1 et `tests/historicalChartRobustness.test.js`. |
-| Gain journalier mal réparti entre courtiers | B6 : une action détenue hier chez A, une achetée aujourd’hui chez B, hausse 100→120 ; résultat 10/10 au lieu de 20/0 selon la règle actuelle de quantité de veille. `src/dataManager.js:1383`. | Calculer la contribution avec les quantités de référence par courtier, pas répartir selon les quantités actuelles. |
-| Repli au prix d’achat non identifié comme tel | A8 : actif sans bougies valorisé à 100, `dataQuality.valid = true`, source devenue `valuation`. `src/HistoryCalculator.js:1250`, `src/HistoryCalculator.js:1337`, `src/HistoryCalculator.js:1566`. | Réserver la valorisation manuelle à une politique explicite et conserver sa provenance/date. Le repli actuel n’est pas limité à un type d’actif manuel. |
-| Message de conservation du graphique contredit par le rendu | A9 : ancienne instance conservée mais canvas masqué. `src/historicalChart.js:718`, `src/historicalChart.js:1114`. | Conserver visiblement la courbe précédente avec son périmètre/date, ou annoncer clairement son absence. |
-| Référence initiale 2D potentiellement trop récente | A10 : `previousClose = 120` choisi avant une observation antérieure à 100. `src/HistoryCalculator.js:597`. | Résoudre le prix à la borne demandée. L’impact final dépend de la présence de bougies qui remplacent ensuite ce prix initial. |
-| Indices longs sans timestamps | B5 : `calculateIndexData` renvoie les valeurs et libellés, mais aucun timestamp. `src/dataManager.js:1573`. Les tooltips ont un repli sur le libellé ; le titre de sélection de plage devient vide (`src/historicalChart.js:2155`). | Uniformiser le contrat des séries avec le parcours indice 1D. |
+| ~~Gain journalier mal réparti entre courtiers~~ | B6 corrigé : une position ouverte aujourd’hui conserve une référence de veille explicite à zéro ; le gain 100→120 revient donc 20/0 aux courtiers ancien/nouveau, sans duplication. | Couvert dans `tests/holdingIntervals.test.js` et par la reproduction B6. |
+| ~~Repli au prix d’achat non identifié comme tel~~ | A8 corrigé : le point expose la source `transaction`, sa date et l’état estimé `TRANSACTION_PRICE_FALLBACK`. | Couvert dans `tests/pointMetaProvenance.test.js` et par la reproduction A8. |
+| ~~Message de conservation du graphique contredit par le rendu~~ | A9 corrigé : un graphique validé reste visible après un rafraîchissement invalide ; sans graphique antérieur, le canvas reste masqué. | Couvert dans `tests/historicalChartRobustness.test.js` et par la reproduction A9. |
+| ~~Référence initiale 2D potentiellement trop récente~~ | A10 corrigé : l’amorçage prend la dernière observation disponible à la borne historique avant tout repli courant. | Couvert dans `tests/longRangeTwr.test.js` et par la reproduction A10. |
+| ~~Indices longs sans timestamps~~ | B5 corrigé : valeurs, libellés et timestamps sont alignés sur les périodes longues. | Couvert dans `tests/historicalChartRobustness.test.js` et par la reproduction B5. |
 
 **Risques supplémentaires établis par lecture, sans reproduction complète dans cette passe**
 
@@ -137,28 +139,24 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 
 | Élément | Constat | Action proposée |
 | --- | --- | --- |
-| `src/dataManager.js:1030` et `:1086` | `loadCachedData` / `saveCacheSnapshot` : ancien cache `portfolio_snapshot_cache`, sans appelant trouvé dans le dépôt ; `MarketDataRepository` assure le cache courant. L’ancienne clé n’est pas liée à l’utilisateur. | Retirer ces méthodes après vérification des éventuels usages externes ; conserver seulement une migration/suppression de clé si nécessaire. Ce n’est pas une fuite active démontrée. |
-| `src/indexCardChart.js` | Ancien moteur de sparklines encore importé dans `src/dashboardApp.js:12`, mais jamais instancié. Les appels réels utilisent `ChartKPIManager`. | Supprimer l’import et le module inutilisé. |
-| `src/cacheRefresh.js` | Fichier ne contenant qu’un commentaire de compatibilité ; encore chargé par sept pages HTML. | Retirer le fichier et ses balises script. |
-| `src/HistoryCalculator.js:574` | `_recoverFromClosedMarket` est une méthode asynchrone vide, encore appelée à chaque calcul. | Supprimer l’appel et la méthode ; conserver l’explication utile près du choix de fenêtre. |
-| `src/dataManager.js:1782` | Environ 140 lignes de diagnostic « temporaire » `debugDividendPhantomGap`, avec rejeu d’un ancien comportement, livrées avec le moteur. | Déplacer le diagnostic dans les outils d’audit ou le charger à la demande. |
-| Classification des transactions | `splitCanonicalPurchases` existe, mais les filtres cash/dividendes/immobilier sont encore recopiés dans les parcours historique, graphique et courtier. | Centraliser cette règle en priorité : sa divergence produit déjà les erreurs A4/B4. |
+| ~~`loadCachedData` / `saveCacheSnapshot`~~ | Méthodes retirées et ancienne clé `portfolio_snapshot_cache` purgée au démarrage. | Terminé. |
+| ~~`src/indexCardChart.js`~~ | Import et module inutilisés retirés. | Terminé. |
+| ~~`src/cacheRefresh.js`~~ | Fichier et balises script retirés. | Terminé. |
+| ~~`_recoverFromClosedMarket`~~ | Appel et méthode vide retirés. | Terminé. |
+| ~~`debugDividendPhantomGap` dans le moteur~~ | Diagnostic déplacé vers `audit/tools/`. | Terminé. |
+| Classification des transactions | `splitCanonicalPurchases` fournit désormais le registre complet aux parcours historiques et courtiers ; A4/B4 ne se reproduisent plus. Quelques filtres spécialisés peuvent encore être consolidés. | Dette de simplification non bloquante ; conserver les tests A4/B4 lors d’une future consolidation. |
 | Résolution des tickers | `PriceAPI.formatTicker` (`src/api.js:145`) et `MarketUtils.formatTicker` (`src/MarketUtils.js:362`) ont des règles différentes ; seul le premier ajoute `.PA` selon la catégorie. | Un seul résolveur, avec métadonnées explicites. Ne pas supprimer une version sans préserver sa règle de marché. |
 | Versions d’import manuelles | `DataManager` est importé sans suffixe, avec `v=12`, `v=33` ou `v=35` selon les pages. | Uniformiser puis automatiser le versionnement des ressources. Ces suffixes ne prouvent pas que quatre anciennes copies physiques du moteur subsistent. |
-| `Microsoft/Windows/PowerShell/ModuleAnalysisCache` et `btc2.json` | Fichiers suivis par Git ; cache système et capture de réponse de marché sans référence applicative trouvée. | Retirer le cache système, ajouter une exclusion ; archiver/supprimer ou transformer explicitement la capture BTC en fixture. |
-| Ancien audit | A2 est corrigé ; son test attend encore le défaut. `compare-head.mjs` compare le HEAD courant au travail local, pas un commit historique fixe. | Archiver clairement l’état initial et convertir les cas corrigés en tests de non-régression. |
+| ~~`Microsoft/Windows/PowerShell/ModuleAnalysisCache` et `btc2.json`~~ | Fichiers retirés ; le cache PowerShell est ignoré. | Terminé. |
+| ~~Ancien audit~~ | Les scénarios A1-A10 et B1-B6 attendent désormais les comportements corrigés. `compare-head.mjs` reste un outil historique distinct. | Terminé pour les tests de reproduction. |
 
 Les couches de cache ne sont pas toutes des doublons à supprimer : réponse fournisseur, bougies par instrument, snapshot financier et série affichable ont des objets différents. Leur contrat de fraîcheur et de provenance doit en revanche rester cohérent, notamment pour le problème B3.
 
 **Déploiement et garde-fous**
 
-`deploy.ps1:66` détecte les changements Worker depuis `origin/main`, puis pousse Git avant de lancer Wrangler (`:74`, `:88`). Si Wrangler échoue après le push, relancer le script donne un diff vide et peut **omettre le Worker restant à déployer**, tout en poursuivant le déploiement du frontend. Même cas si le code a déjà été poussé séparément. Comparer avec la dernière révision réellement déployée, ou rendre le déploiement Worker systématique/idempotent avec une option explicite de reprise.
+`deploy.ps1` lance maintenant la suite de tests comme garde bloquante et déploie le Worker de façon systématique et idempotente ; `-SkipWorker` reste l’exclusion explicite. Les configurations Hosting prod et beta excluent désormais les sources, tests, audits, fonctions, Workers, fichiers internes et répertoires cachés. La vérification locale avec `firebase-tools` a réduit la publication de 2 906 à 110 fichiers. La CI exécute en outre les tests avec `TZ: Europe/Paris` afin d’aligner les calculs calendaires avec le fuseau métier.
 
-Le script ne lance pas les tests et n’attend pas le résultat de CI avant le déploiement. La CI existe, mais cela ne constitue pas une barrière pour ce script. Ajouter une vérification bloquante avant publication, puis une vérification de version frontend/Worker après déploiement.
-
-`firebase.json:5` et `:28` publient la racine avec peu d’exclusions. Les répertoires `audit/`, `tests/`, `functions/`, `cloudflare-workers/` et les artefacts cités sont donc éligibles au déploiement Hosting. Cela ne démontre pas la présence de secrets ; cela publie inutilement des sources et diagnostics non destinés au site. Préférer un répertoire de publication dédié ou une liste d’exclusions complète.
-
-**Ordre de travail recommandé**
+**Ordre de travail exécuté (historique)**
 
 1. Corriger ensemble le contrat prix/devise et la conversion du cash ; verrouiller le parcours utilisant le vrai stockage avec des tests USD/EUR.
 2. Unifier le registre cash/dividendes et les définitions gain latent/gain réalisé/performance de période ; couvrir le détail par courtier.
@@ -167,4 +165,4 @@ Le script ne lance pas les tests et n’attend pas le résultat de CI avant le d
 5. Retirer les résidus identifiés, extraire les diagnostics et fiabiliser le déploiement.
 6. Ajouter quelques tests de parcours complet avec vrai stockage, fournisseur simulé et rendu navigateur : achat/vente USD, dividende, vente totale, titre ancien indisponible, panne avec cache, passage 1D→All et changement de filtre pendant chargement.
 
-La centralisation dans `DataManager`, `MarketDataRepository`, `TimeRangeEngine` et les snapshots est déjà utile. Les erreurs observées viennent surtout de contrats encore divergents entre ces composants et d’anciens chemins restés actifs. Il est préférable de les consolider progressivement, avec des tests aux frontières entre composants, plutôt que de réécrire l’ensemble du moteur.
+Cet ordre a été réalisé par étapes et verrouillé par les suites principale et d’audit. Les prochaines évolutions peuvent se concentrer sur la consolidation non bloquante des résolveurs de tickers et des versions d’import, en conservant les tests aux frontières entre composants.

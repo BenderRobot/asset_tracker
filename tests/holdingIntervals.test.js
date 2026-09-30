@@ -63,6 +63,25 @@ describe('useful holding intervals', () => {
         expect(dm.requiredMarketTickers(rows, 'all')).toContain('OLD');
     });
 
+    it("allocates day P&L by each broker's quantity at the previous close", async () => {
+        const history = {
+            [at('2026-09-23T16:00:00Z')]: 100,
+            [at('2026-09-24T10:00:00Z')]: 120
+        };
+        const quote = { price: 120, previousClose: 100, currency: 'EUR', lastUpdate: Date.now() };
+        const dm = manager(history, { AAPL: quote });
+        const rows = [
+            purchase({ ticker: 'AAPL', broker: 'OLD-BROKER', date: '2026-09-01' }),
+            purchase({ ticker: 'AAPL', broker: 'NEW-BROKER', date: '2026-09-24T09:00:00Z', price: 120 })
+        ];
+
+        const result = await dm.calculateDayChangeByBroker(rows);
+
+        expect(result.find(b => b.broker === 'OLD-BROKER').dayChange).toBe(20);
+        expect(result.find(b => b.broker === 'NEW-BROKER').dayChange).toBe(0);
+        expect(result.reduce((sum, broker) => sum + broker.dayChange, 0)).toBe(20);
+    });
+
     it('the snapshot repository prices only held lines, so an unquoted old line cannot block it', async () => {
         const quote = { price: 102, previousClose: 100, currency: 'EUR', lastUpdate: Date.now() };
         const dm = manager(today, { HELD: quote });
