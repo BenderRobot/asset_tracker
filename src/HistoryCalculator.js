@@ -70,7 +70,10 @@ function emptyResult() {
         cash: [], totalReturn: [], totalReturnPct: [], totalReturnWithDividends: [], totalReturnPctWithDividends: [], periodPnl: [], periodPnlWithDividends: [],
         dayPnl: [], dayPnlPct: [],
         // Aucun achat du tout : rien à valoriser, donc rien qui puisse échouer.
-        dataQuality: { valid: true, reason: null, failedInstruments: [] }
+        dataQuality: {
+            valid: true, reason: null, failedInstruments: [],
+            estimated: false, estimatedInstruments: [], estimateReason: null
+        }
     };
 }
 
@@ -272,6 +275,19 @@ export class HistoryCalculator {
             resolveCloseBefore, initialYesterdayClose: yesterday.total, initialYesterdayPrices: yesterday.prices, win, historicalFxMap,
             midnightValuationSeed, debugCapture, livePriceSnapshot, sessionDates
         });
+
+        // A transaction price can keep an otherwise unpriced instrument
+        // displayable, but it is an estimate, not a market observation. Expose
+        // that distinction instead of returning a silently ordinary valid
+        // series (audit A8).
+        const estimatedInstruments = [...new Set(series.pointMeta.flatMap(point =>
+            Object.entries(point.tickerSources || {})
+                .filter(([, source]) => source === 'transaction')
+                .map(([ticker]) => ticker)
+        ))];
+        dataQuality.estimated = estimatedInstruments.length > 0;
+        dataQuality.estimatedInstruments = estimatedInstruments;
+        dataQuality.estimateReason = estimatedInstruments.length > 0 ? 'TRANSACTION_PRICE_FALLBACK' : null;
 
         const purchasePoints = isSingleAsset
             ? this._buildPurchasePoints(ledger, tickers[0], displayTimestamps, series.labels, days, win, dynamicRate, historicalFxMap, series.unitPrices)
@@ -616,15 +632,6 @@ export class HistoryCalculator {
         for (const t of tickers) {
             const isCrypto = isCryptoTicker(t);
 
-            // Short views on stocks: trust storage.previousClose directly rather than
-            // a forward-tolerant search, which could snap onto a near-future candle
-            // (e.g. Monday's open leaking onto a weekend point) and misrepresent the
-            // overnight gap.
-            if (!isCrypto && !t.startsWith('CASH-') && typeof days === 'number' && days <= 2) {
-                const priceData = livePriceSnapshot.get(t);
-                if (priceData && priceData.previousClose > 0) { lastKnown.set(t, priceData.previousClose); continue; }
-            }
-
             const hist = historicalDataMap.get(t);
             if (hist) {
                 const ts = Object.keys(hist).map(Number).sort((a, b) => a - b);
@@ -635,6 +642,15 @@ export class HistoryCalculator {
                 // has a price.
                 const seedTs = ts.filter(value => value <= win.displayStartTs).at(-1);
                 if (seedTs !== undefined && hist[seedTs] > 0) { lastKnown.set(t, hist[seedTs]); continue; }
+            }
+
+            // Short views on stocks may fall back to storage.previousClose only
+            // when the fetched history has no observation at or before the
+            // window boundary. Checking history first prevents today's close
+            // metadata from leaking into the older opening point of a 2D view.
+            if (!isCrypto && !t.startsWith('CASH-') && typeof days === 'number' && days <= 2) {
+                const priceData = livePriceSnapshot.get(t);
+                if (priceData && priceData.previousClose > 0) { lastKnown.set(t, priceData.previousClose); continue; }
             }
 
             // A current quote is a legitimate fallback for a current short
@@ -1057,13 +1073,16 @@ export class HistoryCalculator {
         // Provenance par point (validation architecture 2026-09-24, Phase 4) :
         // un enregistrement par index de displayTimestamps, jamais recalculé en
         // aval (le renderer/tooltip ne fait que LIRE ces champs, voir
-        // historicalChart.js). Sources canoniques autorisées : 'historical_candle'
-        // UNIQUEMENT si hist[ts] exact (bougie provider à CE timestamp),
-        // 'valuation' / carry-forward (closestPrice, lastKnown, midnightSeed —
-        // valeur réutilisée d'une observation antérieure, JAMAIS une nouvelle
-        // observation à ce timestamp), 'live_quote' et 'transaction' réservés
-        // à un usage futur (ce moteur n'ajoute jamais de point live lui-même).
+        // historicalChart.js). Sources canoniques : 'historical_candle'
+        // uniquement si hist[ts] existe, 'valuation' pour un report d'une
+        // observation de marché antérieure, et 'transaction' lorsqu'un prix
+        // d'exécution est la seule estimation disponible. Sa date réelle est
+        // conservée séparément dans tickerSourceDates.
         const pointMeta = [];
+        // Metadata for values carried from a transaction rather than from a
+        // market observation. Kept separately from the numeric price map so
+        // provenance and observation dates cannot be lost during carry-forward.
+        const lastKnownPriceMeta = new Map();
         // PortfolioSnapshot historique, une entrée par point affiché (audit
         // architecture SSOT) : cash/totalReturn/totalReturnPct calculés ICI,
         // UNE FOIS, avec la même formule que le snapshot LIVE
@@ -1171,6 +1190,7 @@ export class HistoryCalculator {
         for (const t of tickers) {
             const cutoff = seedCutoff ? seedCutoff.get(t) : win.displayStartTs - 1;
             let latestTransactionPrice = null;
+            let latestTransactionAt = null;
             for (const entry of ledger.byTicker.get(t) || []) {
                 if (entry.date.getTime() <= cutoff) {
                     quantities.set(t, quantities.get(t) + entry.quantity);
@@ -1181,7 +1201,10 @@ export class HistoryCalculator {
                         investedByTicker.set(t, investedByTicker.get(t) + entry.price * entry.quantity * rate);
                     }
                     applyCostBasisEntry(t, entry);
-                    if (!t.startsWith('CASH-') && entry.price > 0 && canConvert) latestTransactionPrice = entry.price * rate;
+                    if (!t.startsWith('CASH-') && entry.price > 0 && canConvert) {
+                        latestTransactionPrice = entry.price * rate;
+                        latestTransactionAt = entry.date.getTime();
+                    }
                 }
             }
             // A transaction execution price is a real historical observation.
@@ -1191,6 +1214,7 @@ export class HistoryCalculator {
             // today's live quote.
             if (!lastKnownPrices.has(t) && latestTransactionPrice > 0) {
                 lastKnownPrices.set(t, latestTransactionPrice);
+                lastKnownPriceMeta.set(t, { source: 'transaction', observedAt: latestTransactionAt });
             }
         }
 
@@ -1236,6 +1260,7 @@ export class HistoryCalculator {
         for (let i = 0; i < displayTimestamps.length; i++) {
             const ts = displayTimestamps[i];
             const tickerSourcesThisPoint = {};
+            const tickerSourceDatesThisPoint = {};
             const prevTs = (i === 0) ? win.displayStartTs - 1 : displayTimestamps[i - 1];
 
             let cashFlow = 0;
@@ -1257,7 +1282,7 @@ export class HistoryCalculator {
                         const canConvert = Number.isFinite(rate) && rate > 0;
                         if (!t.startsWith('CASH-') && entry.price > 0 && canConvert) {
                             lastKnownPrices.set(t, entry.price * rate);
-                            tickerSourcesThisPoint[t] = 'transaction';
+                            lastKnownPriceMeta.set(t, { source: 'transaction', observedAt: entryTs });
                         }
                         if (canConvert) {
                             const flow = entry.price * entry.quantity * rate;
@@ -1335,8 +1360,16 @@ export class HistoryCalculator {
                     // Strictly causal: the last observation at or before ts, for crypto
                     // as for stocks — never a nearer future quote.
                     else if (hist) { price = findClosestPrice(hist, ts, interval); if (price != null) priceSource = 'closestPrice'; }
-                    if (price == null && lastKnownPrices.has(t)) { price = lastKnownPrices.get(t); priceSource = 'lastKnown'; }
+                    if (price == null && lastKnownPrices.has(t)) {
+                        price = lastKnownPrices.get(t);
+                        const fallbackMeta = lastKnownPriceMeta.get(t);
+                        priceSource = fallbackMeta?.source || 'lastKnown';
+                        if (Number.isFinite(fallbackMeta?.observedAt)) tickerSourceDatesThisPoint[t] = fallbackMeta.observedAt;
+                    }
                 }
+                // A market-derived value supersedes an older transaction
+                // estimate for every subsequent carry-forward point.
+                if (!['none', 'cash', 'lastKnown', 'transaction'].includes(priceSource)) lastKnownPriceMeta.delete(t);
                 if (tickerSourcesThisPoint) tickerSourcesThisPoint[t] = priceSource;
 
                 let rate = 1;
@@ -1570,6 +1603,7 @@ export class HistoryCalculator {
             const marketSources = Object.entries(tickerSourcesThisPoint).reduce((acc, [t, s]) => {
                 if (s === 'candle') acc[t] = 'historical_candle';
                 else if (s === 'closestPrice' || s === 'midnightSeed' || s === 'lastKnown' || s === 'closedMarketClose') acc[t] = 'valuation';
+                else if (s === 'transaction') acc[t] = 'transaction';
                 return acc;
             }, {});
             const distinctSources = new Set(Object.values(marketSources));
@@ -1578,7 +1612,9 @@ export class HistoryCalculator {
             // 'valuation' dès qu'AU MOINS un composant n'est pas une bougie réelle.
             const aggregateSource = distinctSources.size === 0
                 ? null
-                : (distinctSources.size === 1 && distinctSources.has('historical_candle') ? 'historical_candle' : 'valuation');
+                : (distinctSources.size === 1 && distinctSources.has('historical_candle')
+                    ? 'historical_candle'
+                    : (distinctSources.size === 1 && distinctSources.has('transaction') ? 'transaction' : 'valuation'));
 
             pointMeta.push({
                 // Observation instant (≤ calculation instant) vs trading session
@@ -1587,13 +1623,14 @@ export class HistoryCalculator {
                 sessionDate: sessionDates?.get(ts) ?? null,
                 source: aggregateSource,
                 tickerSources: marketSources,
+                tickerSourceDates: tickerSourceDatesThisPoint,
                 isHistoricalObservation: aggregateSource === 'historical_candle',
                 // Ce moteur n'ajoute jamais lui-même de point live (voir section G
                 // de l'audit — capacité optionnelle, non implémentée dans cette
                 // passe) : toujours false ici, réservé à un futur point explicitement
                 // apppendé avec son propre quoteTimestamp réel.
                 isLiveObservation: false,
-                isValuation: aggregateSource === 'valuation'
+                isValuation: aggregateSource === 'valuation' || aggregateSource === 'transaction'
             });
         }
 

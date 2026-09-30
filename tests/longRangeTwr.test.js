@@ -26,6 +26,23 @@ describe('Long-range portfolio performance', () => {
         expect(withPast.get('AAPL')).toBe(90);
     });
 
+    it('seeds 2D from the historical boundary instead of a newer previous close', () => {
+        const calc = new HistoryCalculator(createFakeStorage(), createFakeApi());
+        const start = utcNoon('2026-09-24');
+        const historicalClose = start - 3600000;
+        const live = new Map([['AAPL', { price: 125, previousClose: 120 }]]);
+
+        const seeds = calc._seedLastKnownPrices(
+            ['AAPL'],
+            new Map([['AAPL', { [historicalClose]: 100 }]]),
+            { displayStartTs: start },
+            2,
+            live
+        );
+
+        expect(seeds.get('AAPL')).toBe(100);
+    });
+
     it.each([2, 7, 30, 90, 180, 'ytd', 365, 730, 'all'])(
         'keeps period %s usable when a manual asset has no market history',
         async (period) => {

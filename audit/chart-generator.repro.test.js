@@ -124,13 +124,18 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         view.destroy();
     });
 
-    it('A8: transaction fallback restores a manual asset but loses its provenance', async () => {
+    it('A8 fixed: transaction fallback exposes its estimated provenance and date', async () => {
         const dm = manager({});
         const graph = await dm.calculateHistory([purchase({ ticker: 'PRIVATE', date: '2026-09-01', price: 100 })], 7);
         expect(graph.values.every(v => v === 100)).toBe(true);
-        expect(graph.dataQuality.valid).toBe(true);
-        expect(graph.pointMeta.at(-1).tickerSources.PRIVATE).toBe('valuation');
-        expect(graph.pointMeta.some(p => p.tickerSources.PRIVATE === 'transaction')).toBe(false);
+        expect(graph.dataQuality).toMatchObject({
+            valid: true,
+            estimated: true,
+            estimatedInstruments: ['PRIVATE'],
+            estimateReason: 'TRANSACTION_PRICE_FALLBACK'
+        });
+        expect(graph.pointMeta.at(-1).tickerSources.PRIVATE).toBe('transaction');
+        expect(graph.pointMeta.at(-1).tickerSourceDates.PRIVATE).toBe(Date.parse('2026-09-01T00:00:00Z'));
     });
 
     it('A9 fixed: an invalid update keeps the existing validated chart visible', async () => {
@@ -151,11 +156,11 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         view.destroy();
     });
 
-    it('A10: a 2D seed can use today\'s previous close before the historical boundary', () => {
+    it('A10 fixed: a 2D seed uses the last price available at its historical boundary', () => {
         const calc = new HistoryCalculator(createFakeStorage(), createFakeApi());
         const start = ts('2026-09-24');
         const seeds = calc._seedLastKnownPrices(['AAPL'], new Map([['AAPL', { [start - 3600000]: 100 }]]), { displayStartTs: start }, 2,
             new Map([['AAPL', { previousClose: 120, price: 125 }]]));
-        expect(seeds.get('AAPL')).toBe(120);
+        expect(seeds.get('AAPL')).toBe(100);
     });
 });

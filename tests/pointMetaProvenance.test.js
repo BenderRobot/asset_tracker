@@ -103,4 +103,21 @@ describe('pointMeta provenance — historical_candle vs valuation', () => {
         expect(result.pointMeta[0].source).toBe('valuation');
         expect(result.values[0]).toBe(97);
     });
+
+    it('transaction fallback keeps its source and observation date', async () => {
+        const calc = new HistoryCalculator(createFakeStorage({ conversionRate: 0.9 }), createFakeApi());
+        const result = await calc._buildSeries(buildMinimalSeriesArgs({
+            historicalDataMap: new Map([['AAPL', {}]]),
+            displayTimestamps: [TS_0935],
+            lastKnownPrices: new Map(),
+            midnightValuationSeed: null
+        }));
+
+        expect(result.pointMeta[0].tickerSources.AAPL).toBe('transaction');
+        expect(result.pointMeta[0].tickerSourceDates.AAPL).toBe(Date.parse('2024-01-01T00:00:00Z'));
+        expect(result.pointMeta[0].source).toBe('transaction');
+        expect(result.pointMeta[0].isHistoricalObservation).toBe(false);
+        expect(result.pointMeta[0].isValuation).toBe(true);
+        expect(result.values[0]).toBe(80);
+    });
 });
