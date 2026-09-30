@@ -39,7 +39,7 @@ describe('computeAthReference (engine)', () => {
         })).toBeNull();
     });
 
-    it('performance: rebases the all-time TWR high on the visible window via a common observation', () => {
+    it('performance: rebases the all-time TWR high from the two terminal observations', () => {
         // All-time: +50 % peak, then back to +20 %, then +32 %.
         // Visible window starts at ts=3 (index 1.2), so its curve reads 0 % → +10 %.
         const ath = computeAthReference({
@@ -60,13 +60,14 @@ describe('computeAthReference (engine)', () => {
         expect(computeAthReference({ kind: 'performance', ...history, includeDividends: true }).value).toBeCloseTo(30, 8);
     });
 
-    it('performance: intraday window without a shared timestamp anchors on the last close before it', () => {
+    it('performance: intraday window without a shared timestamp preserves the canonical ATH gap', () => {
         const ath = computeAthReference({
             kind: 'performance',
             allHistory: { timestamps: [100, 200, 300], twr: [1, 1.5, 1.2] },
             visibleHistory: { timestamps: [350, 360], twr: [1, 1.02] }
         });
-        expect(ath.value).toBeCloseTo(25, 8);
+        expect(ath.value).toBeCloseTo(27.5, 8);
+        expect(ath.fromAthPct).toBeCloseTo(-20, 8);
     });
 
     it('performance: locates the ATH point and the gap of the last point', () => {
@@ -99,9 +100,23 @@ describe('computeAthReference (engine)', () => {
             allHistory: { timestamps: [100, 200, 300], twr: [1, 1.5, 1.2] },
             visibleHistory: { timestamps: [300, 400], twr: [1, 1.3] }
         });
-        expect(ath.value).toBeCloseTo(25, 8);
+        expect(ath.value).toBeCloseTo(62.5, 8);
         expect(ath.at).toEqual({ source: 'all', index: 1 });
-        expect(ath.fromAthPct).toBeCloseTo((1.3 / 1.25 - 1) * 100, 8);
+        expect(ath.fromAthPct).toBeCloseTo((1.2 / 1.5 - 1) * 100, 8);
+    });
+
+    it('performance: 1M rounding drift cannot put the ATH line below the current point', () => {
+        const ath = computeAthReference({
+            kind: 'performance',
+            // Values matching the reported case: All is +38.62% now with an
+            // ATH at +39.91%, while the 1M curve ends at +3.83%.
+            allHistory: { timestamps: [1, 2, 3], twr: [1, 1.3991, 1.3862] },
+            visibleHistory: { timestamps: [10, 11, 12], twr: [1, 1.0417, 1.0383] }
+        });
+        expect(ath.value).toBeCloseTo(4.7962436878, 8);
+        expect(ath.value).toBeGreaterThan(3.83);
+        expect(ath.at).toEqual({ source: 'all', index: 1 });
+        expect(ath.fromAthPct).toBeCloseTo(-0.9220212994, 8);
     });
 });
 

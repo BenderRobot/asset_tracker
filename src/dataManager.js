@@ -1658,44 +1658,16 @@ export function computeAthReference({ kind, allHistory, visibleHistory, firstInd
     const all = scan(allTwr);
     if (!(all.max > 0)) return null;
 
-    // Passage du repère « historique complet » au repère « fenêtre visible » :
-    // le TWR étant chaîné, visibleTwr[j] / allTwr[i] est constant pour tout
-    // couple (i, j) désignant la même observation. On prend l'observation
-    // commune la plus récente (timestamp identique dans les deux séries), qui
-    // est exacte. Repli (fenêtres intraday sans point commun) : dernier point
-    // de l'historique complet antérieur au début de la fenêtre, base 1.
-    const allTs = Array.isArray(allHistory.timestamps) ? allHistory.timestamps : [];
-    const visibleTs = Array.isArray(visibleHistory.timestamps) ? visibleHistory.timestamps : [];
-    const allIndexByTs = new Map();
-    allTs.forEach((ts, i) => {
-        const point = Number(allTwr[i]);
-        if (Number.isFinite(Number(ts)) && Number.isFinite(point) && point > 0) allIndexByTs.set(Number(ts), point);
-    });
-
-    let scale = null;
-    const lastVisible = Math.min(visibleEnd, visibleTwr.length - 1);
-    for (let j = lastVisible; j >= firstIndex && scale === null; j--) {
-        const anchor = allIndexByTs.get(Number(visibleTs[j]));
-        const point = Number(visibleTwr[j]);
-        if (anchor !== undefined && Number.isFinite(point) && point > 0) scale = point / anchor;
-    }
-    if (scale === null) {
-        const visibleStartTs = Number(visibleTs[firstIndex]);
-        let base = null;
-        if (Number.isFinite(visibleStartTs)) {
-            for (let i = 0; i < allTs.length; i++) {
-                const ts = Number(allTs[i]);
-                if (!Number.isFinite(ts)) continue;
-                if (ts > visibleStartTs) break;
-                const point = Number(allTwr[i]);
-                if (Number.isFinite(point) && point > 0) base = point;
-            }
-        }
-        if (base === null) return null;
-        scale = 1 / base;
-    }
-
     const visible = scan(visibleTwr, firstIndex, visibleEnd);
+    if (!(all.last > 0) || !(visible.last > 0)) return null;
+
+    // Rebase at the two series' terminal observations.  The all-time series
+    // uses daily candles while 1M uses intraday candles, so their chained TWR
+    // can drift slightly inside the window and an older shared timestamp is
+    // not a safe conversion anchor.  Anchoring at the end guarantees that the
+    // line and the canonical all-time gap describe the same current state:
+    // visibleLast / rebasedAth === allLast / allAth.
+    const scale = visible.last / all.last;
     const rebasedAthPct = (all.max * scale - 1) * 100;
     // The performance ATH has one canonical owner: the complete daily
     // history.  A short window (notably 1M, whose candles are intraday) can
@@ -1707,10 +1679,9 @@ export function computeAthReference({ kind, allHistory, visibleHistory, firstInd
     // window's coordinate system and to compute the current gap.
     const value = rebasedAthPct;
     if (!Number.isFinite(value)) return null;
-    const lastPct = visible.last !== null ? (visible.last - 1) * 100 : null;
     return {
         kind, value,
         at: { source: 'all', index: all.maxIndex },
-        fromAthPct: lastPct !== null ? ((1 + lastPct / 100) / (1 + value / 100) - 1) * 100 : null
+        fromAthPct: (all.last / all.max - 1) * 100
     };
 }
