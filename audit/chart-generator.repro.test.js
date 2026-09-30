@@ -133,7 +133,7 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         expect(graph.pointMeta.some(p => p.tickerSources.PRIVATE === 'transaction')).toBe(false);
     });
 
-    it('A9: an invalid update hides the existing chart despite the conservation message', async () => {
+    it('A9 fixed: an invalid update keeps the existing validated chart visible', async () => {
         const dm = manager();
         const view = chart(dm);
         view.currentPeriod = 7;
@@ -147,7 +147,7 @@ describe('Chart audit — reproducible observations, 2026-09-26', () => {
         await view.update(true, false);
         expect(document.getElementById('chart-info').textContent).toContain('conservé');
         expect(view.chart).toBe(existing);
-        expect(document.querySelector('canvas').style.visibility).toBe('hidden');
+        expect(document.querySelector('canvas').style.visibility).toBe('visible');
         view.destroy();
     });
 

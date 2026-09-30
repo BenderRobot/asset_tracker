@@ -1060,8 +1060,11 @@ export class HistoricalChart {
             if (requestId !== this._updateRequestId || this._pendingPeriod !== undefined) return;
 
             if (!this._isValidHistoryData(graphData)) {
+                const hasPreviousChart = !!this.chart;
                 this.showMessage(graphData?.dataQuality?.valid === false
-                    ? 'Données de marché indisponibles pour cette période. Le dernier graphique validé sera conservé.'
+                    ? (hasPreviousChart
+                        ? 'Données de marché indisponibles pour cette période. Le dernier graphique validé est conservé.'
+                        : 'Données de marché indisponibles pour cette période.')
                     : 'Pas de données disponibles pour cette période');
             } else {
                 const kpiData = this._computeAggregateKPIs({ portfolioSnapshot, snapshotStartedAt });
@@ -1097,7 +1100,11 @@ export class HistoricalChart {
                 void this.update(p.showLoading, p.forceApi);
                 return;
             }
-            if (requestId === this._updateRequestId) this._setLoadingState(false, { reveal: committed });
+            // An invalid refresh must not erase a chart that was already
+            // validated: the Chart.js instance is deliberately kept above, so
+            // reveal it again once the loader closes. With no previous chart,
+            // the empty canvas remains hidden and only the message is shown.
+            if (requestId === this._updateRequestId) this._setLoadingState(false, { reveal: committed || !!this.chart });
         }
     }
 

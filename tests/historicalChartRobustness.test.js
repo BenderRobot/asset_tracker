@@ -27,7 +27,8 @@ describe('Historical chart robustness and cache', () => {
             <div class="dashboard-chart-section">
                 <div class="chart-wrapper"><canvas id="historical-portfolio-chart"></canvas><div id="chart-loading"></div></div>
                 <div class="chart-stats-bar"></div>
-            </div>`;
+            </div>
+            <div id="chart-info"></div>`;
     });
     afterEach(() => vi.restoreAllMocks());
 
@@ -251,6 +252,39 @@ describe('Historical chart robustness and cache', () => {
         expect(chart.renderChart.mock.calls[0][1].labels).toEqual(['6m-a', '6m-b']);
         expect(document.getElementById('chart-loading').style.display).toBe('none');
         expect(document.querySelector('canvas').style.visibility).toBe('visible');
+    });
+
+    it('keeps the last validated chart visible when a refresh is invalid', async () => {
+        const chart = makeChart();
+        const dm = chart.dataManager;
+        chart.currentPeriod = 7;
+        const todayGraphData = { labels: ['today'], timestamps: [1], values: [100], twr: [1] };
+        dm.repository.getSnapshot = vi.fn().mockResolvedValue({
+            snapshot: {
+                generatedAt: Date.now(),
+                _engine: {
+                    todayGraphData,
+                    holdings: [],
+                    summary: {},
+                    cashReserve: { total: 0 },
+                    portfolioSnapshot: {}
+                }
+            },
+            previousSession: false
+        });
+        dm.calculateHistory = vi.fn().mockResolvedValue({
+            labels: ['missing'], values: [null], twr: [null],
+            dataQuality: { valid: false }
+        });
+        const existing = { destroy: vi.fn() };
+        chart.chart = existing;
+
+        await chart.update(true, false);
+
+        expect(chart.chart).toBe(existing);
+        expect(document.getElementById('chart-info').textContent).toContain('est conservé');
+        expect(document.querySelector('canvas').style.visibility).toBe('visible');
+        expect(document.querySelector('.chart-stats-bar').style.visibility).toBe('visible');
     });
 });
 
