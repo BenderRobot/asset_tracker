@@ -14,7 +14,7 @@ describe('Yahoo ticker mapping', () => {
         expect(api.formatTicker('ASML')).toBe('ASML.AS');
     });
 
-    it('keeps GOLD-ETFP as the storage key while fetching GOLD.PA for long history', async () => {
+    it('uses GOLD.PA EUR closes unchanged, independently of the current GOLD-ETFP price', async () => {
         const storage = createFakeStorage({
             assetTypes: { 'GOLD-ETFP': 'Stock' },
             prices: { 'GOLD-ETFP': { price: 150, currency: 'EUR', lastUpdate: Date.now() } }
@@ -26,7 +26,9 @@ describe('Yahoo ticker mapping', () => {
             json: async () => ({
                 chart: {
                     result: [{
-                        meta: { currency: 'EUR' },
+                        // Yahoo currently mislabels GOLD.PA as USD although the
+                        // Euronext Paris instrument FR0013416716 is quoted in EUR.
+                        meta: { currency: 'USD' },
                         timestamp: [1_790_000_000, 1_790_086_400],
                         indicators: { quote: [{ close: [140, 145] }] }
                     }],
@@ -42,7 +44,9 @@ describe('Yahoo ticker mapping', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(fetchMock.mock.calls[0][0]).toContain('symbol=GOLD.PA');
         expect(isHistoricalFetchFailure(history)).toBe(false);
-        expect(history[1_790_086_400_000]).toBeCloseTo(150, 8);
+        expect(history[1_790_000_000_000]).toBeCloseTo(140, 8);
+        expect(history[1_790_086_400_000]).toBeCloseTo(145, 8);
+        expect(history.currency).toBe('EUR');
     });
 
     it('does not pre-format GOLD-ETFP before handing it to PriceAPI', async () => {

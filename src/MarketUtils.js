@@ -68,51 +68,46 @@ export function getLastTradingDay(date) {
  * inverse pour obtenir USD->EUR).
  *
  * Invariant 9 : une variation du taux COURANT ne doit jamais modifier rétroactivement
- * un montant EUR déjà investi. Ne fabrique jamais un taux silencieusement : si aucune
- * cotation n'existe à la date exacte ni dans une fenêtre de ±7 jours (weekend/jour
- * férié FX), retombe explicitement sur `fallbackRate` (le taux courant) et LOG le
- * repli, avec le contexte (ticker/broker) pour permettre de diagnostiquer précisément
- * quelle transaction reste approximée tant que la donnée historique n'est pas dispo.
+ * un montant EUR déjà investi. La recherche est strictement causale : date exacte,
+ * puis jours ANTÉRIEURS uniquement (weekend/jour férié FX). Si aucun taux réel
+ * n'existe dans cette fenêtre, le calcul échoue explicitement avec `null` ; un taux
+ * courant ou futur ne peut jamais réécrire le coût historique.
  *
  * @param {string|Date} dateInput
  * @param {Map<string, number>|null} historicalFxMap
- * @param {number} fallbackRate
+ * @param {number} fallbackRate conservé pour compatibilité d'API, jamais utilisé
  * @param {{ticker?: string, broker?: string}} context
- * @returns {number} taux USD->EUR à appliquer
+ * @returns {number|null} taux USD->EUR à appliquer
  */
 export function resolveHistoricalUsdToEurRate(dateInput, historicalFxMap, fallbackRate, context = {}) {
     const label = `${context.ticker || '?'} / ${context.broker || '?'}`;
 
     if (!historicalFxMap || historicalFxMap.size === 0) {
-        console.warn(`[FX] Aucun taux historique EUR/USD chargé — repli explicite sur le taux courant (${fallbackRate}) pour ${label} du ${dateInput}.`);
-        return fallbackRate;
+        console.warn(`[FX] Aucun taux historique EUR/USD chargé pour ${label} du ${dateInput} — conversion historique refusée.`);
+        return null;
     }
 
     const d = new Date(dateInput);
-    if (isNaN(d.getTime())) return fallbackRate;
+    if (isNaN(d.getTime())) {
+        console.warn(`[FX] Date invalide pour ${label} (${dateInput}) — conversion historique refusée.`);
+        return null;
+    }
 
     const toKey = (dd) => dd.toISOString().split('T')[0];
     let eurUsdRate = historicalFxMap.get(toKey(d));
 
     if (!eurUsdRate) {
         for (let i = 1; i <= 7 && !eurUsdRate; i++) {
-            const back = new Date(d); back.setDate(d.getDate() - i);
+            const back = new Date(d.getTime() - i * 86400000);
             eurUsdRate = historicalFxMap.get(toKey(back));
         }
     }
-    if (!eurUsdRate) {
-        for (let i = 1; i <= 7 && !eurUsdRate; i++) {
-            const fwd = new Date(d); fwd.setDate(d.getDate() + i);
-            eurUsdRate = historicalFxMap.get(toKey(fwd));
-        }
+    if (!(Number(eurUsdRate) > 0)) {
+        console.warn(`[FX] Taux historique EUR/USD introuvable dans les 7 jours antérieurs pour ${label} du ${toKey(d)} — conversion historique refusée.`);
+        return null;
     }
 
-    if (!eurUsdRate) {
-        console.warn(`[FX] Taux historique EUR/USD introuvable (±7j) pour ${label} du ${toKey(d)} — repli explicite sur le taux courant (${fallbackRate}).`);
-        return fallbackRate;
-    }
-
-    return 1 / eurUsdRate;
+    return 1 / Number(eurUsdRate);
 }
 
 /**

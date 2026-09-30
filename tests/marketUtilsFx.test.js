@@ -12,38 +12,36 @@ describe('resolveHistoricalUsdToEurRate', () => {
         expect(rate).toBeCloseTo(0.92, 6);
     });
 
-    it('retombe sur la cotation la plus proche dans une fenêtre de ±7 jours (weekend/jour férié)', () => {
+    it('retombe sur une cotation antérieure dans une fenêtre de 7 jours (weekend/jour férié)', () => {
         const map = new Map([['2024-03-15', 1 / 0.91]]); // vendredi
         // Dimanche : pas de cotation FX ce jour précis -> doit retomber sur vendredi.
         const rate = resolveHistoricalUsdToEurRate('2024-03-17', map, 0.5);
         expect(rate).toBeCloseTo(0.91, 6);
     });
 
-    it('replie explicitement sur le taux courant (et le LOG) si aucune cotation dans la fenêtre', () => {
+    it('refuse la conversion si aucune cotation antérieure n existe dans la fenêtre', () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const map = new Map([['2024-01-01', 1 / 0.90]]); // bien en dehors de ±7j
         const rate = resolveHistoricalUsdToEurRate('2024-06-15', map, 0.777, { ticker: 'TSLA', broker: 'B' });
 
-        expect(rate).toBe(0.777);
+        expect(rate).toBeNull();
         expect(warnSpy).toHaveBeenCalled();
         expect(warnSpy.mock.calls[0][0]).toContain('TSLA');
         warnSpy.mockRestore();
     });
 
-    it("replie sur le taux courant (log) si aucune map n'est fournie du tout", () => {
+    it("refuse la conversion si aucune map n'est fournie", () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        expect(resolveHistoricalUsdToEurRate('2024-03-15', null, 0.85)).toBe(0.85);
-        expect(resolveHistoricalUsdToEurRate('2024-03-15', new Map(), 0.85)).toBe(0.85);
+        expect(resolveHistoricalUsdToEurRate('2024-03-15', null, 0.85)).toBeNull();
+        expect(resolveHistoricalUsdToEurRate('2024-03-15', new Map(), 0.85)).toBeNull();
         expect(warnSpy).toHaveBeenCalled();
         warnSpy.mockRestore();
     });
 
-    it("ne fabrique jamais un taux différent du taux de repli fourni", () => {
-        // Le fallback doit être EXACTEMENT fallbackRate, jamais une valeur dérivée
-        // silencieusement (ex: 1, ou une moyenne) — invariant 9 : pas de taux inventé.
+    it("n'utilise jamais une cotation future ni le taux courant", () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const fallback = 0.913;
-        expect(resolveHistoricalUsdToEurRate('1999-01-01', new Map([['2024-01-01', 1]]), fallback)).toBe(fallback);
+        const futureOnly = new Map([['2024-03-18', 1 / 0.91]]);
+        expect(resolveHistoricalUsdToEurRate('2024-03-17', futureOnly, 0.913)).toBeNull();
         warnSpy.mockRestore();
     });
 });

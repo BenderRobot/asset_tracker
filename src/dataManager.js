@@ -423,8 +423,8 @@ export class DataManager {
     // getHistoricalFxMap ci-dessus) — pour les rendus synchrones (ex: sous-lignes
     // d'achat d'investmentsPage.js) qui ne peuvent pas attendre un nouvel appel
     // réseau. Retourne une Map vide tant qu'aucun appel async n'a encore résolu de
-    // map pour cette session : le taux courant reste alors utilisé en repli
-    // explicite (voir resolveHistoricalUsdToEurRate), jamais un taux inventé.
+    // map pour cette session : les conversions historiques échouent alors
+    // explicitement (voir resolveHistoricalUsdToEurRate), sans taux courant.
     getCachedHistoricalFxMap() {
         return this._historicalFxMapCache?.map || new Map();
     }

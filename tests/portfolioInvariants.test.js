@@ -135,7 +135,7 @@ describe('Test 4 — FX USD historique (invariant 9)', () => {
         expect(aaplAfter.currentValue).toBeCloseTo(770, 2);
     });
 
-    it('repli explicite (loggé) sur le taux courant si aucune cotation historique n\'est disponible', () => {
+    it('invalide la position si aucune cotation historique n\'est disponible', () => {
         const storage = createFakeStorage({
             prices: { AAPL: { price: 100, currency: 'USD' } },
             conversionRate: 0.90
@@ -145,11 +145,12 @@ describe('Test 4 — FX USD historique (invariant 9)', () => {
             purchase({ broker: 'A', ticker: 'AAPL', currency: 'USD', price: 100, quantity: 1, date: '2024-03-15' })
         ];
 
-        // Map vide : aucune cotation nulle part -> repli sur le taux courant (0.90),
-        // pas un taux inventé.
+        // Map vide : le taux courant ne doit jamais réécrire le coût historique.
         const holdings = dm.calculateHoldings(purchases, null, new Map());
         const aapl = holdings.find(h => h.ticker === 'AAPL');
-        expect(aapl.invested).toBeCloseTo(100 * 0.90, 2);
+        expect(aapl.priceDataUnavailable).toBe(true);
+        expect(aapl.currentValue).toBeNull();
+        expect(aapl.gainEUR).toBeNull();
     });
 });
 

@@ -673,9 +673,10 @@ export class PriceAPI {
     }
     */
 
-    // Fix Gold ETF longue période (utilisé pour les requêtes Yahoo)
-    // PATCH GOLD AVANCÉ : On utilise l'historique de GOLD.PA (USD) car celui de GOLD-EUR.PA est vide
-    // MAIS on appliquera un ratio pour revenir au prix en EUR (~146€ vs ~74$)
+    // Yahoo ne fournit pas d'historique exploitable pour l'alias GOLD-EUR.PA.
+    // GOLD.PA est la même cotation Amundi Physical Gold (FR0013416716) sur
+    // Euronext Paris. Ses bougies sont déjà dans l'échelle EUR, même si
+    // Yahoo annonce parfois à tort `meta.currency = USD` pour ce symbole.
     const longIntervals = ['1d', '1wk', '1mo', '3mo', '6mo', '1y'];
     let isGoldSwapped = false;
     if (formatted === 'GOLD-EUR.PA' && longIntervals.includes(interval)) {
@@ -684,31 +685,23 @@ export class PriceAPI {
     }
 
     // CACHE HISTORIQUE PAR POINT (validation architecture 2026-09-24, voir
-    // historicalPointStore.js) : pour les intervalles daily+ (jamais le
-    // Gold swappé — son ratio est recalculé dynamiquement à chaque fetch
-    // depuis le prix courant, mélanger des points delta à des ratios
-    // différents serait risqué et hors scope de ce fix), un historique déjà
-    // connu et CLÔTURÉ n'est jamais redemandé : seul le delta manquant
+    // historicalPointStore.js) : pour les intervalles daily+, un historique
+    // déjà connu et CLÔTURÉ n'est jamais redemandé : seul le delta manquant
     // (souvent rien, ou quelques jours) part au réseau, au lieu de toute la
     // fenêtre glissante demandée. `effectiveStartTs`/`effectiveEndTs` ci-
     // dessous remplacent startTs/endTs UNIQUEMENT pour ce qui part
     // réellement au réseau — le résultat final couvre toujours la plage
     // ORIGINALEMENT demandée (voir finalizeResult).
-    const deltaEligible = isDeltaFetchEligible(interval) && !isGoldSwapped;
-    // GOLD-ETFP is the storage/business key. Yahoo formatting subsequently
-    // turns it into GOLD-EUR.PA and, for long periods, GOLD.PA. Preserve that
-    // original identity when resolving the live EUR calibration reference.
-    const goldReference = isGoldSwapped
-      ? (this.storage.getCurrentPrice(ticker)?.price
-        ?? this.storage.getCurrentPrice('GOLD-ETFP')?.price
-        ?? this.storage.getCurrentPrice('GOLD-EUR.PA')?.price
-        ?? null)
-      : null;
+    const deltaEligible = isDeltaFetchEligible(interval);
     // Historical market points are cached in their provider/native currency.
     // Currency conversion belongs to HistoryCalculator, which has the FX rate
-    // for each historical date. Keeping a live-FX value in this layer caused a
-    // second conversion downstream and distorted portfolio TWR.
-    const pointKey = `native-v2:${formatted}|gold:${goldReference ?? 'none'}`;
+    // for each historical date. Gold is the explicit exception because Yahoo's
+    // USD metadata conflicts with the EUR listing confirmed by Euronext.
+    // The new key invalidates only Gold points recalibrated from a live price;
+    // unrelated native histories retain their existing cache entries.
+    const pointKey = isGoldSwapped
+      ? `gold-provider-eur-v1:${formatted}`
+      : `native-v2:${formatted}|gold:none`;
     // Points already known from a previous page/session (IndexedDB hydration).
     if (deltaEligible) await historicalPointStore.ready;
     const plan = deltaEligible
@@ -739,9 +732,10 @@ export class PriceAPI {
     };
 
     // Le cacheKey utilise une v6 pour forcer le rafraîchissement après migration Cloudflare
-    // v8: invalide le cache local pour forcer un re-fetch après la correction du bug
-    // de ratio Gold (v7 pouvait contenir des historiques Amundi Gold doublés par erreur).
-    let cacheKey = `v10_${pointKey}_${effectiveStartTs}_${effectiveEndTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
+    // v11 invalide uniquement les historiques Gold dont tous les points
+    // avaient été recalibrés avec le prix courant.
+    const cacheVersion = isGoldSwapped ? 'v11' : 'v10';
+    let cacheKey = `${cacheVersion}_${pointKey}_${effectiveStartTs}_${effectiveEndTs}_${interval}_${isGoldSwapped ? 'SWAP' : ''}`;
     if (['5m', '15m', '90m'].includes(interval)) {
       const rounded = Math.floor(Date.now() / 300000) * 300000;
       cacheKey += `_${rounded}`;
@@ -764,13 +758,13 @@ export class PriceAPI {
     }
 
     marketDataMetrics.recordCacheMiss(true);
-    const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, effectiveStartTs, effectiveEndTs, interval, isGoldSwapped, cacheKey, retries, goldReference)
+    const requestPromise = this._doFetchHistoricalPrices(ticker, formatted, assetType, effectiveStartTs, effectiveEndTs, interval, isGoldSwapped, cacheKey, retries)
       .finally(() => this._inFlightHistoricalRequests.delete(cacheKey));
     this._inFlightHistoricalRequests.set(cacheKey, requestPromise);
     return requestPromise.then(finalizeResult);
   }
 
-  async _doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries, goldReference) {
+  async _doFetchHistoricalPrices(ticker, formatted, assetType, startTs, endTs, interval, isGoldSwapped, cacheKey, retries) {
     // L'appel se fait vers le Proxy Cloud Function pour l'historique
     // Nous passons tous les paramètres nécessaires au proxy
     let proxyUrl = `${PRICE_PROXY_URL}?symbol=${formatted}&type=${assetType}&interval=${interval}&period1=${startTs}&period2=${endTs}`;
@@ -816,61 +810,14 @@ export class PriceAPI {
           return {};
         }
 
+        // Euronext confirme que GOLD.PA (ISIN FR0013416716) est coté en EUR.
+        // Ne jamais déduire son échelle d'un cours courant : chaque bougie doit
+        // rester immuable et provenir directement de l'historique fournisseur.
         const prices = withHistoryCurrency({}, isGoldSwapped ? 'EUR' : result.meta?.currency);
-
-        // CALCUL DU RATIO GOLD SI NÉCESSAIRE
-        let goldRatio = 1;
-        if (isGoldSwapped) {
-          const targetPrice = goldReference;
-          if (!(targetPrice > 0)) throw new Error('Gold conversion reference unavailable');
-
-          // BUG TROUVÉ (vérifié en interrogeant directement l'API Yahoo) : le dernier
-          // élément de "quotes" peut être `null` (bougie du jour pas encore clôturée) —
-          // quotes[quotes.length-1] n'est PAS forcément la dernière clôture RÉELLE. Pour
-          // GOLD.PA, les 2 dernières entrées sont `null`, donc lastSourcePrice valait
-          // toujours null et le code retombait sur le ratio figé 1.97 — calibré à une
-          // époque où GOLD.PA cotait ~74 (voir meta.regularMarketPrice, gelé depuis
-          // 2023). Aujourd'hui Yahoo sert déjà les bougies "close" de GOLD.PA dans la
-          // même échelle que GOLD-EUR.PA (~147-150) : appliquer ce ratio 1.97 doublait
-          // artificiellement tout l'historique — c'est ce qui causait "Amundi Gold" à
-          // -49,98% (chute fictive de ~50%) alors que le prix réel n'avait presque pas
-          // bougé. On cherche maintenant la dernière clôture RÉELLEMENT valide.
-          let lastSourcePrice = null;
-          for (let qi = quotes.length - 1; qi >= 0; qi--) {
-            if (quotes[qi] !== null && quotes[qi] !== undefined && quotes[qi] > 0) {
-              lastSourcePrice = quotes[qi];
-              break;
-            }
-          }
-
-          if (lastSourcePrice && lastSourcePrice > 0) {
-            goldRatio = targetPrice / lastSourcePrice;
-            // Garde-fou : un ratio qui s'écarte de plus de 2x dans un sens ou l'autre
-            // trahit plus probablement une donnée source désynchronisée qu'un vrai
-            // écart d'échelle — mieux vaut ne pas rescaler (ratio neutre) que risquer
-            // de fausser tout l'historique comme ci-dessus.
-            if (goldRatio > 2 || goldRatio < 0.5) {
-              console.warn(`[GOLD FIX] Ratio ${goldRatio.toFixed(4)} hors plage plausible (Target: ${targetPrice} / Source: ${lastSourcePrice}) — ignoré, ratio=1 appliqué`);
-              goldRatio = 1;
-            } else {
-              console.log(`[GOLD FIX] Applying ratio ${goldRatio.toFixed(4)} (Target: ${targetPrice} / Source: ${lastSourcePrice})`);
-            }
-          } else {
-            // Aucune clôture source valide trouvée : un ratio neutre (pas de rescaling)
-            // est beaucoup plus sûr qu'un facteur figé potentiellement obsolète.
-            goldRatio = 1;
-            console.warn(`[GOLD FIX] Aucune clôture source valide pour GOLD.PA, ratio neutre (1) appliqué`);
-          }
-        }
 
         timestamps.forEach((ts, idx) => {
           if (Number.isFinite(Number(quotes[idx])) && quotes[idx] != null && Number(quotes[idx]) > 0) {
-            let val = parseFloat(quotes[idx]);
-
-            // Appliquer le Ratio Gold
-            if (isGoldSwapped) {
-              val = val * goldRatio;
-            }
+            const val = parseFloat(quotes[idx]);
             // All non-Gold prices remain in Yahoo's native currency. The
             // portfolio engine performs the single date-aware FX conversion.
 
