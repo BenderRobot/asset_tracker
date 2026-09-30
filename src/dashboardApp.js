@@ -3,15 +3,15 @@
 // ========================================
 // dashboardApp.js - VERSION CORRIGÉE FINALE (Unification + Fix Erreur Critique + GCP Proxy)
 // ========================================
-import { Storage } from './storage.js?v=5';
-import { PriceAPI } from './api.js?v=12';
-import { MarketStatus } from './marketStatus.js?v=2';
-import { DataManager } from './dataManager.js?v=33';
-import { HistoricalChart } from './historicalChart.js?v=54';
-import { mountViewToggle } from './chartViewToggle.js?v=1';
-import { ChartKPIManager } from './chartKPIManager.js?v=6'; // NOUVEAU : Pour sparkline
+import { Storage } from './storage.js';
+import { PriceAPI } from './api.js';
+import { MarketStatus } from './marketStatus.js';
+import { DataManager } from './dataManager.js';
+import { HistoricalChart } from './historicalChart.js';
+import { mountViewToggle } from './chartViewToggle.js';
+import { ChartKPIManager } from './chartKPIManager.js'; // NOUVEAU : Pour sparkline
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
-import { UIComponents } from './ui.js?v=5';
+import { UIComponents } from './ui.js';
 import { NotificationManager } from './NotificationManager.js';
 import { FCMManager } from './fcmManager.js'; // NEW: FCM for Android notifications
 

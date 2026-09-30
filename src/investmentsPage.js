@@ -9,7 +9,7 @@ import { formatCurrency, formatPercent, formatQuantity } from './utils.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
 import { resolveHistoricalUsdToEurRate } from './MarketUtils.js';
-import { mountViewToggle } from './chartViewToggle.js?v=1';
+import { mountViewToggle } from './chartViewToggle.js';
 
 // Pour les stocks US cotés en EU (Xetra/Frankfurt), on redirige vers le ticker US primaire
 // afin que le screener trouve les données Yahoo Finance correctement.

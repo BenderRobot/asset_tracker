@@ -2,15 +2,15 @@ import { marketDataMetrics } from './marketDataMetrics.js';
 import { quoteInEur } from './currency.js';
 import { splitTransactions, assetHistoryTransactions, transactionKind } from './financialTransactions.js';
 import { periodPerformance } from './financialSeries.js';
-import { fetchMarketResponse } from './marketDataTransport.js?v=3';
+import { fetchMarketResponse } from './marketDataTransport.js';
 // ========================================
 // dataManager.js - (v8 - Ajout support Indices)
 // ========================================
 
 import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { parseDate } from './utils.js';
-import { HistoryCalculator } from './HistoryCalculator.js?v=22';
-import { MarketDataRepository } from './marketDataRepository.js?v=8';
+import { HistoryCalculator } from './HistoryCalculator.js';
+import { MarketDataRepository } from './marketDataRepository.js';
 import {
     getIntervalForPeriod,
     getLabelFormat,

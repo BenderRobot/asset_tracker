@@ -13,10 +13,10 @@
 //   const { debugDividendPhantomGap } = await import('/audit/tools/debugDividendPhantomGap.js');
 //   await debugDividendPhantomGap(dashboardApp.dataManager);
 //
-// Même URL de module (`?v=22`) que src/dataManager.js : le rejeu "avant
+// Même URL de module que src/dataManager.js : le rejeu "avant
 // correction" remplace temporairement HistoryCalculator.prototype._buildLedger
 // et doit donc viser l'instance réellement utilisée par le moteur.
-import { HistoryCalculator } from '../../src/HistoryCalculator.js?v=22';
+import { HistoryCalculator } from '../../src/HistoryCalculator.js';
 import { parseDate } from '../../src/utils.js';
 
 export async function debugDividendPhantomGap(dataManager) {

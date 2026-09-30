@@ -1,8 +1,8 @@
-import { fetchMarketResponse } from './marketDataTransport.js?v=3';
+import { fetchMarketResponse } from './marketDataTransport.js';
 // ========================================
 // api.js - Cloudflare Workers Proxy
 // ========================================
-import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js?v=2';
+import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { sleep } from './utils.js';
 import { formatTicker as resolveYahooTicker, resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';

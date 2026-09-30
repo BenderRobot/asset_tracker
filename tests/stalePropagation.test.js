@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PriceAPI } from '../src/api.js';
 import { DataManager } from '../src/dataManager.js';
-import { fetchMarketResponse } from '../src/marketDataTransport.js?v=3';
+import { fetchMarketResponse } from '../src/marketDataTransport.js';
 import { createFakeApi, createFakeStorage, purchase } from './helpers.js';
 
 const payload = price => ({ chart: { result: [{

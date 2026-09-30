@@ -42,7 +42,7 @@ import { quoteInEur, withHistoryCurrency } from './currency.js';
 import { splitTransactions, transactionKind } from './financialTransactions.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { getGlobalWindow } from './TimeRangeEngine.js';
-import { getHistoricalFetchFailureDetails, isHistoricalFetchFailure } from './api.js?v=12';
+import { getHistoricalFetchFailureDetails, isHistoricalFetchFailure } from './api.js';
 import {
     getIntervalForPeriod,
     getLabelFormat,
@@ -52,7 +52,7 @@ import {
     resolveTickerPreviousClose,
     getCloseCutoffForTicker,
     resolveHistoricalUsdToEurRate
-} from './MarketUtils.js?v=2';
+} from './MarketUtils.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

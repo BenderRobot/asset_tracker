@@ -13,7 +13,7 @@ import {
 } from './config.js';
 
 import { db, auth } from './firebaseConfig.js';
-import { MarketDataSync } from './marketDataSync.js?v=2'; // NEW: Market data sync module
+import { MarketDataSync } from './marketDataSync.js'; // NEW: Market data sync module
 
 // On importe l'eventBus pour notifier l'app qu'un autre onglet a changé les données
 import { eventBus } from './eventBus.js';

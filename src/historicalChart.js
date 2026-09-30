@@ -27,12 +27,12 @@
 
 import { eventBus } from './eventBus.js';
 import { performanceSeries, periodPerformance } from './financialSeries.js';
-import { ChartKPIManager } from './chartKPIManager.js?v=6';
-import { MarketStatus } from './marketStatus.js?v=3';
+import { ChartKPIManager } from './chartKPIManager.js';
+import { MarketStatus } from './marketStatus.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js';
-import { isCryptoTicker } from './MarketUtils.js?v=2';
-import { mountViewToggle } from './chartViewToggle.js?v=1';
+import { isCryptoTicker } from './MarketUtils.js';
+import { mountViewToggle } from './chartViewToggle.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { cacheDelete, cacheGet, cacheSet, isPersistentCacheAvailable } from './persistentCache.js';
 

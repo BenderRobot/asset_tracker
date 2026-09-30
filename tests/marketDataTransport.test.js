@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fetchMarketResponse } from '../src/marketDataTransport.js?v=3';
+import { fetchMarketResponse } from '../src/marketDataTransport.js';
 import { marketDataMetrics } from '../src/marketDataMetrics.js';
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 const url = 'https://example.test/?symbol=AAA';

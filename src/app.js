@@ -3,15 +3,15 @@
 // ========================================
 // app.js - (v13 - FIX INDICES LOADING)
 // ========================================
-import { Storage } from './storage.js?v=5';
-import { PriceAPI } from './api.js?v=12';
-import { UIComponents } from './ui.js?v=5';
+import { Storage } from './storage.js';
+import { PriceAPI } from './api.js';
+import { UIComponents } from './ui.js';
 import { FilterManager } from './filters.js';
-import { AchatsPage } from './achatsPage.js?v=7';
-import { InvestmentsPage } from './investmentsPage.js?v=18';
-import { HistoricalChart } from './historicalChart.js?v=54';
-import { DataManager } from './dataManager.js?v=35';
-import { initMarketStatus } from './marketStatus.js?v=3';
+import { AchatsPage } from './achatsPage.js';
+import { InvestmentsPage } from './investmentsPage.js';
+import { HistoricalChart } from './historicalChart.js';
+import { DataManager } from './dataManager.js';
+import { initMarketStatus } from './marketStatus.js';
 import { ASSET_TYPES, AUTO_REFRESH_INTERVAL, AUTO_REFRESH_ENABLED, DASHBOARD_INDICES, PRICE_PROXY_URL } from './config.js';
 import { getBrokers, getBrokersSync, fillSelect, attachAddBrokerHandler } from './brokerService.js';
 import { authReady } from './firebaseConfig.js';
@@ -843,7 +843,7 @@ class App {
       }
 
       const text = await file.text();
-      const worker = new Worker('../csvWorker.js?v=2');
+      const worker = new Worker('../csvWorker.js');
       worker.postMessage(text);
 
       const result = await new Promise((resolve, reject) => {

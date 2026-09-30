@@ -2,15 +2,15 @@
 // analyticsApp.js - (v2 - Avec MarketStatus)
 // ========================================
 
-import { Storage } from './storage.js?v=5';
+import { Storage } from './storage.js';
 import { formatCurrency, formatPercent } from './utils.js';
 
 // === CHANGEMENT 1 : Importer les nouvelles dépendances ===
 import { PriceAPI } from './api.js';
-import { DataManager } from './dataManager.js?v=12';
+import { DataManager } from './dataManager.js';
 import { DividendManager } from './dividendManager.js'; // NEW: Import Dividend Manager
 // AJOUT : Importer MarketStatus (avec le cache buster)
-import { MarketStatus } from './marketStatus.js?v=2';
+import { MarketStatus } from './marketStatus.js';
 import { fetchGeminiDiversificationAdvice } from './geminiService.js'; // Import Gemini AI
 import { getBrokersSync, populateSelect } from './brokerService.js';
 

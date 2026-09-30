@@ -1,6 +1,6 @@
 # Audit du générateur de graphique — 26 septembre 2026
 
-**Clôture — 30 septembre 2026 :** les scénarios A1 à A10 ont tous été convertis en assertions de non-régression du comportement corrigé. La suite d’audit est verte à **11/11** et la suite principale à **58 fichiers / 420 tests**. Les sections ci-dessous restent l’historique du diagnostic initial, pas une liste de défauts encore actifs.
+**Clôture — 30 septembre 2026 :** les scénarios A1 à A10 ont tous été convertis en assertions de non-régression du comportement corrigé. La suite d’audit est verte à **11/11** et la suite principale à **59 fichiers / 422 tests**. Les sections ci-dessous restent l’historique du diagnostic initial, pas une liste de défauts encore actifs.
 
 Le symptôme « 1D fonctionne, 1W et toutes les périodes longues sont vides » avait été **reproduit sur le moteur du commit `12aa7cc`**, avec un portefeuille synthétique contenant un actif coté et un actif sans historique. Ce document conserve le diagnostic d’origine ; les défauts A1-A10 qui en ont découlé sont désormais corrigés et couverts.
 
@@ -180,7 +180,7 @@ Les messages « Parsing Yahoo format » prouvent l'entrée dans le parseur, pas 
 
 ## Vérifications effectuées et limites des tests actuels
 
-- `npm test -- --reporter=dot` : **58 fichiers, 420 tests réussis**. Les tests Firestore nécessitant l'émulateur sont exclus par la configuration normale ; ils ne sont pas pertinents pour les reproductions financières de cet audit et n'ont pas été lancés.
+- `npm test -- --reporter=dot` : **59 fichiers, 422 tests réussis**. Les tests Firestore nécessitant l'émulateur sont exclus par la configuration normale ; ils ne sont pas pertinents pour les reproductions financières de cet audit et n'ont pas été lancés.
 - `npm exec -- vitest run --config audit/vitest.config.js --silent --reporter=verbose` : **11 tests de non-régression réussis**, couvrant A1 à A10.
 - `node audit/compare-head.mjs` : **18 calculs comparés**, neuf périodes sur chacun des deux moteurs.
 
