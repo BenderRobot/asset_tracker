@@ -69,12 +69,12 @@ it('B4: a dividend creates a negative return in the broker detail at a constant 
     expect(broker).toMatchObject({ invested: 100, cash: 10, totalValue: 100, totalReturn: -10 });
 });
 
-it('B5: long-period index data loses the timestamps required by date tooltips', async () => {
+it('B5 fixed: long-period index data preserves timestamps required by date tooltips', async () => {
     const history = { [Date.parse('2026-09-22T16:00:00Z')]: 100, [Date.parse('2026-09-25T16:00:00Z')]: 110 };
     const dm = new DataManager(createFakeStorage(), createFakeApi({ getHistoricalPricesWithRetry: async () => history }));
     const graph = await dm.calculateIndexData('^GSPC', 30);
     expect(graph.values).toEqual([100, 110]);
-    expect(graph.timestamps).toBeUndefined();
+    expect(graph.timestamps).toEqual(Object.keys(history).map(Number));
 });
 
 it('B6: day profit is allocated to the broker that bought today using current quantities', async () => {

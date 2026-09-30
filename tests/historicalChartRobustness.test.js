@@ -273,6 +273,23 @@ describe('Long-period request plan', () => {
         expect(request.interval).toBe(getIntervalForPeriod(period));
     });
 
+    it('keeps index timestamps aligned with long-period values', async () => {
+        const timestamps = [
+            Date.parse('2026-09-22T16:00:00Z'),
+            Date.parse('2026-09-25T16:00:00Z')
+        ];
+        const history = Object.fromEntries(timestamps.map((timestamp, index) => [timestamp, 100 + index * 10]));
+        const dm = new DataManager(createFakeStorage(), createFakeApi({
+            async getHistoricalPricesWithRetry() { return history; }
+        }));
+
+        const graph = await dm.calculateIndexData('^GSPC', 30);
+
+        expect(graph.timestamps).toEqual(timestamps);
+        expect(graph.values).toEqual([100, 110]);
+        expect(graph.labels).toHaveLength(graph.timestamps.length);
+    });
+
     it('recovers a failed 90m ticker with real daily candles without invalidating the portfolio', async () => {
         const calls = [];
         const now = Date.now();

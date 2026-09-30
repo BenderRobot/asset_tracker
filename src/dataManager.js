@@ -1345,8 +1345,9 @@ export class DataManager {
         const trueYesterdayClose = priceData?.previousClose || null;
 
         return {
-            labels: labels,
-            values: values,
+            labels,
+            values,
+            timestamps: filteredTs,
             invested: [],
             unitPrices: values,
             purchasePoints: [],
