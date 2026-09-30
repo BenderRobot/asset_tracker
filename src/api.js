@@ -4,7 +4,7 @@ import { fetchMarketResponse } from './marketDataTransport.js?v=3';
 // ========================================
 import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js?v=2';
 import { sleep } from './utils.js';
-import { resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js';
+import { formatTicker as resolveYahooTicker, resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { marketDataMetrics } from './marketDataMetrics.js';
 import { historicalPointStore, isDeltaFetchEligible } from './historicalPointStore.js';
@@ -144,20 +144,8 @@ export class PriceAPI {
   }
 
   formatTicker(ticker) {
-    ticker = ticker.toUpperCase().trim();
-    if (YAHOO_MAP[ticker]) return YAHOO_MAP[ticker];
-    if (ticker.startsWith('^')) return ticker;
-    if (ticker === 'EURUSD=X') return 'EURUSD=X';
-    if (ticker === 'GC=F') return 'GC=F';
-    const cryptos = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'LTC', 'XRP', 'XLM', 'BNB', 'AVAX'];
-    if (cryptos.includes(ticker)) return ticker + '-EUR';
-
-    const assetCategory = this.storage.getAssetCategory(ticker);
-    if (assetCategory === 'EUR' && !ticker.includes('.') && !ticker.includes('-')) {
-      return `${ticker}.PA`;
-    }
-
-    return ticker;
+    const normalizedTicker = ticker.toUpperCase().trim();
+    return resolveYahooTicker(normalizedTicker, this.storage.getAssetCategory(normalizedTicker));
   }
 
   // ==========================================================

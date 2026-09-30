@@ -6,6 +6,26 @@ import { createFakeApi, createFakeStorage, purchase } from './helpers.js';
 
 describe('Yahoo ticker mapping', () => {
     afterEach(() => vi.unstubAllGlobals());
+
+    it.each([
+        [' asml ', null, 'ASML.AS'],
+        ['ETH', null, 'ETH-EUR'],
+        ['^GSPC', null, '^GSPC'],
+        ['EURUSD=X', null, 'EURUSD=X'],
+        ['GC=F', null, 'GC=F'],
+        ['CUSTOM', 'EUR', 'CUSTOM.PA'],
+        ['CUSTOM.AS', 'EUR', 'CUSTOM.AS'],
+        ['BTC-EUR', 'EUR', 'BTC-EUR'],
+        ['CUSTOM', 'USA', 'CUSTOM']
+    ])('resolves %s with category %s to %s through the shared resolver', (ticker, category, expected) => {
+        const storage = createFakeStorage();
+        storage.getAssetCategory = () => category;
+        const api = new PriceAPI(storage);
+
+        expect(formatMarketTicker(ticker, category)).toBe(expected);
+        expect(api.formatTicker(ticker)).toBe(expected);
+    });
+
     it('routes ASML to its Amsterdam EUR listing', () => {
         const storage = createFakeStorage({ assetTypes: { ASML: 'Stock' } });
         const api = new PriceAPI(storage);

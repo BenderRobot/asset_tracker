@@ -38,7 +38,7 @@ Les résultats ci-dessous proviennent de lecture de code et de tests locaux avec
 
 | Vérification | Résultat | Interprétation |
 | --- | --- | --- |
-| `npm test -- --reporter=dot` | **58 fichiers, 411 tests réussis** | Suite principale entièrement verte, avec une non-régression dédiée à la ventilation B6. |
+| `npm test -- --reporter=dot` | **58 fichiers, 420 tests réussis** | Suite principale entièrement verte, avec les non-régressions B6 et la matrice du résolveur Yahoo partagé. |
 | `npm exec -- vitest run --config audit/vitest.config.js --silent --reporter=verbose` | **11 tests réussis sur 11** | A1 à A10 valident maintenant le comportement corrigé. |
 | `npm exec -- vitest run --config audit/current-code.config.js --silent --reporter=verbose` | **6 tests réussis sur 6** | B1 à B6 valident maintenant le comportement corrigé. |
 
@@ -145,7 +145,7 @@ Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour 
 | ~~`_recoverFromClosedMarket`~~ | Appel et méthode vide retirés. | Terminé. |
 | ~~`debugDividendPhantomGap` dans le moteur~~ | Diagnostic déplacé vers `audit/tools/`. | Terminé. |
 | Classification des transactions | `splitCanonicalPurchases` fournit désormais le registre complet aux parcours historiques et courtiers ; A4/B4 ne se reproduisent plus. Quelques filtres spécialisés peuvent encore être consolidés. | Dette de simplification non bloquante ; conserver les tests A4/B4 lors d’une future consolidation. |
-| Résolution des tickers | `PriceAPI.formatTicker` (`src/api.js:145`) et `MarketUtils.formatTicker` (`src/MarketUtils.js:362`) ont des règles différentes ; seul le premier ajoute `.PA` selon la catégorie. | Un seul résolveur, avec métadonnées explicites. Ne pas supprimer une version sans préserver sa règle de marché. |
+| ~~Résolution des tickers~~ | `MarketUtils.formatTicker` est maintenant le résolveur Yahoo unique. `PriceAPI` lui transmet explicitement la catégorie issue du stockage, ce qui conserve l’ajout `.PA` pour les instruments EUR non suffixés. | Terminé et couvert par la matrice de `tests/tickerMapping.test.js`. |
 | Versions d’import manuelles | `DataManager` est importé sans suffixe, avec `v=12`, `v=33` ou `v=35` selon les pages. | Uniformiser puis automatiser le versionnement des ressources. Ces suffixes ne prouvent pas que quatre anciennes copies physiques du moteur subsistent. |
 | ~~`Microsoft/Windows/PowerShell/ModuleAnalysisCache` et `btc2.json`~~ | Fichiers retirés ; le cache PowerShell est ignoré. | Terminé. |
 | ~~Ancien audit~~ | Les scénarios A1-A10 et B1-B6 attendent désormais les comportements corrigés. `compare-head.mjs` reste un outil historique distinct. | Terminé pour les tests de reproduction. |
@@ -165,4 +165,4 @@ Les couches de cache ne sont pas toutes des doublons à supprimer : réponse fou
 5. Retirer les résidus identifiés, extraire les diagnostics et fiabiliser le déploiement.
 6. Ajouter quelques tests de parcours complet avec vrai stockage, fournisseur simulé et rendu navigateur : achat/vente USD, dividende, vente totale, titre ancien indisponible, panne avec cache, passage 1D→All et changement de filtre pendant chargement.
 
-Cet ordre a été réalisé par étapes et verrouillé par les suites principale et d’audit. Les prochaines évolutions peuvent se concentrer sur la consolidation non bloquante des résolveurs de tickers et des versions d’import, en conservant les tests aux frontières entre composants.
+Cet ordre a été réalisé par étapes et verrouillé par les suites principale et d’audit. Les prochaines évolutions peuvent se concentrer sur la consolidation non bloquante des versions d’import, en conservant les tests aux frontières entre composants.

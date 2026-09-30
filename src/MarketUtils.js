@@ -5,6 +5,7 @@
 import { YAHOO_MAP } from './config.js';
 
 const historicalTimestampIndex = new WeakMap();
+const CRYPTO_TICKERS = new Set(['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'LTC', 'XRP', 'XLM', 'BNB', 'AVAX']);
 
 /**
  * Returns the appropriate interval for a given number of days.
@@ -350,15 +351,20 @@ export function getMarketOpenUTCHour(localOpenHour, timeZone, refDate = new Date
 }
 
 /**
- * Formats ticker for display (removes suffix).
+ * Resolves an application ticker to the canonical Yahoo symbol.
  * @param {string} ticker
+ * @param {string|null} assetCategory - Optional storage category. Unsuffixed
+ *   EUR instruments default to Euronext Paris when no explicit mapping exists.
  * @returns {string}
  */
-export function formatTicker(ticker) {
+export function formatTicker(ticker, assetCategory = null) {
     ticker = ticker.toUpperCase().trim();
     if (YAHOO_MAP[ticker]) return YAHOO_MAP[ticker];
-    const cryptos = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'LTC', 'XRP', 'XLM', 'BNB', 'AVAX'];
-    return cryptos.includes(ticker) ? ticker + '-EUR' : ticker;
+    if (CRYPTO_TICKERS.has(ticker)) return `${ticker}-EUR`;
+    if (assetCategory === 'EUR' && !ticker.includes('.') && !ticker.includes('-')) {
+        return `${ticker}.PA`;
+    }
+    return ticker;
 }
 
 /**
