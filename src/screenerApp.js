@@ -4,9 +4,17 @@
 import { Storage } from './storage.js';
 import { PRICE_PROXY_URL } from './config.js';
 import logger from '../utils/logger.js';
+import {
+    YEAR_MS, normalizeCurrency, fxSymbol, currencyContext, valueAt, alignSeriesByTime, normalizePair,
+    cagr, annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
+    hasFundamentalProfile, radarDimensions, quantScore, fairPriceModel, simpleDcf,
+} from './screenerMetrics.js';
 
 const PROXY = PRICE_PROXY_URL;
 const SP500_SYMBOL = '^GSPC'; // Used for S&P 500 comparison
+const isNum = v => typeof v === 'number' && Number.isFinite(v);
+// A 1-year weekly window spans slightly less than 365 days: annualise from ~11 months.
+const MIN_ANNUALISED_YEARS = 0.9;
 
 // SECURITY FIX (audit XSS, P1) : les résultats de recherche Yahoo (symbol/
 // shortname/longname) sont une donnée externe non maîtrisée par l'app et
@@ -151,7 +159,6 @@ const POPULAR_ASSET_GROUPS = [
             { ticker: 'DIS', name: 'Disney', domain: 'disney.com', emoji: '🏰', type: 'Action' },
             { ticker: 'SPOT', name: 'Spotify', domain: 'spotify.com', emoji: '🎵', type: 'Action' },
             { ticker: 'RBLX', name: 'Roblox', domain: 'roblox.com', emoji: '🎮', type: 'Action' },
-            { ticker: 'EA', name: 'EA Sports', domain: 'ea.com', emoji: '🎮', type: 'Action' },
             { ticker: 'VZ', name: 'Verizon', domain: 'verizon.com', emoji: '📱', type: 'Action' },
             { ticker: 'T', name: 'AT&T', domain: 'att.com', emoji: '📞', type: 'Action' },
         ]
@@ -273,7 +280,11 @@ class ScreenerApp {
         this.sp500Chart = null;
         this.radarChart = null;
         this.searchDebounce = null;
+        this.currentPeriod = '1y';
         this._cachedBenchmarkData = {};
+        this._fxCache = new Map();
+        this._loadToken = 0;
+        this._modalToken = 0;
     }
 
     async init() {
@@ -281,6 +292,11 @@ class ScreenerApp {
         this.renderPopularAssets();
         this.setupTabs();
         this.setupWatchlistButton();
+        // Bound once: render() runs on every search and used to stack a new
+        // listener per load, so one click triggered N modal loads.
+        this.setupPeriodButtons();
+        this.setupKpiModals();
+        this.setupModalPeriodButtons();
 
         // Check for ticker in URL params
         const params = new URLSearchParams(window.location.search);
@@ -342,9 +358,9 @@ class ScreenerApp {
         try {
             const url = `${PROXY}?symbol=${encodeURIComponent(query)}&type=SEARCH`;
             const data = await this.safeFetchJson(url);
-            const quotes = (data.quotes || []).filter(q =>
-                q.quoteType === 'EQUITY' || q.quoteType === 'ETF' || q.quoteType === 'MUTUALFUND'
-            ).slice(0, 7);
+            // Same instrument families as the popular grid (indices and crypto included).
+            const allowedTypes = ['EQUITY', 'ETF', 'MUTUALFUND', 'INDEX', 'CRYPTOCURRENCY'];
+            const quotes = (data.quotes || []).filter(q => allowedTypes.includes(q.quoteType)).slice(0, 7);
 
             if (!quotes.length) {
                 suggestions.classList.remove('open');
@@ -438,23 +454,41 @@ class ScreenerApp {
 
     // ─── Load Stock Data ─────────────────────────────────────────────────────
     async loadStock(symbol) {
+        // A slower response for a previous symbol must never overwrite the current one.
+        const token = ++this._loadToken;
         this.currentSymbol = symbol;
         this.showState('loading');
 
         try {
-            // Fetch fundamentals + price history in parallel
             const [quoteSummary, priceHistory, sp500History, fundamentals] = await Promise.all([
                 this.fetchQuoteSummary(symbol),
-                this.fetchPriceHistory(symbol, this.currentPeriod),
-                this.fetchPriceHistory(SP500_SYMBOL, '5y'),
+                // The page stays usable without the chart: render() skips an empty series.
+                this.fetchPriceHistory(symbol, this.currentPeriod).catch(() => null),
+                this.fetchPriceHistory(SP500_SYMBOL, this.currentPeriod).catch(() => null),
                 this.fetchFundamentals(symbol),
             ]);
+            if (token !== this._loadToken) return;
 
             if (!quoteSummary || quoteSummary.error) {
                 throw new Error(`Aucune donnée trouvée pour "${symbol}"`);
             }
 
-            this.currentData = { quoteSummary, priceHistory, sp500History, fundamentals };
+            const currency = currencyContext(quoteSummary, fundamentals);
+            const hasFundamentals = hasFundamentalProfile(quoteSummary);
+            const rows = hasFundamentals
+                ? fundamentalRows(fundamentals, quoteSummary.defaultKeyStatistics?.sharesOutstanding?.raw)
+                : [];
+            // Statements in another currency (ADR, dual listing) are converted with
+            // the real FX series; without it the cross ratios are not shown at all.
+            const finFx = hasFundamentals ? await this.fetchFxSeries(currency.finIso, currency.priceIso, '10y') : null;
+            const pru = await this.computePru(symbol, currency);
+            if (token !== this._loadToken) return;
+
+            this.currentData = {
+                quoteSummary, priceHistory, sp500History, fundamentals,
+                currency, hasFundamentals, rows, finFx, pru,
+                priceHistoryLong: null,
+            };
             this.render();
             this.showState('panel');
 
@@ -464,9 +498,72 @@ class ScreenerApp {
             window.history.replaceState({}, '', url);
 
         } catch (err) {
+            if (token !== this._loadToken) return;
             logger.error('[Screener] Error:', err);
             this.showError(err.message);
         }
+    }
+
+    // ─── Currency helpers ────────────────────────────────────────────────────
+    // Returns { at(t), latest } quoting `toCode` per one `fromCode`, or null
+    // when the FX series is unavailable (callers then hide the value; a rate
+    // of 1 is never assumed). Minor units (GBp) are handled by their factor.
+    async fetchFxSeries(fromCode, toCode, period = '10y') {
+        const from = normalizeCurrency(fromCode), to = normalizeCurrency(toCode);
+        if (!from.iso || !to.iso) return null;
+        const scale = from.factor / to.factor;
+        if (from.iso === to.iso) return { at: () => scale, latest: scale };
+
+        const key = `${from.iso}${to.iso}:${period}`;
+        if (!this._fxCache.has(key)) {
+            this._fxCache.set(key, this.fetchPriceHistory(fxSymbol(from.iso, to.iso), period).catch(() => null));
+        }
+        const series = await this._fxCache.get(key);
+        if (!series?.length) return null;
+        const latest = series[series.length - 1].c;
+        return {
+            // Before the first FX point the rate is unknown: null, not the current rate.
+            at: t => { const r = valueAt(series, t); return isNum(r) ? r * scale : null; },
+            latest: latest * scale,
+        };
+    }
+
+    // financial currency → price currency (major units), for a timestamp or now.
+    finToPrice(t = null) {
+        const fx = this.currentData?.finFx;
+        if (!fx) return null;
+        return t == null ? fx.latest : fx.at(t);
+    }
+
+    // Rate converting an amount expressed in `code` into the price currency (major units).
+    rateToPrice(code) {
+        const { priceIso, finIso } = this.currentData.currency;
+        const iso = normalizeCurrency(code).iso || priceIso;
+        if (iso === priceIso) return 1;
+        if (iso === finIso) return this.finToPrice();
+        return null;
+    }
+
+    // Average cost of the user's position, converted to the quote currency of the chart.
+    async computePru(symbol, currency) {
+        const position = averageCost(this.storage.getPurchases(), symbol);
+        if (!position) return null;
+        const fx = await this.fetchFxSeries(position.currency, currency.quote, '1mo');
+        if (!fx) return null;
+        return { value: position.avgPrice * fx.latest, quantity: position.quantity };
+    }
+
+    // Quote-currency price → major units (GBp → GBP).
+    toMajor(price) {
+        return isNum(price) ? price * this.currentData.currency.priceFactor : null;
+    }
+
+    // Long monthly history shared by the valuation views (year-end prices).
+    async getLongHistory() {
+        if (!this.currentData.priceHistoryLong) {
+            this.currentData.priceHistoryLong = await this.fetchPriceHistory(this.currentSymbol, '10y').catch(() => null) || [];
+        }
+        return this.currentData.priceHistoryLong;
     }
 
     // ─── Tabs ──────────────────────────────────────────────────────────────
@@ -476,7 +573,7 @@ class ScreenerApp {
         tabs.forEach(tab => {
             tab.addEventListener('click', async () => {
                 if (tab.classList.contains('disabled')) {
-                    this.showTempMessage('Fonctionnalité bientôt disponible', 1600);
+                    this.showTempMessage(tab.dataset.disabledReason || 'Fonctionnalité bientôt disponible', 2200);
                     return;
                 }
                 tabs.forEach(t => t.classList.remove('active'));
@@ -607,14 +704,20 @@ class ScreenerApp {
             '6mo': { range: '6mo', interval: '1d' },
             'ytd': { range: 'ytd', interval: '1d' },
             '1y': { range: '1y', interval: '1wk' },
-            '3y': { range: '2y', interval: '1wk' },
+            // Yahoo has no 3y range: request the exact window instead of 2y.
+            '3y': { years: 3, interval: '1wk' },
             '5y': { range: '5y', interval: '1wk' },
             '10y': { range: '10y', interval: '1mo' },
             '10ywk': { range: '10y', interval: '1wk' }, // ~520 pts for MA buffer
             'max': { range: 'max', interval: '1mo' },
         };
-        const { range, interval } = rangeMap[period] || rangeMap['1y'];
-        const url = `${PROXY}?symbol=${encodeURIComponent(symbol)}&range=${range}&interval=${interval}`;
+        const { range, years, interval } = rangeMap[period] || rangeMap['1y'];
+        let window = `range=${range}`;
+        if (years) {
+            const now = Math.floor(Date.now() / 1000);
+            window = `period1=${now - Math.round(years * YEAR_MS / 1000)}&period2=${now}`;
+        }
+        const url = `${PROXY}?symbol=${encodeURIComponent(symbol)}&${window}&interval=${interval}`;
         const data = await this.safeFetchJson(url);
         const chart = data?.chart?.result?.[0];
         if (!chart) return null;
@@ -629,17 +732,27 @@ class ScreenerApp {
         })).filter(d => d.c != null);
     }
 
-    // Wrapper fetch that logs non-OK responses and returns parsed JSON
-    async safeFetchJson(url, opts = {}) {
+    // Wrapper fetch that logs non-OK responses and returns parsed JSON. Yahoo
+    // answers intermittent 502/503 through the Worker: one delayed retry absorbs
+    // them before the page gives up.
+    async safeFetchJson(url, opts = {}, attempt = 0) {
         try {
             const res = await fetch(url, opts);
             const text = await res.text();
             if (!res.ok) {
+                if ([502, 503, 504].includes(res.status) && attempt < 1) {
+                    await new Promise(resolve => setTimeout(resolve, 900));
+                    return this.safeFetchJson(url, opts, attempt + 1);
+                }
                 // Try to parse JSON body if possible
                 let parsed = text;
                 try { parsed = JSON.parse(text); } catch (e) { /* keep raw text */ }
                 logger.error('[Fetch] Non-OK response', { url, status: res.status, body: parsed });
-                throw new Error(`Fetch ${res.status}: ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`);
+                const error = new Error(res.status === 429
+                    ? 'Trop de requêtes vers le fournisseur de données. Réessayez dans une minute.'
+                    : 'Le fournisseur de données (Yahoo Finance) ne répond pas pour le moment. Réessayez dans quelques instants.');
+                error.status = res.status;
+                throw error;
             }
             try {
                 return JSON.parse(text);
@@ -680,17 +793,35 @@ class ScreenerApp {
         this.renderSP500Chart();
         this.renderRadarAndScore(stats, financial, detail);
         this.renderValuation(stats, financial, detail, price);
-        this.setupPeriodButtons();
+        this.updateTabAvailability();
+        this.resetCalculatorInputs();
         this.updateWatchlistButtonState();
-        this.setupKpiModals();
+    }
+
+    // Statements, valuation and the quantitative profile only exist for
+    // operating companies: for ETFs, indices and crypto they stay disabled
+    // instead of showing charts computed from empty fields.
+    updateTabAvailability() {
+        const { hasFundamentals, quoteSummary } = this.currentData;
+        const type = quoteSummary.price?.quoteType || '';
+        const reason = `Non disponible pour ce type d'actif (${type || 'inconnu'}) : aucun état financier publié.`;
+        ['quantitatif', 'finances', 'valorisation'].forEach(name => {
+            const tab = document.querySelector(`.screener-tab[data-tab="${name}"]`);
+            if (!tab) return;
+            tab.classList.toggle('disabled', !hasFundamentals);
+            if (hasFundamentals) delete tab.dataset.disabledReason;
+            else tab.dataset.disabledReason = reason;
+        });
+        document.querySelectorAll('.kpi-expand-btn[data-kpi="radar"], .kpi-expand-btn[data-kpi="valuation"]')
+            .forEach(btn => { btn.style.display = hasFundamentals ? '' : 'none'; });
     }
 
     renderHeader(profile, stats, financial, detail, price) {
         const symbol = this.currentSymbol;
         const name = price.longName || price.shortName || symbol;
-        const currentPrice = price.regularMarketPrice?.raw ?? detail.previousClose?.raw ?? 0;
-        const change = price.regularMarketChange?.raw ?? 0;
-        const changePct = price.regularMarketChangePercent?.raw ?? 0;
+        const currentPrice = price.regularMarketPrice?.raw ?? null;
+        const change = price.regularMarketChange?.raw ?? null;
+        const changePct = price.regularMarketChangePercent?.raw ?? null;
         const currency = price.currency || detail.currency || '';
         const exchange = price.exchangeName || '';
 
@@ -700,58 +831,78 @@ class ScreenerApp {
         document.getElementById('stock-currency').textContent = currency;
 
         document.getElementById('stock-price').textContent =
-            `${this.fmt(currentPrice, 2)} ${currency}`;
+            currentPrice != null ? `${this.fmt(currentPrice, 2)} ${currency}` : '—';
 
         const changeEl = document.getElementById('stock-change');
-        const sign = change >= 0 ? '+' : '';
-        changeEl.textContent = `${sign}${this.fmt(change, 2)} (${sign}${(changePct * 100).toFixed(2)}%)`;
-        changeEl.className = 'stock-change ' + (change >= 0 ? 'positive' : 'negative');
+        const up = (change ?? 0) >= 0;
+        const sign = up ? '+' : '';
+        const pctText = changePct != null ? `${sign}${(changePct * 100).toFixed(2)}%` : '—';
+        changeEl.textContent = change != null ? `${sign}${this.fmt(change, 2)} (${pctText})` : '—';
+        changeEl.className = 'stock-change ' + (up ? 'positive' : 'negative');
 
-        const logoEl = document.getElementById('stock-logo');
-        const domain = profile.website?.replace(/https?:\/\/(www\.)?/, '').split('/')[0];
-        if (domain) {
-            logoEl.innerHTML = `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=128" alt="${name}" onerror="this.parentElement.textContent='${symbol.charAt(0)}'">`;
-        } else {
-            logoEl.textContent = symbol.charAt(0);
-        }
+        this.renderLogo(document.getElementById('stock-logo'), profile, name);
 
         document.getElementById('price-chart-label').textContent =
-            `${this.fmt(currentPrice, 2)} ${currency}  ${sign}${(changePct * 100).toFixed(2)}%`;
+            currentPrice != null ? `${this.fmt(currentPrice, 2)} ${currency}  ${pctText}` : '—';
+
+        // Source and quote time: Yahoo quotes are delayed on most venues.
+        const sourceEl = document.getElementById('stock-data-source');
+        if (sourceEl) {
+            const time = price.regularMarketTime?.raw ?? price.regularMarketTime;
+            const when = isNum(time)
+                ? new Date(time * 1000).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                : null;
+            sourceEl.textContent = `Source : Yahoo Finance${when ? ` · cours du ${when}` : ''} · données différées`;
+        }
+    }
+
+    // Favicon from the company website, initial letter otherwise. Yahoo strings
+    // are escaped: they are external data.
+    renderLogo(el, profile, name) {
+        if (!el) return;
+        const domain = this.safeWebsite(profile.website)?.hostname.replace(/^www\./, '');
+        el.textContent = '';
+        if (!domain) {
+            el.textContent = this.currentSymbol.charAt(0);
+            return;
+        }
+        const img = document.createElement('img');
+        img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+        img.alt = name || this.currentSymbol;
+        img.onerror = () => { el.textContent = this.currentSymbol.charAt(0); };
+        el.appendChild(img);
+    }
+
+    safeWebsite(website) {
+        try {
+            const url = new URL(website);
+            return url.protocol === 'https:' || url.protocol === 'http:' ? url : null;
+        } catch {
+            return null;
+        }
     }
 
     renderCompanyInfo(profile, stats, detail, price) {
         const mktCap = price.marketCap?.raw ?? detail.marketCap?.raw;
         const currency = price.currency || '';
-        const website = profile.website || '';
+        const website = this.safeWebsite(profile.website);
         const exchange = price.exchangeName || '';
 
         document.getElementById('info-ticker').textContent = this.currentSymbol;
-        document.getElementById('info-mktcap').textContent = mktCap ? this.fmtBig(mktCap, currency) : '—';
-        document.getElementById('info-exchange').textContent = exchange;
+        // Market cap is in major units even for pence-quoted lines (GBp → GBP)
+        document.getElementById('info-mktcap').textContent = mktCap ? this.fmtBig(mktCap, this.currentData.currency.priceIso || currency) : '—';
+        document.getElementById('info-exchange').textContent = exchange || '—';
         document.getElementById('info-website').innerHTML = website
-            ? `<a href="${website}" target="_blank" rel="noopener">${website.replace('https://', '').replace('http://', '')}</a>`
+            ? `<a href="${escHtml(website.href)}" target="_blank" rel="noopener">${escHtml(website.host + website.pathname.replace(/\/$/, ''))}</a>`
             : '—';
-        document.getElementById('info-isin').textContent = stats.isin || '—';
+        document.getElementById('info-type').textContent = this.quoteTypeLabel(price.quoteType);
         document.getElementById('info-sector').textContent = profile.sector || '—';
         document.getElementById('info-country').textContent = profile.country || '—';
         document.getElementById('info-industry').textContent = profile.industry || '—';
         document.getElementById('info-currency').textContent = currency || '—';
-        document.getElementById('info-subindustry').textContent = profile.industry || '—'; // Yahoo doesn't expose sub-industry separately
 
-        // PEA badge: European exchanges are generally PEA-eligible (rough heuristic)
-        const ex = (price.exchange || '').toUpperCase();
-        const isPEAEligible = ['EPA', 'PAR', 'BRU', 'AMS', 'MIL', 'FRA', 'STU', 'EBS'].some(e => ex.includes(e));
-        const peaBadge = document.getElementById('info-pea-badge');
-        if (isPEAEligible) {
-            peaBadge.className = 'info-badge badge-green';
-            peaBadge.innerHTML = '<i class="fas fa-check-circle"></i> PEA : Éligible';
-        } else {
-            peaBadge.className = 'info-badge badge-red';
-            peaBadge.innerHTML = '<i class="fas fa-times-circle"></i> PEA : Non éligible';
-        }
-
-        // Dividend badge
-        const hasDiv = (detail.dividendYield?.raw ?? 0) > 0 || (detail.trailingAnnualDividendYield?.raw ?? 0) > 0;
+        // Dividend badge (dividendYield first: the trailing yield mixes currencies for ADRs)
+        const hasDiv = (detail.dividendYield?.raw ?? detail.trailingAnnualDividendYield?.raw ?? 0) > 0;
         const divBadge = document.getElementById('info-div-badge');
         if (hasDiv) {
             divBadge.className = 'info-badge badge-green';
@@ -762,13 +913,21 @@ class ScreenerApp {
         }
     }
 
+    quoteTypeLabel(type) {
+        const labels = { EQUITY: 'Action', ETF: 'ETF', MUTUALFUND: 'Fonds', INDEX: 'Indice', CRYPTOCURRENCY: 'Crypto-monnaie', FUTURE: 'Contrat à terme', CURRENCY: 'Devise' };
+        return labels[type] || type || '—';
+    }
+
     // ─── Price Chart ──────────────────────────────────────────────────────────
     renderPriceChart() {
         const data = this.currentData.priceHistory;
-        if (!data || !data.length) return;
-
         const canvas = document.getElementById('price-chart');
-        if (this.priceChart) this.priceChart.destroy();
+        // Never leave the previous symbol's chart on screen
+        if (this.priceChart) { this.priceChart.destroy(); this.priceChart = null; }
+        if (!data || !data.length) {
+            ['cs-perf', 'cs-cagr', 'cs-vol'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = '—'; el.className = 'cs-value'; } });
+            return;
+        }
 
         const labels = data.map(d => new Date(d.t).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' }));
         const values = data.map(d => d.c);
@@ -777,24 +936,20 @@ class ScreenerApp {
         const isUp = last >= first;
         const color = isUp ? '#10b981' : '#ef4444';
 
-        // Check if user holds this asset → show PRU line
-        const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === this.currentSymbol);
-        let avgPrice = null;
-        if (purchases.length > 0) {
-            const totalQty = purchases.reduce((s, p) => s + p.quantity, 0);
-            const totalCost = purchases.reduce((s, p) => s + p.price * p.quantity, 0);
-            avgPrice = totalCost / totalQty;
-        }
+        // PRU of the position still held, already converted to the quote currency
+        const avgPrice = this.currentData.pru?.value ?? null;
+        const currency = this.currentData.currency.quote || '';
 
-        // Chart stats
+        // Chart stats — an annualised rate over less than a year is not meaningful
         const perfPct = ((last - first) / first) * 100;
-        const years = (data[data.length - 1].t - data[0].t) / (365.25 * 24 * 3600 * 1000);
-        const cagr = years > 0 ? (Math.pow(last / first, 1 / years) - 1) * 100 : 0;
+        const years = (data[data.length - 1].t - data[0].t) / YEAR_MS;
+        const annualised = years >= MIN_ANNUALISED_YEARS ? cagr(first, last, years) : null;
         const volatility = this.calcVolatility(values, this.calcPeriodsPerYear(data));
 
         const el = (id) => document.getElementById(id);
         this.setColorValue(el('cs-perf'), `${perfPct >= 0 ? '+' : ''}${perfPct.toFixed(1)}%`, perfPct >= 0);
-        this.setColorValue(el('cs-cagr'), `${cagr >= 0 ? '+' : ''}${cagr.toFixed(1)}%/an`, cagr >= 0);
+        if (annualised != null) this.setColorValue(el('cs-cagr'), `${annualised >= 0 ? '+' : ''}${annualised.toFixed(1)}%/an`, annualised >= 0);
+        else { el('cs-cagr').textContent = '—'; el('cs-cagr').className = 'cs-value'; }
         el('cs-vol').textContent = `${volatility.toFixed(1)}%`;
 
         const datasets = [{
@@ -810,7 +965,7 @@ class ScreenerApp {
 
         if (avgPrice !== null) {
             datasets.push({
-                label: `PRU : ${this.fmt(avgPrice, 2)}`,
+                label: `PRU : ${this.fmt(avgPrice, 2)} ${currency}`,
                 data: Array(values.length).fill(avgPrice),
                 borderColor: '#f59e0b',
                 borderWidth: 1.5,
@@ -830,10 +985,12 @@ class ScreenerApp {
     // ─── Regression Chart ─────────────────────────────────────────────────────
     renderRegressionChart() {
         const data = this.currentData.priceHistory;
-        if (!data || data.length < 4) return;
-
         const canvas = document.getElementById('regression-chart');
-        if (this.regressionChart) this.regressionChart.destroy();
+        if (this.regressionChart) { this.regressionChart.destroy(); this.regressionChart = null; }
+        if (!data || data.length < 4) {
+            ['reg-current', 'reg-value', 'reg-slope'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = '—'; el.className = 'cs-value'; } });
+            return;
+        }
 
         const values = data.map(d => d.c);
         const n = values.length;
@@ -886,74 +1043,42 @@ class ScreenerApp {
 
     // ─── S&P 500 Chart ────────────────────────────────────────────────────────
     renderSP500Chart() {
-        const stockData5y = this.currentData.sp500History; // We'll re-use priceHistory for stock if 5y
-        if (!this.currentData.sp500History) return;
-
         const canvas = document.getElementById('sp500-chart');
-        if (this.sp500Chart) this.sp500Chart.destroy();
+        if (this.sp500Chart) { this.sp500Chart.destroy(); this.sp500Chart = null; }
+        ['sp-diff', 'sp-cagr-stock', 'sp-cagr-sp'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) { el.textContent = '—'; el.className = 'cs-value'; }
+        });
 
-        // We need 5y data for both stock and S&P. Let's already have S&P; load stock 5y separately.
-        const sp500 = this.currentData.sp500History.filter(d => d.c != null);
-        if (!sp500.length) return;
+        const stock = this.currentData.priceHistory || [];
+        const sp500 = this.currentData.sp500History || [];
+        if (!stock.length || !sp500.length) return;
 
-        let stockPriceHistory = this.currentData.priceHistory || [];
-        if (!stockPriceHistory.length) return;
+        // Both series share the stock's dates; the S&P value used at each date is
+        // its last close at or before it (different trading calendars, no look-ahead).
+        const pair = normalizePair(stock.map(d => d.c), alignSeriesByTime(stock, sp500));
+        if (!pair) return;
+        const stockNorm = pair.base, sp500Norm = pair.other;
 
-        // Filter S&P 500 to match the stock's time period
-        const startTs = stockPriceHistory[0].t;
-        const sp500Filtered = sp500.filter(d => d.t >= startTs);
-
-        if (!sp500Filtered.length) return;
-
-        // Normalize to 100 at start
-        const sp500Base = sp500Filtered[0].c;
-        const sp500Norm = sp500Filtered.map(d => (d.c / sp500Base) * 100);
-
-        const stockBase = stockPriceHistory[0].c;
-        const stockNorm = stockPriceHistory.map(d => (d.c / stockBase) * 100);
-
-        // Compute stats — both CAGRs use the actual elapsed time of the currently
-        // selected period, not a fixed 5 years (sp500Filtered is time-aligned to stockPriceHistory).
-        const spLast = sp500Norm[sp500Norm.length - 1];
-        const stockLast = stockNorm[stockNorm.length - 1];
-        const diff = stockLast - spLast;
-        const stockYears = (stockPriceHistory[stockPriceHistory.length - 1].t - stockPriceHistory[0].t) / (365.25 * 24 * 3600 * 1000);
-        const spYears = (sp500Filtered[sp500Filtered.length - 1].t - sp500Filtered[0].t) / (365.25 * 24 * 3600 * 1000);
-        const stockCAGR = stockYears > 0 ? (Math.pow(stockLast / 100, 1 / stockYears) - 1) * 100 : 0;
-        const spCAGR = spYears > 0 ? (Math.pow(spLast / 100, 1 / spYears) - 1) * 100 : 0;
+        const lastIdx = stockNorm.length - 1;
+        const stockLast = stockNorm[lastIdx], spLast = sp500Norm[lastIdx];
+        const years = (stock[lastIdx].t - stock[pair.start].t) / YEAR_MS;
+        const diff = stockLast - spLast; // points of the base-100 index
+        const stockCAGR = years >= MIN_ANNUALISED_YEARS ? cagr(100, stockLast, years) : null;
+        const spCAGR = years >= MIN_ANNUALISED_YEARS ? cagr(100, spLast, years) : null;
 
         const periodLabels = { '1mo': '1M', '3mo': '3M', '6mo': '6M', '1y': '1A', '5y': '5A' };
         const diffLabel = document.getElementById('sp-diff-label');
-        if (diffLabel) diffLabel.textContent = `Diff. ${periodLabels[this.currentPeriod] || ''}`;
+        if (diffLabel) diffLabel.textContent = `Écart ${periodLabels[this.currentPeriod] || ''}`.trim();
 
-        this.setColorValue(document.getElementById('sp-diff'), `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%`, diff >= 0);
-        this.setColorValue(document.getElementById('sp-cagr-stock'), `${stockCAGR >= 0 ? '+' : ''}${stockCAGR.toFixed(1)}%/an`, stockCAGR >= 0);
-        this.setColorValue(document.getElementById('sp-cagr-sp'), `${spCAGR >= 0 ? '+' : ''}${spCAGR.toFixed(1)}%/an`, spCAGR >= 0);
+        const pctText = v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%/an`;
+        this.setColorValue(document.getElementById('sp-diff'), `${diff >= 0 ? '+' : ''}${diff.toFixed(1)} pts`, diff >= 0);
+        if (stockCAGR != null) this.setColorValue(document.getElementById('sp-cagr-stock'), pctText(stockCAGR), stockCAGR >= 0);
+        if (spCAGR != null) this.setColorValue(document.getElementById('sp-cagr-sp'), pctText(spCAGR), spCAGR >= 0);
 
-        const spLabels = sp500Filtered.map(d => new Date(d.t).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }));
+        const spLabels = stock.map(d => new Date(d.t).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' }));
+        const stockDataPoints = stockNorm;
 
-        // Map each stock point to the closest S&P 500 label index by timestamp
-        const stockDataPoints = [];
-        let lastIdx = -1;
-        stockNorm.forEach((v, i) => {
-            const t = stockPriceHistory[i].t;
-            let closestIdx = 0;
-            let minDiff = Infinity;
-            for (let j = 0; j < sp500Filtered.length; j++) {
-                const diff = Math.abs(sp500Filtered[j].t - t);
-                if (diff < minDiff) { minDiff = diff; closestIdx = j; }
-            }
-            if (closestIdx !== lastIdx) {
-                stockDataPoints.push({ x: closestIdx, y: v });
-                lastIdx = closestIdx;
-            } else if (stockDataPoints.length > 0) {
-                // If multiple stock points map to the same S&P day (e.g. intraday vs daily),
-                // over-write the previous y to keep only the final close for that index.
-                stockDataPoints[stockDataPoints.length - 1].y = v;
-            }
-        });
-
-        // Ensure the datasets are drawn correctly even with gaps
         this.sp500Chart = new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: {
@@ -1002,36 +1127,44 @@ class ScreenerApp {
     // ─── Radar & Score ────────────────────────────────────────────────────────
     renderRadarAndScore(stats, financial, detail) {
         const canvas = document.getElementById('radar-chart');
-        const dimensions = this.calculateRadarDimensions(stats, financial, detail);
+        const scoreBadge = document.getElementById('stock-score-badge');
+        const scoreValue = document.getElementById('stock-score-value');
+        const legendEl = document.getElementById('radar-legend');
+        if (this.radarChart) { this.radarChart.destroy(); this.radarChart = null; }
+
+        const dimensions = this.currentData.hasFundamentals ? radarDimensions(financial, detail) : null;
+        const totalScore = dimensions ? quantScore(dimensions) : null;
+
+        if (totalScore == null) {
+            // No statements (ETF, index, crypto) or too few fields: no score at all.
+            scoreBadge.style.display = 'none';
+            document.getElementById('radar-score-badge').textContent = '—/20';
+            canvas.style.display = 'none';
+            legendEl.innerHTML = `<div class="valuation-skeleton">Profil quantitatif non applicable : ${this.currentData.hasFundamentals ? 'données fondamentales insuffisantes' : 'cet actif ne publie pas d\'états financiers'}.</div>`;
+            return;
+        }
+        scoreBadge.style.display = '';
+        canvas.style.display = '';
 
         const axes = Object.keys(dimensions);
         const vals = Object.values(dimensions);
-        const totalScore = parseFloat(this.calculateScore(stats, financial, detail));
 
-        // Update score badges
-        document.getElementById('stock-score-value').textContent = totalScore.toFixed(1);
+        scoreValue.textContent = totalScore.toFixed(1);
         document.getElementById('radar-score-badge').textContent = `${totalScore.toFixed(1)}/20`;
-
-        // Color score badge
-        const scoreBadge = document.getElementById('stock-score-badge');
         scoreBadge.style.background = totalScore >= 14
             ? 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.2))'
             : totalScore >= 10
                 ? 'linear-gradient(135deg, rgba(245,158,11,0.2), rgba(217,119,6,0.2))'
                 : 'linear-gradient(135deg, rgba(239,68,68,0.2), rgba(185,28,28,0.2))';
-        document.getElementById('stock-score-value').style.color = totalScore >= 14 ? '#10b981' : totalScore >= 10 ? '#f59e0b' : '#ef4444';
+        scoreValue.style.color = totalScore >= 14 ? '#10b981' : totalScore >= 10 ? '#f59e0b' : '#ef4444';
 
-        // Legend
-        const legendEl = document.getElementById('radar-legend');
         legendEl.innerHTML = axes.map((name, i) => `
             <div class="radar-legend-item">
                 <span class="radar-legend-name">${name}</span>
-                <span class="radar-legend-score">${vals[i].toFixed(1)}/5</span>
+                <span class="radar-legend-score">${vals[i] == null ? 'n/d' : `${vals[i].toFixed(1)}/5`}</span>
             </div>
         `).join('');
 
-        // Radar chart
-        if (this.radarChart) this.radarChart.destroy();
         this.radarChart = new Chart(canvas.getContext('2d'), {
             type: 'radar',
             data: {
@@ -1039,6 +1172,7 @@ class ScreenerApp {
                 datasets: [{
                     label: this.currentSymbol,
                     data: vals,
+                    spanGaps: true,
                     backgroundColor: 'rgba(99,102,241,0.2)',
                     borderColor: '#6366f1',
                     borderWidth: 2,
@@ -1071,81 +1205,91 @@ class ScreenerApp {
     }
 
     // ─── Valuation ────────────────────────────────────────────────────────────
-    renderValuation(stats, financial, detail, price) {
-        const currency = price.currency || '';
-        const currentPrice = price.regularMarketPrice?.raw ?? 0;
+    // Valuation inputs expressed per quoted share, in the price currency (major
+    // units). Statement amounts are converted with the real FX rate; anything
+    // that cannot be derived from real data is null.
+    valuationInputs() {
+        const qs = this.currentData.quoteSummary;
+        const stats = qs.defaultKeyStatistics || {};
+        const fin = qs.financialData || {};
+        const detail = qs.summaryDetail || {};
+        const { currency, rows } = this.currentData;
+        const val = v => (isNum(v?.raw) ? v.raw : null);
+        const shares = val(stats.sharesOutstanding);
+        const fx = this.finToPrice();
+        const perShare = amount => (isNum(amount) && isNum(shares) && shares > 0 && isNum(fx) ? (amount * fx) / shares : null);
+        const lastBook = [...rows].reverse().find(r => isNum(r.bookPerShare));
 
-        // PE-based fair value: EPS * avg historical PE of sector (simplified: use trailing PE * 0.85 as "fair")
-        const trailingEPS = stats.trailingEps?.raw;
-        const forwardEPS = stats.forwardEps?.raw;
-        const forwardPE = stats.forwardPE?.raw;
-        const trailingPE = detail.trailingPE?.raw;
-        const pbRatio = detail.priceToBook?.raw;
-        const psRatio = stats.priceToSalesTrailing12Months?.raw ?? detail.priceToBook?.raw;
-        const bookValue = stats.bookValue?.raw;
+        return {
+            currency: currency.priceIso || '',
+            price: this.toMajor(val(qs.price?.regularMarketPrice)),
+            shares,
+            trailingEps: val(stats.trailingEps),
+            forwardEps: val(stats.forwardEps),
+            trailingPE: val(detail.trailingPE),
+            forwardPE: val(detail.forwardPE),
+            // Yahoo's bookValue is unreliable when statements use another currency.
+            bookPerShare: lastBook && isNum(fx) ? lastBook.bookPerShare * fx : (!currency.needsFx ? val(stats.bookValue) : null),
+            fcfPerShare: perShare(val(fin.freeCashflow)),
+            ocfPerShare: perShare(val(fin.operatingCashflow)),
+            salesPerShare: perShare(val(fin.totalRevenue)),
+            revenueGrowth: val(fin.revenueGrowth),
+            dividendRate: val(detail.dividendRate),
+            fxMissing: currency.needsFx && !isNum(fx),
+        };
+    }
 
-        const items = [];
+    renderValuation() {
+        const listEl = document.getElementById('valuation-list');
+        const valuationDiffEl = document.getElementById('valuation-diff');
+        valuationDiffEl.textContent = '—';
+        valuationDiffEl.className = 'valuation-diff';
 
-        // Price/Earnings based
-        if (trailingEPS && trailingPE) {
-            const historicalPE = 18; // Market avg
-            const peFairValue = trailingEPS * historicalPE;
-            items.push({ label: 'Prix juste (P/E 18x)', value: peFairValue, currency });
-        }
-
-        // Forward PE based — uses the forward (estimated) EPS, not trailing EPS
-        if (forwardEPS && forwardPE) {
-            const forwardFairValue = forwardEPS * 15; // Conservative
-            items.push({ label: 'P/E Forward 15x', value: forwardFairValue, currency });
-        }
-
-        // Price/Book based
-        if (bookValue) {
-            const avgPB = 2.5; // Conservative avg
-            const pbFairValue = bookValue * avgPB;
-            items.push({ label: 'Prix/Book 2.5x', value: pbFairValue, currency });
-        }
-
-        // Graham Number: sqrt(22.5 * EPS * Book)
-        if (trailingEPS && bookValue && trailingEPS > 0 && bookValue > 0) {
-            const graham = Math.sqrt(22.5 * trailingEPS * bookValue);
-            items.push({ label: 'Nombre de Graham', value: graham, currency });
-        }
-
-        // DCF simplified: use free cash flow per share
-        const fcfPerShare = financial.freeCashflow?.raw && stats.sharesOutstanding?.raw
-            ? financial.freeCashflow.raw / stats.sharesOutstanding.raw
-            : null;
-        if (fcfPerShare && fcfPerShare > 0) {
-            const growthRate = financial.revenueGrowth?.raw ?? 0.05;
-            const cappedGrowthRate = Math.min(growthRate, 0.20);
-            const discountRate = 0.10;
-            const terminalGrowth = 0.025;
-            // Simplified DCF: sum 10 years + terminal
-            let dcf = 0;
-            let fcf = fcfPerShare;
-            for (let y = 1; y <= 10; y++) {
-                fcf *= (1 + cappedGrowthRate);
-                dcf += fcf / Math.pow(1 + discountRate, y);
-            }
-            const terminal = (fcf * (1 + terminalGrowth)) / (discountRate - terminalGrowth);
-            dcf += terminal / Math.pow(1 + discountRate, 10);
-            const tooltip = `Hypothèses : croissance FCF ${(cappedGrowthRate * 100).toFixed(1)}%/an sur 10 ans (basée sur la croissance du CA, plafonnée à 20%), taux d'actualisation ${(discountRate * 100).toFixed(0)}%, croissance terminale ${(terminalGrowth * 100).toFixed(1)}%`;
-            items.push({ label: 'DCF (simplifié)', value: dcf, currency, tooltip });
-        }
-
-        if (!items.length) {
-            document.getElementById('valuation-list').innerHTML = '<div class="valuation-skeleton">Données insuffisantes pour calculer la valorisation.</div>';
+        if (!this.currentData.hasFundamentals) {
+            listEl.innerHTML = '<div class="valuation-skeleton">Valorisation non applicable : cet actif ne publie pas d\'états financiers.</div>';
             return;
         }
 
-        // Median fair value
-        const fairValues = items.map(i => i.value).filter(v => v > 0);
-        const medianFV = this.median(fairValues);
-        const diffPct = currentPrice > 0 ? ((currentPrice - medianFV) / medianFV) * 100 : 0;
-        const valuationDiffEl = document.getElementById('valuation-diff');
-        valuationDiffEl.textContent = `${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(1)}%`;
-        valuationDiffEl.className = 'valuation-diff ' + (diffPct <= -10 ? 'positive' : diffPct >= 10 ? 'negative' : '');
+        const inp = this.valuationInputs();
+        const currency = inp.currency;
+        const currentPrice = inp.price;
+        const items = [];
+
+        // Fixed multiples are explicit hypotheses, not market data: each label says so.
+        if (inp.trailingEps > 0) {
+            items.push({ label: 'BPA × 18 (hyp.)', value: inp.trailingEps * 18, tooltip: 'BPA des 12 derniers mois × P/E hypothétique de 18' });
+        }
+        if (inp.forwardEps > 0) {
+            items.push({ label: 'BPA estimé × 15 (hyp.)', value: inp.forwardEps * 15, tooltip: 'BPA estimé par les analystes × P/E hypothétique de 15' });
+        }
+        if (inp.bookPerShare > 0) {
+            items.push({ label: 'Val. comptable × 2,5 (hyp.)', value: inp.bookPerShare * 2.5, tooltip: 'Capitaux propres par action × P/B hypothétique de 2,5' });
+        }
+        if (inp.trailingEps > 0 && inp.bookPerShare > 0) {
+            items.push({ label: 'Nombre de Graham', value: Math.sqrt(22.5 * inp.trailingEps * inp.bookPerShare), tooltip: '√(22,5 × BPA × valeur comptable par action)' });
+        }
+        const dcf = simpleDcf(inp.fcfPerShare, inp.revenueGrowth);
+        if (dcf) {
+            items.push({
+                label: 'DCF simplifié', value: dcf.value,
+                tooltip: `Hypothèses : croissance du FCF ${(dcf.growth * 100).toFixed(1)} %/an sur 10 ans (croissance du CA, plafonnée à 20 %), actualisation ${(dcf.discountRate * 100).toFixed(0)} %, croissance terminale ${(dcf.terminalGrowth * 100).toFixed(1)} %`,
+            });
+        }
+
+        if (!items.length || !isNum(currentPrice)) {
+            listEl.innerHTML = `<div class="valuation-skeleton">${inp.fxMissing ? 'Conversion de devise indisponible : valorisation non calculée.' : 'Données insuffisantes pour calculer la valorisation.'}</div>`;
+            return;
+        }
+        items.forEach(i => { i.currency = currency; });
+
+        // Median of the estimates vs current price
+        const medianFV = median(items.map(i => i.value).filter(v => v > 0));
+        const diffPct = medianFV > 0 ? ((currentPrice - medianFV) / medianFV) * 100 : null;
+        if (diffPct != null) {
+            valuationDiffEl.textContent = `${diffPct >= 0 ? '+' : ''}${diffPct.toFixed(1)}%`;
+            valuationDiffEl.className = 'valuation-diff ' + (diffPct <= -10 ? 'positive' : diffPct >= 10 ? 'negative' : '');
+            valuationDiffEl.title = 'Écart du cours à la médiane des estimations';
+        }
 
         // Compute max for bar normalization
         const allValues = [...items.map(i => i.value), currentPrice];
@@ -1171,20 +1315,28 @@ class ScreenerApp {
             })
         ].join('');
 
-        document.getElementById('valuation-list').innerHTML = html;
+        listEl.innerHTML = html + '<p class="valuation-disclaimer">Estimations indicatives fondées sur des hypothèses fixes. Elles ne constituent pas un conseil en investissement.</p>';
     }
 
     // ─── Period Buttons ───────────────────────────────────────────────────────
     setupPeriodButtons() {
         document.querySelectorAll('.period-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
-                if (btn.dataset.period === this.currentPeriod) return;
+                if (!this.currentData || btn.dataset.period === this.currentPeriod) return;
                 document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.currentPeriod = btn.dataset.period;
 
-                const priceHistory = await this.fetchPriceHistory(this.currentSymbol, this.currentPeriod);
+                const token = this._loadToken;
+                const period = this.currentPeriod;
+                const [priceHistory, sp500History] = await Promise.all([
+                    this.fetchPriceHistory(this.currentSymbol, period).catch(() => null),
+                    this.fetchPriceHistory(SP500_SYMBOL, period).catch(() => null),
+                ]);
+                // Ignore a response that arrives after another period or symbol was chosen.
+                if (token !== this._loadToken || period !== this.currentPeriod || !priceHistory) return;
                 this.currentData.priceHistory = priceHistory;
+                this.currentData.sp500History = sp500History;
                 this.renderPriceChart();
                 this.renderRegressionChart();
                 this.renderSP500Chart();
@@ -1262,16 +1414,6 @@ class ScreenerApp {
         return { slope, intercept, r2 };
     }
 
-    calculateMA(data, period) {
-        if (data.length < period) return [];
-        let mas = new Array(period - 1).fill(null);
-        for (let i = period - 1; i < data.length; i++) {
-            const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
-            mas.push(sum / period);
-        }
-        return mas;
-    }
-
     // Exponential Moving Average — tracks price more closely than SMA
     calculateEMA(data, period) {
         if (!data || data.length === 0) return [];
@@ -1309,25 +1451,22 @@ class ScreenerApp {
         return spanYears > 0 ? (data.length - 1) / spanYears : 52;
     }
 
-    median(arr) {
-        const s = [...arr].sort((a, b) => a - b);
-        const mid = Math.floor(s.length / 2);
-        return s.length % 2 !== 0 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-    }
-
-    cap(value, min, max) { return Math.min(Math.max(value, min), max); }
-
     fmt(n, decimals = 0) {
         if (n == null || isNaN(n)) return '—';
         return n.toLocaleString('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
     }
 
+    // Sign-aware amount with French magnitudes (M = 10⁶, Md = 10⁹). Amounts of
+    // 10¹² and more stay in Md ("2 374 Md") to avoid the English/French "billion" ambiguity.
     fmtBig(n, currency = '') {
-        if (n == null) return '—';
-        if (n >= 1e12) return `${(n / 1e12).toFixed(2)} B ${currency}`.trim();
-        if (n >= 1e9) return `${(n / 1e9).toFixed(2)} Md ${currency}`.trim();
-        if (n >= 1e6) return `${(n / 1e6).toFixed(2)} M ${currency}`.trim();
-        return `${this.fmt(n, 0)} ${currency}`.trim();
+        if (!isNum(n)) return '—';
+        const abs = Math.abs(n);
+        let text;
+        if (abs >= 1e12) text = this.fmt(n / 1e9, 0) + ' Md';
+        else if (abs >= 1e9) text = this.fmt(n / 1e9, 2) + ' Md';
+        else if (abs >= 1e6) text = this.fmt(n / 1e6, 2) + ' M';
+        else text = this.fmt(n, 0);
+        return `${text} ${currency}`.trim();
     }
 
     setColorValue(el, text, isPositive) {
@@ -1367,99 +1506,36 @@ class ScreenerApp {
         });
 
         this.setupModalSettings();
-        this.exchangeRates = { 'USD': 1 };
     }
 
-    async getExchangeRate(to) {
-        const from = this.currentData.quoteSummary?.price?.currency || 'USD';
-        if (from === to) return 1;
+    // Conversion factors, point by point, from the quote currency to `target`.
+    // NATIVE keeps the quote currency. XAU goes through USD and the gold future
+    // (USD per troy ounce). Returns null when a series is missing: the caller
+    // shows the native values and says so, a rate of 1 is never assumed.
+    async getConversionArray(target, dataPoints) {
+        const quote = this.currentData.currency.quote;
+        if (!dataPoints?.length || target === 'NATIVE' || target === quote) return dataPoints.map(() => 1);
 
-        const key = `${from}_${to}`;
-        // Only return cached if it's a real rate (not a failed 1)
-        if (this.exchangeRates[key] && this.exchangeRates[key] !== 1) return this.exchangeRates[key];
-
-        let rate = 1;
-        try {
-            if (from === 'USD' && to === 'EUR') {
-                const r = await this.fetchLatestPrice('EURUSD=X');
-                if (r && r > 0) rate = 1 / r;
-            } else if (from === 'EUR' && to === 'USD') {
-                const r = await this.fetchLatestPrice('EURUSD=X');
-                if (r && r > 0) rate = r;
-            } else if (to === 'XAU') {
-                // Try quote summary first (most reliable), then chart API fallbacks
-                let goldPrice = null;
-                try {
-                    const gd = await this.fetchQuoteSummary('GC=F');
-                    goldPrice = gd?.price?.regularMarketPrice?.raw;
-                } catch (e) { }
-                if (!goldPrice || goldPrice <= 0) goldPrice = await this.fetchLatestPrice('GC=F');
-                if (!goldPrice || goldPrice <= 0) goldPrice = await this.fetchLatestPrice('XAUUSD=X');
-                if (!goldPrice || goldPrice <= 0) goldPrice = await this.fetchLatestPrice('IAU'); // iShares gold ETF × 100
-                if (goldPrice && goldPrice > 0) {
-                    // GC=F and XAUUSD=X give price per troy oz in USD
-                    // IAU ETF: each share ≈ 0.01 oz gold, so goldPrice/0.01 = price/oz
-                    rate = 1 / goldPrice;
-                }
-            } else if (from === 'XAU') {
-                let goldPrice = null;
-                try { const gd = await this.fetchQuoteSummary('GC=F'); goldPrice = gd?.price?.regularMarketPrice?.raw; } catch (e) { }
-                if (!goldPrice || goldPrice <= 0) goldPrice = await this.fetchLatestPrice('GC=F');
-                if (goldPrice && goldPrice > 0) rate = goldPrice;
-            }
-        } catch (e) { console.warn('Rate error:', e); }
-
-        if (rate !== 1) this.exchangeRates[key] = rate; // only cache successful rates
-        return rate;
-    }
-
-    async fetchLatestPrice(symbol) {
-        try {
-            const data = await this.fetchPriceHistory(symbol, '1mo');
-            if (data && data.length > 0) return data[data.length - 1].c;
-        } catch (e) { }
-        return null;
-    }
-
-    // Fetch historical rate array matched point-by-point to the given data timestamps
-    async getHistoricalRateArray(toCurrency, dataPoints) {
-        const from = this.currentData.quoteSummary?.price?.currency || 'USD';
-        if (from === toCurrency) return dataPoints.map(() => 1);
-
-        let rateSymbol, inverse;
-        if (toCurrency === 'EUR') { rateSymbol = 'EURUSD=X'; inverse = true; }
-        else if (toCurrency === 'XAU') { rateSymbol = 'GC=F'; inverse = true; }
-        else return dataPoints.map(() => 1);
-
-        // Pick a range covering all data points
         const span = (dataPoints[dataPoints.length - 1].t - dataPoints[0].t) / 86400000;
-        let period = '1mo';
-        if (span > 25) period = '3mo';
-        if (span > 80) period = '6mo';
-        if (span > 170) period = '1y';
-        if (span > 355) period = '5y';
-        if (span > 1800) period = '10y';
-        if (span > 3600) period = 'max';
+        const period = span > 3600 ? 'max' : span > 1800 ? '10y' : span > 355 ? '5y' : span > 170 ? '1y' : span > 80 ? '6mo' : span > 25 ? '3mo' : '1mo';
 
-        const rateHistory = await this.fetchPriceHistory(rateSymbol, period);
-        if (!rateHistory || rateHistory.length === 0) {
-            // Fallback: use current rate for all points
-            const r = await this.getExchangeRate(toCurrency);
-            return dataPoints.map(() => r);
+        if (target === 'XAU') {
+            const [toUsd, gold] = await Promise.all([
+                this.fetchFxSeries(quote, 'USD', period),
+                this.fetchPriceHistory('GC=F', period).catch(() => null),
+            ]);
+            if (!toUsd || !gold?.length) return null;
+            const rates = dataPoints.map(d => {
+                const usd = toUsd.at(d.t), oz = valueAt(gold, d.t);
+                return isNum(usd) && isNum(oz) && oz > 0 ? usd / oz : null;
+            });
+            return rates.some(r => r == null) ? null : rates;
         }
 
-        const rateTimes = rateHistory.map(d => d.t);
-        return dataPoints.map(d => {
-            let lo = 0, hi = rateTimes.length - 1;
-            while (lo < hi) {
-                const mid = (lo + hi) >> 1;
-                if (rateTimes[mid] < d.t) lo = mid + 1;
-                else hi = mid;
-            }
-            if (lo > 0 && Math.abs(rateTimes[lo - 1] - d.t) < Math.abs(rateTimes[lo] - d.t)) lo--;
-            const r = rateHistory[lo]?.c;
-            return r && r > 0 ? (inverse ? 1 / r : r) : 1;
-        });
+        const fx = await this.fetchFxSeries(quote, target, period);
+        if (!fx) return null;
+        const rates = dataPoints.map(d => fx.at(d.t));
+        return rates.some(r => r == null) ? null : rates;
     }
 
     setupModalSettings() {
@@ -1492,7 +1568,7 @@ class ScreenerApp {
                     e.stopPropagation();
                     const val = opt.dataset.value;
                     hidden.value = val;
-                    label.textContent = val;
+                    label.textContent = val === 'NATIVE' ? (this.currentData?.currency.quote || 'Native') : val;
                     options.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
                     opt.classList.add('selected');
                     options.style.display = 'none';
@@ -1597,22 +1673,22 @@ class ScreenerApp {
     async openKpiModal(kpiType) {
         const modal = document.getElementById('kpi-modal');
         if (!modal || !this.currentData) return;
+        if ((kpiType === 'radar' || kpiType === 'valuation') && !this.currentData.hasFundamentals) return;
 
         // ── CLEAN SWEEP : Reset absolute avant ouverture ───────
         const modalContent = modal.querySelector('.kpi-modal-content');
         if (modalContent) modalContent.classList.remove('radar-mode-layout');
-        
+
         // Supprimer les résidus du mode radar
         document.querySelector('.radar-analysis-container')?.remove();
         const sidebarContent = document.querySelector('.kpi-modal-sidebar-content');
         if (sidebarContent) sidebarContent.style.display = '';
         document.querySelectorAll('.header-score-badge').forEach(b => b.style.display = 'none');
 
-        // Reset stable values
-        this.stableFairPrice = null;
-        this.masterHistory5y = null;
+        this.trendPrice = null;
+        this.modalHistory = null;
+        this.masterHistoryBuffer = null;
 
-        // Vider les stats et détruire le graphique précédent
         document.getElementById('kpi-modal-stats').innerHTML = '';
         if (this.modalChart) {
             this.modalChart.destroy();
@@ -1621,58 +1697,64 @@ class ScreenerApp {
 
         const qs = this.currentData.quoteSummary;
         const price = qs.price || {};
-        const detail = qs.summaryDetail || {};
         const profile = qs.assetProfile || {};
-
-        const currentPrice = price.regularMarketPrice?.raw ?? detail.previousClose?.raw ?? 0;
-        const changePct = price.regularMarketChangePercent?.raw ?? 0;
+        const currentPrice = price.regularMarketPrice?.raw ?? null;
+        const changePct = price.regularMarketChangePercent?.raw ?? null;
         const currency = price.currency || '';
 
-        // Logo and Header
-        const logoEl = document.getElementById('kpi-modal-logo');
-        const domain = profile.website?.replace(/https?:\/\/(www\.)?/, '').split('/')[0];
-        if (domain) logoEl.innerHTML = `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=128" alt="${this.currentSymbol}">`;
-        else logoEl.textContent = this.currentSymbol.charAt(0);
+        this.renderLogo(document.getElementById('kpi-modal-logo'), profile, price.longName || price.shortName);
 
-        document.getElementById('kpi-modal-price').textContent = `${this.fmt(currentPrice, 2)} ${currency}`;
+        document.getElementById('kpi-modal-price').textContent = currentPrice != null ? `${this.fmt(currentPrice, 2)} ${currency}` : '—';
         const changeEl = document.getElementById('kpi-modal-change');
-        const sign = changePct >= 0 ? '+' : '';
-        changeEl.innerHTML = `<i class="fas fa-arrow-${changePct >= 0 ? 'up' : 'down'}"></i> ${sign}${(changePct * 100).toFixed(2)}%`;
-        changeEl.className = 'kpi-modal-change ' + (changePct >= 0 ? 'positive' : 'negative');
-        document.getElementById('kpi-modal-ticker').textContent = `XNGS:${this.currentSymbol}`;
+        const up = (changePct ?? 0) >= 0;
+        changeEl.innerHTML = changePct != null
+            ? `<i class="fas fa-arrow-${up ? 'up' : 'down'}"></i> ${up ? '+' : ''}${(changePct * 100).toFixed(2)}%`
+            : '—';
+        changeEl.className = 'kpi-modal-change ' + (up ? 'positive' : 'negative');
+        document.getElementById('kpi-modal-ticker').textContent = price.exchangeName
+            ? `${price.exchangeName} · ${this.currentSymbol}`
+            : this.currentSymbol;
+
+        // The currency selector always starts on the quote currency.
+        const nativeOption = document.querySelector('#kpi-currency-options .custom-select-option[data-value="NATIVE"]');
+        if (nativeOption) nativeOption.textContent = `${currency} — Devise de cotation`;
+        document.getElementById('kpi-currency-select').value = 'NATIVE';
+        document.getElementById('kpi-currency-label').textContent = currency || 'Native';
+        document.querySelectorAll('#kpi-currency-options .custom-select-option')
+            .forEach(o => o.classList.toggle('selected', o.dataset.value === 'NATIVE'));
 
         modal.style.display = 'flex';
         document.body.style.overflow = 'hidden';
 
         this.currentModalKpi = kpiType;
         this.currentModalPeriod = '10y';
+        const token = ++this._modalToken;
 
-        // Fetch in parallel:
-        // - 10y weekly buffer for MM50/MM200 (50 weeks ≈ 1yr, 200 weeks ≈ 4yr)
-        // - max monthly for stable fair price (full history)
-        // - 10y monthly for initial chart display
+        // - 10y weekly buffer for EMA50/EMA200 (50 weeks ≈ 1yr, 200 weeks ≈ 4yr)
+        // - max monthly for the long-term trend line
+        // - 10y monthly for the initial chart
         const [buffer10ywk, bufferMax, history10y] = await Promise.all([
-            this.fetchPriceHistory(this.currentSymbol, '10ywk'), // weekly ~520 pts for MM50/MM200
-            this.fetchPriceHistory(this.currentSymbol, 'max'),   // monthly for fair price
-            this.fetchPriceHistory(this.currentSymbol, '10y')    // monthly for display
+            this.fetchPriceHistory(this.currentSymbol, '10ywk').catch(() => null),
+            this.fetchPriceHistory(this.currentSymbol, 'max').catch(() => null),
+            this.fetchPriceHistory(this.currentSymbol, '10y').catch(() => null),
         ]);
+        if (token !== this._modalToken) return;
 
-        this.masterHistoryBuffer = buffer10ywk; // weekly data
-        this.currentData.priceHistory = history10y;
+        this.masterHistoryBuffer = buffer10ywk;
+        // The modal keeps its own series: the Résumé charts keep their period.
+        this.modalHistory = history10y;
 
-        // Compute stable fair price on max history
+        // Long-term trend: semi-log regression of the full monthly history, at the last date.
         if (bufferMax && bufferMax.length > 10) {
             const vals = bufferMax.map(d => d.c);
             const indices = vals.map((_, i) => i);
             const { slope, intercept } = this.linearRegression(indices, vals.map(v => Math.log(v)));
-            this.stableFairPrice = Math.exp(intercept + slope * (indices.length - 1));
+            this.trendPrice = Math.exp(intercept + slope * (indices.length - 1));
         }
 
-        // Set 10A button active
         document.querySelectorAll('.kpi-period-btn').forEach(b => b.classList.remove('active'));
         document.querySelector('.kpi-period-btn[data-period="10y"]')?.classList.add('active');
 
-        this.setupModalPeriodButtons();
         await this.renderKpiModalContent(kpiType);
     }
 
@@ -1719,14 +1801,21 @@ class ScreenerApp {
             this.modalChart = null;
         }
 
-        const targetCurrency = document.getElementById('kpi-currency-select')?.value || 'USD';
-        const data = this.currentData.priceHistory;
+        const renderToken = ++this._modalToken;
+        const targetCurrency = document.getElementById('kpi-currency-select')?.value || 'NATIVE';
+        const data = this.modalHistory;
+        const usesCurrency = kpiType === 'price' || kpiType === 'regression';
 
-        // Get historical rate array (per-point) for accurate conversion
-        const historicalRates = data
-            ? await this.getHistoricalRateArray(targetCurrency, data)
-            : null;
-        const currentRate = historicalRates ? historicalRates[historicalRates.length - 1] ?? 1 : 1;
+        // Per-point conversion; null when the FX series is missing (values stay native).
+        let historicalRates = data && usesCurrency ? await this.getConversionArray(targetCurrency, data) : null;
+        if (renderToken !== this._modalToken) return;
+        let displayCurrency = targetCurrency === 'NATIVE' ? this.currentData.currency.quote : targetCurrency;
+        this.modalConversionFailed = usesCurrency && !!data && historicalRates == null;
+        if (this.modalConversionFailed) {
+            historicalRates = data.map(() => 1);
+            displayCurrency = this.currentData.currency.quote;
+        }
+        const currentRate = historicalRates ? historicalRates[historicalRates.length - 1] : 1;
 
         const isRegression = kpiType === 'regression';
         const isValuation = kpiType === 'valuation';
@@ -1745,16 +1834,16 @@ class ScreenerApp {
         if (compSettings) compSettings.style.display = kpiType === 'sp500' ? 'block' : 'none';
         if (maWrapper) maWrapper.style.display = isPriceMode ? '' : 'none';
         if (fpWrapper) fpWrapper.style.display = isPriceMode ? '' : 'none';
-        if (deviseWrapper) deviseWrapper.style.display = isPriceMode ? '' : 'none';
+        if (deviseWrapper) deviseWrapper.style.display = (isPriceMode || isRegression) ? '' : 'none';
         if (divWrapper) divWrapper.style.display = (isPriceMode || isRegression || kpiType === 'sp500') ? '' : 'none';
 
         // Render based on type
         switch (kpiType) {
             case 'price':
-                this.renderPriceModal(canvas, statsContainer, historicalRates, currentRate, targetCurrency);
+                this.renderPriceModal(canvas, statsContainer, historicalRates, currentRate, displayCurrency);
                 break;
             case 'regression':
-                this.renderRegressionModal(canvas, statsContainer, historicalRates, currentRate, targetCurrency);
+                this.renderRegressionModal(canvas, statsContainer, historicalRates, currentRate, displayCurrency);
                 break;
             case 'sp500':
                 await this.renderComparisonModal(canvas, statsContainer);
@@ -1771,23 +1860,14 @@ class ScreenerApp {
         if (kpiType === 'price') {
             this.updateModalBottomStats();
         }
-    }
-
-    renderStatPill(label, value, isPositive = null) {
-        let cls = '';
-        if (isPositive === true) cls = 'positive';
-        if (isPositive === false) cls = 'negative';
-
-        return `
-            <div class="kpi-stat-pill">
-                <span class="kpi-pill-label">${label}</span>
-                <span class="kpi-pill-value ${cls}">${value}</span>
-            </div>
-        `;
+        if (this.modalConversionFailed && usesCurrency) {
+            statsContainer.insertAdjacentHTML('beforeend',
+                '<div style="width:100%;text-align:right;color:#f59e0b;font-size:12px;padding-top:6px;">Taux de change indisponible : valeurs affichées dans la devise de cotation.</div>');
+        }
     }
 
     renderPriceModal(canvas, statsContainer, historicalRates = null, currentRate = 1, currency = '') {
-        const data = this.currentData.priceHistory;
+        const data = this.modalHistory;
         if (!data || data.length === 0) return;
 
         const showDividends = document.getElementById('kpi-show-dividends')?.checked;
@@ -1847,11 +1927,11 @@ class ScreenerApp {
             }
         }
 
-        if (showFairPrice && this.stableFairPrice) {
-            const fairValueConverted = this.stableFairPrice * currentRate;
-            const fairPriceLine = new Array(values.length).fill(fairValueConverted);
+        if (showFairPrice && this.trendPrice) {
+            const trendConverted = this.trendPrice * currentRate;
+            const fairPriceLine = new Array(values.length).fill(trendConverted);
             datasets.push({
-                label: `Prix juste : ${this.fmt(fairValueConverted, 2)} ${currency}`,
+                label: `Tendance long terme : ${this.fmt(trendConverted, 2)} ${currency}`,
                 data: fairPriceLine,
                 borderColor: '#eab308',
                 borderWidth: 2.5,
@@ -1890,18 +1970,17 @@ class ScreenerApp {
             }
         });
 
-        // Store raw values for stats calculation
-        this._modalRawValues = rawValues;
+        // Values in the displayed currency for the performance summary
+        this._modalRawValues = values;
     }
 
-    renderRegressionModal(canvas, statsContainer, historicalRates = null, currentRate = 1, currency = 'USD') {
-        const data = this.currentData.priceHistory;
+    renderRegressionModal(canvas, statsContainer, historicalRates = null, currentRate = 1, currency = '') {
+        const data = this.modalHistory;
         if (!data || data.length < 4) return;
 
         const model = document.getElementById('kpi-reg-model')?.value || 'semilog';
         const projYears = parseInt(document.getElementById('kpi-proj-years')?.value ?? '2');
-        const showBands = document.getElementById('kki-show-bands') // typo guard
-            ?? document.getElementById('kpi-show-bands');
+        const showBands = document.getElementById('kpi-show-bands');
         const bandsOn = showBands?.checked !== false;
 
         // Apply currency conversion
@@ -2067,7 +2146,7 @@ class ScreenerApp {
         const spanYears = (lastT - firstT) / (365.25 * 24 * 3600 * 1000);
         let cagr;
         if (model === 'semilog') {
-            const ptsPerYear = n / spanYears;
+            const ptsPerYear = (n - 1) / spanYears;
             cagr = (Math.exp(slope * ptsPerYear) - 1) * 100;
         } else {
             const first = regressionLine[0];
@@ -2156,27 +2235,40 @@ class ScreenerApp {
         this._modalRawValues = values;
     }
     async renderComparisonModal(canvas, statsContainer) {
-        const stockData = this.currentData.priceHistory;
+        const stockData = this.modalHistory;
         const benchmarkTicker = document.getElementById('kpi-comp-benchmark')?.value || '^GSPC';
         const benchmarkLabel = document.getElementById('kpi-comp-benchmark-label')?.textContent || 'S&P 500';
+        const period = this.currentModalPeriod;
+        const token = this._modalToken;
 
-        // Fetch benchmark data if needed
-        let benchmarkData = this._cachedBenchmarkData?.[benchmarkTicker]?.[this.currentModalPeriod];
+        let benchmarkData = this._cachedBenchmarkData?.[benchmarkTicker]?.[period];
         if (!benchmarkData) {
-            benchmarkData = await this.fetchPriceHistory(benchmarkTicker, this.currentModalPeriod);
-            if (!this._cachedBenchmarkData[benchmarkTicker]) this._cachedBenchmarkData[benchmarkTicker] = {};
-            this._cachedBenchmarkData[benchmarkTicker][this.currentModalPeriod] = benchmarkData;
+            benchmarkData = await this.fetchPriceHistory(benchmarkTicker, period).catch(() => null);
+            if (token !== this._modalToken) return;
+            if (benchmarkData) {
+                if (!this._cachedBenchmarkData[benchmarkTicker]) this._cachedBenchmarkData[benchmarkTicker] = {};
+                this._cachedBenchmarkData[benchmarkTicker][period] = benchmarkData;
+            }
         }
 
-        if (!stockData || !benchmarkData) return;
+        if (!stockData?.length || !benchmarkData?.length) {
+            statsContainer.innerHTML = '<p style="color:#64748b;padding:16px">Données de comparaison indisponibles.</p>';
+            return;
+        }
 
+        // Dividends reinvested on both sides (adjusted closes), or on neither.
         const showDividends = document.getElementById('kpi-show-dividends')?.checked;
-        const stockBase = showDividends ? (stockData[0].a || stockData[0].c) : stockData[0].c;
-        const benchmarkBase = benchmarkData[0].c;
-
-        const stockNorm = stockData.map(d => ((showDividends ? (d.a || d.c) : d.c) / stockBase) * 100);
-        const benchmarkNorm = benchmarkData.map(d => (d.c / benchmarkBase) * 100);
-
+        const key = showDividends ? 'a' : 'c';
+        const pair = normalizePair(
+            stockData.map(d => (showDividends ? (d.a ?? d.c) : d.c)),
+            alignSeriesByTime(stockData, benchmarkData, key),
+        );
+        if (!pair) {
+            statsContainer.innerHTML = '<p style="color:#64748b;padding:16px">Aucune date commune entre les deux séries.</p>';
+            return;
+        }
+        const stockNorm = pair.base;
+        const benchmarkNorm = pair.other;
         const labels = stockData.map(d => new Date(d.t).toLocaleDateString('fr-FR'));
 
         this.modalChart = new Chart(canvas.getContext('2d'), {
@@ -2231,79 +2323,31 @@ class ScreenerApp {
             }
         });
 
-        // Real comparison stats (stock vs benchmark), rendered directly here since
-        // updateModalBottomStats() only knows how to summarize a single series.
-        const stockPerf = stockNorm[stockNorm.length - 1] - 100;
-        const benchmarkPerf = benchmarkNorm[benchmarkNorm.length - 1] - 100;
+        // Comparison stats over the common window (both series share the stock's dates).
+        const last = stockNorm.length - 1;
+        const stockPerf = stockNorm[last] - 100;
+        const benchmarkPerf = benchmarkNorm[last] - 100;
         const diff = stockPerf - benchmarkPerf;
-
-        const stockYears = (stockData[stockData.length - 1].t - stockData[0].t) / (365.25 * 24 * 3600 * 1000);
-        const benchmarkYears = (benchmarkData[benchmarkData.length - 1].t - benchmarkData[0].t) / (365.25 * 24 * 3600 * 1000);
-        const stockCAGR = stockYears > 0 ? (Math.pow(stockNorm[stockNorm.length - 1] / 100, 1 / stockYears) - 1) * 100 : 0;
-        const benchmarkCAGR = benchmarkYears > 0 ? (Math.pow(benchmarkNorm[benchmarkNorm.length - 1] / 100, 1 / benchmarkYears) - 1) * 100 : 0;
+        const years = (stockData[last].t - stockData[pair.start].t) / YEAR_MS;
+        const stockCAGR = years >= MIN_ANNUALISED_YEARS ? cagr(100, stockNorm[last], years) : null;
+        const benchmarkCAGR = years >= MIN_ANNUALISED_YEARS ? cagr(100, benchmarkNorm[last], years) : null;
+        const fmtCagr = v => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`);
 
         if (statsContainer) {
             const diffColor = diff >= 0 ? '#10b981' : '#ef4444';
             statsContainer.style.cssText = 'display:flex;justify-content:flex-end;padding:8px 4px 0;width:100%;box-sizing:border-box;';
             statsContainer.innerHTML = `
                 <div style="display:inline-flex;align-items:center;gap:10px;padding:6px 14px;border-radius:8px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);font-size:13px;font-weight:600;white-space:nowrap;max-width:100%;overflow:hidden;">
-                    <span style="color:${diffColor}">Diff ${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%</span>
+                    <span style="color:${diffColor}">Écart ${diff >= 0 ? '+' : ''}${diff.toFixed(2)} pts</span>
                     <span style="color:#334155">|</span>
-                    <span style="color:#e2e8f0">CAGR ${this.currentSymbol} ${stockCAGR >= 0 ? '+' : ''}${stockCAGR.toFixed(2)}%</span>
+                    <span style="color:#e2e8f0">CAGR ${escHtml(this.currentSymbol)} ${fmtCagr(stockCAGR)}</span>
                     <span style="color:#334155">|</span>
-                    <span style="color:#94a3b8">CAGR ${benchmarkLabel} ${benchmarkCAGR >= 0 ? '+' : ''}${benchmarkCAGR.toFixed(2)}%</span>
+                    <span style="color:#94a3b8">CAGR ${escHtml(benchmarkLabel)} ${fmtCagr(benchmarkCAGR)}</span>
+                    <span style="color:#334155">|</span>
+                    <span style="color:#64748b">devises de cotation</span>
                 </div>
             `;
         }
-    }
-
-    calculateRadarDimensions(stats, financial, detail) {
-        const roe = (financial.returnOnEquity?.raw ?? 0) * 100;
-        const roa = (financial.returnOnAssets?.raw ?? 0) * 100;
-        const grossMargin = (financial.grossMargins?.raw ?? 0) * 100;
-        const operatingMargin = (financial.operatingMargins?.raw ?? 0) * 100;
-        const revenueGrowth = (financial.revenueGrowth?.raw ?? 0) * 100;
-        const earningsGrowth = (financial.earningsGrowth?.raw ?? 0) * 100;
-        const netMargin = (financial.profitMargins?.raw ?? 0) * 100;
-        const currentRatio = financial.currentRatio?.raw ?? 1;
-        const debtToEquity = financial.debtToEquity?.raw ?? null;
-        const dividendYield = (detail.dividendYield?.raw ?? detail.trailingAnnualDividendYield?.raw ?? 0) * 100;
-        const dividendRate = detail.dividendRate?.raw ?? detail.trailingAnnualDividendRate?.raw ?? 0;
-        const fiveYearAvgYield = detail.fiveYearAvgDividendYield?.raw
-            ? detail.fiveYearAvgDividendYield.raw * 100
-            : 0;
-        const payoutRatio = detail.payoutRatio?.raw ?? null;
-        const hasDividend = dividendRate > 0 || dividendYield > 0 || fiveYearAvgYield > 0;
-
-        const scoreReturns = this.cap(((roe + (roa * 1.4)) / 30) * 5, 0, 5);
-        const scoreMargins = this.cap(((grossMargin + operatingMargin + netMargin) / 90) * 5, 0, 5);
-        const scoreGrowth = this.cap(((revenueGrowth + earningsGrowth + 15) / 55) * 5, 0, 5);
-        const scoreProfitability = this.cap(((netMargin + operatingMargin + roe) / 75) * 5, 0, 5);
-
-        const scoreHealthBase = this.cap((currentRatio / 3) * 3.5, 0, 3.5);
-        const debtScore = debtToEquity == null ? 1 : debtToEquity <= 80 ? 1.5 : debtToEquity <= 150 ? 1 : 0.4;
-        const scoreHealth = this.cap(scoreHealthBase + debtScore, 0, 5);
-
-        const yieldScore = this.cap((dividendYield / 3) * 2.3, 0, 2.3);
-        const historyScore = hasDividend ? 1.2 : 0;
-        const avgYieldScore = this.cap((fiveYearAvgYield / 2) * 0.8, 0, 0.8);
-        const payoutScore = payoutRatio == null ? 0.5 : (payoutRatio >= 0 && payoutRatio <= 0.7 ? 0.7 : payoutRatio <= 1 ? 0.5 : 0.2);
-        const scoreDividend = this.cap(yieldScore + historyScore + avgYieldScore + payoutScore, 0, 5);
-
-        return {
-            'Retours': scoreReturns,
-            'Marges': scoreMargins,
-            'Croissance': scoreGrowth,
-            'Rentabilité': scoreProfitability,
-            'Dividende': scoreDividend,
-            'Santé': scoreHealth,
-        };
-    }
-
-    calculateScore(stats, financial, detail) {
-        const dimensions = this.calculateRadarDimensions(stats, financial, detail);
-        const values = Object.values(dimensions);
-        return ((values.reduce((s, v) => s + v, 0) / (values.length * 5)) * 20).toFixed(1);
     }
 
     renderRadarModal(canvas, statsContainer) {
@@ -2311,10 +2355,9 @@ class ScreenerApp {
         if (!qs) return;
 
         const financial = qs.financialData || {};
-        const stats = qs.defaultKeyStatistics || {};
         const detail = qs.summaryDetail || {};
 
-        const dimensions = this.calculateRadarDimensions(stats, financial, detail);
+        const dimensions = radarDimensions(financial, detail);
         const labels = Object.keys(dimensions);
         const values = Object.values(dimensions);
 
@@ -2337,18 +2380,17 @@ class ScreenerApp {
         const logoEl = document.getElementById('kpi-modal-logo');
         const price = qs.price || {};
         const assetName = price.longName || price.shortName || '';
-        const profile = qs.assetProfile || {};
-        const domain = profile.website?.replace(/https?:\/\/(www\.)?/, '').split('/')[0];
+        const domain = this.safeWebsite(qs.assetProfile?.website)?.hostname.replace(/^www\./, '');
 
         if (logoEl) {
             logoEl.setAttribute('style', 'display: flex !important; align-items: center !important; gap: 20px !important; width: 100% !important; justify-content: center !important; margin-bottom: 32px !important; z-index: 2; position: relative;');
             logoEl.innerHTML = `
-                <img src="https://www.google.com/s2/favicons?domain=${domain}&sz=128" 
-                     style="width: 72px; height: 72px; border-radius: 20px; background: rgba(255,255,255,0.04); padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08);">
+                ${domain ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128"
+                     style="width: 72px; height: 72px; border-radius: 20px; background: rgba(255,255,255,0.04); padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08);">` : ''}
                 <div style="display: flex; flex-direction: column; align-items: flex-start; justify-content: center;">
-                    <span style="font-size: 26px; font-weight: 800; color: #f8fafc; line-height: 1.1; letter-spacing: 0.5px;">${this.currentSymbol}</span>
+                    <span style="font-size: 26px; font-weight: 800; color: #f8fafc; line-height: 1.1; letter-spacing: 0.5px;">${escHtml(this.currentSymbol)}</span>
                     <span style="font-size: 15px; color: #94a3b8; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; margin-top: 4px;">
-                        ${assetName}
+                        ${escHtml(assetName)}
                     </span>
                 </div>
             `;
@@ -2364,6 +2406,7 @@ class ScreenerApp {
                 datasets: [{
                     label: 'Score',
                     data: values,
+                    spanGaps: true,
                     backgroundColor: 'rgba(99, 102, 241, 0.15)',
                     borderColor: '#818cf8',
                     borderWidth: 2.5,
@@ -2395,18 +2438,14 @@ class ScreenerApp {
             }
         });
 
-        const score = this.calculateScore(stats, financial, detail);
-        const getPct = (val) => (val != null ? (val * 100).toFixed(1) + '%' : '--');
-        const getVal = (val, dec = 2) => (val != null ? val.toFixed(dec) : '--');
+        const score = quantScore(dimensions);
 
         // ── Injection du score et titre dans le header sidebar ──
         const sidebarHeader = document.querySelector('.kpi-modal-sidebar-header');
         if (sidebarHeader) {
-            // S'assurer que le titre est correct
             const titleEl = sidebarHeader.querySelector('h3');
             if (titleEl) titleEl.textContent = 'Diagnostic Fondamental';
 
-            // Gérer le badge de score
             let badge = sidebarHeader.querySelector('.header-score-badge');
             if (!badge) {
                 badge = document.createElement('div');
@@ -2415,7 +2454,7 @@ class ScreenerApp {
                 if (closeBtn) sidebarHeader.insertBefore(badge, closeBtn);
                 else sidebarHeader.appendChild(badge);
             }
-            badge.innerHTML = `${score} <span>/20</span>`;
+            badge.innerHTML = `${score == null ? '—' : score.toFixed(1)} <span>/20</span>`;
             badge.style.display = 'flex';
         }
 
@@ -2426,168 +2465,230 @@ class ScreenerApp {
             analysisEl.className = 'radar-analysis-container';
             sidebar.appendChild(analysisEl);
         }
+        if (!analysisEl) return;
 
-        if (analysisEl) {
-            analysisEl.innerHTML = `
+        // Every row is a Yahoo field shown as is; the bar is derived from that
+        // value against a reference level (null → no bar colouring).
+        const v = x => (isNum(x?.raw) ? x.raw : null);
+        const pct = x => (x == null ? '—' : `${(x * 100).toFixed(1)}%`);
+        const dec = (x, d = 2) => (x == null ? '—' : x.toFixed(d));
+        const against = (x, reference) => (x == null ? null : (x / reference) * 5);
+        const lowerIsBetter = (x, worst) => (x == null ? null : 5 - (x / worst) * 5);
+        const finCur = this.currentData.currency.finIso || '';
+        const fcf = v(financial.freeCashflow), revenue = v(financial.totalRevenue);
+        const fcfMargin = isNum(fcf) && isNum(revenue) && revenue > 0 ? fcf / revenue : null;
+        const payout = v(detail.payoutRatio);
+        const fiveYearYield = v(detail.fiveYearAvgDividendYield); // already in %
+        const dividendYield = v(detail.dividendYield);
+
+        const cards = [
+            ['Retours', [
+                ['ROE', pct(v(financial.returnOnEquity)), against(v(financial.returnOnEquity), 0.25)],
+                ['ROA', pct(v(financial.returnOnAssets)), against(v(financial.returnOnAssets), 0.12)],
+            ]],
+            ['Marges', [
+                ['Marge brute', pct(v(financial.grossMargins)), against(v(financial.grossMargins), 0.6)],
+                ['Marge opé.', pct(v(financial.operatingMargins)), against(v(financial.operatingMargins), 0.3)],
+                ['Marge nette', pct(v(financial.profitMargins)), against(v(financial.profitMargins), 0.2)],
+            ]],
+            ['Croissance', [
+                ['CA (sur 1 an)', pct(v(financial.revenueGrowth)), against(v(financial.revenueGrowth), 0.2)],
+                ['Bénéfices (sur 1 an)', pct(v(financial.earningsGrowth)), against(v(financial.earningsGrowth), 0.25)],
+                ['BPA estimé', dec(v(qs.defaultKeyStatistics?.forwardEps)), null],
+            ]],
+            ['Rentabilité', [
+                ['Marge nette', pct(v(financial.profitMargins)), against(v(financial.profitMargins), 0.2)],
+                ['Marge opé.', pct(v(financial.operatingMargins)), against(v(financial.operatingMargins), 0.3)],
+                ['ROE', pct(v(financial.returnOnEquity)), against(v(financial.returnOnEquity), 0.25)],
+            ]],
+            ['Dividende', [
+                ['Rendement', pct(dividendYield), against(dividendYield, 0.04)],
+                ['Payout', pct(payout), payout == null ? null : payout <= 0.7 ? 4.5 : payout <= 1 ? 3 : 1],
+                ['Moyenne 5 ans', fiveYearYield == null ? '—' : `${fiveYearYield.toFixed(2)}%`, against(fiveYearYield, 4)],
+            ]],
+            ['Santé', [
+                ['Liquidité (ratio courant)', dec(v(financial.currentRatio)), against(v(financial.currentRatio), 2)],
+                ['Dette / capitaux propres', v(financial.debtToEquity) == null ? '—' : `${v(financial.debtToEquity).toFixed(0)}%`, lowerIsBetter(v(financial.debtToEquity), 250)],
+            ]],
+        ];
+
+        const badgeFor = axis => {
+            const s = dimensions[axis];
+            return `<span style="margin-left: auto; background: rgba(99,102,241,0.15); color: #818cf8; padding: 3px 8px; border-radius: 6px; font-size: 11px;">${s == null ? 'n/d' : `${s.toFixed(1)}/5`}</span>`;
+        };
+        const cardHtml = (title, rows, badge = '') => `
+                <div class="analysis-card">
+                    <h5>${title} ${badge}</h5>
+                    ${rows.map(([label, value, s]) => this.renderAnalysisRow(label, value, s)).join('')}
+                </div>`;
+
+        analysisEl.innerHTML = `
             <div class="analysis-grid">
-                <div class="analysis-card">
-                    <h5>Retours <span style="margin-left: auto; background: rgba(99,102,241,0.15); color: #818cf8; padding: 3px 8px; border-radius: 6px; font-size: 11px;">${values[0].toFixed(1)}/5</span></h5>
-                    ${this.renderAnalysisRow('ROE', getPct(financial.returnOnEquity?.raw), financial.returnOnEquity?.raw * 20 || 0)}
-                    ${this.renderAnalysisRow('ROA', getPct(financial.returnOnAssets?.raw), financial.returnOnAssets?.raw * 40 || 0)}
-                    ${this.renderAnalysisRow('ROIC', getPct(financial.returnOnEquity?.raw * 0.8), financial.returnOnEquity?.raw * 15 || 0)}
-                </div>
-                <div class="analysis-card">
-                    <h5>Rentabilité <span style="margin-left: auto; background: rgba(99,102,241,0.15); color: #818cf8; padding: 3px 8px; border-radius: 6px; font-size: 11px;">${values[1].toFixed(1)}/5</span></h5>
-                    ${this.renderAnalysisRow('Marge opé.', getPct(financial.operatingMargins?.raw), financial.operatingMargins?.raw * 2.5)}
-                    ${this.renderAnalysisRow('Marge nette', getPct(financial.profitMargins?.raw), financial.profitMargins?.raw * 3)}
-                </div>
-                <div class="analysis-card">
-                    <h5>Croissance <span style="margin-left: auto; background: rgba(99,102,241,0.15); color: #818cf8; padding: 3px 8px; border-radius: 6px; font-size: 11px;">${values[2].toFixed(1)}/5</span></h5>
-                    ${this.renderAnalysisRow('CA 1A', getPct(financial.revenueGrowth?.raw), financial.revenueGrowth?.raw * 3)}
-                    ${this.renderAnalysisRow('EPS 1A', getPct(financial.earningsGrowth?.raw), financial.earningsGrowth?.raw * 2)}
-                    ${this.renderAnalysisRow('EPS Fwd', getVal(stats.forwardEps?.raw), 3)}
-                </div>
-                <div class="analysis-card">
-                    <h5>Cash Flows <span style="margin-left: auto; background: rgba(99,102,241,0.15); color: #818cf8; padding: 3px 8px; border-radius: 6px; font-size: 11px;">${values[3].toFixed(1)}/5</span></h5>
-                    ${this.renderAnalysisRow('OCF', this.fmtBig(financial.operatingCashflow?.raw, price.currency), 4)}
-                    ${this.renderAnalysisRow('FCF', this.fmtBig(financial.freeCashflow?.raw, price.currency), 3.5)}
-                    ${this.renderAnalysisRow('Capex/Rev', getPct(financial.freeCashflow?.raw / financial.totalRevenue?.raw), 2)}
-                </div>
-                <div class="analysis-card">
-                    <h5>Dividende <span style="margin-left: auto; background: rgba(99,102,241,0.15); color: #818cf8; padding: 3px 8px; border-radius: 6px; font-size: 11px;">${values[4].toFixed(1)}/5</span></h5>
-                    ${this.renderAnalysisRow('Rendement', getPct(detail.dividendYield?.raw), detail.dividendYield?.raw * 50)}
-                    ${this.renderAnalysisRow('Payout', getPct(detail.payoutRatio?.raw), 5 - (detail.payoutRatio?.raw * 5))}
-                    ${this.renderAnalysisRow('Hist.', '--', 2)}
-                </div>
-                <div class="analysis-card">
-                    <h5>Santé <span style="margin-left: auto; background: rgba(99,102,241,0.15); color: #818cf8; padding: 3px 8px; border-radius: 6px; font-size: 11px;">${values[5].toFixed(1)}/5</span></h5>
-                    ${this.renderAnalysisRow('Liquidité', getVal(financial.currentRatio?.raw), financial.currentRatio?.raw)}
-                    ${this.renderAnalysisRow('Dette/Eq.', getVal(financial.debtToEquity?.raw), 5 - (financial.debtToEquity?.raw / 50))}
-                    ${this.renderAnalysisRow('Levier', getVal(financial.revenuePerShare?.raw), 3)}
-                </div>
+                ${cards.map(([axis, rows]) => cardHtml(axis, rows, badgeFor(axis))).join('')}
+                ${cardHtml('Flux de trésorerie', [
+                    ['Flux d\'exploitation', this.fmtBig(v(financial.operatingCashflow), finCur), null],
+                    ['Free Cash Flow', this.fmtBig(fcf, finCur), null],
+                    ['Marge FCF', pct(fcfMargin), against(fcfMargin, 0.25)],
+                ])}
             </div>
         `;
-        }
     }
+
     renderAnalysisRow(label, value, score) {
-        const barWidth = Math.min(100, Math.max(2, score * 20));
-        const barColor = score >= 4 ? '#10b981' : score >= 2.5 ? '#f59e0b' : '#ef4444';
+        const hasScore = isNum(score);
+        const barWidth = hasScore ? Math.min(100, Math.max(2, score * 20)) : 0;
+        const barColor = !hasScore ? '#94a3b8' : score >= 4 ? '#10b981' : score >= 2.5 ? '#f59e0b' : '#ef4444';
         return `
             <div class="analysis-row">
                 <div class="analysis-row-top">
                     <span class="row-label">${label}</span>
-                    <span class="row-value" style="color:${barColor}">${value}</span>
+                    <span class="row-value" style="color:${hasScore ? barColor : '#e2e8f0'}">${value}</span>
                 </div>
-                <div class="row-bar-bg"><div class="row-bar-fill" style="width:${barWidth}%; background:${barColor}"></div></div>
+                ${hasScore ? `<div class="row-bar-bg"><div class="row-bar-fill" style="width:${barWidth}%; background:${barColor}"></div></div>` : ''}
             </div>
         `;
     }
 
+    // ─── Fair-price calculator (shared by the Valorisation tab and modal) ──────
+    // Real inputs only: per-share metric from the last reported period, growth
+    // from the reported history, multiple from the historical median. Missing
+    // values leave the field empty for the user to fill, never a default.
+    calculatorInputs(metricType) {
+        const inp = this.valuationInputs();
+        const long = this.currentData.priceHistoryLong || [];
+        const hist = historicalMultiples(
+            this.currentData.rows,
+            t => this.toMajor(valueAt(long, t)),
+            t => this.finToPrice(t),
+        );
+        const isFcf = metricType === 'fcf';
+        const histPoints = hist
+            .map(h => ({ year: Number(h.year), endTs: h.endTs, value: isFcf ? h.fcfPerShare : h.epsPerShare }))
+            .filter(p => isNum(p.value));
+
+        const positive = histPoints.filter(p => p.value > 0);
+        let autoGrowth = null;
+        if (positive.length >= 2) {
+            const first = positive[0], last = positive[positive.length - 1];
+            const g = cagr(first.value, last.value, (last.endTs - first.endTs) / YEAR_MS);
+            autoGrowth = g == null ? null : g / 100;
+        }
+        const medianMultiple = median(hist.map(h => (isFcf ? h.pfcf : h.pe)));
+        const baseMetric = isFcf ? inp.fcfPerShare : inp.trailingEps;
+        const currentMultiple = isFcf
+            ? (baseMetric > 0 && isNum(inp.price) ? inp.price / baseMetric : null)
+            : inp.trailingPE;
+
+        return {
+            ...inp,
+            metricType,
+            metricLabel: isFcf ? 'FCF/action' : 'BPA',
+            multipleLabel: isFcf ? 'P/FCF' : 'P/E',
+            baseMetric: baseMetric > 0 ? baseMetric : null,
+            histPoints,
+            autoGrowth,
+            medianMultiple,
+            currentMultiple,
+            defaultMultiple: medianMultiple ?? currentMultiple,
+            historyYears: hist.length,
+        };
+    }
+
+    // Fills the untouched inputs from real data, then reads the parameters.
+    readCalculator(prefix, calc) {
+        const byId = id => document.getElementById(`${prefix}-${id}`);
+        const growthInput = byId('growth'), multipleInput = byId('multiple');
+        if (growthInput && !growthInput._userSet) growthInput.value = calc.autoGrowth != null ? (calc.autoGrowth * 100).toFixed(2) : '';
+        if (multipleInput && !multipleInput._userSet) multipleInput.value = calc.defaultMultiple != null ? calc.defaultMultiple.toFixed(2) : '';
+
+        const gh = byId('growth-hint'), mh = byId('multiple-hint');
+        if (gh) gh.textContent = calc.autoGrowth != null
+            ? `${calc.historyYears} exercices publiés : ${(calc.autoGrowth * 100).toFixed(1)} %/an`
+            : 'Historique insuffisant, à saisir';
+        if (mh) mh.textContent = calc.medianMultiple != null
+            ? `Médiane historique ${calc.multipleLabel} : ${calc.medianMultiple.toFixed(1)}`
+            : calc.currentMultiple != null ? `${calc.multipleLabel} actuel : ${calc.currentMultiple.toFixed(1)}` : 'À saisir';
+
+        const parse = el => { const x = parseFloat(el?.value); return Number.isFinite(x) ? x : null; };
+        const growth = parse(growthInput), multiple = parse(multipleInput), target = parse(byId('target-return'));
+        const params = {
+            baseMetric: calc.baseMetric,
+            growthRate: growth == null ? null : growth / 100,
+            multiple,
+            targetReturn: target == null ? null : target / 100,
+            dividendRate: calc.dividendRate,
+            includeDividends: byId('include-div')?.checked ?? true,
+            currentPrice: calc.price,
+        };
+        const result = fairPriceModel(params);
+        let missing = null;
+        if (calc.fxMissing) missing = 'Conversion de devise indisponible.';
+        else if (calc.baseMetric == null) missing = `${calc.metricLabel} indisponible ou négatif : prix juste non calculable.`;
+        else if (!result) missing = 'Renseignez la croissance, le multiple et le rendement cible.';
+        return { params, result, missing, growthInput, multipleInput };
+    }
+
+    calculatorHeaderHtml({ result, missing }, currency) {
+        if (!result) return `<div class="kpi-val-kpi"><span class="kpi-val-kpi-label">Prix juste</span><span class="kpi-val-kpi-value neutral">—</span><span class="kpi-val-hint">${escHtml(missing || '')}</span></div>`;
+        const signed = v => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`);
+        const cls = v => (v == null ? '' : v >= 0 ? 'positive' : 'negative');
+        return `
+            <div class="kpi-val-kpi">
+                <span class="kpi-val-kpi-label">Prix juste</span>
+                <span class="kpi-val-kpi-value neutral">${this.fmt(result.fairPrice, 2)} ${currency}</span>
+            </div>
+            <div class="kpi-val-kpi">
+                <span class="kpi-val-kpi-label">Rendement estimé</span>
+                <span class="kpi-val-kpi-value ${cls(result.estReturn)}">${signed(result.estReturn)}/an</span>
+            </div>
+            <div class="kpi-val-kpi">
+                <span class="kpi-val-kpi-label">Marge de sécurité</span>
+                <span class="kpi-val-kpi-value ${cls(result.safetyMargin)}">${signed(result.safetyMargin)}</span>
+            </div>`;
+    }
+
+    resetCalculatorInputs() {
+        ['val-tab', 'kpi-val'].forEach(prefix => {
+            ['growth', 'multiple'].forEach(id => {
+                const el = document.getElementById(`${prefix}-${id}`);
+                if (el) { el._userSet = false; el.value = ''; }
+            });
+        });
+    }
+
     async renderValuationModal(canvas, statsContainer) {
-        const qs = this.currentData.quoteSummary;
-        if (!qs) { statsContainer.innerHTML = '<p style="color:#64748b;padding:16px">Données indisponibles</p>'; return; }
+        const token = this._modalToken;
+        await this.getLongHistory();
+        if (token !== this._modalToken) return;
 
-        const priceData = qs.price || {};
-        const financial = qs.financialData || {};
-        const keyStats = qs.defaultKeyStatistics || {};
-        const detail = qs.summaryDetail || {};
-        const earningsObj = qs.earnings || {};
-
-        const currentPrice = priceData.regularMarketPrice?.raw || 0;
-        const currency = priceData.currency || 'USD';
-        const shares = keyStats.sharesOutstanding?.raw || 1;
-        const trailingEps = keyStats.trailingEps?.raw || 0;
-        const trailingPE = detail.trailingPE?.raw || detail.trailingPE || 20;
-        const dividendRate = detail.dividendRate?.raw || detail.dividendRate || 0;
-        const totalFCF = financial.freeCashflow?.raw || 0;
-        const fcfPerShare = totalFCF > 0 ? totalFCF / shares : 0;
-
-        // Historical annual EPS from earnings chart
-        const yearly = earningsObj.financialsChart?.yearly || [];
-        const histEPS = yearly.map(y => ({
-            year: typeof y.date === 'object' ? y.date?.raw || y.date : y.date,
-            eps: y.earnings?.raw != null ? y.earnings.raw / shares : null
-        })).filter(d => d.eps != null && d.eps > 0);
-
-        // Auto-calculate growth CAGR from EPS history
-        let autoGrowth = 0.10;
-        if (histEPS.length >= 2) {
-            const first = histEPS[0].eps, last = histEPS[histEPS.length - 1].eps;
-            const n = histEPS[histEPS.length - 1].year - histEPS[0].year;
-            if (n > 0 && first > 0) autoGrowth = Math.pow(last / first, 1 / n) - 1;
-        }
-
-        // Use metric: FCF/share if available, else EPS
         const metricType = document.getElementById('kpi-val-metric')?.value || 'fcf';
-        const baseMetric = metricType === 'fcf' && fcfPerShare > 0 ? fcfPerShare : (trailingEps || 1);
-
-        // Init inputs if not yet set by user
-        const growthInput = document.getElementById('kpi-val-growth');
-        const multipleInput = document.getElementById('kpi-val-multiple');
-        if (growthInput && !growthInput._userSet) growthInput.value = (autoGrowth * 100).toFixed(2);
-        if (multipleInput && !multipleInput._userSet) multipleInput.value = (trailingPE || 20).toFixed(2);
-
-        // Hints
-        const gh = document.getElementById('kpi-val-growth-hint');
-        const mh = document.getElementById('kpi-val-multiple-hint');
-        if (gh) gh.textContent = `CAGR: ${(autoGrowth * 100).toFixed(1)}%`;
-        if (mh) mh.textContent = `Médiane P/E: ${(trailingPE || 20).toFixed(1)}`;
-
-        // Read parameters
-        const growthRate = parseFloat(growthInput?.value || autoGrowth * 100) / 100;
-        const multiple = parseFloat(multipleInput?.value || trailingPE || 20);
-        const targetReturn = parseFloat(document.getElementById('kpi-val-target-return')?.value || 12) / 100;
-        const inclDiv = document.getElementById('kpi-val-include-div')?.checked ?? true;
-        const N = 10; // projection years
-
-        // DCF fair price calculation
-        let pvDividends = 0;
-        let projMetric = baseMetric;
-        for (let y = 1; y <= N; y++) {
-            projMetric *= (1 + growthRate);
-            if (inclDiv && dividendRate > 0) {
-                const projDiv = dividendRate * Math.pow(1 + growthRate, y);
-                pvDividends += projDiv / Math.pow(1 + targetReturn, y);
-            }
-        }
-        const terminalValue = projMetric * multiple;
-        const fairPrice = terminalValue / Math.pow(1 + targetReturn, N) + pvDividends;
-        const safetyMargin = fairPrice > 0 ? (fairPrice - currentPrice) / fairPrice * 100 : 0;
-        const estReturn = fairPrice > 0 && currentPrice > 0
-            ? (Math.pow(fairPrice / currentPrice, 1 / N) - 1) * 100 : 0;
-
-        // Build timeline
+        const calc = this.calculatorInputs(metricType);
+        const calcState = this.readCalculator('kpi-val', calc);
+        const { result } = calcState;
+        const { growthInput, multipleInput } = calcState;
+        const currency = calc.currency;
+        const N = 10;
         const currentYear = new Date().getFullYear();
-        const startYear = histEPS.length > 0 ? Math.min(histEPS[0].year, currentYear - 8) : currentYear - 8;
+        const firstHistYear = calc.histPoints[0]?.year;
+        const startYear = Math.min(firstHistYear ?? currentYear - 5, currentYear - 5);
         const endYear = currentYear + N;
         const labels = [];
         for (let y = startYear; y <= endYear; y++) labels.push(y);
 
-        // Historical metric data (dots)
-        const histMetricData = labels.map(y => {
-            const h = histEPS.find(d => d.year === y);
-            return h ? h.eps : null;
-        });
+        // Real reported values, one point per fiscal year
+        const histMetricData = labels.map(y => calc.histPoints.find(p => p.year === y)?.value ?? null);
+        // Projection from the last reported metric, only when a growth rate is set
+        const g = calcState.params.growthRate;
+        const projMetricData = labels.map(y => (calc.baseMetric != null && g != null && y >= currentYear
+            ? calc.baseMetric * Math.pow(1 + g, y - currentYear) : null));
 
-        // Projected metric data (from current year forward)
-        const projMetricData = labels.map(y => {
-            if (y < currentYear) return null;
-            const yAhead = y - currentYear;
-            if (yAhead > N) return null;
-            return baseMetric * Math.pow(1 + growthRate, yAhead);
-        });
-
-        // Historical price (from priceHistory – year resolution)
-        const ph = this.currentData.priceHistory || [];
-        const yearlyPrices = {};
-        ph.forEach(d => { const yr = new Date(d.t).getFullYear(); yearlyPrices[yr] = d.c; });
-        const priceDataArr = labels.map(y => yearlyPrices[y] || null);
-
-        // Fair price dot at currentYear + N
-        const fairPriceData = labels.map(y => y === endYear ? fairPrice : null);
-
-        // Current price dot
-        const currentPriceDot = labels.map(y => y === currentYear ? currentPrice : null);
+        // Year-end closing prices (real), current price for the current year
+        const long = this.currentData.priceHistoryLong || [];
+        const priceDataArr = labels.map(y => (y < currentYear
+            ? this.toMajor(valueAt(long, Date.UTC(y, 11, 31, 23, 59)))
+            : y === currentYear ? calc.price : null));
+        const fairPriceData = labels.map(y => (y === endYear && result ? result.fairPrice : null));
+        const currentPriceDot = labels.map(y => (y === currentYear ? calc.price : null));
 
         this.modalChart = new Chart(canvas.getContext('2d'), {
             type: 'line',
@@ -2595,12 +2696,12 @@ class ScreenerApp {
                 labels: labels.map(String),
                 datasets: [
                     {
-                        label: metricType === 'fcf' ? 'FCF/Actions' : 'BPA',
+                        label: `${calc.metricLabel} publié`,
                         data: histMetricData,
                         borderColor: '#eab308',
                         backgroundColor: 'rgba(234,179,8,0.7)',
                         borderWidth: 1.5, pointRadius: 5, pointHoverRadius: 7,
-                        fill: false, tension: 0.1, spanGaps: false
+                        fill: false, tension: 0.1, spanGaps: true
                     },
                     {
                         label: 'Projeté',
@@ -2611,21 +2712,21 @@ class ScreenerApp {
                         fill: false, tension: 0.1, spanGaps: false
                     },
                     {
-                        label: 'Prix actuel',
+                        label: 'Cours (fin d\'année)',
                         data: priceDataArr,
                         borderColor: '#3b82f6',
                         borderWidth: 2, pointRadius: 0,
                         fill: false, tension: 0.3, spanGaps: true
                     },
                     {
-                        label: `Prix juste ${this.fmt(fairPrice, 2)} ${currency}`,
+                        label: result ? `Prix juste ${this.fmt(result.fairPrice, 2)} ${currency}` : 'Prix juste —',
                         data: fairPriceData,
                         borderColor: '#3b82f6', backgroundColor: '#3b82f6',
                         borderWidth: 0, pointRadius: 9, pointHoverRadius: 11,
                         fill: false
                     },
                     {
-                        label: `Prix actuel ${this.fmt(currentPrice, 2)} ${currency}`,
+                        label: `Prix actuel ${this.fmt(calc.price, 2)} ${currency}`,
                         data: currentPriceDot,
                         borderColor: '#60a5fa', backgroundColor: '#60a5fa',
                         borderWidth: 0, pointRadius: 7, pointHoverRadius: 9,
@@ -2639,7 +2740,7 @@ class ScreenerApp {
                     legend: { display: true, labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
                     tooltip: {
                         mode: 'index', intersect: false,
-                        callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? this.fmt(ctx.parsed.y, 2) + ' ' + currency : '—'}` }
+                        callbacks: { label: ctx => (ctx.parsed.y != null ? `${ctx.dataset.label}: ${this.fmt(ctx.parsed.y, 2)} ${currency}` : null) }
                     }
                 },
                 scales: {
@@ -2655,24 +2756,8 @@ class ScreenerApp {
             }
         });
 
-        // KPI header
-        const smClass = safetyMargin >= 0 ? 'positive' : 'negative';
-        const erClass = estReturn >= 0 ? 'positive' : 'negative';
-        statsContainer.innerHTML = `
-            <div class="kpi-val-header">
-                <div class="kpi-val-kpi">
-                    <span class="kpi-val-kpi-label">Prix juste</span>
-                    <span class="kpi-val-kpi-value neutral">${this.fmt(fairPrice, 2)} $${currency}</span>
-                </div>
-                <div class="kpi-val-kpi">
-                    <span class="kpi-val-kpi-label">Rendement estimé</span>
-                    <span class="kpi-val-kpi-value ${erClass}">${estReturn >= 0 ? '+' : ''}${estReturn.toFixed(2)}%/an</span>
-                </div>
-                <div class="kpi-val-kpi">
-                    <span class="kpi-val-kpi-label">Marge de sécurité</span>
-                    <span class="kpi-val-kpi-value ${smClass}">${safetyMargin >= 0 ? '+' : ''}${safetyMargin.toFixed(2)}%</span>
-                </div>
-            </div>`;
+        statsContainer.innerHTML = `<div class="kpi-val-header">${this.calculatorHeaderHtml(calcState, currency)}</div>
+            <p class="valuation-disclaimer">Modèle indicatif : ${calc.metricLabel} projeté × multiple final, actualisé au rendement cible. Ne constitue pas un conseil en investissement.</p>`;
 
         // Wire recalculate & reset buttons (once)
         const recalcBtn = document.getElementById('kpi-val-recalc');
@@ -2729,9 +2814,11 @@ class ScreenerApp {
                 btn.classList.add('active');
                 this.currentModalPeriod = period;
 
-                const newPriceHistory = await this.fetchPriceHistory(this.currentSymbol, period);
+                const token = this._modalToken;
+                const newPriceHistory = await this.fetchPriceHistory(this.currentSymbol, period).catch(() => null);
+                if (token !== this._modalToken || period !== this.currentModalPeriod) return;
                 if (newPriceHistory) {
-                    this.currentData.priceHistory = newPriceHistory;
+                    this.modalHistory = newPriceHistory;
                     await this.renderKpiModalContent(this.currentModalKpi);
                 }
             });
@@ -2742,9 +2829,8 @@ class ScreenerApp {
         const statsContainer = document.getElementById('kpi-modal-stats');
         if (!statsContainer) return;
 
-        // Use raw (pre-conversion) values if available, else fallback to priceHistory
-        const values = this._modalRawValues || this.currentData.priceHistory?.map(d => d.c);
-        const data = this.currentData.priceHistory;
+        const values = this._modalRawValues || this.modalHistory?.map(d => d.c);
+        const data = this.modalHistory;
         if (!values || values.length === 0 || !data) return;
 
         const first = values[0];
@@ -2752,24 +2838,25 @@ class ScreenerApp {
         if (!first || !last) return;
 
         const perf = ((last - first) / first * 100);
-        const years = (data[data.length - 1].t - data[0].t) / (365.25 * 24 * 3600 * 1000);
-        const cagr = years > 0 ? (Math.pow(last / first, 1 / years) - 1) * 100 : perf;
+        const years = (data[data.length - 1].t - data[0].t) / YEAR_MS;
+        // Annualised only over at least one year
+        const annualised = years >= MIN_ANNUALISED_YEARS ? cagr(first, last, years) : null;
 
         const indices = values.map((_, i) => i);
         const logVals = values.map(v => Math.log(Math.max(v, 0.0001)));
         const { r2 } = this.linearRegression(indices, logVals);
 
         const sign = perf >= 0 ? '+' : '';
-        const cagrSign = cagr >= 0 ? '+' : '';
         const perfColor = perf >= 0 ? '#10b981' : '#ef4444';
-        const cagrColor = cagr >= 0 ? '#10b981' : '#ef4444';
+        const cagrText = annualised == null ? '—' : `${annualised >= 0 ? '+' : ''}${annualised.toFixed(2)}%`;
+        const cagrColor = annualised == null ? '#94a3b8' : annualised >= 0 ? '#10b981' : '#ef4444';
 
         statsContainer.style.cssText = 'display:flex;justify-content:flex-end;padding:8px 4px 0;width:100%;box-sizing:border-box;';
         statsContainer.innerHTML = `
             <div style="display:inline-flex;align-items:center;gap:10px;padding:6px 14px;border-radius:8px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);font-size:13px;font-weight:600;white-space:nowrap;max-width:100%;overflow:hidden;">
                 <span style="color:${perfColor}">${sign}${perf.toFixed(2)}%</span>
                 <span style="color:#334155">|</span>
-                <span style="color:${cagrColor}">CAGR ${cagrSign}${cagr.toFixed(2)}%</span>
+                <span style="color:${cagrColor}">CAGR ${cagrText}</span>
                 <span style="color:#334155">|</span>
                 <span style="color:#94a3b8">Lin. ${r2.toFixed(2)}</span>
             </div>
@@ -2826,135 +2913,54 @@ class ScreenerApp {
     async renderValuationTab() {
         const canvas = document.getElementById('valuation-tab-chart');
         const header = document.getElementById('val-tab-kpi-header');
-        if (!canvas || !header || !this.currentData) return;
+        if (!canvas || !header || !this.currentData?.hasFundamentals) return;
 
-        const qs = this.currentData.quoteSummary;
-        if (!qs) return;
-
-        // Extract data
-        const priceData = qs.price || {};
-        const financial = qs.financialData || {};
-        const keyStats = qs.defaultKeyStatistics || {};
-        const detail = qs.summaryDetail || {};
-        const earningsObj = qs.earnings || {};
-
-        const currentPrice = priceData.regularMarketPrice?.raw || 0;
-        const currency = priceData.currency || 'USD';
-        const shares = keyStats.sharesOutstanding?.raw || 1;
-        const trailingEps = keyStats.trailingEps?.raw || 0;
-        const trailingPE = detail.trailingPE?.raw || detail.trailingPE || 20;
-        const dividendRate = detail.dividendRate?.raw || detail.dividendRate || 0;
-        const totalFCF = financial.freeCashflow?.raw || 0;
-        const fcfPerShare = totalFCF > 0 ? totalFCF / shares : 0;
-
-        const yearly = earningsObj.financialsChart?.yearly || [];
-        const histEPS = yearly.map(y => ({
-            year: typeof y.date === 'object' ? y.date?.raw || y.date : y.date,
-            eps: y.earnings?.raw != null ? y.earnings.raw / shares : null
-        })).filter(d => d.eps != null && d.eps > 0);
-
-        let autoGrowth = 0.10;
-        if (histEPS.length >= 2) {
-            const first = histEPS[0].eps, last = histEPS[histEPS.length - 1].eps;
-            const n = histEPS[histEPS.length - 1].year - histEPS[0].year;
-            if (n > 0 && first > 0) autoGrowth = Math.pow(last / first, 1 / n) - 1;
-        }
+        const token = this._loadToken;
+        await this.getLongHistory();
+        if (token !== this._loadToken) return;
 
         const metricType = document.getElementById('val-tab-metric')?.value || 'fcf';
-        const baseMetric = metricType === 'fcf' && fcfPerShare > 0 ? fcfPerShare : (trailingEps || 1);
-
-        const growthInput = document.getElementById('val-tab-growth');
-        const multipleInput = document.getElementById('val-tab-multiple');
-        if (growthInput && !growthInput._userSet) growthInput.value = (autoGrowth * 100).toFixed(2);
-        if (multipleInput && !multipleInput._userSet) multipleInput.value = (trailingPE || 20).toFixed(2);
-
-        const gh = document.getElementById('val-tab-growth-hint');
-        const mh = document.getElementById('val-tab-multiple-hint');
-        if (gh) gh.textContent = `CAGR: ${(autoGrowth * 100).toFixed(1)}%`;
-        if (mh) mh.textContent = `Médiane P/E: ${(trailingPE || 20).toFixed(1)}`;
-
-        const growthRate = parseFloat(growthInput?.value || autoGrowth * 100) / 100;
-        const multiple = parseFloat(multipleInput?.value || trailingPE || 20);
-        const targetReturn = parseFloat(document.getElementById('val-tab-target-return')?.value || 12) / 100;
-        const inclDiv = document.getElementById('val-tab-include-div')?.checked ?? true;
+        const calc = this.calculatorInputs(metricType);
+        const calcState = this.readCalculator('val-tab', calc);
+        const { result } = calcState;
+        const currency = calc.currency;
         const N = 10;
-        const currentYear = new Date().getFullYear();
-
-        let pvDividends = 0;
-        let projMetric = baseMetric;
-        for (let y = 1; y <= N; y++) {
-            projMetric *= (1 + growthRate);
-            if (inclDiv && dividendRate > 0) {
-                const projDiv = dividendRate * Math.pow(1 + growthRate, y);
-                pvDividends += projDiv / Math.pow(1 + targetReturn, y);
-            }
-        }
-        const terminalValue = projMetric * multiple;
-        const fairPrice = terminalValue / Math.pow(1 + targetReturn, N) + pvDividends;
-        const safetyMargin = fairPrice > 0 ? (fairPrice - currentPrice) / fairPrice * 100 : 0;
-        const estReturn = fairPrice > 0 && currentPrice > 0 ? (Math.pow(fairPrice / currentPrice, 1 / N) - 1) * 100 : 0;
-
-        if (!this.currentData.priceHistory10y) {
-            this.currentData.priceHistory10y = await this.fetchPriceHistory(this.currentSymbol, '5y'); // 5y with weekly data is more fluid than 10y monthly
-        }
-        const ph = this.currentData.priceHistory10y || this.currentData.priceHistory || [];
-        
-        // --- High-Density Data Processing ---
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
         const startYear = currentYear - 5;
         const endYear = currentYear + N;
-        
-        // Generate monthly labels and data points
-        const labels = [];
-        const monthlyPrices = [];
-        const monthlyHistMetric = [];
-        const monthlyProjMetric = [];
-        
+        const long = this.currentData.priceHistoryLong || [];
+        const g = calcState.params.growthRate;
+
+        // Monthly timeline: real month-end closes, real annual metric at each
+        // fiscal year end, projection from the current month onward.
+        const labels = [], monthlyPrices = [], monthlyHistMetric = [], monthlyProjMetric = [];
         const totalMonths = (endYear - startYear) * 12;
         for (let i = 0; i <= totalMonths; i++) {
             const m = (startYear * 12 + i) % 12;
             const y = Math.floor((startYear * 12 + i) / 12);
-            const dateStr = `${this.getMonthName(m)} ${y}`;
-            labels.push(dateStr);
-            
-            const decimalYear = y + m / 12;
-            const currentDecimalYear = currentYear + (new Date().getMonth()) / 12;
-            
-            // 1. Price History (Fluid)
-            if (decimalYear <= currentDecimalYear) {
-                // Find closest price point
-                const targetTs = new Date(y, m, 15).getTime();
-                let closest = null, minDiff = Infinity;
-                ph.forEach(p => {
-                    const diff = Math.abs(p.t - targetTs);
-                    if (diff < minDiff) { minDiff = diff; closest = p.c; }
-                });
-                // Only use if within reasonable distance (e.g. 45 days)
-                monthlyPrices.push(minDiff < 45 * 24 * 3600 * 1000 ? closest : null);
-            } else {
-                monthlyPrices.push(null);
-            }
-            
-            // 2. Fundamental Metrics (Interpolated)
-            if (y <= currentYear) {
-                // Historical / Backward projection
-                const yearsBehind = currentYear - decimalYear;
-                monthlyHistMetric.push(baseMetric / Math.pow(1 + growthRate, yearsBehind));
-                monthlyProjMetric.push(null);
-            } else {
-                // Future Projection
-                const yearsAhead = decimalYear - currentYear;
-                monthlyHistMetric.push(null);
-                monthlyProjMetric.push(baseMetric * Math.pow(1 + growthRate, yearsAhead));
-            }
+            labels.push(`${this.getMonthName(m)} ${y}`);
+            const monthIndex = y * 12 + m;
+            const nowIndex = currentYear * 12 + currentMonth;
+
+            monthlyPrices.push(monthIndex < nowIndex
+                ? this.toMajor(valueAt(long, Date.UTC(y, m + 1, 0, 23, 59)))
+                : monthIndex === nowIndex ? calc.price : null);
+
+            const reported = calc.histPoints.find(p => {
+                const d = new Date(p.endTs);
+                return d.getUTCFullYear() === y && d.getUTCMonth() === m;
+            });
+            monthlyHistMetric.push(reported ? reported.value : null);
+
+            const yearsAhead = (monthIndex - nowIndex) / 12;
+            monthlyProjMetric.push(calc.baseMetric != null && g != null && yearsAhead >= 0
+                ? calc.baseMetric * Math.pow(1 + g, yearsAhead) : null);
         }
 
-        // Special points for the current price and fair price dots
-        const fairPriceData = labels.map((l, i) => i === labels.length - 1 ? fairPrice : null);
-        const currentPriceData = labels.map((l, i) => {
-            const y = Math.floor((startYear * 12 + i) / 12);
-            const m = (startYear * 12 + i) % 12;
-            return (y === currentYear && m === new Date().getMonth()) ? currentPrice : null;
-        });
+        const fairPriceData = labels.map((l, i) => (i === labels.length - 1 && result ? result.fairPrice : null));
+        const currentPriceData = labels.map((l, i) => ((startYear * 12 + i) === currentYear * 12 + currentMonth ? calc.price : null));
 
         if (this.valuationTabChart) this.valuationTabChart.destroy();
         this.valuationTabChart = new Chart(canvas.getContext('2d'), {
@@ -2962,59 +2968,60 @@ class ScreenerApp {
             data: {
                 labels: labels,
                 datasets: [
-                    { 
-                        label: metricType === 'fcf' ? 'FCF/Actions' : 'BPA', 
-                        data: monthlyHistMetric, 
-                        borderColor: '#eab308', 
-                        backgroundColor: 'rgba(234,179,8,0.1)', 
-                        borderWidth: 2, 
-                        pointRadius: 0, 
-                        fill: false, 
+                    {
+                        label: `${calc.metricLabel} publié`,
+                        data: monthlyHistMetric,
+                        borderColor: '#eab308',
+                        backgroundColor: 'rgba(234,179,8,0.6)',
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        fill: false,
+                        spanGaps: true,
                         yAxisID: 'y1',
                         tension: 0.1
                     },
-                    { 
-                        label: 'Projeté', 
-                        data: monthlyProjMetric, 
-                        borderColor: '#eab308', 
-                        borderDash: [5, 5], 
-                        borderWidth: 2, 
-                        pointRadius: 0, 
-                        fill: false, 
+                    {
+                        label: 'Projeté',
+                        data: monthlyProjMetric,
+                        borderColor: '#eab308',
+                        borderDash: [5, 5],
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
                         yAxisID: 'y1',
                         tension: 0.1
                     },
-                    { 
-                        label: 'Cours de l\'actif', 
-                        data: monthlyPrices, 
-                        borderColor: '#3b82f6', 
-                        borderWidth: 2, 
-                        pointRadius: 0, 
+                    {
+                        label: 'Cours de l\'actif',
+                        data: monthlyPrices,
+                        borderColor: '#3b82f6',
+                        borderWidth: 2,
+                        pointRadius: 0,
                         fill: true,
                         backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                        tension: 0.2, 
-                        spanGaps: true, 
-                        yAxisID: 'y' 
+                        tension: 0.2,
+                        spanGaps: true,
+                        yAxisID: 'y'
                     },
-                    { 
-                        label: `Prix juste ${this.fmt(fairPrice, 2)} ${currency}`, 
-                        data: fairPriceData, 
-                        borderColor: '#3b82f6', 
-                        backgroundColor: '#3b82f6', 
-                        borderWidth: 0, 
-                        pointRadius: 8, 
-                        fill: false, 
-                        yAxisID: 'y' 
+                    {
+                        label: result ? `Prix juste ${this.fmt(result.fairPrice, 2)} ${currency}` : 'Prix juste —',
+                        data: fairPriceData,
+                        borderColor: '#3b82f6',
+                        backgroundColor: '#3b82f6',
+                        borderWidth: 0,
+                        pointRadius: 8,
+                        fill: false,
+                        yAxisID: 'y'
                     },
-                    { 
-                        label: `Prix actuel ${this.fmt(currentPrice, 2)} ${currency}`, 
-                        data: currentPriceData, 
-                        borderColor: '#60a5fa', 
-                        backgroundColor: '#60a5fa', 
-                        borderWidth: 0, 
-                        pointRadius: 6, 
-                        fill: false, 
-                        yAxisID: 'y' 
+                    {
+                        label: `Prix actuel ${this.fmt(calc.price, 2)} ${currency}`,
+                        data: currentPriceData,
+                        borderColor: '#60a5fa',
+                        backgroundColor: '#60a5fa',
+                        borderWidth: 0,
+                        pointRadius: 6,
+                        fill: false,
+                        yAxisID: 'y'
                     }
                 ]
             },
@@ -3023,32 +3030,27 @@ class ScreenerApp {
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: { display: true, labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 12, usePointStyle: true } },
-                    tooltip: { 
+                    tooltip: {
                         backgroundColor: 'rgba(15, 23, 42, 0.9)',
                         titleColor: '#f8fafc',
                         bodyColor: '#94a3b8',
                         borderColor: 'rgba(255,255,255,0.1)',
                         borderWidth: 1,
-                        padding: 12
+                        padding: 12,
+                        callbacks: { label: ctx => (ctx.parsed.y != null ? `${ctx.dataset.label}: ${this.fmt(ctx.parsed.y, 2)} ${currency}` : null) }
                     }
                 },
                 scales: {
-                    x: { 
-                        grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false }, 
-                        ticks: { 
-                            color: '#64748b', 
-                            maxRotation: 0,
-                            autoSkip: true,
-                            maxTicksLimit: 12,
-                            font: { size: 10 }
-                        } 
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
+                        ticks: { color: '#64748b', maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }
                     },
-                    y: { 
+                    y: {
                         position: 'left',
-                        grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false }, 
-                        ticks: { color: '#64748b', font: { size: 10 }, callback: v => this.fmt(v, 0) + ' ' + currency } 
+                        grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
+                        ticks: { color: '#64748b', font: { size: 10 }, callback: v => this.fmt(v, 0) + ' ' + currency }
                     },
-                    y1: { 
+                    y1: {
                         position: 'right',
                         display: false,
                         grid: { display: false }
@@ -3057,25 +3059,8 @@ class ScreenerApp {
             }
         });
 
-        const smClass = safetyMargin >= 0 ? 'positive' : 'negative';
-        const erClass = estReturn >= 0 ? 'positive' : 'negative';
-        header.innerHTML = `
-            <div class="kpi-val-kpi">
-                <span class="kpi-val-kpi-label">Prix juste</span>
-                <span class="kpi-val-kpi-value neutral">${this.fmt(fairPrice, 2)} ${currency}</span>
-            </div>
-            <div class="kpi-val-kpi">
-                <span class="kpi-val-kpi-label">Rendement estimé</span>
-                <span class="kpi-val-kpi-value ${erClass}">${estReturn >= 0 ? '+' : ''}${estReturn.toFixed(2)}%/an</span>
-            </div>
-            <div class="kpi-val-kpi">
-                <span class="kpi-val-kpi-label">Marge de sécurité</span>
-                <span class="kpi-val-kpi-value ${smClass}">${safetyMargin >= 0 ? '+' : ''}${safetyMargin.toFixed(2)}%</span>
-            </div>
-        `;
-        
-        // Render the new lower grid
-        this.renderValuationDashboard(this.currentData.quoteSummary, fairPrice, currentPrice, currency, metricType, baseMetric, growthRate, trailingPE);
+        header.innerHTML = this.calculatorHeaderHtml(calcState, currency);
+        this.renderValuationDashboard(calc);
     }
 
     getMonthName(index) {
@@ -3083,119 +3068,77 @@ class ScreenerApp {
         return months[index % 12];
     }
 
-    renderValuationDashboard(qs, fairPrice, currentPrice, currency, metricType, baseMetric, growthRate, trailingPE) {
+    // Lower grid of the Valorisation tab — every series comes from the reported
+    // statements and the real closing prices.
+    renderValuationDashboard(calc) {
+        const qs = this.currentData.quoteSummary;
         if (!qs) return;
 
-        // Cleanup existing grid charts
-        if (this.valGridCharts) {
-            this.valGridCharts.forEach(c => c.destroy());
-        }
+        if (this.valGridCharts) this.valGridCharts.forEach(c => c.destroy());
         this.valGridCharts = [];
-        
-        // Temporarily override quantCharts so helper methods push to the correct array
         const tempQuantCharts = this.quantCharts;
         this.quantCharts = this.valGridCharts;
 
-        const fin = qs.financialData || {};
+        const currency = calc.currency;
+        const long = this.currentData.priceHistoryLong || [];
+        const hist = historicalMultiples(this.currentData.rows, t => this.toMajor(valueAt(long, t)), t => this.finToPrice(t));
+        const years = hist.map(h => h.year);
+        const ratio = (price, perShare) => (isNum(price) && isNum(perShare) && perShare > 0 ? price / perShare : null);
         const stats = qs.defaultKeyStatistics || {};
-        const summary = qs.summaryDetail || {};
 
-        // 1. Mètriques Clés
+        // 1. Métriques clés (TTM, price currency)
         const metricsList = document.getElementById('val-metrics-list');
         if (metricsList) {
+            const medianPe = median(hist.map(h => h.pe));
             const metrics = [
-                { label: 'P/E', val: summary.trailingPE?.raw || trailingPE, sub: 'Médiane: 25.4' },
-                { label: 'Forward P/E', val: summary.forwardPE?.raw, sub: 'Proj. 1an' },
-                { label: 'PEG Ratio', val: stats.pegRatio?.raw, sub: 'Croissance inc.' },
-                { label: 'P/FCF', val: currentPrice / (fin.freeCashflow?.raw / (stats.sharesOutstanding?.raw || 1)), sub: 'Basé sur TTM' },
-                { label: 'P/OCF', val: currentPrice / (fin.operatingCashflow?.raw / (stats.sharesOutstanding?.raw || 1)), sub: 'Basé sur TTM' },
-                { label: 'P/S', val: summary.priceToSalesTrailing12Months?.raw, sub: 'Ventes' },
-                { label: 'P/B', val: stats.priceToBook?.raw, sub: 'Book Value' },
-                { label: 'Dividend Yield', val: (summary.dividendYield?.raw || 0) * 100, sub: 'Actuel', isPercent: true }
+                { label: 'P/E', val: calc.trailingPE, sub: medianPe != null ? `Médiane ${hist.length} ans : ${medianPe.toFixed(1)}` : 'BPA 12 mois' },
+                { label: 'Forward P/E', val: calc.forwardPE, sub: 'BPA estimé' },
+                { label: 'PEG Ratio', val: stats.pegRatio?.raw ?? null, sub: 'Yahoo Finance' },
+                { label: 'P/FCF', val: ratio(calc.price, calc.fcfPerShare), sub: 'FCF 12 mois' },
+                { label: 'P/OCF', val: ratio(calc.price, calc.ocfPerShare), sub: 'Flux d\'exploitation 12 mois' },
+                { label: 'P/S', val: ratio(calc.price, calc.salesPerShare), sub: 'CA 12 mois' },
+                { label: 'P/B', val: ratio(calc.price, calc.bookPerShare), sub: 'Dernier bilan annuel' },
+                { label: 'Rendement', val: isNum(qs.summaryDetail?.dividendYield?.raw) ? qs.summaryDetail.dividendYield.raw * 100 : 0, sub: 'Dividende annuel / cours', isPercent: true },
             ];
-
             metricsList.innerHTML = metrics.map(m => {
-                const value = m.val ? (m.isPercent ? m.val.toFixed(2) + '%' : m.val.toFixed(2)) : 'N/A';
+                const value = !isNum(m.val) ? '—' : m.isPercent ? `${m.val.toFixed(2)}%` : m.val.toFixed(2);
                 return `
                     <div class="val-metric-item">
                         <span class="val-metric-label">${m.label}</span>
-                        <span class="val-metric-value ${m.val < 0 ? 'negative' : ''}">${value}</span>
+                        <span class="val-metric-value${isNum(m.val) && m.val < 0 ? ' negative' : ''}">${value}</span>
                         <span class="val-metric-sub">${m.sub}</span>
                     </div>
                 `;
             }).join('');
         }
 
-        // 2. Communauté (Dummy data for demo)
-        const commBlock = document.getElementById('val-community-block');
-        if (commBlock) {
-            commBlock.innerHTML = `
-                <div class="val-community-header">
-                    <span>NB. D'ÉVALUATIONS : 228</span>
-                    PRIX DE LA COMMUNAUTÉ : ${this.fmt(fairPrice * 0.95, 2)} ${currency}
-                </div>
-                <div class="val-community-cards">
-                    <div class="val-community-card">
-                        <div class="val-community-card-header">
-                            <span class="val-community-card-badge">FCF</span>
-                            <span>138 évaluations</span>
-                        </div>
-                        <div class="val-community-row"><span class="label">CROISSANCE</span><span class="val">${(growthRate * 100 * 1.1).toFixed(2)}%</span></div>
-                        <div class="val-community-row"><span class="label">MULTIPLE</span><span class="val">${(trailingPE * 0.9).toFixed(2)}</span></div>
-                        <div class="val-community-row"><span class="label">PRIX</span><span class="val">${this.fmt(fairPrice * 1.05, 2)} ${currency}</span></div>
-                    </div>
-                    <div class="val-community-card">
-                        <div class="val-community-card-header">
-                            <span class="val-community-card-badge">EPS</span>
-                            <span>88 évaluations</span>
-                        </div>
-                        <div class="val-community-row"><span class="label">CROISSANCE</span><span class="val">${(growthRate * 100 * 0.9).toFixed(2)}%</span></div>
-                        <div class="val-community-row"><span class="label">MULTIPLE</span><span class="val">${(trailingPE * 1.1).toFixed(2)}</span></div>
-                        <div class="val-community-row"><span class="label">PRIX</span><span class="val">${this.fmt(fairPrice * 0.92, 2)} ${currency}</span></div>
-                    </div>
-                </div>
-            `;
+        // 2. FCF / action publié, par exercice
+        this.renderQuantBarChart('chart-val-fcf-ps', 'FCF/action', years, hist.map(h => h.fcfPerShare), '#eab308', null, currency);
+
+        // 3. Régression semi-log sur les clôtures mensuelles des 5 dernières années
+        const since = Date.now() - 5 * YEAR_MS;
+        const monthly = long.filter(d => d.t >= since && d.c > 0);
+        if (monthly.length >= 4) {
+            const idx = monthly.map((_, i) => i);
+            const { slope, intercept } = this.linearRegression(idx, monthly.map(d => Math.log(d.c)));
+            this.renderQuantLineChart('chart-val-regression', [
+                { label: 'Cours', data: monthly.map(d => this.toMajor(d.c)), color: '#3b82f6' },
+                { label: 'Régression', data: idx.map(i => this.toMajor(Math.exp(intercept + slope * i))), color: '#fbbf24' },
+            ], monthly.map(d => new Date(d.t).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })), null, ' ' + currency, { pointRadius: 0 });
+        } else {
+            this.renderQuantLineChart('chart-val-regression', [], [], null, '');
         }
 
-        // We need to initialize arrays for the charts. We'll use Price History mapped to annual.
-        const ph = this.currentData.priceHistory10y || this.currentData.priceHistory || [];
-        const yearlyPrices = {};
-        ph.forEach(d => { const yr = new Date(d.t).getFullYear(); yearlyPrices[yr] = d.c; });
-        const currentYear = new Date().getFullYear();
-        const years = [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
-        const prices = years.map(y => yearlyPrices[y] || currentPrice);
+        // 4. P/E sur les BPA estimés par les analystes
+        const estimates = forwardEstimates(qs, calc.price, code => this.rateToPrice(code));
+        this.renderQuantBarChart('chart-val-forward-pe', 'P/E estimé', estimates.map(e => e.label), estimates.map(e => e.pe), ['#f97316', '#3b82f6'], null, 'x');
 
-        // Simulated historical metrics based on baseMetric and reverse growth
-        const histFCF = years.map((y, i) => baseMetric / Math.pow(1 + growthRate, years.length - 1 - i));
-        const histPE = prices.map((p, i) => p / (histFCF[i] || 1));
-        const projectedPE = [1, 2, 3, 4, 5].map(i => currentPrice / (baseMetric * Math.pow(1 + growthRate, i)));
+        // 5–8. Multiples historiques à la clôture de chaque exercice
+        this.renderQuantLineChart('chart-val-pe', [{ label: 'P/E', data: hist.map(h => h.pe), color: '#3b82f6' }], years, null, 'x');
+        this.renderQuantLineChart('chart-val-pfcf', [{ label: 'P/FCF', data: hist.map(h => h.pfcf), color: '#3b82f6' }], years, null, 'x');
+        this.renderQuantLineChart('chart-val-pocf', [{ label: 'P/OCF', data: hist.map(h => h.pocf), color: '#3b82f6' }], years, null, 'x');
+        this.renderQuantLineChart('chart-val-ps', [{ label: 'P/S', data: hist.map(h => h.ps), color: '#3b82f6' }], years, null, 'x');
 
-        // 3. Free Cash Flow / Action (Bar)
-        this.renderQuantBarChart('chart-val-fcf-ps', 'FCF/Action', years, histFCF, '#eab308', null, currency);
-
-        // 4. Régression linéaire (Scatter + Line approximation)
-        this.renderQuantLineChart('chart-val-regression', [
-            { label: 'Prix', data: prices, color: '#3b82f6' },
-            { label: 'Régression', data: prices.map((p, i) => prices[0] * Math.pow(1 + 0.15, i)), color: '#fbbf24' } // Dummy regression line
-        ], years, null, ' ' + currency);
-
-        // 5. Forward P/E projeté (Bar)
-        const projYears = [currentYear + 1, currentYear + 2, currentYear + 3, currentYear + 4, currentYear + 5];
-        this.renderQuantBarChart('chart-val-forward-pe', 'Proj. P/E', projYears, projectedPE, ['#ef4444', '#f97316', '#eab308', '#10b981', '#3b82f6'], null, 'x');
-
-        // 6. Price / Earnings (P/E)
-        this.renderQuantLineChart('chart-val-pe', [{ label: 'P/E', data: histPE, color: '#3b82f6' }], years, null, 'x');
-
-        // 7. Price / FCF
-        this.renderQuantLineChart('chart-val-pfcf', [{ label: 'P/FCF', data: histPE.map(v => v * 0.9), color: '#3b82f6' }], years, null, 'x');
-
-        // 8. Price / OCF
-        this.renderQuantLineChart('chart-val-pocf', [{ label: 'P/OCF', data: histPE.map(v => v * 0.7), color: '#3b82f6' }], years, null, 'x');
-
-        // 9. Price / Sales
-        this.renderQuantLineChart('chart-val-ps', [{ label: 'P/S', data: histPE.map(v => v * 0.2), color: '#3b82f6' }], years, null, 'x');
-
-        // Restore the original quantCharts
         this.quantCharts = tempQuantCharts;
     }
 
@@ -3203,146 +3146,65 @@ class ScreenerApp {
         const qs = this.currentData.quoteSummary;
         if (!qs) return;
 
-        // Cleanup existing charts
-        if (this.quantCharts) {
-            this.quantCharts.forEach(c => c.destroy());
-        }
+        if (this.quantCharts) this.quantCharts.forEach(c => c.destroy());
         this.quantCharts = [];
 
-        const currency = qs.price?.currency || 'USD';
-        const fin = qs.financialData || {};
-        const stats = qs.defaultKeyStatistics || {};
-
-        // Multi-year annual statements from the FUNDAMENTALS worker endpoint (Yahoo's
-        // fundamentals-timeseries) — this is what actually still has real historical line
-        // items now that quoteSummary's incomeStatementHistory/balanceSheetHistory/
-        // cashflowStatementHistory modules mostly return just { endDate, netIncome }.
         const fundamentals = this.currentData.fundamentals || [];
-        const hasFundamentals = fundamentals.length >= 2;
+        const hasHistory = this.currentData.hasFundamentals && fundamentals.length >= 2;
+        const emptyEl = document.getElementById('quant-empty');
+        const gridEl = document.getElementById('quant-grid');
+        if (emptyEl) emptyEl.style.display = hasHistory ? 'none' : 'block';
+        if (gridEl) gridEl.style.display = hasHistory ? '' : 'none';
+        if (!hasHistory) return;
+
+        // Statements are shown in their reporting currency.
+        const currency = this.currentData.currency.finIso || '';
         const years = fundamentals.map(y => y.year);
-        const fcfCurrent = fin.freeCashflow?.raw || 0;
-        const opCashflowCurrent = fin.operatingCashflow?.raw || 0;
+        const field = key => fundamentals.map(y => (isNum(y[key]) ? y[key] : null));
+        const ratio = (num, den) => fundamentals.map(y => (isNum(y[num]) && isNum(y[den]) && y[den] !== 0 ? (y[num] / y[den]) * 100 : null));
+        this.setQuantCurrencyNote(currency);
 
-        // 1. Revenue & Earnings
-        if (hasFundamentals) {
-            this.renderQuantBarChart('chart-revenue', 'Revenus', years, fundamentals.map(y => y.annualTotalRevenue || 0), '#3b82f6', 'footer-revenue', currency);
-            this.renderQuantBarChart('chart-earnings', 'Bénéfices', years, fundamentals.map(y => y.annualNetIncome || 0), '#fbbf24', 'footer-earnings', currency);
-        } else {
-            // Fallback: incomeStatementHistory still reports real totalRevenue/netIncome even
-            // though its other fields (grossProfit, operatingIncome...) are gutted by Yahoo.
-            const isHistory = qs.incomeStatementHistory?.incomeStatementHistory || [];
-            const isData = isHistory.map(item => ({
-                date: item.endDate?.fmt?.split('-')[0] || 'N/A',
-                rev: item.totalRevenue?.raw || 0,
-                net: item.netIncome?.raw || 0
-            })).reverse();
-            this.renderQuantBarChart('chart-revenue', 'Revenus', isData.map(d => d.date), isData.map(d => d.rev), '#3b82f6', 'footer-revenue', currency);
-            this.renderQuantBarChart('chart-earnings', 'Bénéfices', isData.map(d => d.date), isData.map(d => d.net), '#fbbf24', 'footer-earnings', currency);
-        }
+        this.renderQuantBarChart('chart-revenue', 'Revenus', years, field('annualTotalRevenue'), '#3b82f6', 'footer-revenue', currency);
+        this.renderQuantBarChart('chart-earnings', 'Bénéfices', years, field('annualNetIncome'), '#fbbf24', 'footer-earnings', currency);
+        this.renderQuantGroupedBarChart('chart-fcf', years, [
+            { label: 'Opérationnel', data: field('annualOperatingCashFlow'), color: '#f97316' },
+            { label: 'Free Cash Flow', data: field('annualFreeCashFlow'), color: '#fbbf24' }
+        ], 'footer-fcf', currency, 1);
 
-        // 2. FCF Chart — real historical series (Opérationnel & Free Cash Flow)
-        if (hasFundamentals) {
-            this.renderQuantGroupedBarChart('chart-fcf', years, [
-                { label: 'Opérationnel', data: fundamentals.map(y => y.annualOperatingCashFlow || 0), color: '#f97316' },
-                { label: 'Free Cash Flow', data: fundamentals.map(y => y.annualFreeCashFlow || 0), color: '#fbbf24' }
-            ], 'footer-fcf', currency, 1); // footer computed on the FCF series
-        } else {
-            // Fallback when historical data isn't available: current-period snapshot only
-            this.renderQuantBarChart('chart-fcf', 'Cash Flow', ['Opérationnel', 'Free Cash Flow'], [opCashflowCurrent, fcfCurrent], ['#f97316', '#fbbf24'], null, currency);
-        }
+        // Margins: null when revenue is missing or zero for a year
+        this.renderQuantLineChart('chart-margins', [
+            { label: 'Brute', data: ratio('annualGrossProfit', 'annualTotalRevenue'), color: '#3b82f6' },
+            { label: 'Opé.', data: ratio('annualOperatingIncome', 'annualTotalRevenue'), color: '#fbbf24' },
+            { label: 'Nette', data: ratio('annualNetIncome', 'annualTotalRevenue'), color: '#ef4444' }
+        ], years, 'footer-margins', '%');
 
-        // 3. Margins Chart — when revenue is missing or zero for a given year, report the
-        // margin as absent (null) instead of dividing by a fallback of 1, which used to blow
-        // up into meaningless axis scales (e.g. -500,000,000,000%).
-        if (hasFundamentals) {
-            const pct = (num, rev) => (rev ? (num / rev) * 100 : null);
-            this.renderQuantLineChart('chart-margins', [
-                { label: 'Brute', data: fundamentals.map(y => pct(y.annualGrossProfit, y.annualTotalRevenue)), color: '#3b82f6' },
-                { label: 'Opé.', data: fundamentals.map(y => pct(y.annualOperatingIncome, y.annualTotalRevenue)), color: '#fbbf24' },
-                { label: 'Nette', data: fundamentals.map(y => pct(y.annualNetIncome, y.annualTotalRevenue)), color: '#ef4444' }
-            ], years, 'footer-margins', '%');
-        } else {
-            const isHistoryFallback = qs.incomeStatementHistory?.incomeStatementHistory || [];
-            const marginsData = isHistoryFallback.map(item => {
-                const rev = item.totalRevenue?.raw;
-                const pct = (val) => (rev ? (val / rev) * 100 : null);
-                return {
-                    date: item.endDate?.fmt?.split('-')[0] || 'N/A',
-                    gross: pct(item.grossProfit?.raw || 0),
-                    op: pct(item.operatingIncome?.raw || 0),
-                    net: pct(item.netIncome?.raw || 0)
-                };
-            }).reverse();
-            this.renderQuantLineChart('chart-margins', [
-                { label: 'Brute', data: marginsData.map(d => d.gross), color: '#3b82f6' },
-                { label: 'Opé.', data: marginsData.map(d => d.op), color: '#fbbf24' },
-                { label: 'Nette', data: marginsData.map(d => d.net), color: '#ef4444' }
-            ], marginsData.map(d => d.date), 'footer-margins', '%');
-        }
+        this.renderQuantGroupedBarChart('chart-returns', years, [
+            { label: 'ROE', data: ratio('annualNetIncome', 'annualStockholdersEquity'), color: '#8b5cf6' },
+            { label: 'ROA', data: ratio('annualNetIncome', 'annualTotalAssets'), color: '#10b981' }
+        ], null, '%');
 
-        // 4. Returns Chart — now a genuine historical time series (ROE = netIncome/equity,
-        // ROA = netIncome/assets, per fiscal year) when fundamentals are available, instead
-        // of two unrelated current-period ratios side by side.
-        if (hasFundamentals) {
-            this.renderQuantGroupedBarChart('chart-returns', years, [
-                { label: 'ROE', data: fundamentals.map(y => y.annualStockholdersEquity ? (y.annualNetIncome / y.annualStockholdersEquity) * 100 : null), color: '#8b5cf6' },
-                { label: 'ROA', data: fundamentals.map(y => y.annualTotalAssets ? (y.annualNetIncome / y.annualTotalAssets) * 100 : null), color: '#10b981' }
-            ], null, '%');
-        } else {
-            const roe = (fin.returnOnEquity?.raw || 0) * 100;
-            const roa = (fin.returnOnAssets?.raw || 0) * 100;
-            this.renderQuantBarChart('chart-returns', 'Retours sur Capitaux', ['ROE', 'ROA'], [roe, roa], ['#8b5cf6', '#10b981'], null, '%');
-        }
+        this.renderQuantGroupedBarChart('chart-cash-debt', years, [
+            { label: 'Trésorerie', data: field('annualCashAndCashEquivalents'), color: '#10b981' },
+            { label: 'Dette', data: field('annualTotalDebt'), color: '#ef4444' }
+        ], null, currency);
 
-        // 5. Cash & Dette — historical when possible, instead of a same-period snapshot.
-        if (hasFundamentals) {
-            this.renderQuantGroupedBarChart('chart-cash-debt', years, [
-                { label: 'Trésorerie', data: fundamentals.map(y => y.annualCashAndCashEquivalents || 0), color: '#10b981' },
-                { label: 'Dette', data: fundamentals.map(y => y.annualTotalDebt || 0), color: '#ef4444' }
-            ], null, currency);
-        } else {
-            this.renderQuantBarChart('chart-cash-debt', 'Cash vs Dette', ['Trésorerie', 'Dette'], [fin.totalCash?.raw || 0, fin.totalDebt?.raw || 0], ['#10b981', '#ef4444'], null, currency);
-        }
+        // Dividend per share: dividends paid ÷ average shares (per quoted share)
+        const dps = this.currentData.rows.map(r => r.dividendPerShare);
+        this.renderQuantBarChart('chart-dividend', 'Dividende / action (estimé)', years, dps.some(v => v > 0) ? dps : [], '#14b8a6', 'footer-dividend', currency);
 
-        // 6. Dividende — historical dividend-per-share (dividendes payés ÷ actions moyennes)
-        // when the company actually has a paying history; this also makes the Perf/CAGR
-        // footer legitimate again (dividend growth rate is a real metric), unlike comparing
-        // a % yield to a currency amount as before.
-        const dpsSeries = fundamentals.map(y => {
-            const paid = Math.abs(y.annualCommonStockDividendPaid || 0);
-            const shares = y.annualBasicAverageShares || 0;
-            return shares > 0 ? paid / shares : 0;
-        });
-        const hasDividendHistory = hasFundamentals && dpsSeries.some(v => v > 0);
-        if (hasDividendHistory) {
-            this.renderQuantBarChart('chart-dividend', 'Dividende / action', years, dpsSeries, '#14b8a6', 'footer-dividend', currency);
-        } else {
-            const divRate = qs.summaryDetail?.dividendRate?.raw || 0;
-            const divYield = (qs.summaryDetail?.dividendYield?.raw || 0) * 100;
-            this.renderQuantBarChart('chart-dividend', 'Dividende (Actuel)', ['Yield %', 'Rate'], [divYield, divRate], '#14b8a6', null);
-        }
+        this.renderQuantGroupedBarChart('chart-shares', years, [
+            { label: 'De base', data: field('annualBasicAverageShares'), color: '#8b5cf6' },
+            { label: 'Diluées', data: field('annualDilutedAverageShares'), color: '#a78bfa' }
+        ], 'footer-shares', '', 0);
 
-        // 7. Actions en circulation — historical basic/diluted share count (reveals buybacks
-        // vs dilution over time), instead of a same-period Total-vs-Float snapshot.
-        if (hasFundamentals) {
-            this.renderQuantGroupedBarChart('chart-shares', years, [
-                { label: 'De base', data: fundamentals.map(y => y.annualBasicAverageShares || 0), color: '#8b5cf6' },
-                { label: 'Diluées', data: fundamentals.map(y => y.annualDilutedAverageShares || 0), color: '#a78bfa' }
-            ], 'footer-shares', '', 0);
-        } else {
-            const shares = stats.sharesOutstanding?.raw || 0;
-            const floatShares = stats.floatShares?.raw || 0;
-            this.renderQuantBarChart('chart-shares', 'Actions', ['Total', 'Flottant'], [shares, floatShares], ['#8b5cf6', '#a78bfa'], null);
-        }
+        this.renderQuantBarChart('chart-capex', 'CAPEX', years,
+            fundamentals.map(y => (isNum(y.annualCapitalExpenditure) ? Math.abs(y.annualCapitalExpenditure) : null)),
+            '#ec4899', 'footer-capex', currency);
+    }
 
-        // 8. Dépenses — real historical CAPEX per year
-        if (hasFundamentals) {
-            this.renderQuantBarChart('chart-capex', 'CAPEX', years, fundamentals.map(y => Math.abs(y.annualCapitalExpenditure || 0)), '#ec4899', 'footer-capex', currency);
-        } else {
-            // Fallback approximation when historical data isn't available
-            const capexApprox = Math.abs(opCashflowCurrent - fcfCurrent);
-            this.renderQuantBarChart('chart-capex', 'CAPEX Est.', ['CAPEX (Actuel)'], [capexApprox], '#ec4899', null, currency);
-        }
+    setQuantCurrencyNote(currency) {
+        const note = document.getElementById('quant-currency-note');
+        if (note) note.textContent = currency ? `Montants publiés en ${currency}, par exercice fiscal (source : Yahoo Finance).` : '';
     }
 
     // ─── Dividende Tab ────────────────────────────────────────────────────────
@@ -3350,21 +3212,22 @@ class ScreenerApp {
         const qs = this.currentData.quoteSummary;
         if (!qs) return;
 
-        const currency = qs.price?.currency || 'USD';
+        const quoteCurrency = this.currentData.currency.quote || '';
+        const priceCurrency = this.currentData.currency.priceIso || '';
+        const finCurrency = this.currentData.currency.finIso || '';
         const detail = qs.summaryDetail || {};
         const fundamentals = this.currentData.fundamentals || [];
-        const hasFundamentals = fundamentals.length >= 2;
+        const hasFundamentals = this.currentData.hasFundamentals && fundamentals.length >= 2;
 
+        // dividendYield first: the trailing yield mixes currencies for ADRs
         const divYield = (detail.dividendYield?.raw ?? detail.trailingAnnualDividendYield?.raw ?? 0) * 100;
-        const divRate = detail.dividendRate?.raw ?? detail.trailingAnnualDividendRate?.raw ?? 0;
+        const divRate = detail.dividendRate?.raw
+            ?? (!this.currentData.currency.needsFx ? detail.trailingAnnualDividendRate?.raw : null)
+            ?? null;
         const payoutRatioCurrent = detail.payoutRatio?.raw ?? null;
 
-        const dpsSeries = fundamentals.map(y => {
-            const paid = Math.abs(y.annualCommonStockDividendPaid || 0);
-            const shares = y.annualBasicAverageShares || 0;
-            return shares > 0 ? paid / shares : 0;
-        });
-        const hasDividendHistory = hasFundamentals && dpsSeries.some(v => v > 0);
+        const dpsSeries = hasFundamentals ? this.currentData.rows.map(r => r.dividendPerShare) : [];
+        const hasDividendHistory = dpsSeries.some(v => v > 0);
         const hasAnyDividend = hasDividendHistory || divYield > 0 || divRate > 0;
 
         const emptyEl = document.getElementById('dividende-empty');
@@ -3375,47 +3238,46 @@ class ScreenerApp {
 
         const el = (id) => document.getElementById(id);
         if (el('div-kpi-yield')) el('div-kpi-yield').textContent = divYield ? `${divYield.toFixed(2)}%` : '—';
-        if (el('div-kpi-rate')) el('div-kpi-rate').textContent = divRate ? `${this.fmt(divRate, 2)} ${currency}` : '—';
+        if (el('div-kpi-rate')) el('div-kpi-rate').textContent = divRate ? `${this.fmt(divRate, 2)} ${priceCurrency}` : '—';
         if (el('div-kpi-payout')) el('div-kpi-payout').textContent = payoutRatioCurrent != null ? `${(payoutRatioCurrent * 100).toFixed(1)}%` : '—';
 
-        // Dividend growth CAGR, from the first year a dividend was actually paid to the last
+        // Dividend growth: from the first paying fiscal year to the last one
         let cagrText = '—';
         if (hasDividendHistory) {
             const firstIdx = dpsSeries.findIndex(v => v > 0);
-            const first = dpsSeries[firstIdx];
-            const last = dpsSeries[dpsSeries.length - 1];
-            const yearsSpan = dpsSeries.length - 1 - firstIdx;
-            if (first > 0 && last > 0 && yearsSpan > 0) {
-                const cagr = (Math.pow(last / first, 1 / yearsSpan) - 1) * 100;
-                cagrText = `${cagr >= 0 ? '+' : ''}${cagr.toFixed(1)}%/an`;
-            }
+            const lastIdx = dpsSeries.length - 1;
+            const years = (this.currentData.rows[lastIdx].endTs - this.currentData.rows[firstIdx].endTs) / YEAR_MS;
+            const growth = cagr(dpsSeries[firstIdx], dpsSeries[lastIdx], Math.round(years));
+            if (growth != null) cagrText = `${growth >= 0 ? '+' : ''}${growth.toFixed(1)}%/an`;
         }
         if (el('div-kpi-cagr')) el('div-kpi-cagr').textContent = cagrText;
 
         // Chart 1: real per-payment history via events=div (same technique as DividendManager)
+        const token = this._loadToken;
         try {
             const payHistUrl = `${PROXY}?symbol=${encodeURIComponent(this.currentSymbol)}&type=STOCK&range=10y&interval=1d&events=div`;
             const payData = await this.safeFetchJson(payHistUrl);
+            if (token !== this._loadToken) return;
             const events = payData?.chart?.result?.[0]?.events?.dividends;
             const payments = events
                 ? Object.keys(events).map(ts => ({ ts: parseInt(ts, 10), amount: events[ts].amount })).sort((a, b) => a.ts - b.ts)
                 : [];
             const payLabels = payments.map(p => new Date(p.ts * 1000).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }));
-            this.renderQuantBarChart('chart-dividend-payments', 'Versement / action', payLabels, payments.map(p => p.amount), '#14b8a6', null, currency);
+            this.renderQuantBarChart('chart-dividend-payments', 'Versement / action', payLabels, payments.map(p => p.amount), '#14b8a6', null, quoteCurrency);
         } catch (err) {
             logger.error('[Dividende] payment history failed:', err);
+            this.renderQuantBarChart('chart-dividend-payments', 'Versement / action', [], [], '#14b8a6', null, quoteCurrency);
         }
 
-        // Chart 2: annual dividend per share (real growth metric, footer is legitimate here)
-        if (hasDividendHistory) {
-            this.renderQuantBarChart('chart-dividend-annual', 'Dividende / action', fundamentals.map(y => y.year), dpsSeries, '#14b8a6', 'footer-dividend-annual', currency);
-        }
+        // Chart 2: annual dividend per share (dividends paid ÷ average shares)
+        this.renderQuantBarChart('chart-dividend-annual', 'Dividende / action (estimé)',
+            fundamentals.map(y => y.year), hasDividendHistory ? dpsSeries : [], '#14b8a6', 'footer-dividend-annual', finCurrency);
 
         // Chart 3: payout ratio history (dividends paid ÷ net income); null when net income <= 0
-        if (hasFundamentals) {
-            const payoutSeries = fundamentals.map(y => (y.annualNetIncome > 0 ? (Math.abs(y.annualCommonStockDividendPaid || 0) / y.annualNetIncome) * 100 : null));
-            this.renderQuantLineChart('chart-payout-ratio', [{ label: 'Payout Ratio', data: payoutSeries, color: '#14b8a6' }], fundamentals.map(y => y.year), null, '%');
-        }
+        const payoutSeries = hasFundamentals
+            ? fundamentals.map(y => (y.annualNetIncome > 0 && isNum(y.annualCommonStockDividendPaid) ? (Math.abs(y.annualCommonStockDividendPaid) / y.annualNetIncome) * 100 : null))
+            : [];
+        this.renderQuantLineChart('chart-payout-ratio', [{ label: 'Payout Ratio', data: payoutSeries, color: '#14b8a6' }], fundamentals.map(y => y.year), null, '%');
     }
 
     // ─── Finances Tab ─────────────────────────────────────────────────────────
@@ -3427,8 +3289,9 @@ class ScreenerApp {
 
     async renderFinancesTab() {
         const fundamentals = this.currentData.fundamentals || [];
-        const hasFundamentals = fundamentals.length >= 1;
-        const currency = this.currentData.quoteSummary?.price?.currency || 'USD';
+        const hasFundamentals = this.currentData.hasFundamentals && fundamentals.length >= 1;
+        // Statements are in their reporting currency, not the quote currency (ADRs).
+        const currency = this.currentData.currency.finIso || '';
 
         const emptyEl = document.getElementById('finances-empty');
         const contentEl = document.getElementById('finances-content');
@@ -3448,43 +3311,55 @@ class ScreenerApp {
         document.querySelectorAll('.fin-statement-tab').forEach(b => b.classList.toggle('active', b.dataset.statement === statementKey));
 
         const fundamentals = this._finFundamentals || [];
-        const currency = this._finCurrency || 'USD';
+        const currency = this._finCurrency || '';
         const table = document.getElementById('fin-table');
         if (!table) return;
 
         const thead = table.querySelector('thead tr');
         const tbody = table.querySelector('tbody');
-        thead.innerHTML = '<th>Ligne</th>' + fundamentals.map(y => `<th>${y.year}</th>`).join('');
+        thead.innerHTML = `<th>Ligne${currency ? ` (${escHtml(currency)})` : ''}</th>` + fundamentals.map(y => `<th>${escHtml(y.year)}</th>`).join('');
         tbody.innerHTML = def.rows.map(row => {
             const cells = fundamentals.map(y => {
                 const val = y[row.key];
-                if (val == null) return '<td>—</td>';
-                const formatted = row.decimals ? this.fmt(val, 2) : this.fmtFinCell(val, currency);
+                if (!isNum(val)) return '<td>—</td>';
+                const formatted = row.decimals ? this.fmt(val, 2) : this.fmtBig(val);
                 return `<td${val < 0 ? ' class="fin-negative"' : ''}>${formatted}</td>`;
             }).join('');
             return `<tr><td>${row.label}</td>${cells}</tr>`;
         }).join('');
     }
 
-    // Same magnitude convention as fmtBig()/fmtSmall() (Md = 1e9, B = 1e12), but sign-aware:
-    // fmtBig() alone doesn't abbreviate negative values (CAPEX, dividends paid, financing
-    // cash flow are routinely negative), so it prints raw unabbreviated numbers for them.
-    fmtFinCell(val, currency) {
-        const abs = Math.abs(val);
-        const sign = val < 0 ? '-' : '';
-        if (abs >= 1e12) return `${sign}${(abs / 1e12).toFixed(2)} B ${currency}`.trim();
-        if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(2)} Md ${currency}`.trim();
-        if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(2)} M ${currency}`.trim();
-        return `${this.fmt(val, 0)} ${currency}`.trim();
+    // ─── Chart helpers ────────────────────────────────────────────────────────
+    // A chart without any real value shows a message instead of empty axes.
+    prepareChartCanvas(id, datasets) {
+        const canvas = document.getElementById(id);
+        if (!canvas) return null;
+        Chart.getChart(canvas)?.destroy(); // avoid "Canvas is already in use" on re-render
+        const container = canvas.parentElement;
+        let msg = container?.querySelector('.quant-empty-msg');
+        const hasData = datasets.some(ds => (ds || []).some(isNum));
+        if (!hasData) {
+            canvas.style.display = 'none';
+            if (container && !msg) {
+                msg = document.createElement('div');
+                msg.className = 'quant-empty-msg';
+                container.appendChild(msg);
+            }
+            if (msg) msg.textContent = 'Données indisponibles';
+            return null;
+        }
+        canvas.style.display = '';
+        msg?.remove();
+        return canvas;
     }
 
     renderQuantBarChart(id, label, labels, data, color, footerId, currency = '') {
-        const canvas = document.getElementById(id);
+        const footer = footerId ? document.getElementById(footerId) : null;
+        if (footer) footer.innerHTML = '';
+        const canvas = this.prepareChartCanvas(id, [data]);
         if (!canvas) return;
-        Chart.getChart(canvas)?.destroy(); // avoid "Canvas is already in use" on re-render (e.g. Dividende tab revisited)
-        const ctx = canvas.getContext('2d');
 
-        const chart = new Chart(ctx, {
+        const chart = new Chart(canvas.getContext('2d'), {
             type: 'bar',
             data: {
                 labels: labels,
@@ -3520,12 +3395,12 @@ class ScreenerApp {
     // Grouped bar chart for several datasets sharing the same year labels (e.g. OCF vs FCF).
     // footerSeriesIndex picks which dataset the Perf/CAGR footer is computed from.
     renderQuantGroupedBarChart(id, labels, datasets, footerId, currency = '', footerSeriesIndex = 0) {
-        const canvas = document.getElementById(id);
+        const footer = footerId ? document.getElementById(footerId) : null;
+        if (footer) footer.innerHTML = '';
+        const canvas = this.prepareChartCanvas(id, datasets.map(ds => ds.data));
         if (!canvas) return;
-        Chart.getChart(canvas)?.destroy();
-        const ctx = canvas.getContext('2d');
 
-        const chart = new Chart(ctx, {
+        const chart = new Chart(canvas.getContext('2d'), {
             type: 'bar',
             data: {
                 labels,
@@ -3558,30 +3433,25 @@ class ScreenerApp {
         this.renderQuantFooter(footerId, datasets[footerSeriesIndex]?.data);
     }
 
-    // Shared Perf/CAGR footer, only meaningful when `series` is an actual multi-year time series.
+    // Perf/CAGR footer, only when the series has real positive endpoints.
     renderQuantFooter(footerId, series) {
         const footer = footerId ? document.getElementById(footerId) : null;
-        if (!footer || !series || series.length < 2) return;
+        if (!footer) return;
+        const stats = annualSeriesStats(series);
+        if (!stats) { footer.innerHTML = ''; return; }
 
-        const start = series[0];
-        const end = series[series.length - 1];
-        const perf = ((end - start) / Math.abs(start || 1)) * 100;
-        const cagr = (Math.pow(end / (start || 1), 1 / (series.length - 1)) - 1) * 100;
-
-        const perfClass = perf >= 0 ? 'perf-positive' : 'perf-negative';
+        const perfClass = stats.perf >= 0 ? 'perf-positive' : 'perf-negative';
         footer.innerHTML = `
-            <span class="perf-label ${perfClass}">Perf: ${perf.toFixed(1)}%</span>
-            ${!isNaN(cagr) && isFinite(cagr) ? `<span class="perf-label perf-neutral">CAGR: ${cagr.toFixed(1)}%</span>` : ''}
+            <span class="perf-label ${perfClass}">Perf: ${stats.perf.toFixed(1)}%</span>
+            ${stats.cagr != null ? `<span class="perf-label perf-neutral">CAGR: ${stats.cagr.toFixed(1)}%</span>` : ''}
         `;
     }
 
-    renderQuantLineChart(id, datasets, labels, footerId, unit = '') {
-        const canvas = document.getElementById(id);
+    renderQuantLineChart(id, datasets, labels, footerId, unit = '', { pointRadius = 3 } = {}) {
+        const canvas = this.prepareChartCanvas(id, datasets.map(ds => ds.data));
         if (!canvas) return;
-        Chart.getChart(canvas)?.destroy();
-        const ctx = canvas.getContext('2d');
 
-        const chart = new Chart(ctx, {
+        const chart = new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: {
                 labels: labels,
@@ -3592,7 +3462,8 @@ class ScreenerApp {
                     backgroundColor: ds.color + '22',
                     fill: true,
                     tension: 0.4,
-                    pointRadius: 3,
+                    spanGaps: true,
+                    pointRadius,
                     pointHoverRadius: 5
                 }))
             },
@@ -3604,6 +3475,9 @@ class ScreenerApp {
                         display: true,
                         position: 'bottom',
                         labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } }
+                    },
+                    tooltip: {
+                        callbacks: { label: ctx => `${ctx.dataset.label}: ${isNum(ctx.parsed.y) ? ctx.parsed.y.toFixed(2) : '—'}${unit}` }
                     }
                 },
                 scales: {
@@ -3615,21 +3489,21 @@ class ScreenerApp {
         this.quantCharts.push(chart);
     }
 
-    // Same magnitude convention as fmtBig(): Md = milliard (1e9), B = billion (1e12)
+    // Axis ticks, same magnitudes as fmtBig()
     fmtSmall(val) {
-        if (Math.abs(val) >= 1e12) return (val / 1e12).toFixed(1) + 'B';
-        if (Math.abs(val) >= 1e9) return (val / 1e9).toFixed(1) + 'Md';
-        if (Math.abs(val) >= 1e6) return (val / 1e6).toFixed(1) + 'M';
-        if (Math.abs(val) >= 1e3) return (val / 1e3).toFixed(1) + 'k';
+        const abs = Math.abs(val);
+        if (abs >= 1e12) return (val / 1e9).toFixed(0) + 'Md';
+        if (abs >= 1e9) return (val / 1e9).toFixed(1) + 'Md';
+        if (abs >= 1e6) return (val / 1e6).toFixed(1) + 'M';
+        if (abs >= 1e3) return (val / 1e3).toFixed(1) + 'k';
         return val.toFixed(1);
     }
 
+    // Tooltip amounts: small values (per-share, ratios) keep two decimals.
     nfmt(val, curr) {
-        if (!val) return '—';
-        if (Math.abs(val) >= 1e12) return (val / 1e12).toFixed(2) + ' B ' + curr;
-        if (Math.abs(val) >= 1e9) return (val / 1e9).toFixed(2) + ' Md ' + curr;
-        if (Math.abs(val) >= 1e6) return (val / 1e6).toFixed(2) + ' M ' + curr;
-        return this.fmt(val, 0) + ' ' + curr;
+        if (!isNum(val)) return '—';
+        if (Math.abs(val) >= 1e6) return this.fmtBig(val, curr);
+        return `${this.fmt(val, Math.abs(val) >= 1000 ? 0 : 2)} ${curr}`.trim();
     }
 }
 

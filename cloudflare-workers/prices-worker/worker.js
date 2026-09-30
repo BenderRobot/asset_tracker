@@ -46,6 +46,9 @@ function reshapeFundamentalsTimeseries(raw, symbol) {
       const year = asOfDate.slice(0, 4);
       if (!byYear[year]) byYear[year] = { year, endDate: asOfDate };
       byYear[year][metric] = point.reportedValue?.raw ?? null;
+      // Reporting currency (TWD for TSM, JPY for TM...): differs from the quote
+      // currency for ADRs and dual listings, the frontend converts with it.
+      if (point.currencyCode && !byYear[year].currency) byYear[year].currency = point.currencyCode;
     }
   }
 

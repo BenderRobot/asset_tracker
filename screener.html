@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/screener.css?v=113">
+    <link rel="stylesheet" href="css/screener.css?v=114">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -110,8 +110,9 @@
                         <div class="stock-price-block">
                             <div id="stock-price" class="stock-price">—</div>
                             <div id="stock-change" class="stock-change">—</div>
+                            <div id="stock-data-source" class="stock-data-source"></div>
                         </div>
-                        <div id="stock-score-badge" class="stock-score-badge" title="Score quantitatif calculé">
+                        <div id="stock-score-badge" class="stock-score-badge" title="Score quantitatif calculé à partir des ratios Yahoo Finance">
                             <span id="stock-score-value">—</span>
                             <span class="score-label">/20</span>
                         </div>
@@ -224,7 +225,7 @@
                                         class="info-value">—</span></div>
                                 <div class="info-row"><span class="info-label">SITE INTERNET</span><span
                                         id="info-website" class="info-value">—</span></div>
-                                <div class="info-row"><span class="info-label">ISIN</span><span id="info-isin"
+                                <div class="info-row"><span class="info-label">TYPE</span><span id="info-type"
                                         class="info-value">—</span></div>
                                 <div class="info-row"><span class="info-label">SECTEUR</span><span id="info-sector"
                                         class="info-value">—</span></div>
@@ -234,14 +235,9 @@
                                         class="info-value">—</span></div>
                                 <div class="info-row"><span class="info-label">DEVISE</span><span id="info-currency"
                                         class="info-value">—</span></div>
-                                <div class="info-row"><span class="info-label">SOUS-INDUSTRIE</span><span
-                                        id="info-subindustry" class="info-value">—</span></div>
                             </div>
                             <div class="info-badges">
-                                <div id="info-pea-badge" class="info-badge badge-red"><i
-                                        class="fas fa-times-circle"></i> PEA : Non éligible</div>
-                                <div id="info-div-badge" class="info-badge badge-green"><i
-                                        class="fas fa-check-circle"></i> Dividende : Oui</div>
+                                <div id="info-div-badge" class="info-badge">—</div>
                             </div>
                         </div>
 
@@ -279,12 +275,13 @@
 
                 <!-- QUANTITATIF TAB CONTENT -->
                 <div id="tab-quantitatif" class="screener-tab-content">
-                    <div class="quant-dashboard-grid">
+                    <div id="quant-empty" class="valuation-skeleton" style="display:none;">Historique financier indisponible pour ce titre.</div>
+                    <p id="quant-currency-note" class="quant-currency-note"></p>
+                    <div id="quant-grid" class="quant-dashboard-grid">
                         <!-- 1. Revenus -->
                         <div class="quant-card">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Revenus</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-revenue"></canvas>
@@ -296,7 +293,6 @@
                         <div class="quant-card">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Bénéfices</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-earnings"></canvas>
@@ -308,7 +304,6 @@
                         <div class="quant-card">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Free Cash Flow</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-fcf"></canvas>
@@ -320,7 +315,6 @@
                         <div class="quant-card">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Marges</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-margins"></canvas>
@@ -332,7 +326,6 @@
                         <div class="quant-card">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Retours sur capitaux</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-returns"></canvas>
@@ -344,7 +337,6 @@
                         <div class="quant-card">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Cash & Dette</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-cash-debt"></canvas>
@@ -356,7 +348,6 @@
                         <div class="quant-card">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Dividende</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-dividend"></canvas>
@@ -368,7 +359,6 @@
                         <div class="quant-card">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Actions en circulation</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-shares"></canvas>
@@ -380,7 +370,6 @@
                         <div class="quant-card">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Dépenses</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-capex"></canvas>
@@ -423,7 +412,7 @@
                             </div>
                             <div class="quant-card">
                                 <div class="quant-card-header">
-                                    <span class="quant-card-title">Dividende annuel / action</span>
+                                    <span class="quant-card-title" title="Dividendes versés ÷ nombre moyen d'actions">Dividende annuel / action (estimé)</span>
                                 </div>
                                 <div class="quant-chart-container">
                                     <canvas id="chart-dividend-annual"></canvas>
@@ -534,32 +523,19 @@
                     <!-- NOUVELLE GRILLE DE VALORISATION EN DESSOUS -->
                     <div class="val-dashboard-grid">
                         <!-- 1. Métriques Clés -->
-                        <div class="quant-card val-card">
+                        <div class="quant-card val-card val-card-metrics">
                             <div class="quant-card-header">
                                 <span class="quant-card-title">Métriques clés</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
                             </div>
                             <div class="val-metrics-grid" id="val-metrics-list">
                                 <!-- Populated via JS -->
                             </div>
                         </div>
 
-                        <!-- 2. Communauté -->
+                        <!-- 2. Free Cash Flow / Action -->
                         <div class="quant-card val-card">
                             <div class="quant-card-header">
-                                <span class="quant-card-title">Communauté</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
-                            </div>
-                            <div class="val-community-content" id="val-community-block">
-                                <!-- Populated via JS -->
-                            </div>
-                        </div>
-
-                        <!-- 3. Free Cash Flow / Action -->
-                        <div class="quant-card val-card">
-                            <div class="quant-card-header">
-                                <span class="quant-card-title">Free Cash Flow / Action</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                                <span class="quant-card-title">Free Cash Flow / action publié</span>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-val-fcf-ps"></canvas>
@@ -569,8 +545,7 @@
                         <!-- 4. Régression linéaire -->
                         <div class="quant-card val-card">
                             <div class="quant-card-header">
-                                <span class="quant-card-title">Régression linéaire</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                                <span class="quant-card-title">Régression semi-log (5 ans)</span>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-val-regression"></canvas>
@@ -580,8 +555,7 @@
                         <!-- 5. Forward P/E projeté -->
                         <div class="quant-card val-card">
                             <div class="quant-card-header">
-                                <span class="quant-card-title">Forward P/E projeté</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                                <span class="quant-card-title">P/E sur BPA estimés (consensus)</span>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-val-forward-pe"></canvas>
@@ -591,8 +565,7 @@
                         <!-- 6. Price / Earnings (P/E) -->
                         <div class="quant-card val-card">
                             <div class="quant-card-header">
-                                <span class="quant-card-title">Price / Earnings (P/E)</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                                <span class="quant-card-title">P/E à la clôture de chaque exercice</span>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-val-pe"></canvas>
@@ -602,8 +575,7 @@
                         <!-- 7. Price / FCF (P/FCF) -->
                         <div class="quant-card val-card">
                             <div class="quant-card-header">
-                                <span class="quant-card-title">Price / Free Cash Flow (P/FCF)</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                                <span class="quant-card-title">P/FCF à la clôture de chaque exercice</span>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-val-pfcf"></canvas>
@@ -613,8 +585,7 @@
                         <!-- 8. Price / OCF (P/OCF) -->
                         <div class="quant-card val-card">
                             <div class="quant-card-header">
-                                <span class="quant-card-title">Price / Operating Cash Flow (P/OCF)</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                                <span class="quant-card-title">P/OCF à la clôture de chaque exercice</span>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-val-pocf"></canvas>
@@ -624,8 +595,7 @@
                         <!-- 9. Price / Sales (P/S) -->
                         <div class="quant-card val-card">
                             <div class="quant-card-header">
-                                <span class="quant-card-title">Price / Sales (P/S)</span>
-                                <i class="fas fa-expand-alt quant-expand-icon"></i>
+                                <span class="quant-card-title">P/S à la clôture de chaque exercice</span>
                             </div>
                             <div class="quant-chart-container">
                                 <canvas id="chart-val-ps"></canvas>
@@ -701,14 +671,14 @@
                         <label class="kpi-modal-checkbox" id="kpi-show-ma-wrapper">
                             <input type="checkbox" id="kpi-show-ma">
                             <span class="checkbox-custom"></span>
-                            <span>Afficher les moyennes mobiles (MM50/MM200)</span>
+                            <span>Afficher les moyennes mobiles exponentielles (EMA50/EMA200, hebdo.)</span>
                         </label>
                         <label class="kpi-modal-checkbox" id="kpi-show-fair-price-wrapper">
                             <input type="checkbox" id="kpi-show-fair-price">
                             <span class="checkbox-custom"></span>
-                            <span>Afficher le prix juste</span>
+                            <span>Afficher la tendance long terme</span>
                             <i class="fas fa-circle-info info-icon"
-                                title="Prix basé sur la régression linéaire et les fondamentaux"></i>
+                                title="Valeur actuelle de la régression semi-log sur tout l'historique mensuel du cours"></i>
                         </label>
                     </div>
 
@@ -716,15 +686,16 @@
                         <label>Devise</label>
                         <div class="custom-select" id="kpi-currency-select-wrapper">
                             <div class="custom-select-trigger" id="kpi-currency-trigger">
-                                <span id="kpi-currency-label">USD</span>
+                                <span id="kpi-currency-label">—</span>
                                 <i class="fas fa-chevron-down custom-select-arrow"></i>
                             </div>
                             <div class="custom-select-options" id="kpi-currency-options">
+                                <div class="custom-select-option selected" data-value="NATIVE">Devise de cotation</div>
                                 <div class="custom-select-option" data-value="USD">USD — Dollar américain</div>
                                 <div class="custom-select-option" data-value="EUR">EUR — Euro</div>
                                 <div class="custom-select-option" data-value="XAU">XAU — Once troy (Or)</div>
                             </div>
-                            <input type="hidden" id="kpi-currency-select" value="USD">
+                            <input type="hidden" id="kpi-currency-select" value="NATIVE">
                         </div>
                     </div>
 
@@ -810,13 +781,13 @@
                             <label>Croissance estimée (%/an) <span id="kpi-val-growth-hint"
                                     class="kpi-val-hint"></span></label>
                             <input type="number" id="kpi-val-growth" class="kpi-val-input" step="0.1"
-                                placeholder="ex: 11.86">
+                                placeholder="à saisir">
                         </div>
                         <div class="kpi-modal-field">
                             <label>Multiple final estimé <span id="kpi-val-multiple-hint"
                                     class="kpi-val-hint"></span></label>
                             <input type="number" id="kpi-val-multiple" class="kpi-val-input" step="0.1"
-                                placeholder="ex: 23.12">
+                                placeholder="à saisir">
                         </div>
                         <div class="kpi-modal-field">
                             <label>Rendement cible (%/an)</label>
@@ -851,23 +822,6 @@
     <script type="module" src="./src/authGuard.js"></script>
     <script type="module" src="./src/screenerApp.js"></script>
     <script type="module" src="./src/sidebar.js"></script>
-
-
-
-    <!-- Modal Profil Quantitatif Détaillé -->
-    <div id="quant-profile-modal" class="quant-profile-modal" style="display:none;">
-        <div class="quant-profile-overlay"></div>
-        <div class="quant-profile-content">
-            <div class="quant-profile-header">
-                <h2>Profil quantitatif détaillé</h2>
-                <div id="quant-profile-score-badge" class="quant-profile-score-badge">—/20</div>
-                <button class="quant-profile-close" id="quant-profile-close"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="quant-profile-grid" id="quant-profile-grid">
-                <!-- Blocs dynamiques JS -->
-            </div>
-        </div>
-    </div>
 </body>
 
 </html>
