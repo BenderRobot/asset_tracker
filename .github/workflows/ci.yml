@@ -15,18 +15,25 @@ jobs:
     env:
       TZ: Europe/Paris
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
+
+      # L'image ubuntu-latest utilise Java 17 par défaut. L'émulateur
+      # Firestore récent requiert Java 21 : on épingle explicitement le JDK
+      # afin que test:rules ne dépende pas des migrations de l'image runner.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
 
       - run: npm ci
 
       # Suite vitest principale (moteur financier, market calendar, workers, etc.)
       - run: npm test
 
-      # Règles de sécurité Firestore, contre le vrai émulateur (Java est
-      # préinstallé sur les runners GitHub ubuntu-latest).
+      # Règles de sécurité Firestore, contre le vrai émulateur Java 21.
       - run: npm run test:rules

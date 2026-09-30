@@ -39,10 +39,11 @@ Les résultats ci-dessous proviennent de lecture de code et de tests locaux avec
 | Vérification | Résultat | Interprétation |
 | --- | --- | --- |
 | `npm test -- --reporter=dot` | **59 fichiers, 422 tests réussis** | Suite principale entièrement verte, avec les non-régressions B6, le résolveur Yahoo partagé et l’unicité des modules ES. |
+| `npm run test:rules` | **1 fichier, 27 tests réussis** | Les règles Firestore passent contre l’émulateur avec Java 21. La CI épingle désormais ce JDK au lieu de dépendre du Java 17 par défaut du runner. |
 | `npm exec -- vitest run --config audit/vitest.config.js --silent --reporter=verbose` | **11 tests réussis sur 11** | A1 à A10 valident maintenant le comportement corrigé. |
 | `npm exec -- vitest run --config audit/current-code.config.js --silent --reporter=verbose` | **6 tests réussis sur 6** | B1 à B6 valident maintenant le comportement corrigé. |
 
-Les tests Firestore, séparés de `npm test`, n’ont pas été exécutés pour cet audit financier. Les avertissements `HTMLCanvasElement.getContext` de la suite principale rappellent que les tests DOM ne valident pas un vrai rendu canvas.
+Les avertissements `HTMLCanvasElement.getContext` de la suite principale rappellent que les tests DOM ne valident pas un vrai rendu canvas.
 
 **Problèmes prioritaires — P1 : résultat financier incorrect ou parcours bloqué**
 

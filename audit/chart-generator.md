@@ -180,7 +180,8 @@ Les messages « Parsing Yahoo format » prouvent l'entrée dans le parseur, pas 
 
 ## Vérifications effectuées et limites des tests actuels
 
-- `npm test -- --reporter=dot` : **59 fichiers, 422 tests réussis**. Les tests Firestore nécessitant l'émulateur sont exclus par la configuration normale ; ils ne sont pas pertinents pour les reproductions financières de cet audit et n'ont pas été lancés.
+- `npm test -- --reporter=dot` : **59 fichiers, 422 tests réussis**.
+- `npm run test:rules` : **1 fichier, 27 tests réussis** contre l’émulateur Firestore sous Java 21.
 - `npm exec -- vitest run --config audit/vitest.config.js --silent --reporter=verbose` : **11 tests de non-régression réussis**, couvrant A1 à A10.
 - `node audit/compare-head.mjs` : **18 calculs comparés**, neuf périodes sur chacun des deux moteurs.
 
