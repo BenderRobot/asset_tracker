@@ -162,3 +162,85 @@ describe('P1 screener journeys', () => {
         expect(app.loadStock).toHaveBeenCalledWith('AI.PA');
     });
 });
+
+describe('Screener EUR quote', () => {
+    const renderQuote = ({ currency, price, rate, marketRate = rate, quoteType = 'EQUITY', stale = false }) => {
+        app.currentData.eurFx = rate == null ? null : {
+            latest: rate,
+            marketRate,
+            latestAt: Date.parse('2026-09-30T16:00:00Z'),
+            stale,
+            fromIso: metrics.normalizeCurrency(currency).iso,
+            toIso: 'EUR',
+        };
+        app.renderHeader({}, {}, {}, {}, {
+            currency,
+            quoteType,
+            regularMarketPrice: { raw: price },
+            regularMarketChange: { raw: 1 },
+            regularMarketChangePercent: { raw: 0.01 },
+        });
+        app.renderEurCountervalue(
+            document.getElementById('kpi-modal-price-eur'),
+            document.getElementById('kpi-modal-fx-meta'),
+            price,
+            currency,
+            quoteType,
+        );
+    };
+
+    it.each([
+        ['USD', 100, 0.9, 0.9, '90,00 €'],
+        ['CHF', 100, 1.04, 1.04, '104,00 €'],
+        ['JPY', 100, 0.0058, 0.0058, '0,5800 €'],
+        // One GBp is 0.01 GBP: the effective quote-unit rate is 0.0117 EUR.
+        ['GBp', 100, 0.0117, 1.17, '1,17 €'],
+        ['USD', 0.000012, 0.9, 0.9, '0,00001080 €'],
+    ])('shows %s quote in EUR in both shared headers', (currency, price, rate, marketRate, expected) => {
+        renderQuote({ currency, price, rate, marketRate });
+        expect(document.getElementById('stock-price-eur').textContent).toContain(expected);
+        expect(document.getElementById('kpi-modal-price-eur').textContent).toContain(expected);
+        expect(document.getElementById('stock-fx-meta').textContent).toContain(`1 ${metrics.normalizeCurrency(currency).iso}`);
+        expect(document.getElementById('stock-fx-meta').textContent).toContain('change du 30/09/2026');
+    });
+
+    it('keeps EUR quotes single-line and labels an index conversion as indicative', () => {
+        renderQuote({ currency: 'EUR', price: 123.45, rate: 1, marketRate: 1 });
+        expect(document.getElementById('stock-price').textContent).toBe('123,45 EUR');
+        expect(document.getElementById('stock-price-eur').hidden).toBe(true);
+
+        renderQuote({ currency: 'USD', price: 5000, rate: 0.9, quoteType: 'INDEX' });
+        expect(document.getElementById('stock-price').textContent).toBe('5 000,00 points');
+        expect(document.getElementById('stock-price-eur').textContent).toContain('indicatif');
+    });
+
+    it('shows unavailable and stale FX states without inventing a rate', () => {
+        renderQuote({ currency: 'CAD', price: 20, rate: null });
+        const eur = document.getElementById('stock-price-eur');
+        expect(eur.textContent).toBe('Conversion EUR indisponible');
+        expect(eur.classList.contains('is-unavailable')).toBe(true);
+        expect(document.getElementById('stock-fx-meta').hidden).toBe(true);
+
+        renderQuote({ currency: 'USD', price: 20, rate: 0.9, stale: true });
+        const meta = document.getElementById('stock-fx-meta');
+        expect(meta.textContent).toContain('taux ancien');
+        expect(meta.classList.contains('is-stale')).toBe(true);
+    });
+
+    it('expires FX cache entries and retries immediately after a failed request', async () => {
+        const now = Date.parse('2026-10-01T12:00:00Z');
+        vi.spyOn(Date, 'now').mockReturnValue(now);
+        app.fetchPriceHistory = vi.fn()
+            .mockRejectedValueOnce(new Error('temporary failure'))
+            .mockResolvedValue([{ t: now - 3600_000, c: 0.9, session: '2026-10-01', closed: true }]);
+
+        await expect(app.fetchFxSeries('USD', 'EUR', '1mo')).resolves.toBeNull();
+        const fx = await app.fetchFxSeries('USD', 'EUR', '1mo');
+        await app.fetchFxSeries('USD', 'EUR', '1mo');
+        expect(fx.latest).toBeCloseTo(0.9);
+        expect(fx.latestAt).toBe(now - 3600_000);
+        expect(fx.stale).toBe(false);
+        expect(app.fetchPriceHistory).toHaveBeenCalledTimes(2);
+        expect(app.fetchPriceHistory).toHaveBeenLastCalledWith('USDEUR=X', '1mo', { daily: true });
+    });
+});

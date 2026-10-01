@@ -529,13 +529,16 @@ class ScreenerApp {
                 : [];
             // Statements in another currency (ADR, dual listing) are converted with
             // the real FX series; without it the cross ratios are not shown at all.
-            const finFx = hasFundamentals ? await this.fetchFxSeries(currency.finIso, currency.priceIso, '10y') : null;
-            const pru = await this.computePru(symbol, currency);
+            const [finFx, eurFx, pru] = await Promise.all([
+                hasFundamentals ? this.fetchFxSeries(currency.finIso, currency.priceIso, '10y') : null,
+                this.fetchFxSeries(currency.quote, 'EUR', '1mo'),
+                this.computePru(symbol, currency),
+            ]);
             if (token !== this._loadToken) return;
 
             this.currentData = {
                 quoteSummary, priceHistory, sp500History, fundamentals,
-                currency, hasFundamentals, rows, finFx, pru, shareBasis,
+                currency, hasFundamentals, rows, finFx, eurFx, pru, shareBasis,
                 priceHistoryLong: null,
             };
             this.render();
@@ -561,19 +564,44 @@ class ScreenerApp {
         const from = normalizeCurrency(fromCode), to = normalizeCurrency(toCode);
         if (!from.iso || !to.iso) return null;
         const scale = from.factor / to.factor;
-        if (from.iso === to.iso) return { at: () => scale, latest: scale };
+        if (from.iso === to.iso) {
+            return {
+                at: () => scale, latest: scale, marketRate: 1,
+                latestAt: null, stale: false, fromIso: from.iso, toIso: to.iso,
+            };
+        }
 
         const key = `${from.iso}${to.iso}:${period}`;
-        if (!this._fxCache.has(key)) {
-            this._fxCache.set(key, this.fetchPriceHistory(fxSymbol(from.iso, to.iso), period, { daily: true }).catch(() => null));
+        const now = Date.now();
+        const ttlMs = 15 * 60 * 1000;
+        let cached = this._fxCache.get(key);
+        if (!cached || now - cached.cachedAt >= ttlMs) {
+            cached = {
+                cachedAt: now,
+                promise: this.fetchPriceHistory(fxSymbol(from.iso, to.iso), period, { daily: true }).catch(() => null),
+            };
+            this._fxCache.set(key, cached);
         }
-        const series = await this._fxCache.get(key);
-        if (!series?.length) return null;
-        const latest = series[series.length - 1].c;
+        const series = await cached.promise;
+        if (!series?.length) {
+            if (this._fxCache.get(key) === cached) this._fxCache.delete(key);
+            return null;
+        }
+        const last = [...series].reverse().find(point => isNum(point.c) && point.c > 0);
+        if (!last) {
+            if (this._fxCache.get(key) === cached) this._fxCache.delete(key);
+            return null;
+        }
+        const latestAt = isNum(last.t) ? last.t : null;
         return {
             // Before the first FX point the rate is unknown: null, not the current rate.
             at: t => { const r = dailyCloseAt(series, t); return isNum(r) ? r * scale : null; },
-            latest: latest * scale,
+            latest: last.c * scale,
+            marketRate: last.c,
+            latestAt,
+            stale: latestAt != null && now - latestAt > 4 * 24 * 3600 * 1000,
+            fromIso: from.iso,
+            toIso: to.iso,
         };
     }
 
@@ -892,7 +920,14 @@ class ScreenerApp {
         document.getElementById('stock-currency').textContent = currency;
 
         document.getElementById('stock-price').textContent =
-            currentPrice != null ? `${this.fmt(currentPrice, 2)} ${currency}` : '—';
+            currentPrice != null ? this.formatNativeQuote(currentPrice, currency, price.quoteType) : '—';
+        this.renderEurCountervalue(
+            document.getElementById('stock-price-eur'),
+            document.getElementById('stock-fx-meta'),
+            currentPrice,
+            currency,
+            price.quoteType,
+        );
 
         const changeEl = document.getElementById('stock-change');
         const up = (change ?? 0) >= 0;
@@ -915,6 +950,59 @@ class ScreenerApp {
                 : null;
             sourceEl.textContent = `Source : Yahoo Finance${when ? ` · cours du ${when}` : ''} · données différées`;
         }
+    }
+
+    priceDecimals(value) {
+        const abs = Math.abs(value);
+        if (abs === 0 || abs >= 1) return 2;
+        if (abs >= 0.01) return 4;
+        if (abs >= 0.0001) return 6;
+        return 8;
+    }
+
+    formatNativeQuote(value, currency, quoteType = '') {
+        if (!isNum(value)) return '—';
+        const unit = String(quoteType).toUpperCase() === 'INDEX' ? 'points' : currency;
+        return `${this.fmt(value, this.priceDecimals(value))} ${unit || ''}`.trim();
+    }
+
+    renderEurCountervalue(valueEl, metaEl, currentPrice, currency, quoteType = '') {
+        if (!valueEl || !metaEl) return;
+        valueEl.classList.remove('is-unavailable');
+        metaEl.classList.remove('is-stale');
+
+        const normalized = normalizeCurrency(currency);
+        if (!isNum(currentPrice) || normalized.iso === 'EUR') {
+            valueEl.hidden = true;
+            metaEl.hidden = true;
+            valueEl.textContent = '';
+            metaEl.textContent = '';
+            return;
+        }
+
+        valueEl.hidden = false;
+        const fx = this.currentData?.eurFx;
+        if (!normalized.iso || !isNum(fx?.latest) || fx.latest <= 0) {
+            valueEl.textContent = 'Conversion EUR indisponible';
+            valueEl.classList.add('is-unavailable');
+            metaEl.hidden = true;
+            metaEl.textContent = '';
+            return;
+        }
+
+        const eurPrice = currentPrice * fx.latest;
+        const indicative = String(quoteType).toUpperCase() === 'INDEX' ? ' (indicatif)' : '';
+        valueEl.textContent = `≈ ${this.fmt(eurPrice, this.priceDecimals(eurPrice))} €${indicative}`;
+
+        const fromIso = fx.fromIso || normalized.iso;
+        const marketRate = isNum(fx.marketRate) ? fx.marketRate : fx.latest / normalized.factor;
+        const rateText = this.fmt(marketRate, marketRate < 0.1 ? 6 : 4);
+        const dateText = isNum(fx.latestAt)
+            ? new Date(fx.latestAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+            : null;
+        metaEl.hidden = false;
+        metaEl.textContent = `1 ${fromIso} = ${rateText} EUR${dateText ? ` · change du ${dateText}` : ''}${fx.stale ? ' · taux ancien' : ''}`;
+        metaEl.classList.toggle('is-stale', !!fx.stale);
     }
 
     // Favicon from the company website, initial letter otherwise. Yahoo strings
@@ -1766,7 +1854,15 @@ class ScreenerApp {
 
         this.renderLogo(document.getElementById('kpi-modal-logo'), profile, price.longName || price.shortName);
 
-        document.getElementById('kpi-modal-price').textContent = currentPrice != null ? `${this.fmt(currentPrice, 2)} ${currency}` : '—';
+        document.getElementById('kpi-modal-price').textContent = currentPrice != null
+            ? this.formatNativeQuote(currentPrice, currency, price.quoteType) : '—';
+        this.renderEurCountervalue(
+            document.getElementById('kpi-modal-price-eur'),
+            document.getElementById('kpi-modal-fx-meta'),
+            currentPrice,
+            currency,
+            price.quoteType,
+        );
         const changeEl = document.getElementById('kpi-modal-change');
         const up = (changePct ?? 0) >= 0;
         changeEl.innerHTML = changePct != null

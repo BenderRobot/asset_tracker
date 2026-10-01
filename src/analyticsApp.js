@@ -2369,7 +2369,8 @@ class AnalyticsApp {
     try {
         await app.init();
     } catch (error) {
-        console.error('❌ Erreur fatale:', error);
+        // Log explicite : un rejet non-Error (chaîne vide, objet) s'affiche vide sinon.
+        console.error('❌ Erreur fatale:', error?.message || String(error) || '(valeur vide)', '\n', error?.stack || error);
         alert('Erreur lors du chargement des analytics');
     }
 })();
