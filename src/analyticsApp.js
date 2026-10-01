@@ -54,11 +54,21 @@ class AnalyticsApp {
 
     // (Collez le reste de votre fichier analyticsApp.js ici)
     async render() {
-        // Get purchases and generate report using dataManager
-        const purchases = this.storage.getPurchases();
         // SINGLE SOURCE OF TRUTH pour la clôture de la veille (même moteur que
         // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
-        const marketResult = await this.dataManager.getCanonicalMarketSnapshot(purchases);
+        // Un snapshot est "superseded" (AbortError) quand la connexion ou le
+        // chargement Firestore change les transactions pendant le calcul :
+        // on relit alors les transactions à jour et on relance.
+        let purchases, marketResult;
+        for (let attempt = 0; ; attempt++) {
+            purchases = this.storage.getPurchases();
+            try {
+                marketResult = await this.dataManager.getCanonicalMarketSnapshot(purchases);
+                break;
+            } catch (error) {
+                if (error?.name !== 'AbortError' || attempt >= 3) throw error;
+            }
+        }
         const analyticsSnapshot = await this.dataManager.buildAnalyticsSnapshot(purchases, marketResult);
         const { cash } = this.dataManager.splitCanonicalPurchases(purchases);
         const dividendsReceived = cash
