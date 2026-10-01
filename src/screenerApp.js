@@ -5,9 +5,9 @@ import { Storage } from './storage.js';
 import { PRICE_PROXY_URL } from './config.js';
 import logger from '../utils/logger.js';
 import {
-    YEAR_MS, normalizeCurrency, fxSymbol, currencyContext, valueAt, alignSeriesByTime, normalizePair,
+    YEAR_MS, normalizeCurrency, fxSymbol, currencyContext, valueAt, commonSessions, dailyCloseAt, monthlyCloses, normalizePair,
     cagr, annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
-    hasFundamentalProfile, radarDimensions, quantScore, fairPriceModel, simpleDcf,
+    hasFundamentalProfile, historicalShareBasis, radarDimensions, quantScore, fairPriceModel, simpleDcf,
 } from './screenerMetrics.js';
 
 const PROXY = PRICE_PROXY_URL;
@@ -285,6 +285,10 @@ class ScreenerApp {
         this._fxCache = new Map();
         this._loadToken = 0;
         this._modalToken = 0;
+        this._searchToken = 0;
+        this.quantCharts = [];
+        this.dividendCharts = [];
+        this.valGridCharts = [];
     }
 
     async init() {
@@ -313,6 +317,9 @@ class ScreenerApp {
         const suggestions = document.getElementById('screener-suggestions');
 
         input.addEventListener('input', () => {
+            this._searchToken++;
+            suggestions.innerHTML = '';
+            input.removeAttribute('aria-activedescendant');
             const q = input.value.trim();
             clear.style.display = q ? 'block' : 'none';
             if (this.searchDebounce) clearTimeout(this.searchDebounce);
@@ -324,67 +331,108 @@ class ScreenerApp {
             }
         });
 
-        input.addEventListener('keydown', (e) => {
+        input.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter') {
-                const q = input.value.trim().toUpperCase();
-                if (q) {
+                e.preventDefault();
+                clearTimeout(this.searchDebounce);
+                const query = input.value.trim();
+                let ticker = suggestions.classList.contains('open')
+                    ? suggestions.querySelector('.suggestion-item[aria-selected="true"]')?.dataset.ticker : null;
+                if (!ticker && query) {
+                    const quotes = await this.fetchSuggestions(query);
+                    if (!quotes || query !== input.value.trim()) return;
+                    ticker = (quotes.find(q => q.symbol.toUpperCase() === query.toUpperCase()) || quotes[0])?.symbol;
+                }
+                if (ticker) {
+                    ++this._searchToken;
                     suggestions.classList.remove('open');
-                    this.loadStock(q);
+                    input.setAttribute('aria-expanded', 'false');
+                    input.value = ticker;
+                    this.loadStock(ticker);
                     input.blur();
                 }
             }
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const items = [...suggestions.querySelectorAll('.suggestion-item')];
+                if (!items.length) return;
+                const previous = items.findIndex(item => item.getAttribute('aria-selected') === 'true');
+                const index = previous < 0 ? (e.key === 'ArrowDown' ? 0 : items.length - 1)
+                    : (previous + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+                items.forEach((item, i) => item.setAttribute('aria-selected', String(i === index)));
+                input.setAttribute('aria-activedescendant', items[index].id);
+            }
             if (e.key === 'Escape') {
+                ++this._searchToken;
+                clearTimeout(this.searchDebounce);
                 suggestions.classList.remove('open');
+                input.setAttribute('aria-expanded', 'false');
             }
         });
 
         clear.addEventListener('click', () => {
+            ++this._searchToken;
+            clearTimeout(this.searchDebounce);
             input.value = '';
             clear.style.display = 'none';
             suggestions.innerHTML = '';
             suggestions.classList.remove('open');
+            input.setAttribute('aria-expanded', 'false');
             input.focus();
         });
 
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.screener-search-section')) {
+                ++this._searchToken;
+                clearTimeout(this.searchDebounce);
                 suggestions.classList.remove('open');
+                input.setAttribute('aria-expanded', 'false');
             }
         });
     }
 
     async fetchSuggestions(query) {
         const suggestions = document.getElementById('screener-suggestions');
+        const token = ++this._searchToken;
+        suggestions.innerHTML = '';
+        document.getElementById('screener-search-input').setAttribute('aria-expanded', 'false');
         try {
             const url = `${PROXY}?symbol=${encodeURIComponent(query)}&type=SEARCH`;
             const data = await this.safeFetchJson(url);
+            if (token !== this._searchToken) return;
             // Same instrument families as the popular grid (indices and crypto included).
             const allowedTypes = ['EQUITY', 'ETF', 'MUTUALFUND', 'INDEX', 'CRYPTOCURRENCY'];
             const quotes = (data.quotes || []).filter(q => allowedTypes.includes(q.quoteType)).slice(0, 7);
 
             if (!quotes.length) {
                 suggestions.classList.remove('open');
-                return;
+                return [];
             }
 
-            suggestions.innerHTML = quotes.map(q => `
-                <div class="suggestion-item" data-ticker="${escHtml(q.symbol).replace(/"/g, '&quot;')}">
+            suggestions.innerHTML = quotes.map((q, i) => `
+                <div class="suggestion-item" id="suggestion-${i}" role="option" aria-selected="false" data-ticker="${escHtml(q.symbol).replace(/"/g, '&quot;')}">
                     <span class="suggestion-ticker">${escHtml(q.symbol)}</span>
                     <span class="suggestion-name">${escHtml(q.shortname || q.longname || '—')}</span>
                     <span class="suggestion-type">${escHtml(q.quoteType || '')}</span>
                 </div>
             `).join('');
             suggestions.classList.add('open');
+            document.getElementById('screener-search-input').setAttribute('aria-expanded', 'true');
 
             suggestions.querySelectorAll('.suggestion-item').forEach(item => {
                 item.addEventListener('click', () => {
+                    ++this._searchToken;
+                    clearTimeout(this.searchDebounce);
                     const ticker = item.dataset.ticker;
                     document.getElementById('screener-search-input').value = ticker;
                     suggestions.classList.remove('open');
+                    document.getElementById('screener-search-input').setAttribute('aria-expanded', 'false');
                     this.loadStock(ticker);
                 });
             });
+            return quotes;
         } catch {
+            if (token !== this._searchToken) return;
             suggestions.classList.remove('open');
         }
     }
@@ -475,8 +523,9 @@ class ScreenerApp {
 
             const currency = currencyContext(quoteSummary, fundamentals);
             const hasFundamentals = hasFundamentalProfile(quoteSummary);
+            const shareBasis = historicalShareBasis(quoteSummary, currency);
             const rows = hasFundamentals
-                ? fundamentalRows(fundamentals, quoteSummary.defaultKeyStatistics?.sharesOutstanding?.raw)
+                ? fundamentalRows(fundamentals, { ordinaryPerQuoted: shareBasis })
                 : [];
             // Statements in another currency (ADR, dual listing) are converted with
             // the real FX series; without it the cross ratios are not shown at all.
@@ -486,7 +535,7 @@ class ScreenerApp {
 
             this.currentData = {
                 quoteSummary, priceHistory, sp500History, fundamentals,
-                currency, hasFundamentals, rows, finFx, pru,
+                currency, hasFundamentals, rows, finFx, pru, shareBasis,
                 priceHistoryLong: null,
             };
             this.render();
@@ -516,14 +565,14 @@ class ScreenerApp {
 
         const key = `${from.iso}${to.iso}:${period}`;
         if (!this._fxCache.has(key)) {
-            this._fxCache.set(key, this.fetchPriceHistory(fxSymbol(from.iso, to.iso), period).catch(() => null));
+            this._fxCache.set(key, this.fetchPriceHistory(fxSymbol(from.iso, to.iso), period, { daily: true }).catch(() => null));
         }
         const series = await this._fxCache.get(key);
         if (!series?.length) return null;
         const latest = series[series.length - 1].c;
         return {
             // Before the first FX point the rate is unknown: null, not the current rate.
-            at: t => { const r = valueAt(series, t); return isNum(r) ? r * scale : null; },
+            at: t => { const r = dailyCloseAt(series, t); return isNum(r) ? r * scale : null; },
             latest: latest * scale,
         };
     }
@@ -558,10 +607,10 @@ class ScreenerApp {
         return isNum(price) ? price * this.currentData.currency.priceFactor : null;
     }
 
-    // Long monthly history shared by the valuation views (year-end prices).
+    // Daily closes avoid using a month-end price after the fiscal closing date.
     async getLongHistory() {
         if (!this.currentData.priceHistoryLong) {
-            this.currentData.priceHistoryLong = await this.fetchPriceHistory(this.currentSymbol, '10y').catch(() => null) || [];
+            this.currentData.priceHistoryLong = await this.fetchPriceHistory(this.currentSymbol, '10y', { daily: true }).catch(() => null) || [];
         }
         return this.currentData.priceHistoryLong;
     }
@@ -697,21 +746,22 @@ class ScreenerApp {
         }
     }
 
-    async fetchPriceHistory(symbol, period) {
+    async fetchPriceHistory(symbol, period, { daily = false } = {}) {
         const rangeMap = {
             '1mo': { range: '1mo', interval: '1d' },
             '3mo': { range: '3mo', interval: '1d' },
             '6mo': { range: '6mo', interval: '1d' },
             'ytd': { range: 'ytd', interval: '1d' },
-            '1y': { range: '1y', interval: '1wk' },
+            '1y': { range: '1y', interval: '1d' },
             // Yahoo has no 3y range: request the exact window instead of 2y.
-            '3y': { years: 3, interval: '1wk' },
-            '5y': { range: '5y', interval: '1wk' },
+            '3y': { years: 3, interval: '1d' },
+            '5y': { range: '5y', interval: '1d' },
             '10y': { range: '10y', interval: '1mo' },
             '10ywk': { range: '10y', interval: '1wk' }, // ~520 pts for MA buffer
             'max': { range: 'max', interval: '1mo' },
         };
-        const { range, years, interval } = rangeMap[period] || rangeMap['1y'];
+        const { range, years, interval: defaultInterval } = rangeMap[period] || rangeMap['1y'];
+        const interval = daily ? '1d' : defaultInterval;
         let window = `range=${range}`;
         if (years) {
             const now = Math.floor(Date.now() / 1000);
@@ -725,10 +775,21 @@ class ScreenerApp {
         const closes = chart.indicators?.quote?.[0]?.close || [];
         const adjcloses = chart.indicators?.adjclose?.[0]?.adjclose || closes;
 
+        const dayFormatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone: chart.meta?.exchangeTimezoneName || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
+        });
+        const sessionDay = t => {
+            const parts = Object.fromEntries(dayFormatter.formatToParts(new Date(t)).map(p => [p.type, p.value]));
+            return `${parts.year}-${parts.month}-${parts.day}`;
+        };
+        const today = sessionDay(Date.now());
+        const regularEnd = chart.meta?.currentTradingPeriod?.regular?.end;
         return timestamps.map((ts, i) => ({
             t: ts * 1000,
+            session: sessionDay(ts * 1000),
+            closed: sessionDay(ts * 1000) < today || (isNum(regularEnd) && Date.now() >= regularEnd * 1000),
             c: closes[i],
-            a: adjcloses[i] || closes[i]
+            a: adjcloses[i] ?? closes[i]
         })).filter(d => d.c != null);
     }
 
@@ -1054,15 +1115,16 @@ class ScreenerApp {
         const sp500 = this.currentData.sp500History || [];
         if (!stock.length || !sp500.length) return;
 
-        // Both series share the stock's dates; the S&P value used at each date is
-        // its last close at or before it (different trading calendars, no look-ahead).
-        const pair = normalizePair(stock.map(d => d.c), alignSeriesByTime(stock, sp500));
+        // Same local session dates on both exchanges; skip holidays and open
+        // sessions rather than pairing today's stock with yesterday's index.
+        const sessions = commonSessions(stock, sp500);
+        const pair = normalizePair(sessions.map(d => d.base), sessions.map(d => d.other));
         if (!pair) return;
         const stockNorm = pair.base, sp500Norm = pair.other;
 
         const lastIdx = stockNorm.length - 1;
         const stockLast = stockNorm[lastIdx], spLast = sp500Norm[lastIdx];
-        const years = (stock[lastIdx].t - stock[pair.start].t) / YEAR_MS;
+        const years = (sessions[lastIdx].t - sessions[pair.start].t) / YEAR_MS;
         const diff = stockLast - spLast; // points of the base-100 index
         const stockCAGR = years >= MIN_ANNUALISED_YEARS ? cagr(100, stockLast, years) : null;
         const spCAGR = years >= MIN_ANNUALISED_YEARS ? cagr(100, spLast, years) : null;
@@ -1076,7 +1138,7 @@ class ScreenerApp {
         if (stockCAGR != null) this.setColorValue(document.getElementById('sp-cagr-stock'), pctText(stockCAGR), stockCAGR >= 0);
         if (spCAGR != null) this.setColorValue(document.getElementById('sp-cagr-sp'), pctText(spCAGR), spCAGR >= 0);
 
-        const spLabels = stock.map(d => new Date(d.t).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' }));
+        const spLabels = sessions.map(d => new Date(d.session + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' }));
         const stockDataPoints = stockNorm;
 
         this.sp500Chart = new Chart(canvas.getContext('2d'), {
@@ -1835,7 +1897,7 @@ class ScreenerApp {
         if (maWrapper) maWrapper.style.display = isPriceMode ? '' : 'none';
         if (fpWrapper) fpWrapper.style.display = isPriceMode ? '' : 'none';
         if (deviseWrapper) deviseWrapper.style.display = (isPriceMode || isRegression) ? '' : 'none';
-        if (divWrapper) divWrapper.style.display = (isPriceMode || isRegression || kpiType === 'sp500') ? '' : 'none';
+        if (divWrapper) divWrapper.style.display = (isPriceMode || isRegression) ? '' : 'none';
 
         // Render based on type
         switch (kpiType) {
@@ -2235,15 +2297,16 @@ class ScreenerApp {
         this._modalRawValues = values;
     }
     async renderComparisonModal(canvas, statsContainer) {
-        const stockData = this.modalHistory;
         const benchmarkTicker = document.getElementById('kpi-comp-benchmark')?.value || '^GSPC';
         const benchmarkLabel = document.getElementById('kpi-comp-benchmark-label')?.textContent || 'S&P 500';
         const period = this.currentModalPeriod;
         const token = this._modalToken;
+        const stockData = await this.fetchPriceHistory(this.currentSymbol, period, { daily: true }).catch(() => null);
+        if (token !== this._modalToken) return;
 
         let benchmarkData = this._cachedBenchmarkData?.[benchmarkTicker]?.[period];
         if (!benchmarkData) {
-            benchmarkData = await this.fetchPriceHistory(benchmarkTicker, period).catch(() => null);
+            benchmarkData = await this.fetchPriceHistory(benchmarkTicker, period, { daily: true }).catch(() => null);
             if (token !== this._modalToken) return;
             if (benchmarkData) {
                 if (!this._cachedBenchmarkData[benchmarkTicker]) this._cachedBenchmarkData[benchmarkTicker] = {};
@@ -2256,20 +2319,17 @@ class ScreenerApp {
             return;
         }
 
-        // Dividends reinvested on both sides (adjusted closes), or on neither.
-        const showDividends = document.getElementById('kpi-show-dividends')?.checked;
-        const key = showDividends ? 'a' : 'c';
-        const pair = normalizePair(
-            stockData.map(d => (showDividends ? (d.a ?? d.c) : d.c)),
-            alignSeriesByTime(stockData, benchmarkData, key),
-        );
+        // The offered benchmarks are price indices/futures, not total-return
+        // series. Compare unadjusted closes on common completed session dates.
+        const sessions = commonSessions(stockData, benchmarkData);
+        const pair = normalizePair(sessions.map(d => d.base), sessions.map(d => d.other));
         if (!pair) {
             statsContainer.innerHTML = '<p style="color:#64748b;padding:16px">Aucune date commune entre les deux séries.</p>';
             return;
         }
         const stockNorm = pair.base;
         const benchmarkNorm = pair.other;
-        const labels = stockData.map(d => new Date(d.t).toLocaleDateString('fr-FR'));
+        const labels = sessions.map(d => new Date(d.session + 'T12:00:00Z').toLocaleDateString('fr-FR'));
 
         this.modalChart = new Chart(canvas.getContext('2d'), {
             type: 'line',
@@ -2316,7 +2376,7 @@ class ScreenerApp {
                         grid: { color: 'rgba(255,255,255,0.04)' },
                         ticks: {
                             color: '#64748b',
-                            callback: v => v.toFixed(0) + '%'
+                            callback: v => v.toFixed(0)
                         }
                     }
                 }
@@ -2328,7 +2388,7 @@ class ScreenerApp {
         const stockPerf = stockNorm[last] - 100;
         const benchmarkPerf = benchmarkNorm[last] - 100;
         const diff = stockPerf - benchmarkPerf;
-        const years = (stockData[last].t - stockData[pair.start].t) / YEAR_MS;
+        const years = (sessions[last].t - sessions[pair.start].t) / YEAR_MS;
         const stockCAGR = years >= MIN_ANNUALISED_YEARS ? cagr(100, stockNorm[last], years) : null;
         const benchmarkCAGR = years >= MIN_ANNUALISED_YEARS ? cagr(100, benchmarkNorm[last], years) : null;
         const fmtCagr = v => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`);
@@ -2344,7 +2404,7 @@ class ScreenerApp {
                     <span style="color:#334155">|</span>
                     <span style="color:#94a3b8">CAGR ${escHtml(benchmarkLabel)} ${fmtCagr(benchmarkCAGR)}</span>
                     <span style="color:#334155">|</span>
-                    <span style="color:#64748b">devises de cotation</span>
+                    <span style="color:#64748b">Base 100 · hors dividendes · devises de cotation</span>
                 </div>
             `;
         }
@@ -2558,7 +2618,7 @@ class ScreenerApp {
         const long = this.currentData.priceHistoryLong || [];
         const hist = historicalMultiples(
             this.currentData.rows,
-            t => this.toMajor(valueAt(long, t)),
+            t => this.toMajor(dailyCloseAt(long, t)),
             t => this.finToPrice(t),
         );
         const isFcf = metricType === 'fcf';
@@ -2591,6 +2651,7 @@ class ScreenerApp {
             currentMultiple,
             defaultMultiple: medianMultiple ?? currentMultiple,
             historyYears: hist.length,
+            shareBasisUnknown: this.currentData.shareBasis === null,
         };
     }
 
@@ -2604,7 +2665,7 @@ class ScreenerApp {
         const gh = byId('growth-hint'), mh = byId('multiple-hint');
         if (gh) gh.textContent = calc.autoGrowth != null
             ? `${calc.historyYears} exercices publiés : ${(calc.autoGrowth * 100).toFixed(1)} %/an`
-            : 'Historique insuffisant, à saisir';
+            : calc.shareBasisUnknown ? 'Base par titre coté non confirmée : croissance à saisir' : 'Historique insuffisant, à saisir';
         if (mh) mh.textContent = calc.medianMultiple != null
             ? `Médiane historique ${calc.multipleLabel} : ${calc.medianMultiple.toFixed(1)}`
             : calc.currentMultiple != null ? `${calc.multipleLabel} actuel : ${calc.currentMultiple.toFixed(1)}` : 'À saisir';
@@ -2624,7 +2685,8 @@ class ScreenerApp {
         let missing = null;
         if (calc.fxMissing) missing = 'Conversion de devise indisponible.';
         else if (calc.baseMetric == null) missing = `${calc.metricLabel} indisponible ou négatif : prix juste non calculable.`;
-        else if (!result) missing = 'Renseignez la croissance, le multiple et le rendement cible.';
+        else if (!result) missing = 'Hypothèses invalides : croissance et rendement cible supérieurs à −100 %, métrique et multiple positifs ; résultat fini requis.';
+        [growthInput, multipleInput, byId('target-return')].forEach(el => el?.setAttribute('aria-invalid', String(!result)));
         return { params, result, missing, growthInput, multipleInput };
     }
 
@@ -2664,98 +2726,9 @@ class ScreenerApp {
         const metricType = document.getElementById('kpi-val-metric')?.value || 'fcf';
         const calc = this.calculatorInputs(metricType);
         const calcState = this.readCalculator('kpi-val', calc);
-        const { result } = calcState;
         const { growthInput, multipleInput } = calcState;
         const currency = calc.currency;
-        const N = 10;
-        const currentYear = new Date().getFullYear();
-        const firstHistYear = calc.histPoints[0]?.year;
-        const startYear = Math.min(firstHistYear ?? currentYear - 5, currentYear - 5);
-        const endYear = currentYear + N;
-        const labels = [];
-        for (let y = startYear; y <= endYear; y++) labels.push(y);
-
-        // Real reported values, one point per fiscal year
-        const histMetricData = labels.map(y => calc.histPoints.find(p => p.year === y)?.value ?? null);
-        // Projection from the last reported metric, only when a growth rate is set
-        const g = calcState.params.growthRate;
-        const projMetricData = labels.map(y => (calc.baseMetric != null && g != null && y >= currentYear
-            ? calc.baseMetric * Math.pow(1 + g, y - currentYear) : null));
-
-        // Year-end closing prices (real), current price for the current year
-        const long = this.currentData.priceHistoryLong || [];
-        const priceDataArr = labels.map(y => (y < currentYear
-            ? this.toMajor(valueAt(long, Date.UTC(y, 11, 31, 23, 59)))
-            : y === currentYear ? calc.price : null));
-        const fairPriceData = labels.map(y => (y === endYear && result ? result.fairPrice : null));
-        const currentPriceDot = labels.map(y => (y === currentYear ? calc.price : null));
-
-        this.modalChart = new Chart(canvas.getContext('2d'), {
-            type: 'line',
-            data: {
-                labels: labels.map(String),
-                datasets: [
-                    {
-                        label: `${calc.metricLabel} publié`,
-                        data: histMetricData,
-                        borderColor: '#eab308',
-                        backgroundColor: 'rgba(234,179,8,0.7)',
-                        borderWidth: 1.5, pointRadius: 5, pointHoverRadius: 7,
-                        fill: false, tension: 0.1, spanGaps: true
-                    },
-                    {
-                        label: 'Projeté',
-                        data: projMetricData,
-                        borderColor: '#eab308',
-                        borderDash: [5, 5],
-                        borderWidth: 1.5, pointRadius: 4, pointHoverRadius: 6,
-                        fill: false, tension: 0.1, spanGaps: false
-                    },
-                    {
-                        label: 'Cours (fin d\'année)',
-                        data: priceDataArr,
-                        borderColor: '#3b82f6',
-                        borderWidth: 2, pointRadius: 0,
-                        fill: false, tension: 0.3, spanGaps: true
-                    },
-                    {
-                        label: result ? `Prix juste ${this.fmt(result.fairPrice, 2)} ${currency}` : 'Prix juste —',
-                        data: fairPriceData,
-                        borderColor: '#3b82f6', backgroundColor: '#3b82f6',
-                        borderWidth: 0, pointRadius: 9, pointHoverRadius: 11,
-                        fill: false
-                    },
-                    {
-                        label: `Prix actuel ${this.fmt(calc.price, 2)} ${currency}`,
-                        data: currentPriceDot,
-                        borderColor: '#60a5fa', backgroundColor: '#60a5fa',
-                        borderWidth: 0, pointRadius: 7, pointHoverRadius: 9,
-                        fill: false
-                    }
-                ]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: true, labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
-                    tooltip: {
-                        mode: 'index', intersect: false,
-                        callbacks: { label: ctx => (ctx.parsed.y != null ? `${ctx.dataset.label}: ${this.fmt(ctx.parsed.y, 2)} ${currency}` : null) }
-                    }
-                },
-                scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', font: { size: 11 } } },
-                    y: {
-                        grid: { color: 'rgba(255,255,255,0.04)' }, ticks: {
-                            color: '#64748b', font: { size: 11 },
-                            callback: v => this.fmt(v, 1) + ' ' + currency
-                        }
-                    }
-                },
-                animation: { duration: 400 }
-            }
-        });
-
+        this.renderValuationChart(canvas, calc, calcState);
         statsContainer.innerHTML = `<div class="kpi-val-header">${this.calculatorHeaderHtml(calcState, currency)}</div>
             <p class="valuation-disclaimer">Modèle indicatif : ${calc.metricLabel} projeté × multiple final, actualisé au rendement cible. Ne constitue pas un conseil en investissement.</p>`;
 
@@ -2922,143 +2895,8 @@ class ScreenerApp {
         const metricType = document.getElementById('val-tab-metric')?.value || 'fcf';
         const calc = this.calculatorInputs(metricType);
         const calcState = this.readCalculator('val-tab', calc);
-        const { result } = calcState;
         const currency = calc.currency;
-        const N = 10;
-        const now = new Date();
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth();
-        const startYear = currentYear - 5;
-        const endYear = currentYear + N;
-        const long = this.currentData.priceHistoryLong || [];
-        const g = calcState.params.growthRate;
-
-        // Monthly timeline: real month-end closes, real annual metric at each
-        // fiscal year end, projection from the current month onward.
-        const labels = [], monthlyPrices = [], monthlyHistMetric = [], monthlyProjMetric = [];
-        const totalMonths = (endYear - startYear) * 12;
-        for (let i = 0; i <= totalMonths; i++) {
-            const m = (startYear * 12 + i) % 12;
-            const y = Math.floor((startYear * 12 + i) / 12);
-            labels.push(`${this.getMonthName(m)} ${y}`);
-            const monthIndex = y * 12 + m;
-            const nowIndex = currentYear * 12 + currentMonth;
-
-            monthlyPrices.push(monthIndex < nowIndex
-                ? this.toMajor(valueAt(long, Date.UTC(y, m + 1, 0, 23, 59)))
-                : monthIndex === nowIndex ? calc.price : null);
-
-            const reported = calc.histPoints.find(p => {
-                const d = new Date(p.endTs);
-                return d.getUTCFullYear() === y && d.getUTCMonth() === m;
-            });
-            monthlyHistMetric.push(reported ? reported.value : null);
-
-            const yearsAhead = (monthIndex - nowIndex) / 12;
-            monthlyProjMetric.push(calc.baseMetric != null && g != null && yearsAhead >= 0
-                ? calc.baseMetric * Math.pow(1 + g, yearsAhead) : null);
-        }
-
-        const fairPriceData = labels.map((l, i) => (i === labels.length - 1 && result ? result.fairPrice : null));
-        const currentPriceData = labels.map((l, i) => ((startYear * 12 + i) === currentYear * 12 + currentMonth ? calc.price : null));
-
-        if (this.valuationTabChart) this.valuationTabChart.destroy();
-        this.valuationTabChart = new Chart(canvas.getContext('2d'), {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: `${calc.metricLabel} publié`,
-                        data: monthlyHistMetric,
-                        borderColor: '#eab308',
-                        backgroundColor: 'rgba(234,179,8,0.6)',
-                        borderWidth: 2,
-                        pointRadius: 4,
-                        fill: false,
-                        spanGaps: true,
-                        yAxisID: 'y1',
-                        tension: 0.1
-                    },
-                    {
-                        label: 'Projeté',
-                        data: monthlyProjMetric,
-                        borderColor: '#eab308',
-                        borderDash: [5, 5],
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        fill: false,
-                        yAxisID: 'y1',
-                        tension: 0.1
-                    },
-                    {
-                        label: 'Cours de l\'actif',
-                        data: monthlyPrices,
-                        borderColor: '#3b82f6',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        fill: true,
-                        backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                        tension: 0.2,
-                        spanGaps: true,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: result ? `Prix juste ${this.fmt(result.fairPrice, 2)} ${currency}` : 'Prix juste —',
-                        data: fairPriceData,
-                        borderColor: '#3b82f6',
-                        backgroundColor: '#3b82f6',
-                        borderWidth: 0,
-                        pointRadius: 8,
-                        fill: false,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: `Prix actuel ${this.fmt(calc.price, 2)} ${currency}`,
-                        data: currentPriceData,
-                        borderColor: '#60a5fa',
-                        backgroundColor: '#60a5fa',
-                        borderWidth: 0,
-                        pointRadius: 6,
-                        fill: false,
-                        yAxisID: 'y'
-                    }
-                ]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                plugins: {
-                    legend: { display: true, labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 12, usePointStyle: true } },
-                    tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                        titleColor: '#f8fafc',
-                        bodyColor: '#94a3b8',
-                        borderColor: 'rgba(255,255,255,0.1)',
-                        borderWidth: 1,
-                        padding: 12,
-                        callbacks: { label: ctx => (ctx.parsed.y != null ? `${ctx.dataset.label}: ${this.fmt(ctx.parsed.y, 2)} ${currency}` : null) }
-                    }
-                },
-                scales: {
-                    x: {
-                        grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
-                        ticks: { color: '#64748b', maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }
-                    },
-                    y: {
-                        position: 'left',
-                        grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
-                        ticks: { color: '#64748b', font: { size: 10 }, callback: v => this.fmt(v, 0) + ' ' + currency }
-                    },
-                    y1: {
-                        position: 'right',
-                        display: false,
-                        grid: { display: false }
-                    }
-                }
-            }
-        });
-
+        this.renderValuationChart(canvas, calc, calcState);
         header.innerHTML = this.calculatorHeaderHtml(calcState, currency);
         this.renderValuationDashboard(calc);
     }
@@ -3066,6 +2904,54 @@ class ScreenerApp {
     getMonthName(index) {
         const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
         return months[index % 12];
+    }
+
+    // One timeline shared by the modal and tab: discounted value is at today;
+    // the undiscounted terminal price is at today + ten years, not January 1.
+    renderValuationChart(canvas, calc, state) {
+        const now = Date.now();
+        const start = new Date(now);
+        const years = 10;
+        const { result, params } = state;
+        const currency = calc.currency;
+        const future = Array.from({ length: years + 1 }, (_, i) => {
+            const date = new Date(start);
+            date.setUTCFullYear(start.getUTCFullYear() + i);
+            return date.getTime();
+        });
+        const point = (x, y) => ({ x, y });
+        const history = monthlyCloses(this.currentData.priceHistoryLong || [])
+            .filter(p => p.t >= now - 5 * YEAR_MS)
+            .map(p => point(p.t, this.toMajor(p.c)));
+        const projected = result ? future.map((t, i) => point(t, calc.baseMetric * Math.pow(1 + params.growthRate, i))) : [];
+        const datasets = [
+            { label: `${calc.metricLabel} publié`, data: calc.histPoints.map(p => point(p.endTs, p.value)), borderColor: '#eab308', yAxisID: 'metric', pointRadius: 4 },
+            { label: `${calc.metricLabel} projeté`, data: projected, borderColor: '#eab308', borderDash: [5, 5], yAxisID: 'metric' },
+            { label: 'Cours', data: history, borderColor: '#3b82f6', yAxisID: 'price', pointRadius: 0 },
+            { label: 'Prix actuel', data: isNum(calc.price) ? [point(now, calc.price)] : [], backgroundColor: '#60a5fa', yAxisID: 'price', pointRadius: 6 },
+            { label: 'Prix juste actuel (actualisé)', data: result ? [point(now, result.fairPrice)] : [], backgroundColor: '#10b981', yAxisID: 'price', pointRadius: 8 },
+            { label: 'Prix terminal à 10 ans (non actualisé)', data: result ? [point(future[years], result.terminalPrice)] : [], backgroundColor: '#f97316', yAxisID: 'price', pointRadius: 8 },
+        ];
+        const property = canvas.id === 'valuation-tab-chart' ? 'valuationTabChart' : 'modalChart';
+        this[property]?.destroy();
+        this[property] = new Chart(canvas.getContext('2d'), {
+            type: 'line', data: { datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true, labels: { color: '#94a3b8', font: { size: 11 } } },
+                    tooltip: { callbacks: {
+                        title: items => items.length ? new Date(items[0].parsed.x).toLocaleDateString('fr-FR') : '',
+                        label: item => `${item.dataset.label} : ${this.fmt(item.parsed.y, 2)} ${currency}`,
+                    } },
+                },
+                scales: {
+                    x: { type: 'linear', ticks: { color: '#94a3b8', maxTicksLimit: 10, callback: t => new Date(t).getUTCFullYear() } },
+                    price: { position: 'left', title: { display: true, text: `Prix (${currency})`, color: '#94a3b8' }, ticks: { color: '#94a3b8' } },
+                    metric: { position: 'right', title: { display: true, text: `${calc.metricLabel} (${currency})`, color: '#eab308' }, grid: { drawOnChartArea: false }, ticks: { color: '#eab308' } },
+                },
+            },
+        });
     }
 
     // Lower grid of the Valorisation tab — every series comes from the reported
@@ -3076,12 +2962,10 @@ class ScreenerApp {
 
         if (this.valGridCharts) this.valGridCharts.forEach(c => c.destroy());
         this.valGridCharts = [];
-        const tempQuantCharts = this.quantCharts;
-        this.quantCharts = this.valGridCharts;
 
         const currency = calc.currency;
         const long = this.currentData.priceHistoryLong || [];
-        const hist = historicalMultiples(this.currentData.rows, t => this.toMajor(valueAt(long, t)), t => this.finToPrice(t));
+        const hist = historicalMultiples(this.currentData.rows, t => this.toMajor(dailyCloseAt(long, t)), t => this.finToPrice(t));
         const years = hist.map(h => h.year);
         const ratio = (price, perShare) => (isNum(price) && isNum(perShare) && perShare > 0 ? price / perShare : null);
         const stats = qs.defaultKeyStatistics || {};
@@ -3117,7 +3001,7 @@ class ScreenerApp {
 
         // 3. Régression semi-log sur les clôtures mensuelles des 5 dernières années
         const since = Date.now() - 5 * YEAR_MS;
-        const monthly = long.filter(d => d.t >= since && d.c > 0);
+        const monthly = monthlyCloses(long).filter(d => d.t >= since && d.c > 0);
         if (monthly.length >= 4) {
             const idx = monthly.map((_, i) => i);
             const { slope, intercept } = this.linearRegression(idx, monthly.map(d => Math.log(d.c)));
@@ -3139,7 +3023,6 @@ class ScreenerApp {
         this.renderQuantLineChart('chart-val-pocf', [{ label: 'P/OCF', data: hist.map(h => h.pocf), color: '#3b82f6' }], years, null, 'x');
         this.renderQuantLineChart('chart-val-ps', [{ label: 'P/S', data: hist.map(h => h.ps), color: '#3b82f6' }], years, null, 'x');
 
-        this.quantCharts = tempQuantCharts;
     }
 
     async renderQuantitativeTab() {
@@ -3204,11 +3087,14 @@ class ScreenerApp {
 
     setQuantCurrencyNote(currency) {
         const note = document.getElementById('quant-currency-note');
-        if (note) note.textContent = currency ? `Montants publiés en ${currency}, par exercice fiscal (source : Yahoo Finance).` : '';
+        if (note) note.textContent = (currency ? `Montants publiés en ${currency}, par exercice fiscal (source : Yahoo Finance).` : '')
+            + (this.currentData.shareBasis === null ? ' Base par titre coté non confirmée : les historiques par action cotée sont indisponibles.' : '');
     }
 
     // ─── Dividende Tab ────────────────────────────────────────────────────────
     async renderDividendeTab() {
+        this.dividendCharts.forEach(chart => chart.destroy());
+        this.dividendCharts = [];
         const qs = this.currentData.quoteSummary;
         if (!qs) return;
 
@@ -3254,20 +3140,21 @@ class ScreenerApp {
 
         // Chart 1: real per-payment history via events=div (same technique as DividendManager)
         const token = this._loadToken;
+        let payments = [];
         try {
             const payHistUrl = `${PROXY}?symbol=${encodeURIComponent(this.currentSymbol)}&type=STOCK&range=10y&interval=1d&events=div`;
             const payData = await this.safeFetchJson(payHistUrl);
             if (token !== this._loadToken) return;
             const events = payData?.chart?.result?.[0]?.events?.dividends;
-            const payments = events
+            payments = events
                 ? Object.keys(events).map(ts => ({ ts: parseInt(ts, 10), amount: events[ts].amount })).sort((a, b) => a.ts - b.ts)
                 : [];
-            const payLabels = payments.map(p => new Date(p.ts * 1000).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }));
-            this.renderQuantBarChart('chart-dividend-payments', 'Versement / action', payLabels, payments.map(p => p.amount), '#14b8a6', null, quoteCurrency);
         } catch (err) {
+            if (token !== this._loadToken) return;
             logger.error('[Dividende] payment history failed:', err);
-            this.renderQuantBarChart('chart-dividend-payments', 'Versement / action', [], [], '#14b8a6', null, quoteCurrency);
         }
+        const payLabels = payments.map(p => new Date(p.ts * 1000).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }));
+        this.renderQuantBarChart('chart-dividend-payments', 'Versement / action', payLabels, payments.map(p => p.amount), '#14b8a6', null, quoteCurrency);
 
         // Chart 2: annual dividend per share (dividends paid ÷ average shares)
         this.renderQuantBarChart('chart-dividend-annual', 'Dividende / action (estimé)',
@@ -3388,8 +3275,8 @@ class ScreenerApp {
                 }
             }
         });
-        this.quantCharts.push(chart);
-        this.renderQuantFooter(footerId, data);
+        this.trackTabChart(chart, canvas);
+        this.renderQuantFooter(footerId, data, labels);
     }
 
     // Grouped bar chart for several datasets sharing the same year labels (e.g. OCF vs FCF).
@@ -3429,15 +3316,15 @@ class ScreenerApp {
                 }
             }
         });
-        this.quantCharts.push(chart);
-        this.renderQuantFooter(footerId, datasets[footerSeriesIndex]?.data);
+        this.trackTabChart(chart, canvas);
+        this.renderQuantFooter(footerId, datasets[footerSeriesIndex]?.data, labels);
     }
 
     // Perf/CAGR footer, only when the series has real positive endpoints.
-    renderQuantFooter(footerId, series) {
+    renderQuantFooter(footerId, series, years) {
         const footer = footerId ? document.getElementById(footerId) : null;
         if (!footer) return;
-        const stats = annualSeriesStats(series);
+        const stats = annualSeriesStats(series, years);
         if (!stats) { footer.innerHTML = ''; return; }
 
         const perfClass = stats.perf >= 0 ? 'perf-positive' : 'perf-negative';
@@ -3486,7 +3373,14 @@ class ScreenerApp {
                 }
             }
         });
-        this.quantCharts.push(chart);
+        this.trackTabChart(chart, canvas);
+    }
+
+    trackTabChart(chart, canvas) {
+        const tab = canvas.closest('.screener-tab-content')?.id;
+        const group = tab === 'tab-dividende' ? this.dividendCharts
+            : tab === 'tab-valorisation' ? this.valGridCharts : this.quantCharts;
+        group.push(chart);
     }
 
     // Axis ticks, same magnitudes as fmtBig()

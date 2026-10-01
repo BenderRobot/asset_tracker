@@ -1,5 +1,7 @@
 # Audit des données du Screener — vue commerciale — 30 septembre 2026
 
+> Mise à jour : voir l'[audit des cinq onglets du 1er octobre 2026](screener-audit-2026-10-01.md), réalisé après les corrections ci-dessous. Il recense les défauts encore présents et spécifie le double affichage du cours en devise native et en EUR. Le présent document conserve les constats historiques du 30 septembre.
+
 **Suivi — corrections du 30 septembre 2026 (Yahoo conservé) :** corrigé localement, aucun déploiement effectué. Les calculs sont regroupés dans un module pur, `src/screenerMetrics.js`, couvert par `tests/screenerMetrics.test.js` (28 tests). La suite complète passe : 60 fichiers, 453 tests.
 
 | Constat | Statut |

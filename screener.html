@@ -53,11 +53,11 @@
                     <i class="fas fa-search screener-search-icon"></i>
                     <input type="text" id="screener-search-input"
                         placeholder="Rechercher une action… ex: AAPL, NVIDIA, TotalEnergies" autocomplete="off"
-                        spellcheck="false">
+                        spellcheck="false" role="combobox" aria-label="Rechercher un actif" aria-autocomplete="list" aria-controls="screener-suggestions" aria-expanded="false">
                     <button id="screener-search-clear" class="screener-clear-btn" style="display:none"><i
                             class="fas fa-times"></i></button>
                 </div>
-                <div id="screener-suggestions" class="screener-suggestions"></div>
+                <div id="screener-suggestions" class="screener-suggestions" role="listbox"></div>
             </div>
 
             <!-- DEFAULT STATE -->
@@ -197,6 +197,7 @@
                             <div class="chart-container">
                                 <canvas id="sp500-chart"></canvas>
                             </div>
+                            <p class="valuation-disclaimer">Base 100 · séances clôturées communes · hors dividendes · devises de cotation</p>
                             <div class="chart-stats">
                                 <div class="chart-stat"><span id="sp-diff-label" class="cs-label">Diff.</span><span id="sp-diff"
                                         class="cs-value">—</span></div>
@@ -738,6 +739,7 @@
 
                     <!-- Comparaison settings -->
                     <div id="kpi-comparison-settings" style="display:none;">
+                        <p class="valuation-disclaimer">Comparaison base 100 des séances clôturées communes, hors dividendes, dans les devises de cotation. Ces indices ne représentent pas un rendement total.</p>
                         <div class="kpi-modal-field">
                             <label>Benchmark de comparaison</label>
                             <div class="custom-select" id="kpi-comp-benchmark-wrapper">

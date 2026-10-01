@@ -13,11 +13,16 @@ import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-09-28T20:00:00Z'));
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network disabled in golden snapshot test')));
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+});
 
 describe('TEST GOLDEN SNAPSHOT — scénario réaliste multi-broker/USD/crypto/cash/dividende', () => {
-    it('graph.lastValue == holdings.totalValue + cash, et totalReturn == Σ gainEUR == totalValue - investedAssetOnly', async () => {
+    it('graph.lastValue == previousCloseValue + cash, et totalReturn == Σ gainEUR == totalValue - investedAssetOnly', async () => {
         const storage = createFakeStorage({
             prices: {
                 AAPL: { price: 220, currency: 'EUR', previousClose: 215, lastUpdate: Date.now() },
@@ -52,19 +57,19 @@ describe('TEST GOLDEN SNAPSHOT — scénario réaliste multi-broker/USD/crypto/c
         ];
 
         const historicalFxMap = new Map([['2024-02-01', 1 / 0.90]]); // USD->EUR figé à 0.90 pour cette date
+        // Le faux client API ne couvre pas le transport FX. Fournir le taux
+        // au snapshot lui-même pour ne dépendre ni du réseau ni du taux courant.
+        const fetchHistoricalFx = vi.spyOn(dm, 'fetchHistoricalFxRateMap').mockResolvedValue(historicalFxMap);
 
         const snapshot = await dm.buildTodaySnapshot(assetPurchases, cashPurchases);
-        // buildTodaySnapshot résout lui-même historicalFxMap via getHistoricalFxMap
-        // (pas de réseau réel sous Node -> fetch échoue silencieusement et
-        // retombe sur une Map vide, donc sur le taux COURANT comme repli — voir
-        // resolveHistoricalUsdToEurRate) ; on injecte donc le taux figé
-        // directement dans calculateHoldings ci-dessous pour vérifier
-        // l'invariant 9 de façon déterministe, indépendamment de ce repli réseau.
-        const holdingsWithHistoricalFx = dm.calculateHoldings(assetPurchases, null, historicalFxMap);
-        const msft = holdingsWithHistoricalFx.find(h => h.ticker === 'MSFT');
-        expect(msft.invested).toBeCloseTo(5 * 200 * 0.90, 2); // jamais 0.85
+        expect(fetchHistoricalFx).toHaveBeenCalledTimes(1);
+        expect(fetchHistoricalFx).toHaveBeenCalledWith('EURUSD=X', 4);
+        expect(fetch).not.toHaveBeenCalled();
 
         const { todayGraphData, holdings, summary, cashReserve } = snapshot;
+        const msft = holdings.find(h => h.ticker === 'MSFT');
+        expect(msft.invested).toBeCloseTo(5 * 200 * 0.90, 2); // jamais 0.85
+        expect(summary.totalInvestedEUR).toBeCloseTo(4500, 2);
         const values = todayGraphData.values;
         const lastGraphValue = values[values.length - 1];
 

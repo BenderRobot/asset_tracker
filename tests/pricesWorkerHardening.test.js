@@ -127,6 +127,26 @@ describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)
         expect(res.status).toBe(400);
     });
 
+    it('accepts names with spaces and accents for SEARCH, still rejects them as quote symbols', async () => {
+        vi.stubGlobal('fetch', vi.fn(async url => {
+            expect(new URL(url).searchParams.get('q')).toBe('Air Liquide Énergie');
+            return new Response(JSON.stringify({ quotes: [{ symbol: 'AI.PA' }] }), { status: 200 });
+        }));
+        const query = encodeURIComponent('Air Liquide Énergie');
+        expect((await worker.fetch(getRequest(`symbol=${query}&type=SEARCH`), makeEnv())).status).toBe(200);
+        expect((await worker.fetch(getRequest(`symbol=${query}&type=QUOTE_SUMMARY`), makeEnv())).status).toBe(400);
+        expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects empty, oversized and control-character searches before upstream calls', async () => {
+        vi.stubGlobal('fetch', vi.fn());
+        const env = makeEnv({ PRICE_RATE_LIMIT_PER_MINUTE: '100' });
+        for (const query of ['   ', 'a'.repeat(101), 'test\nquery', '<script>']) {
+            expect((await worker.fetch(getRequest(`symbol=${encodeURIComponent(query)}&type=SEARCH`), env)).status).toBe(400);
+        }
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
     it('dépassement de la limite de débit par IP → 429', async () => {
         stubFetch();
         const env = makeEnv({ PRICE_RATE_LIMIT_PER_MINUTE: '2' });

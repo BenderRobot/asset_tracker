@@ -58,6 +58,11 @@
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
 }
 
+.suggestion-item[aria-selected="true"] {
+    background: rgba(99, 102, 241, 0.2);
+    outline: 1px solid #818cf8;
+}
+
 .screener-search-icon {
     color: var(--text-muted, #94a3b8);
     font-size: 15px;

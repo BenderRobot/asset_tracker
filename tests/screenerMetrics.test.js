@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-    YEAR_MS, normalizeCurrency, currencyContext, valueAt, alignSeriesByTime, normalizePair,
+    YEAR_MS, normalizeCurrency, currencyContext, valueAt, alignSeriesByTime, commonSessions, dailyCloseAt, normalizePair,
     annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
-    hasFundamentalProfile, radarDimensions, quantScore, fairPriceModel, simpleDcf,
+    hasFundamentalProfile, historicalShareBasis, radarDimensions, quantScore, fairPriceModel, simpleDcf,
 } from '../src/screenerMetrics.js';
 
 const r = raw => ({ raw });
@@ -100,13 +100,13 @@ describe('fundamentals', () => {
     ];
 
     it('expresses per-share values per quoted ADR, not per ordinary share', () => {
-        const rows = fundamentalRows(fundamentals, 5.186e9);
+        const rows = fundamentalRows(fundamentals, { ordinaryPerQuoted: () => 5 });
         expect(rows[1].shares).toBeCloseTo(5.186e9, -3);
         expect(rows[1].fcfPerShare).toBeCloseTo(730.8e9 / 5.186e9, 6);
     });
 
     it('converts the reporting currency before comparing with the price (TSM: P/FCF ≈ 100, not 3)', () => {
-        const rows = fundamentalRows(fundamentals, 5.186e9);
+        const rows = fundamentalRows(fundamentals, { ordinaryPerQuoted: () => 5 });
         const twdUsd = 0.0315;
         const hist = historicalMultiples(rows, () => 458.04, () => twdUsd);
         expect(hist[1].pfcf).toBeCloseTo(458.04 / ((730.8e9 / 5.186e9) * twdUsd), 6);
@@ -115,7 +115,7 @@ describe('fundamentals', () => {
     });
 
     it('leaves multiples empty when the FX rate or the price is unknown', () => {
-        const rows = fundamentalRows(fundamentals, 5.186e9);
+        const rows = fundamentalRows(fundamentals, { ordinaryPerQuoted: () => 5 });
         expect(historicalMultiples(rows, () => 458, () => null)[0].pe).toBeNull();
         expect(historicalMultiples(rows, () => null, () => 1)[0].pe).toBeNull();
     });
@@ -166,6 +166,29 @@ describe('quantitative profile', () => {
 });
 
 describe('valuation models', () => {
+    it('returns the target IRR when bought at model value, with and without dividends', () => {
+        for (const dividendRate of [0, 2]) {
+            const input = { baseMetric: 10, growthRate: 0.04, multiple: 15, targetReturn: 0.1, dividendRate, years: 10 };
+            const value = fairPriceModel(input).fairPrice;
+            const result = fairPriceModel({ ...input, currentPrice: value });
+            expect(result.estReturn).toBeCloseTo(10, 8);
+            expect(result.terminalPrice).toBeCloseTo(10 * 1.04 ** 10 * 15, 8);
+        }
+    });
+
+    it('computes negative returns and the one-year reproduction without discounting twice', () => {
+        const base = { baseMetric: 10, growthRate: 0, multiple: 15, targetReturn: 0.1, years: 1, includeDividends: false };
+        expect(fairPriceModel({ ...base, currentPrice: 150 / 1.1 }).estReturn).toBeCloseTo(10, 8);
+        expect(fairPriceModel({ ...base, currentPrice: 200 }).estReturn).toBeCloseTo(-25, 8);
+    });
+
+    it.each([
+        { growthRate: -2 }, { growthRate: -1 }, { growthRate: Infinity },
+        { years: 0 }, { years: -1 }, { years: 0.5 }, { years: Infinity },
+        { multiple: -1 }, { targetReturn: -1 }, { growthRate: 1e100 },
+    ])('rejects invalid or overflowing hypotheses: %j', bad => {
+        expect(fairPriceModel({ baseMetric: 10, growthRate: 0.1, multiple: 15, targetReturn: 0.1, years: 10, ...bad })).toBeNull();
+    });
     it('refuses to compute a fair price from missing inputs', () => {
         expect(fairPriceModel({ baseMetric: null, growthRate: 0.1, multiple: 20, targetReturn: 0.12 })).toBeNull();
         expect(fairPriceModel({ baseMetric: 5, growthRate: null, multiple: 20, targetReturn: 0.12 })).toBeNull();
@@ -182,6 +205,57 @@ describe('valuation models', () => {
         expect(simpleDcf(5, null)).toBeNull();
         expect(simpleDcf(-2, 0.1)).toBeNull();
         expect(simpleDcf(5, 0.5).growth).toBe(0.2);
+    });
+});
+
+describe('P1 historical data regressions', () => {
+    it('keeps missing and skipped fiscal years in CAGR duration', () => {
+        expect(annualSeriesStats([100, null, 121]).cagr).toBeCloseTo(10, 9);
+        expect(annualSeriesStats([100, 121], ['2023', '2025']).cagr).toBeCloseTo(10, 9);
+        expect(annualSeriesStats([null, 100, null, 121], ['2022', '2023', '2024', '2025']).cagr).toBeCloseTo(10, 9);
+    });
+
+    it('preserves published ordinary EPS instead of replacing the average with current shares', () => {
+        const data = [{ year: '2025', endDate: '2025-09-30', annualNetIncome: 112010000000,
+            annualDilutedAverageShares: 15004697000, annualDilutedEPS: 7.46 }];
+        const result = fundamentalRows(data);
+        expect(result[0].eps).toBe(7.46);
+        expect(result[0].shares).toBe(15004697000);
+    });
+
+    it('does not guess ADR factors and supports independently confirmed factors by date', () => {
+        expect(historicalShareBasis(TSM)).toBeNull();
+        expect(historicalShareBasis({ price: { currency: 'USD', exchangeName: 'NYSE' }, assetProfile: { country: 'United Kingdom' } })).toBeNull();
+        expect(historicalShareBasis({ price: { currency: 'USD', exchangeName: 'NasdaqGS' }, assetProfile: { country: 'United States' } })).toBe(1);
+        const data = [{ year: '2024', endDate: '2024-12-31', annualDilutedEPS: 2, annualNetIncome: 1000, annualDilutedAverageShares: 500 }];
+        expect(fundamentalRows(data, { ordinaryPerQuoted: null })[0]).toMatchObject({ eps: null, shares: null, netIncome: 1000 });
+        expect(fundamentalRows(data, { ordinaryPerQuoted: date => date === '2024-12-31' ? 5 : null })[0].eps).toBe(10);
+    });
+
+    it('compares local session dates without forward filling holidays or open sessions', () => {
+        const left = [
+            { t: day('2026-09-02') + 7 * 3600000, session: '2026-09-02', c: 100 },
+            { t: day('2026-09-03'), session: '2026-09-03', c: 110 },
+            { t: day('2026-09-04'), session: '2026-09-04', c: 120, closed: false },
+        ];
+        const right = [
+            { t: day('2026-09-01'), session: '2026-09-01', c: 90 },
+            { t: day('2026-09-02') + 13.5 * 3600000, session: '2026-09-02', c: 105 },
+            { t: day('2026-09-04'), session: '2026-09-04', c: 115 },
+        ];
+        expect(commonSessions(left, right)).toHaveLength(1);
+        expect(commonSessions(left, right)[0]).toMatchObject({ base: 100, other: 105, session: '2026-09-02' });
+    });
+
+    it('uses a daily close no later than fiscal end, including weekends and intraday exclusions', () => {
+        const series = [
+            { session: '2025-09-26', c: 100 },
+            { session: '2025-09-29', c: 120 },
+            { session: '2025-09-30', c: 125, closed: false },
+        ];
+        expect(dailyCloseAt(series, day('2025-09-27'))).toBe(100);
+        expect(dailyCloseAt(series, day('2025-09-30'))).toBe(120);
+        expect(dailyCloseAt(series, day('2025-09-20'))).toBeNull();
     });
 });
 

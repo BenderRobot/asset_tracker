@@ -448,7 +448,12 @@ export default {
       const symbol = url.searchParams.get('symbol');
       const type = (url.searchParams.get('type') || 'STOCK').toUpperCase();
 
-      if (symbol && !isValidSymbol(symbol)) {
+      // A search phrase is not a ticker. It stays length-bounded and URL-encoded
+      // below, while quote/chart endpoints retain their strict symbol validation.
+      if (type === 'SEARCH' && symbol && (symbol.trim().length === 0 || symbol.length > 100 || /[\u0000-\u001f\u007f<>]/.test(symbol))) {
+        return jsonResponse({ error: 'Invalid search query' }, 400, origin);
+      }
+      if (type !== 'SEARCH' && symbol && !isValidSymbol(symbol)) {
         return jsonResponse({ error: 'Invalid symbol format' }, 400, origin);
       }
 

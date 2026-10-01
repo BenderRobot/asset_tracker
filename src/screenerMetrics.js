@@ -60,6 +60,36 @@ export function alignSeriesByTime(base, other, key = 'c') {
     return (base || []).map(d => valueAt(other, d.t, key));
 }
 
+// Compare completed daily sessions by their local exchange date. Never carry a
+// benchmark across a missing session (holidays, crypto weekends, open markets).
+export function commonSessions(base, other, key = 'c') {
+    const date = p => p.session || new Date(p.t).toISOString().slice(0, 10);
+    const right = new Map((other || []).filter(p => p.closed !== false).map(p => [date(p), p]));
+    return (base || []).filter(p => p.closed !== false).flatMap(p => {
+        const match = right.get(date(p));
+        const a = p[key], b = match?.[key];
+        return isNum(a) && a > 0 && isNum(b) && b > 0
+            ? [{ t: p.t, session: date(p), base: a, other: b }] : [];
+    });
+}
+
+export function dailyCloseAt(series, t) {
+    const date = new Date(t).toISOString().slice(0, 10);
+    for (let i = (series?.length || 0) - 1; i >= 0; i--) {
+        const p = series[i];
+        if (p.closed !== false && p.session <= date && isNum(p.c)) return p.c;
+    }
+    return null;
+}
+
+export function monthlyCloses(series) {
+    const months = new Map();
+    for (const p of series || []) {
+        if (p.closed !== false) months.set((p.session || new Date(p.t).toISOString()).slice(0, 7), p);
+    }
+    return [...months.values()];
+}
+
 // Normalises two aligned series to 100 from the first date where both exist.
 export function normalizePair(baseValues, otherValues) {
     const start = baseValues.findIndex((v, i) => isNum(v) && v > 0 && isNum(otherValues[i]) && otherValues[i] > 0);
@@ -73,19 +103,19 @@ export function normalizePair(baseValues, otherValues) {
 }
 
 export function cagr(first, last, years) {
-    if (!isNum(first) || !isNum(last) || first <= 0 || last <= 0 || !(years > 0)) return null;
+    if (!isNum(first) || !isNum(last) || !isNum(years) || first <= 0 || last <= 0 || !(years > 0)) return null;
     return (Math.pow(last / first, 1 / years) - 1) * 100;
 }
 
 // Perf/CAGR footer of the annual charts: only defined on positive endpoints.
-export function annualSeriesStats(series) {
-    const points = (series || []).filter(isNum);
+export function annualSeriesStats(series, years = null) {
+    const points = (series || []).map((v, i) => ({ v, year: years ? Number(years[i]) : i })).filter(p => isNum(p.v));
     if (points.length < 2) return null;
-    const start = points[0], end = points[points.length - 1];
+    const start = points[0].v, end = points[points.length - 1].v;
     if (start === 0) return null;
     return {
         perf: ((end - start) / Math.abs(start)) * 100,
-        cagr: cagr(start, end, points.length - 1),
+        cagr: cagr(start, end, points[points.length - 1].year - points[0].year),
     };
 }
 
@@ -127,20 +157,32 @@ export function averageCost(transactions, ticker) {
 }
 
 // ─── Fundamentals ───────────────────────────────────────────────────────────
-// Per-share values of each fiscal year, in the financial currency, expressed
-// per QUOTED share. For ADRs, Yahoo's sharesOutstanding counts ADR equivalents
-// while statements count ordinary shares; the ratio of the latest year rescales
-// every year consistently (1 for ordinary listings).
-export function fundamentalRows(fundamentals, sharesOutstanding) {
+// Without instrument-level depositary metadata, cross-currency/foreign US
+// listings have an unconfirmed share basis. Do not infer an ADR ratio from
+// today's shares outstanding (buybacks/dilution change that count as well).
+export function historicalShareBasis(quoteSummary, context = currencyContext(quoteSummary)) {
+    const price = quoteSummary?.price || {};
+    const country = quoteSummary?.assetProfile?.country;
+    const foreignUS = country && country !== 'United States'
+        && /Nasdaq|NYSE|New York|NMS|NYQ|NGM|NCM|ASE/i.test(price.exchangeName || '');
+    const depositary = /\bADR\b|\bADS\b|depositary/i.test(`${price.longName || ''} ${price.shortName || ''}`);
+    return context.needsFx || foreignUS || depositary ? null : 1;
+}
+
+// One dated, confirmed ordinary-shares-per-quoted-share factor per fiscal year
+// may be supplied. Otherwise retain published ordinary per-share values, or
+// return null for unconfirmed instruments. Never rescale with current shares.
+export function fundamentalRows(fundamentals, { ordinaryPerQuoted = 1 } = {}) {
     const years = (fundamentals || []).filter(y => y && y.year);
     if (!years.length) return [];
     const sharesOf = y => y.annualDilutedAverageShares ?? y.annualBasicAverageShares ?? null;
-    const lastShares = [...years].reverse().map(sharesOf).find(isNum);
-    const scale = isNum(sharesOutstanding) && isNum(lastShares) && lastShares > 0 ? sharesOutstanding / lastShares : 1;
     const perShare = (value, shares) => (isNum(value) && isNum(shares) && shares > 0 ? value / shares : null);
 
     return years.map(y => {
-        const shares = isNum(sharesOf(y)) ? sharesOf(y) * scale : null;
+        const factor = typeof ordinaryPerQuoted === 'function' ? ordinaryPerQuoted(y.endDate) : ordinaryPerQuoted;
+        const confirmed = isNum(factor) && factor > 0;
+        const shares = confirmed && isNum(sharesOf(y)) ? sharesOf(y) / factor : null;
+        const publishedEps = num(y.annualDilutedEPS) ?? num(y.annualBasicEPS);
         return {
             year: y.year,
             endTs: y.endDate ? Date.parse(`${y.endDate}T23:59:59Z`) : null,
@@ -150,7 +192,7 @@ export function fundamentalRows(fundamentals, sharesOutstanding) {
             ocf: y.annualOperatingCashFlow ?? null,
             equity: y.annualStockholdersEquity ?? null,
             shares,
-            eps: perShare(y.annualNetIncome, shares),
+            eps: confirmed ? (publishedEps != null ? publishedEps * factor : perShare(y.annualNetIncome, shares)) : null,
             fcfPerShare: perShare(y.annualFreeCashFlow, shares),
             ocfPerShare: perShare(y.annualOperatingCashFlow, shares),
             salesPerShare: perShare(y.annualTotalRevenue, shares),
@@ -278,25 +320,47 @@ export function quantScore(dimensions) {
 // ─── Valuation ──────────────────────────────────────────────────────────────
 // Discounted terminal multiple + discounted dividends over `years`.
 export function fairPriceModel({ baseMetric, growthRate, multiple, targetReturn, dividendRate = 0, includeDividends = true, currentPrice, years = 10 }) {
-    if (![baseMetric, growthRate, multiple, targetReturn].every(isNum) || baseMetric <= 0 || multiple <= 0 || targetReturn <= -1) return null;
+    if (![baseMetric, growthRate, multiple, targetReturn, years].every(isNum)
+        || baseMetric <= 0 || multiple <= 0 || targetReturn <= -1 || growthRate <= -1
+        || !Number.isInteger(years) || years < 1 || years > 100) return null;
     let pvDividends = 0;
+    const dividends = Array(years).fill(0);
     if (includeDividends && isNum(dividendRate) && dividendRate > 0) {
         for (let y = 1; y <= years; y++) {
-            pvDividends += (dividendRate * Math.pow(1 + growthRate, y)) / Math.pow(1 + targetReturn, y);
+            dividends[y - 1] = dividendRate * Math.pow(1 + growthRate, y);
+            pvDividends += dividends[y - 1] / Math.pow(1 + targetReturn, y);
         }
     }
     const terminal = baseMetric * Math.pow(1 + growthRate, years) * multiple;
     const fairPrice = terminal / Math.pow(1 + targetReturn, years) + pvDividends;
+    if (!isNum(terminal) || terminal <= 0 || !isNum(fairPrice) || fairPrice <= 0 || !dividends.every(isNum)) return null;
+    const flows = dividends.slice();
+    flows[years - 1] += terminal;
+    if (!flows.every(isNum)) return null;
+    // Positive future cash flows give one IRR. Solve in log(1+r), keeping the
+    // domain r > -1 and supporting negative returns without arbitrary defaults.
+    let estReturn = null;
+    if (isNum(currentPrice) && currentPrice > 0) {
+        const pv = logRate => flows.reduce((sum, cash, i) => cash > 0 ? sum + cash * Math.exp(-logRate * (i + 1)) : sum, 0);
+        let lo = -700, hi = 700;
+        for (let i = 0; i < 180; i++) {
+            const mid = (lo + hi) / 2;
+            if (pv(mid) > currentPrice) lo = mid; else hi = mid;
+        }
+        const solved = Math.expm1((lo + hi) / 2) * 100;
+        if (isNum(solved)) estReturn = solved;
+    }
     return {
         fairPrice,
+        terminalPrice: terminal,
         safetyMargin: fairPrice > 0 && isNum(currentPrice) ? ((fairPrice - currentPrice) / fairPrice) * 100 : null,
-        estReturn: fairPrice > 0 && isNum(currentPrice) && currentPrice > 0 ? (Math.pow(fairPrice / currentPrice, 1 / years) - 1) * 100 : null,
+        estReturn,
     };
 }
 
 // Simplified 10-year DCF on FCF per share + Gordon terminal value.
 export function simpleDcf(fcfPerShare, growthRate, { discountRate = 0.10, terminalGrowth = 0.025, years = 10, maxGrowth = 0.20 } = {}) {
-    if (!isNum(fcfPerShare) || fcfPerShare <= 0 || !isNum(growthRate)) return null;
+    if (!isNum(fcfPerShare) || fcfPerShare <= 0 || !isNum(growthRate) || growthRate <= -1) return null;
     const g = Math.min(growthRate, maxGrowth);
     let value = 0, fcf = fcfPerShare;
     for (let y = 1; y <= years; y++) {
@@ -304,5 +368,5 @@ export function simpleDcf(fcfPerShare, growthRate, { discountRate = 0.10, termin
         value += fcf / Math.pow(1 + discountRate, y);
     }
     value += (fcf * (1 + terminalGrowth)) / (discountRate - terminalGrowth) / Math.pow(1 + discountRate, years);
-    return { value, growth: g, discountRate, terminalGrowth };
+    return isNum(value) && value > 0 ? { value, growth: g, discountRate, terminalGrowth } : null;
 }
