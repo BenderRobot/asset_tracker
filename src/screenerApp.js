@@ -289,12 +289,18 @@ class ScreenerApp {
         this._modalPeriodRequestToken = 0;
         this._searchToken = 0;
         this._chartCurrencyToken = 0;
+        this._fundamentalsRetryToken = 0;
+        this._dividendRenderToken = 0;
+        this._valuationRenderToken = 0;
         this.requestTimeoutMs = 15000;
         this.chartCurrency = 'NATIVE';
         this._chartCurrencyRates = null;
         this.quantCharts = [];
         this.dividendCharts = [];
         this.valGridCharts = [];
+        this._quantChartSymbol = null;
+        this._dividendChartSymbol = null;
+        this._valuationChartSymbol = null;
     }
 
     async init() {
@@ -672,10 +678,14 @@ class ScreenerApp {
 
     // Daily closes avoid using a month-end price after the fiscal closing date.
     async getLongHistory() {
-        if (!this.currentData.priceHistoryLong) {
-            this.currentData.priceHistoryLong = await this.fetchPriceHistory(this.currentSymbol, '10y', { daily: true }).catch(() => null) || [];
-        }
-        return this.currentData.priceHistoryLong;
+        if (this.currentData?.priceHistoryLong?.length) return this.currentData.priceHistoryLong;
+        const symbol = this.currentSymbol;
+        const history = await this.fetchPriceHistory(symbol, '10y', { daily: true }).catch(() => null);
+        // A failed/empty request is deliberately not cached, so Retry can make
+        // a real network attempt instead of reusing an empty array forever.
+        if (!history?.length) return null;
+        if (symbol === this.currentSymbol && this.currentData) this.currentData.priceHistoryLong = history;
+        return history;
     }
 
     // ─── Tabs ──────────────────────────────────────────────────────────────
@@ -870,7 +880,8 @@ class ScreenerApp {
         const state = document.getElementById(id);
         if (!state) return;
         state.hidden = !kind;
-        state.className = `chart-inline-state${kind ? ` is-${kind}` : ''}`;
+        const baseClass = state.dataset.stateClass || 'chart-inline-state';
+        state.className = `${baseClass}${kind ? ` is-${kind}` : ''}`;
         const label = state.querySelector('.chart-inline-state-label');
         if (label) label.textContent = message;
         const button = state.querySelector('.chart-inline-retry');
@@ -2264,7 +2275,7 @@ class ScreenerApp {
                 this.renderRadarModal(canvas, statsContainer);
                 break;
             case 'valuation':
-                await this.renderValuationModal(canvas, statsContainer);
+                renderSucceeded = await this.renderValuationModal(canvas, statsContainer);
                 break;
         }
 
@@ -3081,8 +3092,14 @@ class ScreenerApp {
 
     async renderValuationModal(canvas, statsContainer) {
         const token = this._modalToken;
-        await this.getLongHistory();
+        const history = await this.getLongHistory();
         if (token !== this._modalToken) return;
+        if (!history?.length) {
+            this.setInlineState('kpi-modal-chart-state', 'error', 'Historique long indisponible.',
+                () => this.renderKpiModalContent('valuation'));
+            return false;
+        }
+        this.setInlineState('kpi-modal-chart-state');
 
         const metricType = document.getElementById('kpi-val-metric')?.value || 'fcf';
         const calc = this.calculatorInputs(metricType);
@@ -3112,7 +3129,6 @@ class ScreenerApp {
                 this.renderKpiModalContent('valuation');
             });
         }
-
         // Wire val metric dropdown
         const valTrigger = document.getElementById('kpi-val-metric-trigger');
         const valOptions = document.getElementById('kpi-val-metric-options');
@@ -3136,6 +3152,7 @@ class ScreenerApp {
                 });
             });
         }
+        return true;
     }
 
     setupModalPeriodButtons() {
@@ -3275,19 +3292,51 @@ class ScreenerApp {
     async renderValuationTab() {
         const canvas = document.getElementById('valuation-tab-chart');
         const header = document.getElementById('val-tab-kpi-header');
-        if (!canvas || !header || !this.currentData?.hasFundamentals) return;
+        if (!canvas || !header || !this.currentData?.hasFundamentals) return false;
+
+        const symbol = this.currentSymbol;
+        const renderToken = ++this._valuationRenderToken;
+        if (this._valuationChartSymbol && this._valuationChartSymbol !== symbol) {
+            this.valuationTabChart?.destroy();
+            this.valuationTabChart = null;
+            this.valGridCharts.forEach(chart => chart.destroy());
+            this.valGridCharts = [];
+            header.innerHTML = '';
+            const metricsList = document.getElementById('val-metrics-list');
+            if (metricsList) metricsList.innerHTML = '';
+            document.querySelectorAll('#tab-valorisation .quant-empty-msg').forEach(message => message.remove());
+            this._valuationChartSymbol = null;
+        }
 
         const token = this._loadToken;
-        await this.getLongHistory();
-        if (token !== this._loadToken) return;
+        if (!this.currentData.priceHistoryLong?.length) {
+            this.setInlineState('valuation-tab-chart-state', 'loading', 'Chargement de l’historique long…');
+        }
+        const history = await this.getLongHistory();
+        if (token !== this._loadToken || renderToken !== this._valuationRenderToken || symbol !== this.currentSymbol) return null;
+        if (!history?.length) {
+            this.setInlineState('valuation-tab-chart-state', 'error', 'Historique long indisponible.',
+                () => this.renderValuationTab());
+            return false;
+        }
 
-        const metricType = document.getElementById('val-tab-metric')?.value || 'fcf';
-        const calc = this.calculatorInputs(metricType);
-        const calcState = this.readCalculator('val-tab', calc);
-        const currency = calc.currency;
-        this.renderValuationChart(canvas, calc, calcState);
-        header.innerHTML = this.calculatorHeaderHtml(calcState, currency);
-        this.renderValuationDashboard(calc);
+        try {
+            const metricType = document.getElementById('val-tab-metric')?.value || 'fcf';
+            const calc = this.calculatorInputs(metricType);
+            const calcState = this.readCalculator('val-tab', calc);
+            const currency = calc.currency;
+            this.renderValuationChart(canvas, calc, calcState);
+            header.innerHTML = this.calculatorHeaderHtml(calcState, currency);
+            this.renderValuationDashboard(calc);
+            this._valuationChartSymbol = symbol;
+            this.setInlineState('valuation-tab-chart-state');
+            return true;
+        } catch (err) {
+            logger.error('[Valorisation] rendering failed:', err);
+            this.setInlineState('valuation-tab-chart-state', 'error', 'Affichage de la valorisation indisponible.',
+                () => this.renderValuationTab());
+            return false;
+        }
     }
 
     getMonthName(index) {
@@ -3414,20 +3463,67 @@ class ScreenerApp {
 
     }
 
+    async retryQuantitativeData() {
+        const requestToken = ++this._fundamentalsRetryToken;
+        const loadToken = this._loadToken;
+        const symbol = this.currentSymbol;
+        this.setInlineState('quant-tab-state', 'loading', 'Rechargement de l’historique financier…');
+        const fundamentals = await this.fetchFundamentals(symbol);
+        if (requestToken !== this._fundamentalsRetryToken || loadToken !== this._loadToken || symbol !== this.currentSymbol) return null;
+
+        if (fundamentals.length) {
+            const quoteSummary = this.currentData.quoteSummary;
+            const currency = currencyContext(quoteSummary, fundamentals);
+            const hasFundamentals = hasFundamentalProfile(quoteSummary);
+            const shareBasis = historicalShareBasis(quoteSummary, currency);
+            const rows = hasFundamentals
+                ? fundamentalRows(fundamentals, { ordinaryPerQuoted: shareBasis })
+                : [];
+            const finFx = hasFundamentals
+                ? await this.fetchFxSeries(currency.finIso, currency.priceIso, '10y') : null;
+            if (requestToken !== this._fundamentalsRetryToken || loadToken !== this._loadToken || symbol !== this.currentSymbol) return null;
+            this.currentData = {
+                ...this.currentData,
+                fundamentals, currency, hasFundamentals, shareBasis, rows, finFx,
+            };
+            this.updateTabAvailability();
+        }
+        return this.renderQuantitativeTab();
+    }
+
     async renderQuantitativeTab() {
         const qs = this.currentData.quoteSummary;
-        if (!qs) return;
-
-        if (this.quantCharts) this.quantCharts.forEach(c => c.destroy());
-        this.quantCharts = [];
+        if (!qs) return false;
 
         const fundamentals = this.currentData.fundamentals || [];
         const hasHistory = this.currentData.hasFundamentals && fundamentals.length >= 2;
         const emptyEl = document.getElementById('quant-empty');
         const gridEl = document.getElementById('quant-grid');
-        if (emptyEl) emptyEl.style.display = hasHistory ? 'none' : 'block';
+        if (this._quantChartSymbol && this._quantChartSymbol !== this.currentSymbol) {
+            this.quantCharts.forEach(c => c.destroy());
+            this.quantCharts = [];
+            this._quantChartSymbol = null;
+        }
+        if (emptyEl) {
+            const insufficient = fundamentals.length === 1;
+            emptyEl.style.display = !hasHistory && insufficient ? 'block' : 'none';
+            emptyEl.textContent = 'Un seul exercice est disponible : historique insuffisant pour afficher les tendances.';
+        }
         if (gridEl) gridEl.style.display = hasHistory ? '' : 'none';
-        if (!hasHistory) return;
+        if (!hasHistory) {
+            if (this.currentData.hasFundamentals && fundamentals.length === 0) {
+                this.setInlineState('quant-tab-state', 'error', 'Historique financier indisponible.',
+                    () => this.retryQuantitativeData());
+            } else {
+                this.setInlineState('quant-tab-state');
+            }
+            return false;
+        }
+
+        this.setInlineState('quant-tab-state');
+        this.quantCharts.forEach(c => c.destroy());
+        this.quantCharts = [];
+        this._quantChartSymbol = this.currentSymbol;
 
         // Statements are shown in their reporting currency.
         const currency = this.currentData.currency.finIso || '';
@@ -3472,6 +3568,7 @@ class ScreenerApp {
         this.renderQuantBarChart('chart-capex', 'CAPEX', years,
             fundamentals.map(y => (isNum(y.annualCapitalExpenditure) ? Math.abs(y.annualCapitalExpenditure) : null)),
             '#ec4899', 'footer-capex', currency);
+        return true;
     }
 
     setQuantCurrencyNote(currency) {
@@ -3482,10 +3579,24 @@ class ScreenerApp {
 
     // ─── Dividende Tab ────────────────────────────────────────────────────────
     async renderDividendeTab() {
-        this.dividendCharts.forEach(chart => chart.destroy());
-        this.dividendCharts = [];
         const qs = this.currentData.quoteSummary;
-        if (!qs) return;
+        if (!qs) return false;
+
+        const symbol = this.currentSymbol;
+        const loadToken = this._loadToken;
+        const renderToken = ++this._dividendRenderToken;
+        const paymentCanvas = document.getElementById('chart-dividend-payments');
+        const sameSymbol = this._dividendChartSymbol === symbol;
+        const preservedPaymentChart = sameSymbol && paymentCanvas ? Chart.getChart(paymentCanvas) : null;
+        if (!sameSymbol && paymentCanvas) {
+            paymentCanvas.style.display = '';
+            paymentCanvas.parentElement?.querySelector('.quant-empty-msg')?.remove();
+        }
+        this.dividendCharts.forEach(chart => {
+            if (chart !== preservedPaymentChart) chart.destroy();
+        });
+        this.dividendCharts = preservedPaymentChart ? [preservedPaymentChart] : [];
+        this._dividendChartSymbol = symbol;
 
         const quoteCurrency = this.currentData.currency.quote || '';
         const priceCurrency = this.currentData.currency.priceIso || '';
@@ -3503,13 +3614,12 @@ class ScreenerApp {
 
         const dpsSeries = hasFundamentals ? this.currentData.rows.map(r => r.dividendPerShare) : [];
         const hasDividendHistory = dpsSeries.some(v => v > 0);
-        const hasAnyDividend = hasDividendHistory || divYield > 0 || divRate > 0;
+        const hasDividendIndication = hasDividendHistory || divYield > 0 || divRate > 0;
 
         const emptyEl = document.getElementById('dividende-empty');
         const contentEl = document.getElementById('dividende-content');
-        if (emptyEl) emptyEl.style.display = hasAnyDividend ? 'none' : 'block';
-        if (contentEl) contentEl.style.display = hasAnyDividend ? '' : 'none';
-        if (!hasAnyDividend) return;
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (contentEl) contentEl.style.display = '';
 
         const el = (id) => document.getElementById(id);
         if (el('div-kpi-yield')) el('div-kpi-yield').textContent = divYield ? `${divYield.toFixed(2)}%` : '—';
@@ -3533,33 +3643,53 @@ class ScreenerApp {
         }
         if (el('div-kpi-cagr')) el('div-kpi-cagr').textContent = cagrText;
 
+        // The accounting-based charts do not wait for the independent event
+        // request, so a provider outage only affects payment history.
+        this.renderQuantBarChart('chart-dividend-annual', 'Dividende / action (estimé)',
+            fundamentals.map(y => y.year), hasDividendHistory ? dpsSeries : [], '#14b8a6', 'footer-dividend-annual', finCurrency);
+        const payoutSeries = hasFundamentals
+            ? fundamentals.map(y => (y.annualNetIncome > 0 && isNum(y.annualCommonStockDividendPaid) ? (Math.abs(y.annualCommonStockDividendPaid) / y.annualNetIncome) * 100 : null))
+            : [];
+        this.renderQuantLineChart('chart-payout-ratio', [{ label: 'Payout Ratio', data: payoutSeries, color: '#14b8a6' }], fundamentals.map(y => y.year), null, '%');
+
         // Chart 1: real per-payment history. The Worker strips the underlying
         // Yahoo chart response so the browser receives only useful events.
-        const token = this._loadToken;
+        this.setInlineState('dividend-payments-state', 'loading', 'Chargement des versements…');
         let payments = [];
         try {
             const events = await this.fetchDividendEvents(this.currentSymbol);
-            if (token !== this._loadToken) return;
+            if (loadToken !== this._loadToken || renderToken !== this._dividendRenderToken || symbol !== this.currentSymbol) return null;
             payments = events
                 .map(event => ({ ts: Number(event?.timestamp), amount: Number(event?.amount) }))
                 .filter(event => Number.isFinite(event.ts) && event.ts > 0 && Number.isFinite(event.amount))
                 .sort((a, b) => a.ts - b.ts);
         } catch (err) {
-            if (token !== this._loadToken) return;
+            if (loadToken !== this._loadToken || renderToken !== this._dividendRenderToken || symbol !== this.currentSymbol) return null;
             logger.error('[Dividende] payment history failed:', err);
+            this.setInlineState('dividend-payments-state', 'error', 'Historique des versements indisponible.',
+                () => this.renderDividendeTab());
+            return false;
         }
+
+        const hasAnyDividend = hasDividendIndication || payments.length > 0;
+        if (emptyEl) {
+            emptyEl.style.display = hasAnyDividend ? 'none' : 'block';
+            emptyEl.textContent = 'Aucun dividende identifié dans les données disponibles.';
+        }
+        if (contentEl) contentEl.style.display = hasAnyDividend ? '' : 'none';
+        if (!hasAnyDividend) {
+            this.dividendCharts.forEach(chart => chart.destroy());
+            this.dividendCharts = [];
+            Chart.getChart(paymentCanvas)?.destroy();
+            this.setInlineState('dividend-payments-state');
+            return true;
+        }
+
         const payLabels = payments.map(p => new Date(p.ts * 1000).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }));
         this.renderQuantBarChart('chart-dividend-payments', 'Versement / action', payLabels, payments.map(p => p.amount), '#14b8a6', null, quoteCurrency);
-
-        // Chart 2: annual dividend per share (dividends paid ÷ average shares)
-        this.renderQuantBarChart('chart-dividend-annual', 'Dividende / action (estimé)',
-            fundamentals.map(y => y.year), hasDividendHistory ? dpsSeries : [], '#14b8a6', 'footer-dividend-annual', finCurrency);
-
-        // Chart 3: payout ratio history (dividends paid ÷ net income); null when net income <= 0
-        const payoutSeries = hasFundamentals
-            ? fundamentals.map(y => (y.annualNetIncome > 0 && isNum(y.annualCommonStockDividendPaid) ? (Math.abs(y.annualCommonStockDividendPaid) / y.annualNetIncome) * 100 : null))
-            : [];
-        this.renderQuantLineChart('chart-payout-ratio', [{ label: 'Payout Ratio', data: payoutSeries, color: '#14b8a6' }], fundamentals.map(y => y.year), null, '%');
+        this.dividendCharts = this.dividendCharts.filter(chart => chart?.canvas && Chart.getChart(chart.canvas) === chart);
+        this.setInlineState('dividend-payments-state');
+        return true;
     }
 
     // ─── Finances Tab ─────────────────────────────────────────────────────────

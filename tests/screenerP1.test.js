@@ -57,7 +57,7 @@ afterEach(() => { dom.window.close(); vi.restoreAllMocks(); });
 describe('P1 screener journeys', () => {
     it('opens Dividend directly and keeps its charts separate from Quantitative', async () => {
         app.safeFetchJson = vi.fn(async () => ({ events: [{ timestamp: 1700000000, amount: 1 }] }));
-        await expect(app.renderDividendeTab()).resolves.toBeUndefined();
+        await expect(app.renderDividendeTab()).resolves.toBe(true);
         expect(app.safeFetchJson).toHaveBeenCalledWith('https://example.invalid?symbol=AAPL&type=DIVIDENDS');
         expect(app.dividendCharts).toHaveLength(3);
         expect(app.quantCharts).toHaveLength(0);
@@ -505,6 +505,118 @@ describe('Screener P2 robustness', () => {
         }));
         await expect(app.safeFetchJson('https://example.invalid/stalled')).rejects.toMatchObject({ name: 'TimeoutError' });
         expect(context.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cache a failed long history and retries the Valuation tab', async () => {
+        app.currentData = {
+            ...app.currentData,
+            priceHistoryLong: null,
+            currency: { quote: 'USD', priceIso: 'USD', priceFactor: 1, finIso: 'USD', needsFx: false },
+            finFx: { latest: 1, at: () => 1 },
+            quoteSummary: {
+                price: { currency: 'USD', quoteType: 'EQUITY', regularMarketPrice: { raw: 103 } },
+                defaultKeyStatistics: { sharesOutstanding: { raw: 100 }, trailingEps: { raw: 5 } },
+                financialData: { financialCurrency: 'USD', freeCashflow: { raw: 500 }, operatingCashflow: { raw: 600 }, totalRevenue: { raw: 2000 } },
+                summaryDetail: { trailingPE: { raw: 20 }, dividendRate: { raw: 2 } },
+            },
+        };
+        app.fetchPriceHistory = vi.fn()
+            .mockRejectedValueOnce(new Error('temporary failure'))
+            .mockResolvedValueOnce(history());
+
+        await expect(app.renderValuationTab()).resolves.toBe(false);
+        expect(app.currentData.priceHistoryLong).toBeNull();
+        const state = document.getElementById('valuation-tab-chart-state');
+        expect(state.hidden).toBe(false);
+        expect(state.textContent).toContain('Historique long indisponible');
+        expect(charts.get(document.getElementById('valuation-tab-chart'))).toBeUndefined();
+
+        state.querySelector('.chart-inline-retry').click();
+        await vi.waitFor(() => expect(charts.get(document.getElementById('valuation-tab-chart'))).toBeDefined());
+        expect(app.fetchPriceHistory).toHaveBeenCalledTimes(2);
+        expect(app.currentData.priceHistoryLong).toEqual(history());
+        expect(state.hidden).toBe(true);
+    });
+
+    it('keeps the last payment chart when dividend events fail, then replaces it on retry', async () => {
+        app.safeFetchJson = vi.fn(async () => ({ events: [{ timestamp: 1700000000, amount: 1 }] }));
+        await app.renderDividendeTab();
+        const canvas = document.getElementById('chart-dividend-payments');
+        const previousChart = charts.get(canvas);
+
+        app.safeFetchJson.mockRejectedValueOnce(new Error('502'));
+        await expect(app.renderDividendeTab()).resolves.toBe(false);
+        const state = document.getElementById('dividend-payments-state');
+        expect(state.textContent).toContain('Historique des versements indisponible');
+        expect(charts.get(canvas)).toBe(previousChart);
+        expect(previousChart.destroyed).toBe(false);
+
+        app.safeFetchJson.mockResolvedValueOnce({ events: [{ timestamp: 1710000000, amount: 1.1 }] });
+        state.querySelector('.chart-inline-retry').click();
+        await vi.waitFor(() => expect(charts.get(canvas)).not.toBe(previousChart));
+        expect(previousChart.destroyed).toBe(true);
+        expect(state.hidden).toBe(true);
+        expect(app.dividendCharts).toHaveLength(3);
+    });
+
+    it('checks dividend events even when summary fields do not indicate a dividend', async () => {
+        app.currentData.quoteSummary.summaryDetail = {};
+        app.currentData.rows = app.currentData.rows.map(row => ({ ...row, dividendPerShare: 0 }));
+        app.safeFetchJson = vi.fn(async () => ({ events: [{ timestamp: 1700000000, amount: 0.5 }] }));
+
+        await expect(app.renderDividendeTab()).resolves.toBe(true);
+
+        expect(app.safeFetchJson).toHaveBeenCalledWith('https://example.invalid?symbol=AAPL&type=DIVIDENDS');
+        expect(document.getElementById('dividende-empty').style.display).toBe('none');
+        expect(document.getElementById('dividende-content').style.display).toBe('');
+        expect(charts.get(document.getElementById('chart-dividend-payments'))).toBeDefined();
+    });
+
+    it('retries missing fundamentals from the Quantitative tab', async () => {
+        app.currentData = {
+            ...app.currentData,
+            fundamentals: [],
+            rows: [],
+            hasFundamentals: true,
+            quoteSummary: {
+                price: { currency: 'USD', quoteType: 'EQUITY' },
+                financialData: { financialCurrency: 'USD' },
+                summaryDetail: {},
+            },
+        };
+        const fundamentals = ['2024', '2025'].map((year, index) => ({
+            year,
+            endDate: `${year}-12-31`,
+            currency: 'USD',
+            annualTotalRevenue: 1000 + index * 100,
+            annualGrossProfit: 500 + index * 50,
+            annualOperatingIncome: 200 + index * 20,
+            annualNetIncome: 100 + index * 10,
+            annualOperatingCashFlow: 150 + index * 10,
+            annualFreeCashFlow: 120 + index * 10,
+            annualStockholdersEquity: 500,
+            annualTotalAssets: 1000,
+            annualCashAndCashEquivalents: 200,
+            annualTotalDebt: 100,
+            annualBasicAverageShares: 100,
+            annualDilutedAverageShares: 102,
+            annualCommonStockDividendPaid: -20,
+            annualCapitalExpenditure: -30,
+        }));
+        app.fetchFundamentals = vi.fn(async () => fundamentals);
+        app.fetchFxSeries = vi.fn(async () => ({ latest: 1, at: () => 1 }));
+
+        await expect(app.renderQuantitativeTab()).resolves.toBe(false);
+        const state = document.getElementById('quant-tab-state');
+        expect(state.textContent).toContain('Historique financier indisponible');
+        expect(document.getElementById('quant-grid').style.display).toBe('none');
+
+        state.querySelector('.chart-inline-retry').click();
+        await vi.waitFor(() => expect(state.hidden).toBe(true));
+        expect(app.fetchFundamentals).toHaveBeenCalledWith('AAPL');
+        expect(app.currentData.fundamentals).toEqual(fundamentals);
+        expect(document.getElementById('quant-grid').style.display).toBe('');
+        expect(app.quantCharts.length).toBeGreaterThan(0);
     });
 
     it('renders the quote before optional fundamentals, benchmark and FX finish', async () => {

@@ -609,6 +609,32 @@
     color: #fbbf24;
 }
 
+.tab-inline-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 auto 16px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.92);
+    color: #cbd5e1;
+    padding: 8px 12px;
+    font-size: 12px;
+    text-align: center;
+}
+
+.tab-inline-state[hidden] {
+    display: none;
+}
+
+.tab-inline-state.is-error {
+    border-color: rgba(245, 158, 11, 0.5);
+    color: #fbbf24;
+}
+
 .chart-inline-retry {
     border: 1px solid currentColor;
     border-radius: 6px;

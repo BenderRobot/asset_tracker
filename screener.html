@@ -295,6 +295,10 @@
 
                 <!-- QUANTITATIF TAB CONTENT -->
                 <div id="tab-quantitatif" class="screener-tab-content">
+                    <div id="quant-tab-state" class="tab-inline-state" data-state-class="tab-inline-state" aria-live="polite" hidden>
+                        <span class="chart-inline-state-label"></span>
+                        <button type="button" class="chart-inline-retry" hidden>Réessayer</button>
+                    </div>
                     <div id="quant-empty" class="valuation-skeleton" style="display:none;">Historique financier indisponible pour ce titre.</div>
                     <p id="quant-currency-note" class="quant-currency-note"></p>
                     <div id="quant-grid" class="quant-dashboard-grid">
@@ -428,6 +432,10 @@
                                     <span class="quant-card-title">Historique des versements</span>
                                 </div>
                                 <div class="quant-chart-container">
+                                    <div id="dividend-payments-state" class="chart-inline-state" aria-live="polite" hidden>
+                                        <span class="chart-inline-state-label"></span>
+                                        <button type="button" class="chart-inline-retry" hidden>Réessayer</button>
+                                    </div>
                                     <canvas id="chart-dividend-payments"></canvas>
                                 </div>
                             </div>
@@ -482,6 +490,10 @@
                                 </div>
                             </div>
                             <div class="valuation-tab-chart-container">
+                                <div id="valuation-tab-chart-state" class="chart-inline-state" aria-live="polite" hidden>
+                                    <span class="chart-inline-state-label"></span>
+                                    <button type="button" class="chart-inline-retry" hidden>Réessayer</button>
+                                </div>
                                 <canvas id="valuation-tab-chart"></canvas>
                             </div>
                         </div>

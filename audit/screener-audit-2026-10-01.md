@@ -4,7 +4,7 @@ Date : 1er octobre 2026. Référence : commit `301d7f7` (`fix codex screener 1`)
 
 ## Suivi — correctifs P1 autorisés le 1er octobre
 
-**Les neuf P1 sont corrigés localement ; aucun déploiement effectué.** Les sections d'audit plus bas décrivent l'état avant ces corrections. La première phase de l'affichage EUR est également livrée localement ; les P2/P3 restent des lots distincts.
+**Les neuf P1 sont corrigés localement ; aucun déploiement effectué.** Les sections d'audit plus bas décrivent l'état avant ces corrections. La première phase de l'affichage EUR et les phases de robustesse P2 suivies ci-dessous sont également livrées localement.
 
 | Point | Correction livrée |
 |---|---|
@@ -38,9 +38,11 @@ Date : 1er octobre 2026. Référence : commit `301d7f7` (`fix codex screener 1`)
 - Les trois historiques partagés ne sont plus préchargés que pour les modales Cours et Régression. Comparaison charge ses deux séries quotidiennes, Radar aucune et Valorisation uniquement son historique long dédié.
 - Un changement de période dans la modale Comparaison ne charge désormais qu'une fois l'actif et une fois le benchmark (le cache peut même éviter ce second appel). Un échec conserve l'ancienne période et l'ancien graphique jusqu'à une reprise réussie.
 - Le Screener utilise un contrat Worker `DIVIDENDS` dédié. Yahoo reste interrogé sur dix ans avec une granularité mensuelle pour obtenir les événements, mais le navigateur ne reçoit plus les bougies de prix : uniquement symbole, devise, dates et montants validés.
-- Reste à traiter dans la phase suivante : affiner les états des graphiques Quantitatif/Dividende/Valorisation.
+- Quantitatif distingue maintenant un historique absent d'un historique limité à un exercice et permet de relancer uniquement les fondamentaux, sans recharger toute la page.
+- Dividende affiche les graphiques comptables sans attendre les événements, conserve le dernier historique des versements lors d'une panne et propose une reprise locale. Les événements sont désormais vérifiés même si les champs de synthèse ne signalent aucun dividende, ce qui distingue une absence confirmée d'une donnée réseau indisponible.
+- Valorisation ne mémorise plus un échec d'historique long comme une série vide. Son état chargement/erreur permet une vraie nouvelle tentative et un graphique valide du même actif reste affiché pendant celle-ci.
 
-Validation : **61 fichiers, 502 tests réussis** (`npm test`), dont 49 tests supplémentaires par rapport au début du lot P1. Le script de reproduction est désormais un contrôle des six régressions corrigées. Vérifications réelles en lecture seule : Worker local → Yahoo pour « Air Liquide » = 200, résultat `AI.PA` ; BPA Apple publié/restitué = **7,46 / 7,46 USD** ; historique AAPL quotidien dix ans disponible (2 512 points lors du contrôle).
+Validation : **61 fichiers, 506 tests réussis** (`npm test`), dont 53 tests supplémentaires par rapport au début du lot P1. Le script de reproduction est désormais un contrôle des six régressions corrigées. Vérifications réelles en lecture seule : Worker local → Yahoo pour « Air Liquide » = 200, résultat `AI.PA` ; BPA Apple publié/restitué = **7,46 / 7,46 USD** ; historique AAPL quotidien dix ans disponible (2 512 points lors du contrôle).
 
 Pas de validation visuelle dans un navigateur réel : les parcours sont testés sur le HTML réel avec DOM et canvas simulés. Pour publier le lot, le front **et** le Worker Prices devront être déployés. Les références de lignes ci-dessous correspondent au code audité avant correction.
 
