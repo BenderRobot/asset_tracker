@@ -316,8 +316,9 @@ class AnalyticsApp {
 
     updatePerformers(performance) {
         const topEl = document.getElementById('top-performers');
-        if (topEl && performance.topPerformers.length > 0) {
-            topEl.innerHTML = performance.topPerformers.map(asset => `
+        const topPerformers = performance.topPerformers.filter(asset => Number.isFinite(asset.gainPct));
+        if (topEl && topPerformers.length > 0) {
+            topEl.innerHTML = topPerformers.map(asset => `
                 <div class="performer-item">
                     <div>
                         <div class="performer-ticker">${asset.ticker}</div>
@@ -333,8 +334,9 @@ class AnalyticsApp {
         }
 
         const worstEl = document.getElementById('worst-performers');
-        if (worstEl && performance.worstPerformers.length > 0) {
-            worstEl.innerHTML = performance.worstPerformers.map(asset => `
+        const worstPerformers = performance.worstPerformers.filter(asset => Number.isFinite(asset.gainPct));
+        if (worstEl && worstPerformers.length > 0) {
+            worstEl.innerHTML = worstPerformers.map(asset => `
                 <div class="performer-item">
                     <div>
                         <div class="performer-ticker">${asset.ticker}</div>

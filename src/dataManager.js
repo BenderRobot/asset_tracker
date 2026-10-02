@@ -872,20 +872,22 @@ export class DataManager {
                 sectorStats[type].value += (asset.currentValue || 0);
             }
 
-            if (asset.currentValue !== null) {
+            if (asset.currentValue != null && Number.isFinite(asset.gainPct)) {
                 assetTotalPerformances.push({
                     ticker: asset.ticker,
                     name: asset.name,
-                    gainPct: asset.gainPct || 0,
+                    gainPct: asset.gainPct,
                     gain: asset.gainEUR || 0,
                     currentValue: asset.currentValue,
                     currentPrice: asset.currentPrice
                 });
+            }
 
+            if (asset.currentValue != null && Number.isFinite(asset.dayPct)) {
                 assetDayPerformances.push({
                     ticker: asset.ticker,
                     name: asset.name,
-                    dayPct: asset.dayPct || 0,
+                    dayPct: asset.dayPct,
                     dayChange: asset.dayChange || 0
                 });
             }
@@ -1193,11 +1195,12 @@ export class DataManager {
         return 'Excellente diversification.';
     }
     analyzePerformance(holdings) {
-        const sorted = [...holdings].sort((a, b) => b.gainPct - a.gainPct);
+        const rankedHoldings = holdings.filter(a => Number.isFinite(a.gainPct));
+        const sorted = [...rankedHoldings].sort((a, b) => b.gainPct - a.gainPct);
         const winners = sorted.filter(a => a.gainPct > 0);
         const losers = sorted.filter(a => a.gainPct < 0);
-        const avgGain = holdings.length > 0 ? holdings.reduce((sum, a) => sum + (a.gainPct || 0), 0) / holdings.length : 0;
-        const winRate = holdings.length > 0 ? (winners.length / holdings.length) * 100 : 0;
+        const avgGain = rankedHoldings.length > 0 ? rankedHoldings.reduce((sum, a) => sum + a.gainPct, 0) / rankedHoldings.length : 0;
+        const winRate = rankedHoldings.length > 0 ? (winners.length / rankedHoldings.length) * 100 : 0;
         return { topPerformers: sorted.slice(0, 3), worstPerformers: sorted.slice(-3).reverse(), winners: winners.length, losers: losers.length, avgGain: avgGain.toFixed(2), winRate: winRate.toFixed(1), summary: 'Performance analysée' };
     }
     calculateRisk(holdings) {

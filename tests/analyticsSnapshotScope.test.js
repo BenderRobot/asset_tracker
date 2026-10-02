@@ -3,6 +3,20 @@ import { DataManager } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 
 describe('Analytics snapshot scope', () => {
+    it('excludes unavailable returns from Analytics performer rankings', () => {
+        const dm = new DataManager(createFakeStorage(), createFakeApi());
+        const report = dm.analyzePerformance([
+            { ticker: 'AAPL', gainPct: 12 },
+            { ticker: 'M4I', gainPct: null },
+            { ticker: 'MSFT', gainPct: -3 }
+        ]);
+
+        expect(report.topPerformers.map(asset => asset.ticker)).toEqual(['AAPL', 'MSFT']);
+        expect(report.worstPerformers.map(asset => asset.ticker)).toEqual(['MSFT', 'AAPL']);
+        expect(report.avgGain).toBe('4.50');
+        expect(report.winRate).toBe('50.0');
+    });
+
     it('excludes Real Estate from the market snapshot and adds it only to Analytics', async () => {
         const dm = new DataManager(createFakeStorage(), createFakeApi());
         const stock = purchase({ ticker: 'AAPL', assetType: 'Stock', price: 100, quantity: 1 });
