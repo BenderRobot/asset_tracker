@@ -772,4 +772,77 @@ describe('Screener P2 robustness', () => {
         expect(css).toMatch(/@media \(max-width: 370px\)[\s\S]*?\.dividend-kpi-grid\s*\{\s*grid-template-columns:\s*1fr/);
         expect(css).toMatch(/\.kpi-modal-content\.regression-mode-layout[\s\S]*?height:\s*100dvh\s*!important/);
     });
+
+    it('navigates tabs with arrow keys and keeps ARIA panel state in sync', () => {
+        app.renderTabContent = vi.fn(async () => {});
+        app.setupTabs();
+        const resume = document.querySelector('[data-tab="resume"]');
+        const quantitative = document.querySelector('[data-tab="quantitatif"]');
+
+        resume.focus();
+        resume.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+        expect(document.activeElement).toBe(quantitative);
+        expect(quantitative.getAttribute('aria-selected')).toBe('true');
+        expect(quantitative.tabIndex).toBe(0);
+        expect(document.getElementById('tab-quantitatif').hidden).toBe(false);
+        expect(document.getElementById('tab-resume').hidden).toBe(true);
+    });
+
+    it('operates custom selects entirely from the keyboard', async () => {
+        app.renderKpiModalContent = vi.fn(async () => {});
+        app.setupModalSettings();
+        app.setupValuationTabListeners();
+        const trigger = document.getElementById('kpi-currency-trigger');
+        const hidden = document.getElementById('kpi-currency-select');
+
+        expect([...document.querySelectorAll('.custom-select-trigger')]
+            .every(item => item.tagName === 'BUTTON' && item.getAttribute('aria-haspopup') === 'listbox')).toBe(true);
+        expect([...document.querySelectorAll('.custom-select-options')]
+            .every(item => item.getAttribute('role') === 'listbox')).toBe(true);
+
+        trigger.focus();
+        trigger.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        expect(trigger.getAttribute('aria-expanded')).toBe('true');
+        expect(trigger.hasAttribute('aria-activedescendant')).toBe(true);
+
+        trigger.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+        trigger.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        await Promise.resolve();
+
+        expect(hidden.value).toBe('XAU');
+        expect(trigger.getAttribute('aria-expanded')).toBe('false');
+        expect(document.activeElement).toBe(trigger);
+        expect(document.querySelector('[data-value="XAU"]').getAttribute('aria-selected')).toBe('true');
+        expect(app.renderKpiModalContent).toHaveBeenCalled();
+    });
+
+    it('traps focus in the KPI dialog and restores it to the opener on close', async () => {
+        app.renderKpiModalContent = vi.fn(async () => {});
+        app.setupKpiModals();
+        const opener = document.querySelector('.kpi-expand-btn[data-kpi="radar"]');
+        const modal = document.getElementById('kpi-modal');
+        opener.focus();
+
+        await app.openKpiModal('radar');
+        expect(modal.getAttribute('aria-hidden')).toBe('false');
+        expect(document.activeElement).toBe(document.getElementById('kpi-modal-close'));
+
+        document.getElementById('screener-search-input').focus();
+        document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+        expect(modal.contains(document.activeElement)).toBe(true);
+
+        document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        expect(modal.style.display).toBe('none');
+        expect(modal.getAttribute('aria-hidden')).toBe('true');
+        expect(document.activeElement).toBe(opener);
+    });
+
+    it('provides a textual accessible name for every canvas', () => {
+        app.setupCanvasAccessibility();
+        const canvases = [...document.querySelectorAll('canvas')];
+        expect(canvases.length).toBeGreaterThan(0);
+        expect(canvases.every(canvas => canvas.getAttribute('role') === 'img')).toBe(true);
+        expect(canvases.every(canvas => canvas.getAttribute('aria-label')?.length > 5)).toBe(true);
+    });
 });

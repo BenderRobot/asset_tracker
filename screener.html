@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/screener.css?v=115">
+    <link rel="stylesheet" href="css/screener.css?v=116">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -54,10 +54,11 @@
                     <input type="text" id="screener-search-input"
                         placeholder="Rechercher une action… ex: AAPL, NVIDIA, TotalEnergies" autocomplete="off"
                         spellcheck="false" role="combobox" aria-label="Rechercher un actif" aria-autocomplete="list" aria-controls="screener-suggestions" aria-expanded="false">
-                    <button id="screener-search-clear" class="screener-clear-btn" style="display:none"><i
+                    <button id="screener-search-clear" class="screener-clear-btn" style="display:none" aria-label="Effacer la recherche" title="Effacer la recherche"><i
                             class="fas fa-times"></i></button>
                 </div>
-                <div id="screener-suggestions" class="screener-suggestions" role="listbox"></div>
+                <div id="screener-suggestions" class="screener-suggestions" role="listbox" aria-label="Suggestions d’actifs"></div>
+                <div id="screener-search-status" class="sr-only" role="status" aria-live="polite"></div>
             </div>
 
             <!-- DEFAULT STATE -->
@@ -130,12 +131,12 @@
 
                 <!-- TABS -->
                 <div class="screener-tabs">
-                    <div class="screener-tab-list">
-                        <button class="screener-tab active" data-tab="resume">Résumé</button>
-                        <button class="screener-tab" data-tab="quantitatif">Quantitatif</button>
-                        <button class="screener-tab" data-tab="dividende">Dividende</button>
-                        <button class="screener-tab" data-tab="finances">Finances</button>
-                        <button class="screener-tab" data-tab="valorisation">Valorisation</button>
+                    <div class="screener-tab-list" role="tablist" aria-label="Sections de l’analyse">
+                        <button id="screener-tab-resume" class="screener-tab active" data-tab="resume" role="tab" aria-selected="true" aria-controls="tab-resume">Résumé</button>
+                        <button id="screener-tab-quantitatif" class="screener-tab" data-tab="quantitatif" role="tab" aria-selected="false" aria-controls="tab-quantitatif" tabindex="-1">Quantitatif</button>
+                        <button id="screener-tab-dividende" class="screener-tab" data-tab="dividende" role="tab" aria-selected="false" aria-controls="tab-dividende" tabindex="-1">Dividende</button>
+                        <button id="screener-tab-finances" class="screener-tab" data-tab="finances" role="tab" aria-selected="false" aria-controls="tab-finances" tabindex="-1">Finances</button>
+                        <button id="screener-tab-valorisation" class="screener-tab" data-tab="valorisation" role="tab" aria-selected="false" aria-controls="tab-valorisation" tabindex="-1">Valorisation</button>
                     </div>
                     <div class="chart-currency-toggle" role="group" aria-label="Devise des graphiques de cours">
                         <span>Graphiques de cours</span>
@@ -145,7 +146,7 @@
                 </div>
 
                 <!-- RESUME TAB CONTENT -->
-                <div id="tab-resume" class="screener-tab-content active">
+                <div id="tab-resume" class="screener-tab-content active" role="tabpanel" aria-labelledby="screener-tab-resume">
                     <!-- ROW 1: Charts -->
                     <div class="screener-grid-3">
 
@@ -300,7 +301,7 @@
                 <!-- end tab-resume -->
 
                 <!-- QUANTITATIF TAB CONTENT -->
-                <div id="tab-quantitatif" class="screener-tab-content">
+                <div id="tab-quantitatif" class="screener-tab-content" role="tabpanel" aria-labelledby="screener-tab-quantitatif" hidden>
                     <div id="quant-tab-state" class="tab-inline-state" data-state-class="tab-inline-state" aria-live="polite" hidden>
                         <span class="chart-inline-state-label"></span>
                         <button type="button" class="chart-inline-retry" hidden>Réessayer</button>
@@ -410,7 +411,7 @@
                 </div>
 
                 <!-- DIVIDENDE TAB CONTENT -->
-                <div id="tab-dividende" class="screener-tab-content">
+                <div id="tab-dividende" class="screener-tab-content" role="tabpanel" aria-labelledby="screener-tab-dividende" hidden>
                     <div id="dividende-empty" class="valuation-skeleton" style="display:none;">Cette société ne verse pas de dividende (ou aucune donnée disponible).</div>
                     <div id="dividende-content">
                         <div class="quant-dashboard-grid dividend-kpi-grid">
@@ -467,7 +468,7 @@
                 </div>
 
                 <!-- FINANCES TAB CONTENT -->
-                <div id="tab-finances" class="screener-tab-content">
+                <div id="tab-finances" class="screener-tab-content" role="tabpanel" aria-labelledby="screener-tab-finances" hidden>
                     <div id="finances-empty" class="valuation-skeleton" style="display:none;">Données financières indisponibles pour ce titre.</div>
                     <div id="finances-content">
                         <div class="fin-statement-tabs">
@@ -485,7 +486,7 @@
                 </div>
 
                 <!-- VALORISATION TAB CONTENT -->
-                <div id="tab-valorisation" class="screener-tab-content">
+                <div id="tab-valorisation" class="screener-tab-content" role="tabpanel" aria-labelledby="screener-tab-valorisation" hidden>
                     <div class="valuation-tab-layout">
                         <!-- Left: Chart & Stats -->
                         <div class="valuation-tab-main">
@@ -513,10 +514,10 @@
                                 <div class="kpi-modal-field">
                                     <label>Données utilisées</label>
                                     <div class="custom-select" id="val-tab-metric-wrapper">
-                                        <div class="custom-select-trigger" id="val-tab-metric-trigger">
+                                        <button type="button" class="custom-select-trigger" id="val-tab-metric-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="val-tab-metric-options">
                                             <span id="val-tab-metric-label">FCF/Actions</span>
                                             <i class="fas fa-chevron-down custom-select-arrow"></i>
-                                        </div>
+                                        </button>
                                         <div class="custom-select-options" id="val-tab-metric-options">
                                             <div class="custom-select-option selected" data-value="fcf">FCF/Actions
                                             </div>
@@ -650,9 +651,9 @@
     </main>
 
     <!-- KPI Detail Modal -->
-    <div id="kpi-modal" class="kpi-modal" style="display:none;">
-        <div class="kpi-modal-overlay"></div>
-        <div class="kpi-modal-content">
+    <div id="kpi-modal" class="kpi-modal" style="display:none;" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="kpi-modal-title">
+        <div class="kpi-modal-overlay" aria-hidden="true"></div>
+        <div class="kpi-modal-content" tabindex="-1">
 
             <!-- MAIN AREA (Left) -->
             <div class="kpi-modal-main">
@@ -700,8 +701,8 @@
             <!-- SIDEBAR (Right) -->
             <div class="kpi-modal-sidebar">
                 <div class="kpi-modal-sidebar-header">
-                    <h3>Paramètres</h3>
-                    <button class="kpi-modal-close" id="kpi-modal-close">
+                    <h3 id="kpi-modal-title">Paramètres</h3>
+                    <button class="kpi-modal-close" id="kpi-modal-close" aria-label="Fermer la fenêtre d’analyse" title="Fermer">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
@@ -730,10 +731,10 @@
                     <div class="kpi-modal-field">
                         <label>Devise</label>
                         <div class="custom-select" id="kpi-currency-select-wrapper">
-                            <div class="custom-select-trigger" id="kpi-currency-trigger">
+                            <button type="button" class="custom-select-trigger" id="kpi-currency-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="kpi-currency-options">
                                 <span id="kpi-currency-label">—</span>
                                 <i class="fas fa-chevron-down custom-select-arrow"></i>
-                            </div>
+                            </button>
                             <div class="custom-select-options" id="kpi-currency-options">
                                 <div class="custom-select-option selected" data-value="NATIVE">Devise de cotation</div>
                                 <div class="custom-select-option" data-value="USD">USD — Dollar américain</div>
@@ -749,10 +750,10 @@
                         <div class="kpi-modal-field">
                             <label>Modèle de régression</label>
                             <div class="custom-select" id="kpi-reg-model-wrapper">
-                                <div class="custom-select-trigger" id="kpi-reg-model-trigger">
+                                <button type="button" class="custom-select-trigger" id="kpi-reg-model-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="kpi-reg-model-options">
                                     <span id="kpi-reg-model-label">Semi-Log (exponentiel)</span>
                                     <i class="fas fa-chevron-down custom-select-arrow"></i>
-                                </div>
+                                </button>
                                 <div class="custom-select-options" id="kpi-reg-model-options" style="display:none;">
                                     <div class="custom-select-option selected" data-value="semilog">Semi-Log
                                         (exponentiel)</div>
@@ -788,10 +789,10 @@
                         <div class="kpi-modal-field">
                             <label>Benchmark de comparaison</label>
                             <div class="custom-select" id="kpi-comp-benchmark-wrapper">
-                                <div class="custom-select-trigger" id="kpi-comp-benchmark-trigger">
+                                <button type="button" class="custom-select-trigger" id="kpi-comp-benchmark-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="kpi-comp-benchmark-options">
                                     <span id="kpi-comp-benchmark-label">S&P 500</span>
                                     <i class="fas fa-chevron-down custom-select-arrow"></i>
-                                </div>
+                                </button>
                                 <div class="custom-select-options" id="kpi-comp-benchmark-options"
                                     style="display:none;">
                                     <div class="custom-select-option selected" data-value="^GSPC" data-label="S&P 500">
@@ -813,10 +814,10 @@
                         <div class="kpi-modal-field">
                             <label>Données utilisées</label>
                             <div class="custom-select" id="kpi-val-metric-wrapper">
-                                <div class="custom-select-trigger" id="kpi-val-metric-trigger">
+                                <button type="button" class="custom-select-trigger" id="kpi-val-metric-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="kpi-val-metric-options">
                                     <span id="kpi-val-metric-label">FCF/Actions</span>
                                     <i class="fas fa-chevron-down custom-select-arrow"></i>
-                                </div>
+                                </button>
                                 <div class="custom-select-options" id="kpi-val-metric-options">
                                     <div class="custom-select-option selected" data-value="fcf">FCF/Actions</div>
                                     <div class="custom-select-option" data-value="eps">BPA (EPS)</div>

@@ -301,6 +301,7 @@ class ScreenerApp {
         this._quantChartSymbol = null;
         this._dividendChartSymbol = null;
         this._valuationChartSymbol = null;
+        this._modalReturnFocus = null;
     }
 
     async init() {
@@ -314,6 +315,7 @@ class ScreenerApp {
         this.setupPeriodButtons();
         this.setupKpiModals();
         this.setupModalPeriodButtons();
+        this.setupCanvasAccessibility();
 
         // Check for ticker in URL params
         const params = new URLSearchParams(window.location.search);
@@ -323,16 +325,38 @@ class ScreenerApp {
         }
     }
 
+    setupCanvasAccessibility() {
+        const explicitLabels = {
+            'price-chart': 'Historique du cours sur la période sélectionnée',
+            'regression-chart': 'Cours et tendance semi-log sur la période sélectionnée',
+            'sp500-chart': 'Comparaison en base 100 avec le S&P 500',
+            'radar-chart': 'Profil du score quantitatif interne sur six axes',
+            'valuation-tab-chart': 'Projection du calculateur de prix juste',
+            'kpi-modal-chart': 'Graphique détaillé de l’analyse sélectionnée',
+        };
+        document.querySelectorAll('canvas').forEach(canvas => {
+            const cardTitle = canvas.closest('.screener-card, .quant-card')
+                ?.querySelector('.card-title, .quant-card-title')?.textContent?.trim();
+            const label = explicitLabels[canvas.id] || (cardTitle ? `Graphique : ${cardTitle}` : 'Graphique financier');
+            canvas.setAttribute('role', 'img');
+            canvas.setAttribute('aria-label', label);
+            canvas.textContent = label;
+        });
+    }
+
     // ─── Search ──────────────────────────────────────────────────────────────
     setupSearch() {
         const input = document.getElementById('screener-search-input');
         const clear = document.getElementById('screener-search-clear');
         const suggestions = document.getElementById('screener-suggestions');
+        const status = document.getElementById('screener-search-status');
 
         input.addEventListener('input', () => {
             this._searchToken++;
             suggestions.innerHTML = '';
             input.removeAttribute('aria-activedescendant');
+            input.setAttribute('aria-expanded', 'false');
+            if (status) status.textContent = '';
             const q = input.value.trim();
             clear.style.display = q ? 'block' : 'none';
             if (this.searchDebounce) clearTimeout(this.searchDebounce);
@@ -360,6 +384,7 @@ class ScreenerApp {
                     ++this._searchToken;
                     suggestions.classList.remove('open');
                     input.setAttribute('aria-expanded', 'false');
+                    input.removeAttribute('aria-activedescendant');
                     input.value = ticker;
                     this.loadStock(ticker);
                     input.blur();
@@ -374,12 +399,14 @@ class ScreenerApp {
                     : (previous + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
                 items.forEach((item, i) => item.setAttribute('aria-selected', String(i === index)));
                 input.setAttribute('aria-activedescendant', items[index].id);
+                items[index].scrollIntoView?.({ block: 'nearest' });
             }
             if (e.key === 'Escape') {
                 ++this._searchToken;
                 clearTimeout(this.searchDebounce);
                 suggestions.classList.remove('open');
                 input.setAttribute('aria-expanded', 'false');
+                input.removeAttribute('aria-activedescendant');
             }
         });
 
@@ -391,6 +418,7 @@ class ScreenerApp {
             suggestions.innerHTML = '';
             suggestions.classList.remove('open');
             input.setAttribute('aria-expanded', 'false');
+            input.removeAttribute('aria-activedescendant');
             input.focus();
         });
 
@@ -400,15 +428,19 @@ class ScreenerApp {
                 clearTimeout(this.searchDebounce);
                 suggestions.classList.remove('open');
                 input.setAttribute('aria-expanded', 'false');
+                input.removeAttribute('aria-activedescendant');
             }
         });
     }
 
     async fetchSuggestions(query) {
         const suggestions = document.getElementById('screener-suggestions');
+        const status = document.getElementById('screener-search-status');
         const token = ++this._searchToken;
         suggestions.innerHTML = '';
-        document.getElementById('screener-search-input').setAttribute('aria-expanded', 'false');
+        const searchInput = document.getElementById('screener-search-input');
+        searchInput.setAttribute('aria-expanded', 'false');
+        searchInput.removeAttribute('aria-activedescendant');
         try {
             const url = `${PROXY}?symbol=${encodeURIComponent(query)}&type=SEARCH`;
             const data = await this.safeFetchJson(url);
@@ -419,6 +451,7 @@ class ScreenerApp {
 
             if (!quotes.length) {
                 suggestions.classList.remove('open');
+                if (status) status.textContent = 'Aucune suggestion trouvée.';
                 return [];
             }
 
@@ -431,6 +464,7 @@ class ScreenerApp {
             `).join('');
             suggestions.classList.add('open');
             document.getElementById('screener-search-input').setAttribute('aria-expanded', 'true');
+            if (status) status.textContent = `${quotes.length} suggestion${quotes.length > 1 ? 's' : ''} disponible${quotes.length > 1 ? 's' : ''}.`;
 
             suggestions.querySelectorAll('.suggestion-item').forEach(item => {
                 item.addEventListener('click', () => {
@@ -439,7 +473,9 @@ class ScreenerApp {
                     const ticker = item.dataset.ticker;
                     document.getElementById('screener-search-input').value = ticker;
                     suggestions.classList.remove('open');
-                    document.getElementById('screener-search-input').setAttribute('aria-expanded', 'false');
+                    const searchInput = document.getElementById('screener-search-input');
+                    searchInput.setAttribute('aria-expanded', 'false');
+                    searchInput.removeAttribute('aria-activedescendant');
                     this.loadStock(ticker);
                 });
             });
@@ -447,6 +483,7 @@ class ScreenerApp {
         } catch {
             if (token !== this._searchToken) return;
             suggestions.classList.remove('open');
+            if (status) status.textContent = 'Suggestions temporairement indisponibles.';
         }
     }
 
@@ -689,26 +726,49 @@ class ScreenerApp {
     }
 
     // ─── Tabs ──────────────────────────────────────────────────────────────
+    setActiveTabState(name) {
+        document.querySelectorAll('.screener-tab').forEach(tab => {
+            const selected = tab.dataset.tab === name;
+            tab.classList.toggle('active', selected);
+            tab.setAttribute('aria-selected', String(selected));
+            tab.tabIndex = selected ? 0 : -1;
+        });
+        document.querySelectorAll('.screener-tab-content').forEach(content => {
+            const selected = content.id === `tab-${name}`;
+            content.classList.toggle('active', selected);
+            content.hidden = !selected;
+        });
+    }
+
     setupTabs() {
-        const tabs = document.querySelectorAll('.screener-tab');
-        const contents = document.querySelectorAll('.screener-tab-content');
+        const tabs = [...document.querySelectorAll('.screener-tab')];
+        const activate = async tab => {
+            if (tab.classList.contains('disabled') || tab.getAttribute('aria-disabled') === 'true') {
+                this.showTempMessage(tab.dataset.disabledReason || 'Fonctionnalité bientôt disponible', 2200);
+                return;
+            }
+            const name = tab.dataset.tab;
+            this.setActiveTabState(name);
+            await this.renderTabContent(name);
+        };
+
         tabs.forEach(tab => {
-            tab.addEventListener('click', async () => {
-                if (tab.classList.contains('disabled')) {
-                    this.showTempMessage(tab.dataset.disabledReason || 'Fonctionnalité bientôt disponible', 2200);
-                    return;
-                }
-                tabs.forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                const name = tab.dataset.tab;
-                contents.forEach(c => c.classList.remove('active'));
-                const target = document.getElementById(`tab-${name}`);
-                if (target) {
-                    target.classList.add('active');
-                    await this.renderTabContent(name);
-                }
+            tab.addEventListener('click', () => activate(tab));
+            tab.addEventListener('keydown', event => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const enabled = tabs.filter(item => item.getAttribute('aria-disabled') !== 'true');
+                if (!enabled.length) return;
+                const current = Math.max(0, enabled.indexOf(tab));
+                const target = event.key === 'Home' ? enabled[0]
+                    : event.key === 'End' ? enabled[enabled.length - 1]
+                        : enabled[(current + (event.key === 'ArrowRight' ? 1 : -1) + enabled.length) % enabled.length];
+                target.focus();
+                activate(target);
             });
         });
+        const initial = tabs.find(tab => tab.classList.contains('active')) || tabs[0];
+        this.setActiveTabState(initial?.dataset.tab || 'resume');
         // Initial setup for tab-specific listeners
         this.setupValuationTabListeners();
         this.setupFinanceTabButtons();
@@ -1020,15 +1080,7 @@ class ScreenerApp {
     // ─── Render ───────────────────────────────────────────────────────────────
     render({ resetTab = true } = {}) {
         if (resetTab) {
-            const tabs = document.querySelectorAll('.screener-tab');
-            const contents = document.querySelectorAll('.screener-tab-content');
-            tabs.forEach(t => t.classList.remove('active'));
-            contents.forEach(c => c.classList.remove('active'));
-
-            const resumeTab = Array.from(tabs).find(t => t.dataset.tab === 'resume');
-            const resumeContent = document.getElementById('tab-resume');
-            if (resumeTab) resumeTab.classList.add('active');
-            if (resumeContent) resumeContent.classList.add('active');
+            this.setActiveTabState('resume');
         }
         this.syncChartCurrencyToggle();
 
@@ -1062,8 +1114,12 @@ class ScreenerApp {
             const tab = document.querySelector(`.screener-tab[data-tab="${name}"]`);
             if (!tab) return;
             tab.classList.toggle('disabled', !hasFundamentals);
+            tab.setAttribute('aria-disabled', String(!hasFundamentals));
             if (hasFundamentals) delete tab.dataset.disabledReason;
-            else tab.dataset.disabledReason = reason;
+            else {
+                tab.dataset.disabledReason = reason;
+                tab.tabIndex = -1;
+            }
         });
         document.querySelectorAll('.kpi-expand-btn[data-kpi="radar"], .kpi-expand-btn[data-kpi="valuation"]')
             .forEach(btn => { btn.style.display = hasFundamentals ? '' : 'none'; });
@@ -1910,10 +1966,43 @@ class ScreenerApp {
             overlay.addEventListener('click', () => this.closeKpiModal());
         }
 
-        // Close on Escape key
+        const focusableInModal = () => [...modal.querySelectorAll(
+            'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        )].filter(element => {
+            let current = element;
+            while (current && current !== modal) {
+                if (current.hidden || current.style?.display === 'none') return false;
+                current = current.parentElement;
+            }
+            return true;
+        });
+
+        // Close on Escape and keep keyboard focus inside the open dialog.
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modal?.style.display !== 'none') {
+            if (modal?.style.display !== 'flex') return;
+            if (e.key === 'Escape') {
+                e.preventDefault();
                 this.closeKpiModal();
+                return;
+            }
+            if (e.key !== 'Tab') return;
+            const focusable = focusableInModal();
+            if (!focusable.length) {
+                e.preventDefault();
+                modal.querySelector('.kpi-modal-content')?.focus();
+                return;
+            }
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (!modal.contains(document.activeElement)) {
+                e.preventDefault();
+                first.focus();
+            } else if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
             }
         });
 
@@ -1950,6 +2039,110 @@ class ScreenerApp {
         return rates.some(r => r == null) ? null : rates;
     }
 
+    wireCustomSelect({ triggerId, optionsId, wrapperId, labelId, hiddenId, labelForOption, onSelect }) {
+        const trigger = document.getElementById(triggerId);
+        const optionsEl = document.getElementById(optionsId);
+        const wrapper = document.getElementById(wrapperId);
+        const label = document.getElementById(labelId);
+        const hidden = document.getElementById(hiddenId);
+        if (!trigger || !optionsEl || !wrapper || !label || !hidden || trigger._customSelectWired) return;
+        trigger._customSelectWired = true;
+
+        const options = [...optionsEl.querySelectorAll('.custom-select-option')];
+        optionsEl.setAttribute('role', 'listbox');
+        trigger.setAttribute('aria-haspopup', 'listbox');
+        trigger.setAttribute('aria-controls', optionsId);
+        trigger.setAttribute('aria-expanded', 'false');
+        if (!trigger.getAttribute('aria-label')) {
+            const fieldLabel = wrapper.closest('.kpi-modal-field')?.querySelector('label')?.textContent?.trim();
+            trigger.setAttribute('aria-label', fieldLabel || 'Choisir une option');
+        }
+
+        let activeIndex = Math.max(0, options.findIndex(option => option.classList.contains('selected')));
+        const setActive = index => {
+            if (!options.length) return;
+            activeIndex = (index + options.length) % options.length;
+            options.forEach((option, i) => option.classList.toggle('is-active', i === activeIndex));
+            trigger.setAttribute('aria-activedescendant', options[activeIndex].id);
+            options[activeIndex].scrollIntoView?.({ block: 'nearest' });
+        };
+        const setOpen = open => {
+            wrapper.classList.toggle('open', open);
+            trigger.setAttribute('aria-expanded', String(open));
+            optionsEl.hidden = !open;
+            optionsEl.style.display = open ? 'block' : 'none';
+            if (open) {
+                const selectedIndex = options.findIndex(option => option.classList.contains('selected'));
+                setActive(selectedIndex >= 0 ? selectedIndex : activeIndex);
+            } else {
+                trigger.removeAttribute('aria-activedescendant');
+                options.forEach(option => option.classList.remove('is-active'));
+            }
+        };
+        const selectOption = async option => {
+            if (!option) return;
+            hidden.value = option.dataset.value;
+            label.textContent = labelForOption ? labelForOption(option) : option.textContent.trim();
+            options.forEach(current => {
+                const selected = current === option;
+                current.classList.toggle('selected', selected);
+                current.setAttribute('aria-selected', String(selected));
+            });
+            activeIndex = options.indexOf(option);
+            setOpen(false);
+            trigger.focus();
+            await onSelect?.(option.dataset.value, option);
+        };
+
+        options.forEach((option, index) => {
+            option.id ||= `${optionsId}-option-${index}`;
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', String(option.classList.contains('selected')));
+            option.addEventListener('pointermove', () => setActive(index));
+            option.addEventListener('click', event => {
+                event.stopPropagation();
+                selectOption(option);
+            });
+        });
+        setOpen(false);
+
+        trigger.addEventListener('click', event => {
+            event.stopPropagation();
+            setOpen(trigger.getAttribute('aria-expanded') !== 'true');
+        });
+        trigger.addEventListener('keydown', event => {
+            const open = trigger.getAttribute('aria-expanded') === 'true';
+            if (event.key === 'Escape' && open) {
+                event.preventDefault();
+                event.stopPropagation();
+                setOpen(false);
+                return;
+            }
+            if (event.key === 'Tab') {
+                setOpen(false);
+                return;
+            }
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                if (open) selectOption(options[activeIndex]);
+                else setOpen(true);
+                return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            if (!open) {
+                setOpen(true);
+                return;
+            }
+            if (event.key === 'Home') setActive(0);
+            else if (event.key === 'End') setActive(options.length - 1);
+            else setActive(activeIndex + (event.key === 'ArrowDown' ? 1 : -1));
+        });
+        document.addEventListener('click', event => {
+            if (!wrapper.contains(event.target)) setOpen(false);
+        });
+    }
+
     setupModalSettings() {
         ['kpi-show-dividends', 'kpi-show-ma', 'kpi-show-fair-price'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
@@ -1957,111 +2150,38 @@ class ScreenerApp {
             });
         });
 
-        // Custom dropdown wiring
-        const trigger = document.getElementById('kpi-currency-trigger');
-        const options = document.getElementById('kpi-currency-options');
-        const wrapper = document.getElementById('kpi-currency-select-wrapper');
-        const label = document.getElementById('kpi-currency-label');
-        const hidden = document.getElementById('kpi-currency-select');
+        this.wireCustomSelect({
+            triggerId: 'kpi-currency-trigger', optionsId: 'kpi-currency-options',
+            wrapperId: 'kpi-currency-select-wrapper', labelId: 'kpi-currency-label', hiddenId: 'kpi-currency-select',
+            labelForOption: option => option.dataset.value === 'NATIVE'
+                ? (this.currentData?.currency.quote || 'Native') : option.dataset.value,
+            onSelect: () => this.renderKpiModalContent(this.currentModalKpi),
+        });
 
-        if (trigger && options && wrapper) {
-            // Hide options by default regardless of CSS
-            options.style.display = 'none';
+        this.wireCustomSelect({
+            triggerId: 'kpi-reg-model-trigger', optionsId: 'kpi-reg-model-options',
+            wrapperId: 'kpi-reg-model-wrapper', labelId: 'kpi-reg-model-label', hiddenId: 'kpi-reg-model',
+            onSelect: () => this.renderKpiModalContent(this.currentModalKpi),
+        });
 
-            trigger.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isOpen = options.style.display !== 'none';
-                options.style.display = isOpen ? 'none' : 'block';
-                wrapper.classList.toggle('open', !isOpen);
-            });
+        this.wireCustomSelect({
+            triggerId: 'kpi-comp-benchmark-trigger', optionsId: 'kpi-comp-benchmark-options',
+            wrapperId: 'kpi-comp-benchmark-wrapper', labelId: 'kpi-comp-benchmark-label', hiddenId: 'kpi-comp-benchmark',
+            labelForOption: option => option.dataset.label || option.textContent.trim(),
+            onSelect: () => this.renderKpiModalContent(this.currentModalKpi),
+        });
 
-            options.querySelectorAll('.custom-select-option').forEach(opt => {
-                opt.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const val = opt.dataset.value;
-                    hidden.value = val;
-                    label.textContent = val === 'NATIVE' ? (this.currentData?.currency.quote || 'Native') : val;
-                    options.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
-                    opt.classList.add('selected');
-                    options.style.display = 'none';
-                    wrapper.classList.remove('open');
-                    await this.renderKpiModalContent(this.currentModalKpi);
-                });
-            });
-
-            document.addEventListener('click', () => {
-                options.style.display = 'none';
-                wrapper.classList.remove('open');
-            });
-        }
-
-        // ── Regression model dropdown ──
-        const regTrigger = document.getElementById('kpi-reg-model-trigger');
-        const regOptions = document.getElementById('kpi-reg-model-options');
-        const regWrapper = document.getElementById('kpi-reg-model-wrapper');
-        const regLabel = document.getElementById('kpi-reg-model-label');
-        const regHidden = document.getElementById('kpi-reg-model');
-
-        if (regTrigger && regOptions && regWrapper) {
-            regTrigger.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isOpen = regOptions.style.display !== 'none';
-                regOptions.style.display = isOpen ? 'none' : 'block';
-                regWrapper.classList.toggle('open', !isOpen);
-            });
-            regOptions.querySelectorAll('.custom-select-option').forEach(opt => {
-                opt.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const val = opt.dataset.value;
-                    regHidden.value = val;
-                    regLabel.textContent = opt.textContent;
-                    regOptions.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
-                    opt.classList.add('selected');
-                    regOptions.style.display = 'none';
-                    regWrapper.classList.remove('open');
-                    this.renderKpiModalContent(this.currentModalKpi);
-                });
-            });
-            document.addEventListener('click', () => {
-                regOptions.style.display = 'none';
-                regWrapper.classList.remove('open');
-            });
-        }
-
-        // ── Comparison benchmark dropdown ──
-        const compTrigger = document.getElementById('kpi-comp-benchmark-trigger');
-        const compOptions = document.getElementById('kpi-comp-benchmark-options');
-        const compWrapper = document.getElementById('kpi-comp-benchmark-wrapper');
-        const compLabel = document.getElementById('kpi-comp-benchmark-label');
-        const compHidden = document.getElementById('kpi-comp-benchmark');
-
-        if (compTrigger && compOptions && compWrapper) {
-            compTrigger.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isOpen = compOptions.style.display !== 'none';
-                compOptions.style.display = isOpen ? 'none' : 'block';
-                compWrapper.classList.toggle('open', !isOpen);
-            });
-
-            compOptions.querySelectorAll('.custom-select-option').forEach(opt => {
-                opt.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const val = opt.dataset.value;
-                    const labelText = opt.dataset.label;
-                    compHidden.value = val;
-                    compLabel.textContent = labelText;
-                    compOptions.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
-                    opt.classList.add('selected');
-                    compOptions.style.display = 'none';
-                    compWrapper.classList.remove('open');
-                    await this.renderKpiModalContent(this.currentModalKpi);
-                });
-            });
-            document.addEventListener('click', () => {
-                compOptions.style.display = 'none';
-                compWrapper.classList.remove('open');
-            });
-        }
+        this.wireCustomSelect({
+            triggerId: 'kpi-val-metric-trigger', optionsId: 'kpi-val-metric-options',
+            wrapperId: 'kpi-val-metric-wrapper', labelId: 'kpi-val-metric-label', hiddenId: 'kpi-val-metric',
+            onSelect: () => {
+                const growth = document.getElementById('kpi-val-growth');
+                const multiple = document.getElementById('kpi-val-multiple');
+                if (growth) { growth._userSet = false; growth.value = ''; }
+                if (multiple) { multiple._userSet = false; multiple.value = ''; }
+                return this.renderKpiModalContent(this.currentModalKpi);
+            },
+        });
 
         // ── Projection slider ──
         const projSlider = document.getElementById('kpi-proj-years');
@@ -2086,6 +2206,7 @@ class ScreenerApp {
         const modal = document.getElementById('kpi-modal');
         if (!modal || !this.currentData) return;
         if ((kpiType === 'radar' || kpiType === 'valuation') && !this.currentData.hasFundamentals) return;
+        if (modal.style.display !== 'flex') this._modalReturnFocus = document.activeElement;
 
         // ── CLEAN SWEEP : Reset absolute avant ouverture ───────
         const modalContent = modal.querySelector('.kpi-modal-content');
@@ -2093,6 +2214,15 @@ class ScreenerApp {
             modalContent.classList.remove('radar-mode-layout', 'regression-mode-layout');
             modalContent.classList.toggle('regression-mode-layout', kpiType === 'regression');
         }
+        const modalChartLabels = {
+            price: 'Historique détaillé du cours',
+            regression: 'Cours, tendance semi-log et projection',
+            sp500: 'Comparaison détaillée avec le benchmark sélectionné',
+            radar: 'Détail du score quantitatif interne sur six axes',
+            valuation: 'Projection détaillée du calculateur de prix juste',
+        };
+        document.getElementById('kpi-modal-chart')
+            ?.setAttribute('aria-label', modalChartLabels[kpiType] || 'Graphique détaillé');
 
         // Supprimer les résidus du mode radar
         document.querySelector('.radar-analysis-container')?.remove();
@@ -2146,10 +2276,16 @@ class ScreenerApp {
         document.getElementById('kpi-currency-select').value = modalCurrency;
         document.getElementById('kpi-currency-label').textContent = modalCurrency === 'EUR' ? 'EUR' : (currency || 'Native');
         document.querySelectorAll('#kpi-currency-options .custom-select-option')
-            .forEach(o => o.classList.toggle('selected', o.dataset.value === modalCurrency));
+            .forEach(o => {
+                const selected = o.dataset.value === modalCurrency;
+                o.classList.toggle('selected', selected);
+                o.setAttribute('aria-selected', String(selected));
+            });
 
         modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
+        document.getElementById('kpi-modal-close')?.focus();
 
         this.currentModalKpi = kpiType;
         this.currentModalPeriod = '10y';
@@ -2196,6 +2332,7 @@ class ScreenerApp {
 
     closeKpiModal() {
         const modal = document.getElementById('kpi-modal');
+        const wasOpen = modal?.style.display === 'flex';
         // Invalidate every pending history/conversion/render before hiding the DOM.
         ++this._modalToken;
         ++this._modalPeriodRequestToken;
@@ -2205,7 +2342,14 @@ class ScreenerApp {
         if (sidebarContent) sidebarContent.style.display = '';
         if (modal) {
             modal.style.display = 'none';
+            modal.setAttribute('aria-hidden', 'true');
             document.body.style.overflow = '';
+            modal.querySelectorAll('.custom-select.open').forEach(wrapper => wrapper.classList.remove('open'));
+            modal.querySelectorAll('.custom-select-options').forEach(options => {
+                options.hidden = true;
+                options.style.display = 'none';
+            });
+            modal.querySelectorAll('.custom-select-trigger').forEach(trigger => trigger.setAttribute('aria-expanded', 'false'));
 
             // Destroy modal chart if exists
             if (this.modalChart) {
@@ -2216,6 +2360,10 @@ class ScreenerApp {
         this.modalHistory = null;
         this.masterHistoryBuffer = null;
         this.trendPrice = null;
+        if (wasOpen && this._modalReturnFocus && document.contains(this._modalReturnFocus)) {
+            this._modalReturnFocus.focus();
+        }
+        this._modalReturnFocus = null;
     }
 
     async renderKpiModalContent(kpiType) {
@@ -3129,29 +3277,6 @@ class ScreenerApp {
                 this.renderKpiModalContent('valuation');
             });
         }
-        // Wire val metric dropdown
-        const valTrigger = document.getElementById('kpi-val-metric-trigger');
-        const valOptions = document.getElementById('kpi-val-metric-options');
-        const valWrapper = document.getElementById('kpi-val-metric-wrapper');
-        const valLabel = document.getElementById('kpi-val-metric-label');
-        const valHidden = document.getElementById('kpi-val-metric');
-        if (valTrigger && !valTrigger._wired) {
-            valTrigger._wired = true;
-            valTrigger.addEventListener('click', e => { e.stopPropagation(); valWrapper.classList.toggle('open'); });
-            valOptions?.querySelectorAll('.custom-select-option').forEach(opt => {
-                opt.addEventListener('click', e => {
-                    e.stopPropagation();
-                    valHidden.value = opt.dataset.value;
-                    valLabel.textContent = opt.textContent;
-                    valOptions.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
-                    opt.classList.add('selected');
-                    valWrapper.classList.remove('open');
-                    if (growthInput) { growthInput._userSet = false; growthInput.value = ''; }
-                    if (multipleInput) { multipleInput._userSet = false; multipleInput.value = ''; }
-                    this.renderKpiModalContent('valuation');
-                });
-            });
-        }
         return true;
     }
 
@@ -3249,32 +3374,15 @@ class ScreenerApp {
         const targetInput = document.getElementById('val-tab-target-return');
         const divInput = document.getElementById('val-tab-include-div');
 
-        const trigger = document.getElementById('val-tab-metric-trigger');
-        const options = document.getElementById('val-tab-metric-options');
-        const wrapper = document.getElementById('val-tab-metric-wrapper');
-        const label = document.getElementById('val-tab-metric-label');
-        const hidden = document.getElementById('val-tab-metric');
-
-        if (trigger && options && wrapper) {
-            trigger.addEventListener('click', (e) => {
-                e.stopPropagation();
-                wrapper.classList.toggle('open');
-            });
-            options.querySelectorAll('.custom-select-option').forEach(opt => {
-                opt.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    hidden.value = opt.dataset.value;
-                    label.textContent = opt.textContent;
-                    options.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
-                    opt.classList.add('selected');
-                    wrapper.classList.remove('open');
-                    if (growthInput) growthInput._userSet = false;
-                    if (multipleInput) multipleInput._userSet = false;
-                    this.renderValuationTab();
-                });
-            });
-            document.addEventListener('click', () => wrapper.classList.remove('open'));
-        }
+        this.wireCustomSelect({
+            triggerId: 'val-tab-metric-trigger', optionsId: 'val-tab-metric-options',
+            wrapperId: 'val-tab-metric-wrapper', labelId: 'val-tab-metric-label', hiddenId: 'val-tab-metric',
+            onSelect: () => {
+                if (growthInput) { growthInput._userSet = false; growthInput.value = ''; }
+                if (multipleInput) { multipleInput._userSet = false; multipleInput.value = ''; }
+                return this.renderValuationTab();
+            },
+        });
 
         document.getElementById('val-tab-recalc')?.addEventListener('click', () => {
             if (growthInput) growthInput._userSet = true;
