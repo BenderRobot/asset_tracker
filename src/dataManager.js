@@ -1615,7 +1615,10 @@ export class DataManager {
 //   fromAthPct : écart du dernier point visible par rapport à l'ATH (≤ 0),
 //                en % de prix (price) ou de performance TWR (performance).
 // ============================================================
-export function computeAthReference({ kind, allHistory, visibleHistory, firstIndex = 0, lastIndex = null, includeDividends = false }) {
+export function computeAthReference({
+    kind, allHistory, visibleHistory, firstIndex = 0, lastIndex = null,
+    includeDividends = false, stitchLiveSession = false, liveSessionDate = null
+}) {
     if (!allHistory || !visibleHistory) return null;
     if (allHistory.dataQuality?.valid === false || visibleHistory.dataQuality?.valid === false) return null;
 
@@ -1623,7 +1626,7 @@ export function computeAthReference({ kind, allHistory, visibleHistory, firstInd
     // Highest finite point in [from, to] (first occurrence on ties) and the
     // last finite point of that range.
     const scan = (series, from = 0, to = Infinity) => {
-        const result = { max: -Infinity, maxIndex: -1, last: null };
+        const result = { max: -Infinity, maxIndex: -1, last: null, lastIndex: -1 };
         if (!Array.isArray(series)) return result;
         const end = Math.min(to, series.length - 1);
         for (let i = Math.max(0, from); i <= end; i++) {
@@ -1631,6 +1634,7 @@ export function computeAthReference({ kind, allHistory, visibleHistory, firstInd
             const v = Number(series[i]);
             if (v > result.max) { result.max = v; result.maxIndex = i; }
             result.last = v;
+            result.lastIndex = i;
         }
         return result;
     };
@@ -1661,27 +1665,65 @@ export function computeAthReference({ kind, allHistory, visibleHistory, firstInd
     const visible = scan(visibleTwr, firstIndex, visibleEnd);
     if (!(all.last > 0) || !(visible.last > 0)) return null;
 
+    // The all-time history is daily and deliberately cached for a long time,
+    // while a 1D visible history is refreshed from intraday observations. Join
+    // the live session return to the last canonical point strictly before that
+    // session. This makes today's current TWR (and a newly crossed ATH) known
+    // immediately instead of leaving fromAthPct frozen until the All cache is
+    // rebuilt. Strictly-before avoids chaining on top of a stale provisional
+    // candle from the same day.
+    let canonicalCurrent = all.last;
+    let liveCanonicalMax = -Infinity;
+    let athSource = { source: 'all', index: all.maxIndex };
+    if (stitchLiveSession && Array.isArray(allHistory.timestamps) && Array.isArray(visibleHistory.timestamps)) {
+        let liveStartTs = null;
+        for (let i = 0; i <= Math.min(visibleEnd, visibleHistory.timestamps.length - 1); i++) {
+            const ts = Number(visibleHistory.timestamps[i]);
+            if (Number.isFinite(ts)) { liveStartTs = ts; break; }
+        }
+        let base = null;
+        const allSessionDates = Array.isArray(allHistory.sessionDates)
+            ? allHistory.sessionDates
+            : allHistory.pointMeta?.map(point => point?.sessionDate ?? null);
+        if (liveSessionDate && Array.isArray(allSessionDates)) {
+            for (let i = 0; i < allTwr.length; i++) {
+                const sessionDate = allSessionDates[i];
+                if (typeof sessionDate === 'string' && sessionDate < liveSessionDate && isFinitePoint(allTwr[i])) {
+                    base = Number(allTwr[i]);
+                }
+            }
+        } else if (liveStartTs !== null) {
+            for (let i = 0; i < allTwr.length; i++) {
+                const ts = Number(allHistory.timestamps[i]);
+                if (Number.isFinite(ts) && ts < liveStartTs && isFinitePoint(allTwr[i])) base = Number(allTwr[i]);
+            }
+        }
+        if (base > 0) {
+            canonicalCurrent = base * visible.last;
+            liveCanonicalMax = base * visible.max;
+        }
+    }
+
+    const canonicalAth = Math.max(all.max, liveCanonicalMax);
+    if (liveCanonicalMax > all.max) athSource = { source: 'visible', index: visible.maxIndex };
+
     // Rebase at the two series' terminal observations.  The all-time series
     // uses daily candles while 1M uses intraday candles, so their chained TWR
     // can drift slightly inside the window and an older shared timestamp is
     // not a safe conversion anchor.  Anchoring at the end guarantees that the
     // line and the canonical all-time gap describe the same current state:
     // visibleLast / rebasedAth === allLast / allAth.
-    const scale = visible.last / all.last;
-    const rebasedAthPct = (all.max * scale - 1) * 100;
-    // The performance ATH has one canonical owner: the complete daily
-    // history.  A short window (notably 1M, whose candles are intraday) can
-    // produce a slightly higher local TWR because its sampling and chaining
-    // differ from the all-time daily series.  Promoting that local maximum
-    // changed the ATH date/value in the stats bar when switching periods even
-    // though the portfolio's historical peak had not changed.  The visible
-    // series is therefore used only to express the canonical ATH in the
-    // window's coordinate system and to compute the current gap.
+    const scale = visible.last / canonicalCurrent;
+    const rebasedAthPct = (canonicalAth * scale - 1) * 100;
+    // The complete daily history owns past ATH points. A short window (notably
+    // 1M) must never promote a sampling/chaining drift to a historical high;
+    // the sole exception above is the explicit 1D live-session stitch, whose
+    // terminal return extends the canonical prior-close index to "now".
     const value = rebasedAthPct;
     if (!Number.isFinite(value)) return null;
     return {
         kind, value,
-        at: { source: 'all', index: all.maxIndex },
-        fromAthPct: (all.last / all.max - 1) * 100
+        at: athSource,
+        fromAthPct: (canonicalCurrent / canonicalAth - 1) * 100
     };
 }

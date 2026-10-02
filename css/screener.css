@@ -2528,14 +2528,20 @@
 }
 
 @media (max-width: 900px) {
-    .dividend-kpi-grid,
+    .dividend-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .dividend-event-kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 370px) {
-    .dividend-kpi-grid,
+    .dividend-kpi-grid {
+        grid-template-columns: 1fr;
+    }
+
     .dividend-event-kpi-grid {
         grid-template-columns: 1fr;
     }

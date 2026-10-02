@@ -47,7 +47,9 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // their side (buy/sell). Version 19 adds periodPnlWithDividends.
 // Version 22: causal timestamps (no point after the calculation instant),
 // holding-interval validity and pointMeta.sessionDate.
-const HISTORY_CHART_CACHE_VERSION = 22;
+// Version 23 retains the lightweight session-date series required to join a
+// live 1D return to the correct prior-close point for ATH calculations.
+const HISTORY_CHART_CACHE_VERSION = 23;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 // IndexedDB is not bound by the ~5 MB localStorage quota shared by the app:
 // every period of the portfolio and of recently viewed assets fits.
@@ -97,8 +99,10 @@ export class HistoricalChart {
             // A live snapshot refresh can change the 1D valuation. It must not
             // rebuild and repaint an already complete historical period: that
             // was the source of the first, wrong 6M curve being replaced a few
-            // seconds later by another curve.
-            if (result.background && this.currentMode === 'portfolio' && this.currentPeriod === 1) this.update(false, false);
+            // seconds later by another curve. The ATH is the exception: its
+            // all-time terminal point must follow every new market snapshot or
+            // the displayed gap remains frozen for the whole 24 h cache TTL.
+            if (result.background && this.currentMode === 'portfolio' && this.currentPeriod === 1) this.update(false, false, true);
         });
         this.isLoading = false;
         this._pendingUpdate = null;
@@ -818,13 +822,33 @@ export class HistoricalChart {
         if (athView) this._getAthHistory(source, null, { forRender: false });
     }
 
+    // A fresh quote snapshot can create a new all-time high before the daily
+    // candle settles. Long histories normally have a 24 h cache TTL, which is
+    // appropriate for their immutable past but not for their live terminal
+    // observation. Rebuild that history in the background after each actual
+    // market refresh; _refreshCachedHistory coalesces concurrent work and
+    // repaints only after a complete valid replacement has been committed.
+    _refreshAthHistory(source) {
+        if (!source || !this.refLineVisibility.ath) return null;
+        const view = document.querySelector('#view-toggle .toggle-btn.active')?.dataset.view;
+        const athView = view === 'performance' || view === 'unit' || (!!this.currentBenchmark && view !== 'unit');
+        if (!athView) return null;
+        const key = this._historyKey(source.scope, source.purchases, 'all');
+        return this._refreshCachedHistory(key, 'all', source.producer);
+    }
+
     // ========================================================
     // update() — builds graphData for whichever mode is active, then renders.
     // ========================================================
-    async update(showLoading = true, forceApi = true) {
+    async update(showLoading = true, forceApi = true, refreshAth = forceApi) {
         const requestId = ++this._updateRequestId;
         if (this.isLoading) {
-            this._pendingUpdate = { showLoading, forceApi };
+            const pending = this._pendingUpdate;
+            this._pendingUpdate = {
+                showLoading: showLoading || !!pending?.showLoading,
+                forceApi: forceApi || !!pending?.forceApi,
+                refreshAth: refreshAth || !!pending?.refreshAth
+            };
             if (showLoading) this._setLoadingState(true);
             return;
         }
@@ -1071,6 +1095,12 @@ export class HistoricalChart {
                 // snapshot live, sur AUCUNE période (1D comme 1W/1M/...).
             }
 
+            // The normal long-history cache is intentionally durable, but its
+            // final observation is not: recalculate the ATH after the fresh
+            // price snapshot above. This stays asynchronous so the main chart
+            // and KPIs are never held up by an all-time rebuild.
+            if (refreshAth) this._refreshAthHistory(athSource);
+
             if (benchmarkWrapper) benchmarkWrapper.style.display = (isSingleAsset || isIndexMode) ? 'none' : 'block';
 
             if (!isIndexMode) {
@@ -1132,7 +1162,7 @@ export class HistoricalChart {
             }
             if (this._pendingUpdate) {
                 const p = this._pendingUpdate; this._pendingUpdate = null;
-                void this.update(p.showLoading, p.forceApi);
+                void this.update(p.showLoading, p.forceApi, p.refreshAth);
                 return;
             }
             // An invalid refresh must not erase a chart that was already
@@ -1485,9 +1515,25 @@ export class HistoricalChart {
         if (!athKind || !this.refLineVisibility.ath) return null;
         const allHistory = this._getAthHistory(athSource, graphData);
         if (!allHistory) return null;
+        let liveSessionDate = null;
+        if (this.currentPeriod === 1) {
+            const firstTimestamp = graphData.timestamps?.find(timestamp => Number.isFinite(Number(timestamp)));
+            if (firstTimestamp !== undefined) {
+                const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+                    timeZone: marketCalendarEngine.getPortfolioTimezone(),
+                    year: 'numeric', month: '2-digit', day: '2-digit'
+                }).formatToParts(new Date(Number(firstTimestamp))).map(part => [part.type, part.value]));
+                liveSessionDate = `${parts.year}-${parts.month}-${parts.day}`;
+            }
+        }
         const ath = this.dataManager.computeAthReference({
             kind: athKind, allHistory, visibleHistory: graphData,
-            firstIndex, lastIndex, includeDividends: this.includeDividends
+            firstIndex, lastIndex, includeDividends: this.includeDividends,
+            // On 1D the visible TWR is the live session return. Stitch it onto
+            // yesterday's canonical all-time index so a new high is visible
+            // immediately, even while the asynchronous All rebuild is running.
+            stitchLiveSession: this.currentPeriod === 1,
+            liveSessionDate
         });
         if (!ath) return null;
         const label = ath.kind === 'price'

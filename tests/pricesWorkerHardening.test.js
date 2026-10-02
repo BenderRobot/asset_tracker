@@ -164,7 +164,7 @@ describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)
             const u = String(url);
             expect(u).toContain('/v8/finance/chart/AAPL');
             return new Response(JSON.stringify({ chart: { result: [{
-                meta: { currency: 'USD' },
+                meta: { currency: 'USD', regularMarketTime: 1710000000, exchangeTimezoneName: 'America/New_York' },
                 timestamp: [1690000000, 1700000000, 1710000000],
                 indicators: { quote: [{ close: [180, 190, 200] }] },
                 events: { dividends: {
@@ -184,6 +184,13 @@ describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)
         expect(data).toEqual({
             symbol: 'AAPL',
             currency: 'USD',
+            eventDateType: 'ex-dividend',
+            coverage: {
+                range: '10y',
+                startTimestamp: 1690000000,
+                endTimestamp: 1710000000,
+                exchangeTimezoneName: 'America/New_York',
+            },
             events: [
                 { timestamp: 1700000000, amount: 0.24 },
                 { timestamp: 1710000000, amount: 0.25 },

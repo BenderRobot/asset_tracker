@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import {
     YEAR_MS, normalizeCurrency, currencyContext, valueAt, alignSeriesByTime, commonSessions, dailyCloseAt, normalizePair, cagr,
     annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
-    hasFundamentalProfile, hasFinancialStatements, fiscalPeriodLabel, financialStatementViewValue, historicalShareBasis,
+    hasFundamentalProfile, hasFinancialStatements, fiscalPeriodLabel, financialStatementViewValue,
+    dividendEventSummary, historicalShareBasis,
     quantProfile, radarDimensions, quantScore, fairPriceModel, simpleDcf,
 } from '../src/screenerMetrics.js';
 
@@ -173,6 +174,48 @@ describe('fundamentals', () => {
             ...period, currency: null,
             currencyByMetric: { annualNetIncome: 'USD', annualTotalRevenue: 'EUR' },
         }], 0, { key: 'annualNetIncome' }, 'income', 'common')).toBeNull();
+    });
+});
+
+describe('dividend events', () => {
+    const ts = iso => Date.parse(`${iso}T12:00:00Z`) / 1000;
+
+    it('aggregates civil years and reports gaps only inside fully covered years', () => {
+        const summary = dividendEventSummary([
+            { timestamp: ts('2021-03-01'), amount: 0.4 }, { timestamp: ts('2021-09-01'), amount: 0.6 },
+            { timestamp: ts('2022-03-01'), amount: 0.5 }, { timestamp: ts('2022-09-01'), amount: 0.7 },
+            { timestamp: ts('2024-06-01'), amount: 2 },
+            { timestamp: ts('2025-06-01'), amount: 2.2 },
+        ], {
+            startTimestamp: ts('2020-01-01'), endTimestamp: ts('2025-12-31'), exchangeTimezoneName: 'Europe/Paris',
+        });
+
+        expect(summary.annual.find(row => row.year === 2023)).toMatchObject({ total: 0, count: 0, complete: true });
+        expect(summary.latestComplete).toMatchObject({ year: 2025, total: 2.2 });
+        expect(summary.lastChange).toMatchObject({ fromYear: 2024, toYear: 2025, direction: 'increase' });
+        expect(summary.lastChange.percent).toBeCloseTo(10, 9);
+        expect(summary.continuityYears).toBe(2);
+        expect(summary.missingCompleteYears).toEqual([2023]);
+    });
+
+    it('does not call partial boundary years suspensions and respects the exchange timezone', () => {
+        const nearUtcYear = Date.parse('2025-01-01T01:00:00Z') / 1000;
+        const summary = dividendEventSummary([{ timestamp: nearUtcYear, amount: 1 }], {
+            startTimestamp: ts('2024-06-01'), endTimestamp: ts('2026-06-01'), exchangeTimezoneName: 'America/New_York',
+        });
+
+        expect(summary.annual.find(row => row.year === 2024)).toMatchObject({ count: 1, complete: false });
+        expect(summary.annual.find(row => row.year === 2025)).toMatchObject({ count: 0, complete: true });
+        expect(summary.missingCompleteYears).toEqual([2025]);
+        expect(summary.continuityYears).toBe(0);
+    });
+
+    it('withholds continuity diagnostics when provider coverage is unknown', () => {
+        const summary = dividendEventSummary([{ timestamp: ts('2025-06-01'), amount: 1 }]);
+        expect(summary.coverageKnown).toBe(false);
+        expect(summary.continuityYears).toBeNull();
+        expect(summary.missingCompleteYears).toEqual([]);
+        expect(summary.annual[0]).toMatchObject({ year: 2025, total: 1, complete: false });
     });
 });
 

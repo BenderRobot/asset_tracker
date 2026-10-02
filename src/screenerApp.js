@@ -3719,6 +3719,23 @@ class ScreenerApp {
         if (!sameSymbol && paymentCanvas) {
             paymentCanvas.style.display = '';
             paymentCanvas.parentElement?.querySelector('.quant-empty-msg')?.remove();
+            ['div-kpi-event-total', 'div-kpi-last-change', 'div-kpi-continuity'].forEach(id => {
+                const node = document.getElementById(id);
+                if (node) node.textContent = '—';
+            });
+            const defaultNotes = {
+                'div-kpi-event-total-note': 'Événements Yahoo',
+                'div-kpi-last-change-note': 'Années civiles complètes',
+                'div-kpi-continuity-note': 'Couverture à confirmer',
+            };
+            Object.entries(defaultNotes).forEach(([id, value]) => {
+                const node = document.getElementById(id);
+                if (node) node.textContent = value;
+            });
+            const eventBody = document.querySelector('#dividend-events-table tbody');
+            if (eventBody) eventBody.innerHTML = '';
+            const coverage = document.getElementById('dividend-events-coverage');
+            if (coverage) coverage.textContent = '';
         }
         this.dividendCharts.forEach(chart => {
             if (chart !== preservedPaymentChart) chart.destroy();
@@ -3774,7 +3791,7 @@ class ScreenerApp {
         if (el('div-kpi-cagr')) el('div-kpi-cagr').textContent = cagrText;
 
         // The accounting-based charts do not wait for the independent event
-        // request, so a provider outage only affects payment history.
+        // request, so a provider outage only affects the ex-dividend history.
         const periodLabels = fundamentals.map(y => fiscalPeriodLabel(y, { short: true }));
         const periodTimeline = fundamentals.map(y => y.endDate || y.year);
         this.renderQuantBarChart('chart-dividend-annual', 'Dividende / action (estimé)',
@@ -3784,21 +3801,22 @@ class ScreenerApp {
             : [];
         this.renderQuantLineChart('chart-payout-ratio', [{ label: 'Payout Ratio', data: payoutSeries, color: '#14b8a6' }], periodLabels, null, '%');
 
-        // Chart 1: real per-payment history. The Worker strips the underlying
-        // Yahoo chart response so the browser receives only useful events.
-        this.setInlineState('dividend-payments-state', 'loading', 'Chargement des versements…');
+        // Chart 1: real Yahoo dividend events (ex-dividend dates). The Worker
+        // strips price candles and returns only events plus coverage metadata.
+        this.setInlineState('dividend-payments-state', 'loading', 'Chargement des événements de dividende…');
         let payments = [];
+        let dividendEvents = null;
         try {
-            const events = await this.fetchDividendEvents(this.currentSymbol);
+            dividendEvents = await this.fetchDividendEvents(this.currentSymbol);
             if (loadToken !== this._loadToken || renderToken !== this._dividendRenderToken || symbol !== this.currentSymbol) return null;
-            payments = events
+            payments = dividendEvents.events
                 .map(event => ({ ts: Number(event?.timestamp), amount: Number(event?.amount) }))
-                .filter(event => Number.isFinite(event.ts) && event.ts > 0 && Number.isFinite(event.amount))
+                .filter(event => Number.isFinite(event.ts) && event.ts > 0 && Number.isFinite(event.amount) && event.amount >= 0)
                 .sort((a, b) => a.ts - b.ts);
         } catch (err) {
             if (loadToken !== this._loadToken || renderToken !== this._dividendRenderToken || symbol !== this.currentSymbol) return null;
-            logger.error('[Dividende] payment history failed:', err);
-            this.setInlineState('dividend-payments-state', 'error', 'Historique des versements indisponible.',
+            logger.error('[Dividende] event history failed:', err);
+            this.setInlineState('dividend-payments-state', 'error', 'Historique des événements indisponible.',
                 () => this.renderDividendeTab());
             return false;
         }
@@ -3806,7 +3824,7 @@ class ScreenerApp {
         const hasAnyDividend = hasDividendIndication || payments.length > 0;
         if (emptyEl) {
             emptyEl.style.display = hasAnyDividend ? 'none' : 'block';
-            emptyEl.textContent = 'Aucun dividende identifié dans les données disponibles.';
+            emptyEl.textContent = 'Aucun événement de dividende identifié dans la couverture Yahoo disponible.';
         }
         if (contentEl) contentEl.style.display = hasAnyDividend ? '' : 'none';
         if (!hasAnyDividend) {
@@ -3817,11 +3835,79 @@ class ScreenerApp {
             return true;
         }
 
-        const payLabels = payments.map(p => new Date(p.ts * 1000).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }));
-        this.renderQuantBarChart('chart-dividend-payments', 'Versement / action', payLabels, payments.map(p => p.amount), '#14b8a6', null, quoteCurrency);
+        const summary = dividendEventSummary(
+            payments.map(payment => ({ timestamp: payment.ts, amount: payment.amount })),
+            dividendEvents.coverage || {},
+        );
+        const annualEvents = summary.annual.filter(row => row.complete || row.count > 0);
+        const eventCurrency = dividendEvents.currency || quoteCurrency;
+        this.renderQuantBarChart('chart-dividend-payments', 'Total des événements / action',
+            annualEvents.map(row => `${row.year}${row.complete ? '' : '*'}`),
+            annualEvents.map(row => row.total), '#14b8a6', null, eventCurrency);
+        this.renderDividendEventInsights(summary, payments, eventCurrency);
         this.dividendCharts = this.dividendCharts.filter(chart => chart?.canvas && Chart.getChart(chart.canvas) === chart);
         this.setInlineState('dividend-payments-state');
         return true;
+    }
+
+    renderDividendEventInsights(summary, events, currency) {
+        const setText = (id, value) => {
+            const node = document.getElementById(id);
+            if (node) node.textContent = value;
+        };
+        const latest = summary.latestComplete;
+        setText('div-kpi-event-total', latest ? `${this.fmt(latest.total, 2)} ${currency}` : '—');
+        setText('div-kpi-event-total-note', latest
+            ? `${latest.year} · ${latest.count} événement${latest.count > 1 ? 's' : ''}`
+            : 'Aucune année civile complète vérifiable');
+
+        const change = summary.lastChange;
+        const changeLabel = !change ? '—'
+            : change.direction === 'resumed' ? 'Reprise'
+                : change.direction === 'stable' ? 'Stable'
+                    : `${change.direction === 'increase' ? 'Hausse ' : 'Baisse '}${change.percent > 0 ? '+' : ''}${this.fmt(change.percent, 1)}%`;
+        setText('div-kpi-last-change', changeLabel);
+        setText('div-kpi-last-change-note', change
+            ? `${change.fromYear} → ${change.toYear} · total civil`
+            : 'Deux années complètes consécutives requises');
+
+        const latestMissing = latest?.count === 0;
+        const continuity = !summary.coverageKnown || summary.continuityYears == null ? 'Indéterminée'
+            : latestMissing ? 'Interruption possible'
+                : `${summary.continuityYears} an${summary.continuityYears > 1 ? 's' : ''}`;
+        const gaps = summary.missingCompleteYears;
+        const continuityNote = !summary.coverageKnown ? 'Bornes de couverture indisponibles'
+            : summary.continuityYears == null ? 'Aucune année civile complète dans la couverture'
+            : gaps.length ? `Années complètes sans événement : ${gaps.join(', ')}`
+                : 'Aucune année complète sans événement observée';
+        setText('div-kpi-continuity', continuity);
+        setText('div-kpi-continuity-note', continuityNote);
+
+        const formatDate = timestamp => {
+            try {
+                return new Intl.DateTimeFormat('fr-FR', {
+                    day: 'numeric', month: 'long', year: 'numeric', timeZone: summary.timeZone,
+                }).format(new Date(timestamp * 1000));
+            } catch {
+                return new Date(timestamp * 1000).toLocaleDateString('fr-FR');
+            }
+        };
+        const tbody = document.querySelector('#dividend-events-table tbody');
+        if (tbody) {
+            tbody.innerHTML = events.length ? [...events].reverse().slice(0, 12).map(event => `
+                <tr>
+                    <th scope="row">${escHtml(formatDate(event.ts))}</th>
+                    <td>${this.fmt(event.amount, this.priceDecimals(event.amount))}</td>
+                    <td>${escHtml(currency || '—')}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="3">Aucun événement dans la couverture disponible.</td></tr>';
+        }
+        const coverage = document.getElementById('dividend-events-coverage');
+        if (coverage) {
+            coverage.textContent = summary.coverageKnown
+                ? `Couverture Yahoo ${summary.coverageStart} → ${summary.coverageEnd} · * année partielle`
+                : 'Couverture fournisseur non confirmée · aucun diagnostic d’interruption';
+        }
     }
 
     // ─── Finances Tab ─────────────────────────────────────────────────────────

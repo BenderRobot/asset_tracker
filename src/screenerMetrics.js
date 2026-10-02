@@ -331,7 +331,8 @@ export function dividendEventSummary(events, coverage = {}) {
     const end = marketDateParts(Number(coverage.endTimestamp), timeZone);
     if (!clean.length) {
         return { annual: [], latestComplete: null, lastChange: null, continuityYears: null,
-            missingCompleteYears: [], lastEvent: null, eventCount: 0, coverageKnown: !!(start && end), timeZone };
+            missingCompleteYears: [], lastEvent: null, eventCount: 0, coverageKnown: !!(start && end),
+            coverageStart: start?.iso || null, coverageEnd: end?.iso || null, timeZone };
     }
 
     const grouped = new Map();
@@ -375,7 +376,7 @@ export function dividendEventSummary(events, coverage = {}) {
     return {
         annual, latestComplete, lastChange, continuityYears, missingCompleteYears,
         lastEvent: clean.at(-1) || null, eventCount: clean.length,
-        coverageKnown: !!(start && end), timeZone,
+        coverageKnown: !!(start && end), coverageStart: start?.iso || null, coverageEnd: end?.iso || null, timeZone,
     };
 }
 

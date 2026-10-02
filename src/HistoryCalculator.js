@@ -66,7 +66,7 @@ function emptyResult() {
         labels: [], invested: [], investedAssetOnly: [], values: [], assetValues: [], yesterdayClose: null,
         dayStartValue: null, todayValueOfYesterdayHoldings: null,
         perTickerYesterdayClose: new Map(), perTickerLastSessionPerformance: new Map(), unitPrices: [], purchasePoints: [],
-        timestamps: [], twr: [], twrWithDividends: [], dailyTwr: [], dailyTwrWithDividends: [], historicalDataMap: new Map(), isMixed: false,
+        timestamps: [], sessionDates: [], twr: [], twrWithDividends: [], dailyTwr: [], dailyTwrWithDividends: [], historicalDataMap: new Map(), isMixed: false,
         cash: [], totalReturn: [], totalReturnPct: [], totalReturnWithDividends: [], totalReturnPctWithDividends: [], periodPnl: [], periodPnlWithDividends: [],
         dayPnl: [], dayPnlPct: [],
         // Aucun achat du tout : rien à valoriser, donc rien qui puisse échouer.
@@ -353,6 +353,11 @@ export class HistoryCalculator {
             // gaté par dataQuality (reste informatif même quand values/cash/
             // totalReturn sont nullés par gateOnValidity ci-dessus).
             pointMeta: series.pointMeta,
+            // Lightweight date identity retained by the persistent chart cache
+            // after pointMeta diagnostics are stripped. The ATH engine uses it
+            // to distinguish yesterday's settled base from today's provisional
+            // daily candle across portfolio-timezone midnight boundaries.
+            sessionDates: series.pointMeta.map(point => point.sessionDate),
             // FAIL-CLOSED — voir dataManager.buildPortfolioSnapshot, qui
             // traduit ceci en snapshot.status/invalidReason/invalidInstruments.
             dataQuality

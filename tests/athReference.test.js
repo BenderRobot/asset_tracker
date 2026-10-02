@@ -81,6 +81,52 @@ describe('computeAthReference (engine)', () => {
         expect(ath.fromAthPct).toBeCloseTo((1.32 / 1.5 - 1) * 100, 8);
     });
 
+    it('performance: the refreshed 1D session immediately crosses a stale cached ATH', () => {
+        const ath = computeAthReference({
+            kind: 'performance',
+            // The cached All series still ends on a provisional +49.5% point.
+            // Yesterday's canonical close was +49%; today then gains 2%.
+            allHistory: {
+                // The normalized previous daily bar can be timestamped after
+                // portfolio-local midnight, so sessionDates owns the boundary.
+                timestamps: [0, 50, 210, 250],
+                sessionDates: ['2026-09-30', '2026-10-01', '2026-10-01', '2026-10-02'],
+                twr: [1, 1.5, 1.49, 1.495]
+            },
+            visibleHistory: {
+                timestamps: [200, 300],
+                twr: [1, 1.02]
+            },
+            stitchLiveSession: true,
+            liveSessionDate: '2026-10-02'
+        });
+
+        // 1.49 * 1.02 = 1.5198: today's live point is the new canonical ATH.
+        expect(ath.value).toBeCloseTo(2, 8);
+        expect(ath.fromAthPct).toBeCloseTo(0, 8);
+        expect(ath.at).toEqual({ source: 'visible', index: 1 });
+    });
+
+    it('performance: keeps an intraday ATH after the live session pulls back', () => {
+        const ath = computeAthReference({
+            kind: 'performance',
+            allHistory: {
+                timestamps: [0, 100, 250],
+                sessionDates: ['2026-09-30', '2026-10-01', '2026-10-02'],
+                twr: [1, 1.49, 1.495]
+            },
+            visibleHistory: {
+                timestamps: [200, 260, 300],
+                twr: [1, 1.03, 1.02]
+            },
+            stitchLiveSession: true,
+            liveSessionDate: '2026-10-02'
+        });
+
+        expect(ath.at).toEqual({ source: 'visible', index: 1 });
+        expect(ath.fromAthPct).toBeCloseTo((1.02 / 1.03 - 1) * 100, 8);
+    });
+
     it('price: an intraday high is located in the visible series', () => {
         const ath = computeAthReference({
             kind: 'price',
@@ -216,6 +262,50 @@ describe('HistoricalChart ATH line', () => {
         // All-time peak 2.0 seen from a window where ts=3 is 1.2 → 2 / 1.2 * 1.2 - 1 = +100 %.
         expect(athArg(chart).value).toBeCloseTo(100, 8);
         expect(producer).toHaveBeenCalledTimes(1);
+    });
+
+    it('a market refresh rebuilds a fresh cached ATH and detects a new live high', async () => {
+        const chart = makeChart();
+        chart.currentPeriod = 1;
+        chart.update = vi.fn();
+        const rows = [purchase({ ticker: 'AAPL' })];
+        const key = chart._historyKey('portfolio', rows, 'all');
+        const oldAll = {
+            labels: ['x', 'y', 'z'], timestamps: [1, 2, 3],
+            values: [100, 150, 120], totalReturn: [0, 50, 20], totalReturnPct: [0, 50, 20],
+            twr: [1, 1.5, 1.2]
+        };
+        chart._commitHistory(key, oldAll, 'all');
+
+        const freshAll = {
+            labels: ['x', 'y', 'now'], timestamps: [1, 2, 4],
+            values: [100, 150, 160], totalReturn: [0, 50, 60], totalReturnPct: [0, 50, 60],
+            twr: [1, 1.5, 1.53]
+        };
+        const producer = vi.fn(async () => freshAll);
+        const source = { scope: 'portfolio', purchases: rows, producer };
+        const liveGraph = {
+            labels: ['open', 'now'], timestamps: [3, 4], values: [120, 160],
+            invested: [100, 100], totalReturn: [20, 60], totalReturnPct: [20, 60],
+            twr: [1, 1.02]
+        };
+
+        render(chart, liveGraph, source);
+        expect(athArg(chart).details).toMatchObject({
+            timestamp: 4, totalValue: 160,
+            fromAthPct: expect.closeTo(0, 8)
+        });
+
+        await chart._refreshAthHistory(source);
+        await Promise.resolve();
+        render(chart, liveGraph, source);
+
+        expect(producer).toHaveBeenCalledTimes(1);
+        expect(chart.update).toHaveBeenCalledWith(false, false);
+        expect(athArg(chart).details).toMatchObject({
+            timestamp: 4, totalValue: 160, totalReturn: 60,
+            fromAthPct: expect.closeTo(0, 8)
+        });
     });
 
     it('an invalid all-time history is neither drawn nor retried in a loop', async () => {

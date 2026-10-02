@@ -620,7 +620,7 @@ describe('Screener P2 robustness', () => {
         app.safeFetchJson.mockRejectedValueOnce(new Error('502'));
         await expect(app.renderDividendeTab()).resolves.toBe(false);
         const state = document.getElementById('dividend-payments-state');
-        expect(state.textContent).toContain('Historique des versements indisponible');
+        expect(state.textContent).toContain('Historique des événements indisponible');
         expect(charts.get(canvas)).toBe(previousChart);
         expect(previousChart.destroyed).toBe(false);
 
@@ -643,6 +643,37 @@ describe('Screener P2 robustness', () => {
         expect(document.getElementById('dividende-empty').style.display).toBe('none');
         expect(document.getElementById('dividende-content').style.display).toBe('');
         expect(charts.get(document.getElementById('chart-dividend-payments'))).toBeDefined();
+    });
+
+    it('aggregates ex-dividend events by complete civil year and renders their dated table', async () => {
+        const timestamp = iso => Date.parse(`${iso}T12:00:00Z`) / 1000;
+        app.safeFetchJson = vi.fn(async () => ({
+            currency: 'USD',
+            eventDateType: 'ex-dividend',
+            coverage: {
+                range: '10y', startTimestamp: timestamp('2023-01-01'), endTimestamp: timestamp('2024-12-31'),
+                exchangeTimezoneName: 'America/New_York',
+            },
+            events: [
+                { timestamp: timestamp('2023-03-01'), amount: 0.5 },
+                { timestamp: timestamp('2023-09-01'), amount: 0.6 },
+                { timestamp: timestamp('2024-03-01'), amount: 0.6 },
+                { timestamp: timestamp('2024-09-01'), amount: 0.7 },
+            ],
+        }));
+
+        await expect(app.renderDividendeTab()).resolves.toBe(true);
+
+        const annualChart = charts.get(document.getElementById('chart-dividend-payments'));
+        expect(annualChart.config.data.labels).toEqual(['2023', '2024']);
+        expect(annualChart.config.data.datasets[0].data[0]).toBeCloseTo(1.1, 9);
+        expect(annualChart.config.data.datasets[0].data[1]).toBeCloseTo(1.3, 9);
+        expect(document.getElementById('div-kpi-event-total').textContent).toContain('1,30 USD');
+        expect(document.getElementById('div-kpi-last-change').textContent).toContain('Hausse +18,2%');
+        expect(document.getElementById('div-kpi-continuity').textContent).toBe('2 ans');
+        expect(document.querySelectorAll('#dividend-events-table tbody tr')).toHaveLength(4);
+        expect(document.getElementById('dividend-events-table').textContent).toContain('Date de détachement');
+        expect(document.getElementById('dividend-events-coverage').textContent).toContain('2023-01-01 → 2024-12-31');
     });
 
     it('retries missing fundamentals from the Quantitative tab', async () => {
