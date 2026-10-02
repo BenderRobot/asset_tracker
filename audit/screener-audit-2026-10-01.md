@@ -34,9 +34,11 @@ Date : 1er octobre 2026. Référence : commit `301d7f7` (`fix codex screener 1`)
 - `safeFetchJson` interrompt une requête bloquée après quinze secondes et accepte aussi un signal d'annulation externe.
 - Le cache des benchmarks expire après quinze minutes. Comme le cache FX, il ne conserve pas un échec.
 - Le cours et son historique sont désormais rendus avant les fondamentaux, le benchmark et le change. La seconde passe enrichit la vue sans ramener l'utilisateur de force sur Résumé et actualise l'onglet qu'il a ouvert entre-temps.
-- Restent à traiter dans la phase suivante : réduction des requêtes propres à chaque modale et états intégrés dans chaque carte plutôt qu'un message global.
+- Les cartes Cours, Régression et Comparaison, ainsi que le graphique de la modale, possèdent leurs propres états chargement/erreur et leur propre action « Réessayer ». Une panne de changement de période laisse l'ancienne courbe visible.
+- Les trois historiques partagés ne sont plus préchargés que pour les modales Cours et Régression. Comparaison charge ses deux séries quotidiennes, Radar aucune et Valorisation uniquement son historique long dédié.
+- Restent à traiter dans la phase suivante : dédupliquer le changement de période de Comparaison, éviter de recharger dix ans de cours pour les seuls événements de dividende et affiner les états des graphiques Quantitatif/Dividende/Valorisation.
 
-Validation : **61 fichiers, 497 tests réussis** (`npm test`), dont 44 tests supplémentaires par rapport au début du lot P1. Le script de reproduction est désormais un contrôle des six régressions corrigées. Vérifications réelles en lecture seule : Worker local → Yahoo pour « Air Liquide » = 200, résultat `AI.PA` ; BPA Apple publié/restitué = **7,46 / 7,46 USD** ; historique AAPL quotidien dix ans disponible (2 512 points lors du contrôle).
+Validation : **61 fichiers, 498 tests réussis** (`npm test`), dont 45 tests supplémentaires par rapport au début du lot P1. Le script de reproduction est désormais un contrôle des six régressions corrigées. Vérifications réelles en lecture seule : Worker local → Yahoo pour « Air Liquide » = 200, résultat `AI.PA` ; BPA Apple publié/restitué = **7,46 / 7,46 USD** ; historique AAPL quotidien dix ans disponible (2 512 points lors du contrôle).
 
 Pas de validation visuelle dans un navigateur réel : les parcours sont testés sur le HTML réel avec DOM et canvas simulés. Pour publier le lot, le front **et** le Worker Prices devront être déployés. Les références de lignes ci-dessous correspondent au code audité avant correction.
 
