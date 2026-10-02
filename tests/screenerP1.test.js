@@ -56,10 +56,9 @@ afterEach(() => { dom.window.close(); vi.restoreAllMocks(); });
 
 describe('P1 screener journeys', () => {
     it('opens Dividend directly and keeps its charts separate from Quantitative', async () => {
-        app.safeFetchJson = vi.fn(async () => ({ chart: { result: [{ events: { dividends: {
-            1700000000: { amount: 1 },
-        } } }] } }));
+        app.safeFetchJson = vi.fn(async () => ({ events: [{ timestamp: 1700000000, amount: 1 }] }));
         await expect(app.renderDividendeTab()).resolves.toBeUndefined();
+        expect(app.safeFetchJson).toHaveBeenCalledWith('https://example.invalid?symbol=AAPL&type=DIVIDENDS');
         expect(app.dividendCharts).toHaveLength(3);
         expect(app.quantCharts).toHaveLength(0);
         const firstCharts = [...app.dividendCharts];
@@ -244,7 +243,7 @@ describe('Screener EUR quote', () => {
         expect(document.getElementById('valuation-list').textContent).toContain('90,00 €');
         expect(app.calculatorHeaderHtml({ result: { fairPrice: 120, estReturn: 4, safetyMargin: 10 } }, 'USD')).toContain('108,00 €');
 
-        app.safeFetchJson = vi.fn(async () => ({ chart: { result: [{ events: { dividends: {} } }] } }));
+        app.safeFetchJson = vi.fn(async () => ({ events: [] }));
         await app.renderDividendeTab();
         const dividendEur = document.getElementById('div-kpi-rate-eur');
         expect(dividendEur.hidden).toBe(false);
@@ -404,6 +403,80 @@ describe('Screener P2 robustness', () => {
         await vi.waitFor(() => expect(app.currentModalPeriod).toBe('1mo'));
         expect(requested.classList.contains('active')).toBe(true);
         expect(app.renderKpiModalContent).toHaveBeenCalledWith('price');
+    });
+
+    it('fetches each comparison series only once when its modal period changes', async () => {
+        app.currentModalPeriod = '10y';
+        app.currentModalKpi = 'sp500';
+        app.fetchPriceHistory = vi.fn(async () => history());
+        app.setupModalPeriodButtons();
+
+        const requested = document.querySelector('.kpi-period-btn[data-period="1mo"]');
+        requested.click();
+
+        await vi.waitFor(() => expect(charts.get(document.getElementById('kpi-modal-chart'))).toBeDefined());
+        expect(app.currentModalPeriod).toBe('1mo');
+        expect(app.fetchPriceHistory).toHaveBeenCalledTimes(2);
+        expect(app.fetchPriceHistory.mock.calls.map(call => call[0])).toEqual(['AAPL', '^GSPC']);
+        expect(app.fetchPriceHistory.mock.calls.every(call => call[1] === '1mo' && call[2]?.daily === true)).toBe(true);
+        expect(requested.classList.contains('active')).toBe(true);
+    });
+
+    it('keeps the previous comparison chart on failure and replaces it after retry', async () => {
+        app.currentModalPeriod = '10y';
+        app.currentModalKpi = 'sp500';
+        const previousChart = { destroy: vi.fn() };
+        app.modalChart = previousChart;
+        app.fetchPriceHistory = vi.fn(async () => null);
+        app.setupModalPeriodButtons();
+
+        const previous = document.querySelector('.kpi-period-btn[data-period="10y"]');
+        const requested = document.querySelector('.kpi-period-btn[data-period="1mo"]');
+        requested.click();
+
+        await vi.waitFor(() => expect(document.getElementById('kpi-modal-chart-state').textContent)
+            .toContain('Comparaison indisponible'));
+        expect(app.currentModalPeriod).toBe('10y');
+        expect(previous.classList.contains('active')).toBe(true);
+        expect(requested.classList.contains('active')).toBe(false);
+        expect(previousChart.destroy).not.toHaveBeenCalled();
+
+        app.fetchPriceHistory.mockResolvedValue(history());
+        document.querySelector('#kpi-modal-chart-state .chart-inline-retry').click();
+        await vi.waitFor(() => expect(charts.get(document.getElementById('kpi-modal-chart'))).toBeDefined());
+        expect(app.currentModalPeriod).toBe('1mo');
+        expect(requested.classList.contains('active')).toBe(true);
+        expect(previousChart.destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('commits only the latest comparison period when requests overlap', async () => {
+        const firstRequest = pending();
+        app.currentModalPeriod = '10y';
+        app.currentModalKpi = 'sp500';
+        app.fetchPriceHistory = vi.fn((symbol, period) => {
+            if (symbol === 'AAPL' && period === '1mo') return firstRequest.promise;
+            return Promise.resolve(history());
+        });
+        app.setupModalPeriodButtons();
+
+        const first = document.querySelector('.kpi-period-btn[data-period="1mo"]');
+        const latest = document.querySelector('.kpi-period-btn[data-period="3mo"]');
+        first.click();
+        await vi.waitFor(() => expect(app.fetchPriceHistory).toHaveBeenCalledTimes(1));
+        latest.click();
+
+        await vi.waitFor(() => expect(app.currentModalPeriod).toBe('3mo'));
+        firstRequest.resolve(history());
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        expect(app.currentModalPeriod).toBe('3mo');
+        expect(first.classList.contains('active')).toBe(false);
+        expect(latest.classList.contains('active')).toBe(true);
+        expect(app.fetchPriceHistory.mock.calls.map(call => [call[0], call[1]])).toEqual([
+            ['AAPL', '1mo'],
+            ['AAPL', '3mo'],
+            ['^GSPC', '3mo'],
+        ]);
     });
 
     it('invalidates an in-flight modal period request when the modal closes', async () => {

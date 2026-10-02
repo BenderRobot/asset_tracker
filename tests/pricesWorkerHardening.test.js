@@ -121,6 +121,43 @@ describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)
         }
     });
 
+    it('retourne seulement les événements utiles pour DIVIDENDS, sans bougies de prix', async () => {
+        vi.stubGlobal('fetch', vi.fn(async url => {
+            const u = String(url);
+            expect(u).toContain('/v8/finance/chart/AAPL');
+            return new Response(JSON.stringify({ chart: { result: [{
+                meta: { currency: 'USD' },
+                timestamp: [1690000000, 1700000000, 1710000000],
+                indicators: { quote: [{ close: [180, 190, 200] }] },
+                events: { dividends: {
+                    1710000000: { date: 1710000000, amount: 0.25 },
+                    1700000000: { date: 1700000000, amount: 0.24 },
+                } },
+            }] } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }));
+
+        const res = await worker.fetch(
+            getRequest('symbol=AAPL&type=DIVIDENDS'),
+            makeEnv({ PRICE_RATE_LIMIT_PER_MINUTE: '100' }),
+        );
+        const data = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(data).toEqual({
+            symbol: 'AAPL',
+            currency: 'USD',
+            events: [
+                { timestamp: 1700000000, amount: 0.24 },
+                { timestamp: 1710000000, amount: 0.25 },
+            ],
+        });
+        expect(data).not.toHaveProperty('chart');
+        const upstreamUrl = String(vi.mocked(fetch).mock.calls[0][0]);
+        expect(upstreamUrl).toContain('interval=1mo');
+        expect(upstreamUrl).toContain('range=10y');
+        expect(upstreamUrl).toContain('events=div');
+    });
+
     it('symbol manquant → 400 (comportement déjà existant, inchangé)', async () => {
         stubFetch();
         const res = await worker.fetch(getRequest(''), makeEnv());

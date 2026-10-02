@@ -904,6 +904,12 @@ class ScreenerApp {
         }
     }
 
+    async fetchDividendEvents(symbol) {
+        const url = `${PROXY}?symbol=${encodeURIComponent(symbol)}&type=DIVIDENDS`;
+        const data = await this.safeFetchJson(url);
+        return Array.isArray(data?.events) ? data.events : [];
+    }
+
     async fetchPriceHistory(symbol, period, { daily = false } = {}) {
         const rangeMap = {
             '1mo': { range: '1mo', interval: '1d' },
@@ -2242,6 +2248,7 @@ class ScreenerApp {
         if (divWrapper) divWrapper.style.display = (isPriceMode || isRegression) ? '' : 'none';
         if (isValuation) document.querySelector('.kpi-modal-period-btns')?.setAttribute('style', 'display:none');
 
+        let renderSucceeded = true;
         // Render based on type
         switch (kpiType) {
             case 'price':
@@ -2251,7 +2258,7 @@ class ScreenerApp {
                 this.renderRegressionModal(canvas, statsContainer, historicalRates, currentRate, displayCurrency);
                 break;
             case 'sp500':
-                await this.renderComparisonModal(canvas, statsContainer);
+                renderSucceeded = await this.renderComparisonModal(canvas, statsContainer);
                 break;
             case 'radar':
                 this.renderRadarModal(canvas, statsContainer);
@@ -2269,6 +2276,7 @@ class ScreenerApp {
             statsContainer.insertAdjacentHTML('beforeend',
                 '<div style="width:100%;text-align:right;color:#f59e0b;font-size:12px;padding-top:6px;">Taux de change indisponible : valeurs affichées dans la devise de cotation.</div>');
         }
+        return renderSucceeded;
     }
 
     renderPriceModal(canvas, statsContainer, historicalRates = null, currentRate = 1, currency = '') {
@@ -2639,14 +2647,13 @@ class ScreenerApp {
 
         this._modalRawValues = values;
     }
-    async renderComparisonModal(canvas, statsContainer) {
+    async renderComparisonModal(canvas, statsContainer, requestToken = null, period = this.currentModalPeriod) {
         this.setInlineState('kpi-modal-chart-state', 'loading', 'Chargement de la comparaison…');
         const benchmarkTicker = document.getElementById('kpi-comp-benchmark')?.value || '^GSPC';
         const benchmarkLabel = document.getElementById('kpi-comp-benchmark-label')?.textContent || 'S&P 500';
-        const period = this.currentModalPeriod;
         const token = this._modalToken;
         const stockData = await this.fetchPriceHistory(this.currentSymbol, period, { daily: true }).catch(() => null);
-        if (token !== this._modalToken) return;
+        if (token !== this._modalToken || (requestToken != null && requestToken !== this._modalPeriodRequestToken)) return null;
 
         const benchmarkEntry = this._cachedBenchmarkData?.[benchmarkTicker]?.[period];
         const benchmarkTtlMs = 15 * 60 * 1000;
@@ -2654,7 +2661,7 @@ class ScreenerApp {
             ? benchmarkEntry.data : null;
         if (!benchmarkData) {
             benchmarkData = await this.fetchPriceHistory(benchmarkTicker, period, { daily: true }).catch(() => null);
-            if (token !== this._modalToken) return;
+            if (token !== this._modalToken || (requestToken != null && requestToken !== this._modalPeriodRequestToken)) return null;
             if (benchmarkData) {
                 if (!this._cachedBenchmarkData[benchmarkTicker]) this._cachedBenchmarkData[benchmarkTicker] = {};
                 this._cachedBenchmarkData[benchmarkTicker][period] = { data: benchmarkData, cachedAt: Date.now() };
@@ -2665,7 +2672,7 @@ class ScreenerApp {
             statsContainer.innerHTML = '<p style="color:#64748b;padding:16px">Données de comparaison indisponibles.</p>';
             this.setInlineState('kpi-modal-chart-state', 'error', 'Comparaison indisponible.',
                 () => this.renderKpiModalContent('sp500'));
-            return;
+            return false;
         }
         this.setInlineState('kpi-modal-chart-state');
 
@@ -2675,12 +2682,14 @@ class ScreenerApp {
         const pair = normalizePair(sessions.map(d => d.base), sessions.map(d => d.other));
         if (!pair) {
             statsContainer.innerHTML = '<p style="color:#64748b;padding:16px">Aucune date commune entre les deux séries.</p>';
-            return;
+            this.setInlineState('kpi-modal-chart-state', 'error', 'Aucune séance commune entre les séries.');
+            return false;
         }
         const stockNorm = pair.base;
         const benchmarkNorm = pair.other;
         const labels = sessions.map(d => new Date(d.session + 'T12:00:00Z').toLocaleDateString('fr-FR'));
 
+        this.modalChart?.destroy();
         this.modalChart = new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: {
@@ -2758,6 +2767,7 @@ class ScreenerApp {
                 </div>
             `;
         }
+        return true;
     }
 
     renderRadarModal(canvas, statsContainer) {
@@ -3141,6 +3151,24 @@ class ScreenerApp {
         btn?.setAttribute('aria-busy', 'true');
         this.setInlineState('kpi-modal-chart-state', 'loading', 'Chargement de la période…');
         try {
+            if (this.currentModalKpi === 'sp500') {
+                const ok = await this.renderComparisonModal(
+                    document.getElementById('kpi-modal-chart'),
+                    document.getElementById('kpi-modal-stats'),
+                    requestToken,
+                    period,
+                );
+                if (modalToken !== this._modalToken || requestToken !== this._modalPeriodRequestToken || ok == null) return;
+                if (!ok) {
+                    const retry = () => this.changeModalPeriod(period, btn, { force: true });
+                    this.setInlineState('kpi-modal-chart-state', 'error', 'Comparaison indisponible.', retry);
+                    return;
+                }
+                this.currentModalPeriod = period;
+                document.querySelectorAll('.kpi-period-btn').forEach(b => b.classList.toggle('active', b === btn));
+                return;
+            }
+
             const newPriceHistory = await this.fetchPriceHistory(this.currentSymbol, period).catch(() => null);
             if (modalToken !== this._modalToken || requestToken !== this._modalPeriodRequestToken) return;
             if (!newPriceHistory?.length) {
@@ -3505,17 +3533,17 @@ class ScreenerApp {
         }
         if (el('div-kpi-cagr')) el('div-kpi-cagr').textContent = cagrText;
 
-        // Chart 1: real per-payment history via events=div (same technique as DividendManager)
+        // Chart 1: real per-payment history. The Worker strips the underlying
+        // Yahoo chart response so the browser receives only useful events.
         const token = this._loadToken;
         let payments = [];
         try {
-            const payHistUrl = `${PROXY}?symbol=${encodeURIComponent(this.currentSymbol)}&type=STOCK&range=10y&interval=1d&events=div`;
-            const payData = await this.safeFetchJson(payHistUrl);
+            const events = await this.fetchDividendEvents(this.currentSymbol);
             if (token !== this._loadToken) return;
-            const events = payData?.chart?.result?.[0]?.events?.dividends;
             payments = events
-                ? Object.keys(events).map(ts => ({ ts: parseInt(ts, 10), amount: events[ts].amount })).sort((a, b) => a.ts - b.ts)
-                : [];
+                .map(event => ({ ts: Number(event?.timestamp), amount: Number(event?.amount) }))
+                .filter(event => Number.isFinite(event.ts) && event.ts > 0 && Number.isFinite(event.amount))
+                .sort((a, b) => a.ts - b.ts);
         } catch (err) {
             if (token !== this._loadToken) return;
             logger.error('[Dividende] payment history failed:', err);

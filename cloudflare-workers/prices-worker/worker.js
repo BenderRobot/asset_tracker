@@ -4,6 +4,7 @@
  *   - type=STOCK/CRYPTO (default): historical chart via /v8/finance/chart
  *   - type=QUOTE_SUMMARY: fundamental data via /v10/finance/quoteSummary
  *   - type=FUNDAMENTALS: multi-year annual financial statements via /ws/fundamentals-timeseries
+ *   - type=DIVIDENDS: compact ten-year dividend events extracted from /v8/finance/chart
  *   - type=SEARCH: ticker search via /v1/finance/search
  */
 
@@ -503,6 +504,37 @@ export default {
           return jsonResponse(reshapeFundamentalsTimeseries(json, symbol), 200, origin, { attempts, finalStatus });
         } catch (err) {
           try { console.error(`[PricesProxy][FUNDAMENTALS] Error for ${symbol}.`, err.stack || err.message); } catch (e) { console.error(e); }
+          return jsonResponse({ error: 'Upstream provider error' }, 502, origin, { attempts: err.attempts, finalStatus: err.finalStatus });
+        }
+      }
+
+      // ─── DIVIDEND EVENTS (compact response) ─────────────────────────────────
+      if (type === 'DIVIDENDS') {
+        if (!symbol) return jsonResponse({ error: 'symbol required' }, 400, origin);
+        try {
+          // Yahoo exposes corporate actions through the chart endpoint. A monthly
+          // interval is sufficient because dividend events carry their own dates;
+          // daily price candles are neither needed nor returned to the browser.
+          const dividendsUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1mo&includePrePost=false&range=10y&events=div`;
+          const { json, attempts, finalStatus } = await fetchYahoo(dividendsUrl, origin, env);
+          const result = json?.chart?.result?.[0];
+          if (!result) {
+            const error = new Error('Dividend chart result missing');
+            error.attempts = attempts;
+            error.finalStatus = finalStatus;
+            throw error;
+          }
+          const dividends = result?.events?.dividends || {};
+          const events = Object.entries(dividends)
+            .map(([key, event]) => ({
+              timestamp: Number(event?.date ?? key),
+              amount: Number(event?.amount),
+            }))
+            .filter(event => Number.isFinite(event.timestamp) && event.timestamp > 0 && Number.isFinite(event.amount))
+            .sort((a, b) => a.timestamp - b.timestamp);
+          return jsonResponse({ symbol, currency: result?.meta?.currency || null, events }, 200, origin, { attempts, finalStatus });
+        } catch (err) {
+          try { console.error(`[PricesProxy][DIVIDENDS] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
           return jsonResponse({ error: 'Upstream provider error' }, 502, origin, { attempts: err.attempts, finalStatus: err.finalStatus });
         }
       }
