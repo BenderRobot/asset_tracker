@@ -7,7 +7,7 @@ import logger from '../utils/logger.js';
 import {
     YEAR_MS, normalizeCurrency, fxSymbol, currencyContext, valueAt, commonSessions, dailyCloseAt, monthlyCloses, normalizePair,
     cagr, annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
-    hasFundamentalProfile, historicalShareBasis, radarDimensions, quantScore, fairPriceModel, simpleDcf,
+    hasFundamentalProfile, historicalShareBasis, quantProfile, quantScore, fairPriceModel, simpleDcf,
 } from './screenerMetrics.js';
 
 const PROXY = PRICE_PROXY_URL;
@@ -1512,10 +1512,17 @@ class ScreenerApp {
         const scoreBadge = document.getElementById('stock-score-badge');
         const scoreValue = document.getElementById('stock-score-value');
         const legendEl = document.getElementById('radar-legend');
+        const metaEl = document.getElementById('radar-score-meta');
         if (this.radarChart) { this.radarChart.destroy(); this.radarChart = null; }
 
-        const dimensions = this.currentData.hasFundamentals ? radarDimensions(financial, detail) : null;
-        const totalScore = dimensions ? quantScore(dimensions) : null;
+        const profile = this.currentData.hasFundamentals ? quantProfile(financial, detail) : null;
+        const dimensions = profile?.dimensions || null;
+        const totalScore = profile ? quantScore(profile) : null;
+        const coverage = profile?.coverage;
+        const coverageText = coverage
+            ? `${coverage.metricsAvailable}/${coverage.metricsTotal} métriques · ${Math.round(coverage.percent)} % de couverture`
+            : 'Couverture indisponible';
+        if (metaEl) metaEl.textContent = `Score interne · ${coverageText} · non sectoriel`;
 
         if (totalScore == null) {
             // No statements (ETF, index, crypto) or too few fields: no score at all.
@@ -1533,6 +1540,7 @@ class ScreenerApp {
 
         scoreValue.textContent = totalScore.toFixed(1);
         document.getElementById('radar-score-badge').textContent = `${totalScore.toFixed(1)}/20`;
+        scoreBadge.title = `Score interne indicatif · ${coverageText}`;
         scoreBadge.style.background = totalScore >= 14
             ? 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.2))'
             : totalScore >= 10
@@ -1554,7 +1562,7 @@ class ScreenerApp {
                 datasets: [{
                     label: this.currentSymbol,
                     data: vals,
-                    spanGaps: true,
+                    spanGaps: false,
                     backgroundColor: 'rgba(99,102,241,0.2)',
                     borderColor: '#6366f1',
                     borderWidth: 2,
@@ -2804,7 +2812,8 @@ class ScreenerApp {
         const financial = qs.financialData || {};
         const detail = qs.summaryDetail || {};
 
-        const dimensions = radarDimensions(financial, detail);
+        const profile = quantProfile(financial, detail);
+        const dimensions = profile.dimensions;
         const labels = Object.keys(dimensions);
         const values = Object.values(dimensions);
 
@@ -2818,7 +2827,7 @@ class ScreenerApp {
 
         // Rediriger l'analyse vers la sidebar (plus large) au lieu du panneau 260px
         const sidebarTitleEl = document.querySelector('.kpi-modal-sidebar-header h3');
-        if (sidebarTitleEl) sidebarTitleEl.textContent = 'Diagnostic Fondamental';
+        if (sidebarTitleEl) sidebarTitleEl.textContent = 'Méthode du score interne';
 
         const sidebarContent = document.querySelector('.kpi-modal-sidebar-content');
         if (sidebarContent) sidebarContent.style.display = 'none';
@@ -2853,7 +2862,7 @@ class ScreenerApp {
                 datasets: [{
                     label: 'Score',
                     data: values,
-                    spanGaps: true,
+                    spanGaps: false,
                     backgroundColor: 'rgba(99, 102, 241, 0.15)',
                     borderColor: '#818cf8',
                     borderWidth: 2.5,
@@ -2885,13 +2894,13 @@ class ScreenerApp {
             }
         });
 
-        const score = quantScore(dimensions);
+        const score = quantScore(profile);
 
         // ── Injection du score et titre dans le header sidebar ──
         const sidebarHeader = document.querySelector('.kpi-modal-sidebar-header');
         if (sidebarHeader) {
             const titleEl = sidebarHeader.querySelector('h3');
-            if (titleEl) titleEl.textContent = 'Diagnostic Fondamental';
+            if (titleEl) titleEl.textContent = 'Méthode du score interne';
 
             let badge = sidebarHeader.querySelector('.header-score-badge');
             if (!badge) {
@@ -2902,6 +2911,7 @@ class ScreenerApp {
                 else sidebarHeader.appendChild(badge);
             }
             badge.innerHTML = `${score == null ? '—' : score.toFixed(1)} <span>/20</span>`;
+            badge.title = 'Score interne indicatif, non ajusté au secteur';
             badge.style.display = 'flex';
         }
 
@@ -2914,50 +2924,17 @@ class ScreenerApp {
         }
         if (!analysisEl) return;
 
-        // Every row is a Yahoo field shown as is; the bar is derived from that
-        // value against a reference level (null → no bar colouring).
-        const v = x => (isNum(x?.raw) ? x.raw : null);
-        const pct = x => (x == null ? '—' : `${(x * 100).toFixed(1)}%`);
-        const dec = (x, d = 2) => (x == null ? '—' : x.toFixed(d));
-        const against = (x, reference) => (x == null ? null : (x / reference) * 5);
-        const lowerIsBetter = (x, worst) => (x == null ? null : 5 - (x / worst) * 5);
-        const finCur = this.currentData.currency.finIso || '';
-        const fcf = v(financial.freeCashflow), revenue = v(financial.totalRevenue);
-        const fcfMargin = isNum(fcf) && isNum(revenue) && revenue > 0 ? fcf / revenue : null;
-        const payout = v(detail.payoutRatio);
-        const fiveYearYield = v(detail.fiveYearAvgDividendYield); // already in %
-        const dividendYield = v(detail.dividendYield);
-
-        const cards = [
-            ['Retours', [
-                ['ROE', pct(v(financial.returnOnEquity)), against(v(financial.returnOnEquity), 0.25)],
-                ['ROA', pct(v(financial.returnOnAssets)), against(v(financial.returnOnAssets), 0.12)],
-            ]],
-            ['Marges', [
-                ['Marge brute', pct(v(financial.grossMargins)), against(v(financial.grossMargins), 0.6)],
-                ['Marge opé.', pct(v(financial.operatingMargins)), against(v(financial.operatingMargins), 0.3)],
-                ['Marge nette', pct(v(financial.profitMargins)), against(v(financial.profitMargins), 0.2)],
-            ]],
-            ['Croissance', [
-                ['CA (sur 1 an)', pct(v(financial.revenueGrowth)), against(v(financial.revenueGrowth), 0.2)],
-                ['Bénéfices (sur 1 an)', pct(v(financial.earningsGrowth)), against(v(financial.earningsGrowth), 0.25)],
-                ['BPA estimé', dec(v(qs.defaultKeyStatistics?.forwardEps)), null],
-            ]],
-            ['Rentabilité', [
-                ['Marge nette', pct(v(financial.profitMargins)), against(v(financial.profitMargins), 0.2)],
-                ['Marge opé.', pct(v(financial.operatingMargins)), against(v(financial.operatingMargins), 0.3)],
-                ['ROE', pct(v(financial.returnOnEquity)), against(v(financial.returnOnEquity), 0.25)],
-            ]],
-            ['Dividende', [
-                ['Rendement', pct(dividendYield), against(dividendYield, 0.04)],
-                ['Payout', pct(payout), payout == null ? null : payout <= 0.7 ? 4.5 : payout <= 1 ? 3 : 1],
-                ['Moyenne 5 ans', fiveYearYield == null ? '—' : `${fiveYearYield.toFixed(2)}%`, against(fiveYearYield, 4)],
-            ]],
-            ['Santé', [
-                ['Liquidité (ratio courant)', dec(v(financial.currentRatio)), against(v(financial.currentRatio), 2)],
-                ['Dette / capitaux propres', v(financial.debtToEquity) == null ? '—' : `${v(financial.debtToEquity).toFixed(0)}%`, lowerIsBetter(v(financial.debtToEquity), 250)],
-            ]],
-        ];
+        const formatMetric = item => {
+            if (!isNum(item.value)) return '—';
+            if (item.unit === '%') return `${item.value.toFixed(1)} %`;
+            if (item.unit === 'x') return `${item.value.toFixed(2)}x`;
+            return item.value.toFixed(2);
+        };
+        const cards = Object.entries(profile.axes).map(([axis, axisData]) => [
+            axis,
+            axisData.metrics.map(item => [item.label, formatMetric(item), item.score, item.reference]),
+            axisData,
+        ]);
 
         const badgeFor = axis => {
             const s = dimensions[axis];
@@ -2966,29 +2943,36 @@ class ScreenerApp {
         const cardHtml = (title, rows, badge = '') => `
                 <div class="analysis-card">
                     <h5>${title} ${badge}</h5>
-                    ${rows.map(([label, value, s]) => this.renderAnalysisRow(label, value, s)).join('')}
+                    ${rows.map(([label, value, s, reference]) => this.renderAnalysisRow(label, value, s, reference)).join('')}
                 </div>`;
 
         analysisEl.innerHTML = `
+            <div class="quant-method-summary">
+                <div class="quant-method-coverage">
+                    <span>Couverture des données</span>
+                    <strong>${profile.coverage.metricsAvailable}/${profile.coverage.metricsTotal} métriques · ${Math.round(profile.coverage.percent)} %</strong>
+                </div>
+                <p>Les six axes sont équipondérés. Chaque donnée publiée n’alimente qu’un seul axe et une donnée absente reste indisponible. Le score global apparaît à partir de 60 % de couverture et de quatre axes.</p>
+                <p class="quant-method-limit">Indicateur interne descriptif, sans comparaison sectorielle : ce n’est ni une notation externe ni un conseil d’investissement.</p>
+            </div>
             <div class="analysis-grid">
-                ${cards.map(([axis, rows]) => cardHtml(axis, rows, badgeFor(axis))).join('')}
-                ${cardHtml('Flux de trésorerie', [
-                    ['Flux d\'exploitation', this.fmtBig(v(financial.operatingCashflow), finCur), null],
-                    ['Free Cash Flow', this.fmtBig(fcf, finCur), null],
-                    ['Marge FCF', pct(fcfMargin), against(fcfMargin, 0.25)],
-                ])}
+                ${cards.map(([axis, rows, axisData]) => cardHtml(
+                    axis,
+                    rows,
+                    `${badgeFor(axis)}<span class="analysis-coverage">${axisData.available}/${axisData.total}</span>`,
+                )).join('')}
             </div>
         `;
     }
 
-    renderAnalysisRow(label, value, score) {
+    renderAnalysisRow(label, value, score, reference = '') {
         const hasScore = isNum(score);
         const barWidth = hasScore ? Math.min(100, Math.max(2, score * 20)) : 0;
         const barColor = !hasScore ? '#94a3b8' : score >= 4 ? '#10b981' : score >= 2.5 ? '#f59e0b' : '#ef4444';
         return `
             <div class="analysis-row">
                 <div class="analysis-row-top">
-                    <span class="row-label">${label}</span>
+                    <span class="row-label">${label}${reference ? `<small>${reference}</small>` : ''}</span>
                     <span class="row-value" style="color:${hasScore ? barColor : '#e2e8f0'}">${value}</span>
                 </div>
                 ${hasScore ? `<div class="row-bar-bg"><div class="row-bar-fill" style="width:${barWidth}%; background:${barColor}"></div></div>` : ''}

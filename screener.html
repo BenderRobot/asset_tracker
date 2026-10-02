@@ -114,9 +114,12 @@
                             <div id="stock-fx-meta" class="stock-fx-meta" hidden></div>
                             <div id="stock-data-source" class="stock-data-source"></div>
                         </div>
-                        <div id="stock-score-badge" class="stock-score-badge" title="Score quantitatif calculé à partir des ratios Yahoo Finance">
-                            <span id="stock-score-value">—</span>
-                            <span class="score-label">/20</span>
+                        <div id="stock-score-badge" class="stock-score-badge" title="Score interne indicatif calculé à partir des ratios publiés">
+                            <span class="score-caption">Score interne</span>
+                            <span class="score-value-line">
+                                <span id="stock-score-value">—</span>
+                                <span class="score-label">/20</span>
+                            </span>
                         </div>
                         <button id="screener-watchlist-btn" class="btn-add-portfolio"
                             style="cursor:pointer;border:none;font-family:inherit;">
@@ -264,9 +267,9 @@
                         <!-- Quantitative Radar -->
                         <div class="screener-card">
                             <div class="screener-card-header">
-                                <span class="card-title">Profil quantitatif</span>
+                                <span class="card-title">Score quantitatif interne</span>
                                 <div id="radar-score-badge" class="score-mini-badge">—/20</div>
-                                <button class="kpi-expand-btn" data-kpi="radar" title="Voir les détails">
+                                <button class="kpi-expand-btn" data-kpi="radar" title="Voir la méthode du score interne" aria-label="Voir la méthode du score interne">
                                     <i class="fas fa-expand-alt"></i>
                                 </button>
                             </div>
@@ -274,6 +277,7 @@
                                 <canvas id="radar-chart"></canvas>
                             </div>
                             <div class="radar-legend" id="radar-legend"></div>
+                            <p class="radar-score-meta" id="radar-score-meta">Score interne · couverture en attente</p>
                         </div>
 
                         <!-- Valuation -->

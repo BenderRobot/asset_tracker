@@ -725,4 +725,35 @@ describe('Screener P2 robustness', () => {
             app.closeKpiModal();
         }
     });
+
+    it('labels the quantitative result as an internal score and exposes its exact methodology', () => {
+        const financialData = {
+            returnOnEquity: { raw: 0.2 }, returnOnAssets: { raw: 0.1 },
+            grossMargins: { raw: 0.4 }, operatingMargins: { raw: 0.2 }, profitMargins: { raw: 0.15 },
+            revenueGrowth: { raw: 0.1 }, earningsGrowth: { raw: 0.1 },
+            totalRevenue: { raw: 1000 }, operatingCashflow: { raw: 250 }, freeCashflow: { raw: 180 },
+            currentRatio: { raw: 1.5 }, debtToEquity: { raw: 50 },
+        };
+        const summaryDetail = {
+            dividendYield: { raw: 0.02 }, payoutRatio: { raw: 0.4 }, fiveYearAvgDividendYield: { raw: 1.8 },
+        };
+        app.currentData.quoteSummary = { price: { currency: 'USD' }, financialData, summaryDetail, assetProfile: {} };
+
+        app.renderRadarAndScore({}, financialData, summaryDetail);
+
+        expect(document.querySelector('[data-kpi="radar"]').getAttribute('aria-label')).toContain('méthode du score interne');
+        expect(document.getElementById('radar-score-meta').textContent).toContain('14/14 métriques');
+        expect(document.getElementById('radar-score-meta').textContent).toContain('non sectoriel');
+        expect(charts.get(document.getElementById('radar-chart')).config.data.datasets[0].spanGaps).toBe(false);
+
+        app.renderRadarModal(document.getElementById('kpi-modal-chart'), document.getElementById('kpi-modal-stats'));
+
+        const analysis = document.querySelector('.radar-analysis-container');
+        expect(document.querySelector('.kpi-modal-sidebar-header h3').textContent).toBe('Méthode du score interne');
+        expect(analysis.textContent).toContain('60 % de couverture');
+        expect(analysis.textContent).toContain('sans comparaison sectorielle');
+        expect(analysis.textContent.match(/ROE/g)).toHaveLength(1);
+        expect(analysis.textContent).toContain('Trésorerie');
+        expect(charts.get(document.getElementById('kpi-modal-chart')).config.data.datasets[0].spanGaps).toBe(false);
+    });
 });

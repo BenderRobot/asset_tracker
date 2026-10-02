@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
     YEAR_MS, normalizeCurrency, currencyContext, valueAt, alignSeriesByTime, commonSessions, dailyCloseAt, normalizePair,
     annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
-    hasFundamentalProfile, historicalShareBasis, radarDimensions, quantScore, fairPriceModel, simpleDcf,
+    hasFundamentalProfile, historicalShareBasis, quantProfile, radarDimensions, quantScore, fairPriceModel, simpleDcf,
 } from '../src/screenerMetrics.js';
 
 const r = raw => ({ raw });
@@ -136,22 +136,56 @@ describe('quantitative profile', () => {
     });
 
     it('never scores missing fields as zero', () => {
-        const dims = radarDimensions({}, {});
+        const profile = quantProfile({}, {});
+        const dims = profile.dimensions;
         expect(dims['Retours']).toBeNull();
         expect(dims['Santé']).toBeNull();
-        expect(quantScore(dims)).toBeNull();
+        expect(dims['Dividende']).toBeNull();
+        expect(profile.coverage.metricsAvailable).toBe(0);
+        expect(quantScore(profile)).toBeNull();
     });
 
     it('reads the five-year average yield as a percentage (Yahoo already sends 0.5 for 0.5 %)', () => {
         const low = radarDimensions({}, { dividendYield: r(0.0033), fiveYearAvgDividendYield: r(0.5) });
-        // 0.33 % yield → 0.253 + 1.2 (pays) + 0.2 (5-year 0.5 %) = 1.653
-        expect(low['Dividende']).toBeCloseTo(0.253 + 1.2 + 0.2, 3);
+        // Average of the two available metric scores: 0.33/4×5 and 0.5/4×5.
+        expect(low['Dividende']).toBeCloseTo((0.33 / 4 * 5 + 0.5 / 4 * 5) / 2, 6);
     });
 
-    it('rescales an axis when only part of its inputs is published', () => {
-        const dims = radarDimensions({ grossMargins: r(0.6), operatingMargins: r(0.3) }, {});
-        // (60 + 30) × 3/2 = 135 → capped at 5
-        expect(dims['Marges']).toBe(5);
+    it('averages published metrics without extrapolating a missing input', () => {
+        const profile = quantProfile({ grossMargins: r(0.3), operatingMargins: r(0.3) }, {});
+        expect(profile.dimensions['Marges']).toBeCloseTo(3.75, 6);
+        expect(profile.axes['Marges'].available).toBe(2);
+        expect(profile.axes['Marges'].total).toBe(3);
+    });
+
+    it('distinguishes an unavailable dividend from an explicit zero yield', () => {
+        expect(quantProfile({}, {}).dimensions['Dividende']).toBeNull();
+        const noDividend = quantProfile({}, { dividendYield: r(0) });
+        expect(noDividend.dimensions['Dividende']).toBe(0);
+        expect(noDividend.axes['Dividende'].available).toBe(1);
+    });
+
+    it('uses every source metric in one axis only and reports coverage', () => {
+        const full = quantProfile({
+            returnOnEquity: r(0.2), returnOnAssets: r(0.1),
+            grossMargins: r(0.4), operatingMargins: r(0.2), profitMargins: r(0.15),
+            revenueGrowth: r(0.1), earningsGrowth: r(0.1),
+            totalRevenue: r(1000), operatingCashflow: r(250), freeCashflow: r(180),
+            currentRatio: r(1.5), debtToEquity: r(50),
+        }, { dividendYield: r(0.02), payoutRatio: r(0.4), fiveYearAvgDividendYield: r(1.8) });
+        const keys = Object.values(full.axes).flatMap(axis => axis.metrics.map(item => item.key));
+        expect(new Set(keys).size).toBe(keys.length);
+        expect(full.coverage).toMatchObject({ metricsAvailable: 14, metricsTotal: 14, percent: 100, axesAvailable: 6, axesTotal: 6 });
+        expect(quantScore(full)).toBeGreaterThan(0);
+    });
+
+    it('withholds the global score below 60% metric coverage even with four axes', () => {
+        const sparse = quantProfile({
+            returnOnEquity: r(0.2), grossMargins: r(0.4), revenueGrowth: r(0.1), currentRatio: r(1.5),
+        }, {});
+        expect(sparse.coverage.axesAvailable).toBe(4);
+        expect(sparse.coverage.percent).toBeLessThan(60);
+        expect(quantScore(sparse)).toBeNull();
     });
 
     it('scores on computable axes only', () => {

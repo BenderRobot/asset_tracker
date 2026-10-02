@@ -252,18 +252,31 @@ export function hasFundamentalProfile(quoteSummary) {
 }
 
 // ─── Quantitative profile ───────────────────────────────────────────────────
-// Sum of the present inputs, rescaled to the full input count. null when none
-// of the inputs exists, so a missing field is never scored as zero.
-function partial(values) {
-    const present = values.filter(isNum);
-    if (!present.length) return null;
-    return present.reduce((s, v) => s + v, 0) * (values.length / present.length);
-}
 const clamp = (v, min, max) => (v == null ? null : Math.min(Math.max(v, min), max));
 
-export const RADAR_AXES = ['Retours', 'Marges', 'Croissance', 'Rentabilité', 'Dividende', 'Santé'];
+export const RADAR_AXES = ['Retours', 'Marges', 'Croissance', 'Trésorerie', 'Dividende', 'Santé'];
+export const QUANT_MIN_COVERAGE = 0.6;
 
-export function radarDimensions(financial = {}, detail = {}) {
+const higherScore = (value, target) => isNum(value) ? clamp((value / target) * 5, 0, 5) : null;
+const rangeScore = (value, low, high) => isNum(value) ? clamp(((value - low) / (high - low)) * 5, 0, 5) : null;
+const metric = (key, label, value, unit, score, reference) => ({ key, label, value, unit, score, reference });
+
+function buildAxis(metrics) {
+    const available = metrics.filter(item => isNum(item.value) && isNum(item.score));
+    return {
+        score: available.length
+            ? available.reduce((sum, item) => sum + item.score, 0) / available.length
+            : null,
+        available: available.length,
+        total: metrics.length,
+        metrics,
+    };
+}
+
+// Rich score contract used by both the compact card and the methodology
+// modal. Each Yahoo field belongs to one axis only. Missing fields remain
+// unavailable: they are never converted to zero or extrapolated.
+export function quantProfile(financial = {}, detail = {}) {
     const pct = v => (num(v) == null ? null : num(v) * 100);
     const roe = pct(financial.returnOnEquity);
     const roa = pct(financial.returnOnAssets);
@@ -274,44 +287,84 @@ export function radarDimensions(financial = {}, detail = {}) {
     const earningsGrowth = pct(financial.earningsGrowth);
     const currentRatio = num(financial.currentRatio);
     const debtToEquity = num(financial.debtToEquity);
+    const revenue = num(financial.totalRevenue);
+    const freeCashflow = num(financial.freeCashflow);
+    const operatingCashflow = num(financial.operatingCashflow);
+    const fcfMargin = isNum(freeCashflow) && isNum(revenue) && revenue > 0 ? (freeCashflow / revenue) * 100 : null;
+    const operatingCashflowMargin = isNum(operatingCashflow) && isNum(revenue) && revenue > 0
+        ? (operatingCashflow / revenue) * 100
+        : null;
 
-    // For an operating company Yahoo omits dividend fields when none is paid:
-    // absence means 0 here, which is a real value.
-    const dividendYield = (pct(detail.dividendYield) ?? pct(detail.trailingAnnualDividendYield)) ?? 0;
-    const fiveYearAvgYield = num(detail.fiveYearAvgDividendYield) ?? 0; // already in %
+    // An omitted Yahoo field is not proof that the company pays no dividend.
+    // An explicit numeric zero, however, remains a real zero and is scored.
+    const dividendYield = pct(detail.dividendYield) ?? pct(detail.trailingAnnualDividendYield);
+    const fiveYearAvgYield = num(detail.fiveYearAvgDividendYield); // already in %
     const payout = num(detail.payoutRatio);
-    const paysDividend = dividendYield > 0;
+    const payoutScore = !isNum(payout) ? null
+        : payout < 0 ? 0
+            : payout <= 0.7 ? 4.5
+                : payout <= 1 ? 3
+                    : 1;
 
-    const returns = partial([roe, isNum(roa) ? roa * 1.4 : null]);
-    const margins = partial([gross, operating, net]);
-    const growth = partial([revenueGrowth, earningsGrowth]);
-    const profitability = partial([net, operating, roe]);
+    const axes = {
+        'Retours': buildAxis([
+            metric('roe', 'ROE', roe, '%', higherScore(roe, 25), 'cible 25 %'),
+            metric('roa', 'ROA', roa, '%', higherScore(roa, 12), 'cible 12 %'),
+        ]),
+        'Marges': buildAxis([
+            metric('grossMargin', 'Marge brute', gross, '%', higherScore(gross, 60), 'cible 60 %'),
+            metric('operatingMargin', 'Marge opérationnelle', operating, '%', higherScore(operating, 30), 'cible 30 %'),
+            metric('netMargin', 'Marge nette', net, '%', higherScore(net, 20), 'cible 20 %'),
+        ]),
+        'Croissance': buildAxis([
+            metric('revenueGrowth', 'CA sur 1 an', revenueGrowth, '%', rangeScore(revenueGrowth, -15, 25), 'plage -15 à 25 %'),
+            metric('earningsGrowth', 'Bénéfices sur 1 an', earningsGrowth, '%', rangeScore(earningsGrowth, -15, 25), 'plage -15 à 25 %'),
+        ]),
+        'Trésorerie': buildAxis([
+            metric('operatingCashflowMargin', 'Marge de flux d\'exploitation', operatingCashflowMargin, '%', higherScore(operatingCashflowMargin, 30), 'cible 30 %'),
+            metric('freeCashflowMargin', 'Marge de free cash-flow', fcfMargin, '%', higherScore(fcfMargin, 25), 'cible 25 %'),
+        ]),
+        'Dividende': buildAxis([
+            metric('dividendYield', 'Rendement', dividendYield, '%', higherScore(dividendYield, 4), 'cible 4 %'),
+            metric('payoutRatio', 'Taux de distribution', isNum(payout) ? payout * 100 : null, '%', payoutScore, 'zone cible 0–70 %'),
+            metric('fiveYearYield', 'Rendement moyen sur 5 ans', fiveYearAvgYield, '%', higherScore(fiveYearAvgYield, 4), 'cible 4 %'),
+        ]),
+        'Santé': buildAxis([
+            metric('currentRatio', 'Ratio courant', currentRatio, 'x', higherScore(currentRatio, 2), 'cible 2,0x'),
+            metric('debtToEquity', 'Dette / capitaux propres', debtToEquity, '%', isNum(debtToEquity) ? clamp(5 - (debtToEquity / 250) * 5, 0, 5) : null, 'meilleur sous 80 %'),
+        ]),
+    };
 
-    let health = null;
-    if (isNum(currentRatio)) {
-        const base = clamp((currentRatio / 3) * 3.5, 0, 3.5);
-        health = isNum(debtToEquity)
-            ? base + (debtToEquity <= 80 ? 1.5 : debtToEquity <= 150 ? 1 : 0.4)
-            : base * (5 / 3.5);
-    }
-
-    const dividend = paysDividend
-        ? clamp((dividendYield / 3) * 2.3, 0, 2.3) + 1.2 + clamp((fiveYearAvgYield / 2) * 0.8, 0, 0.8)
-            + (isNum(payout) ? (payout >= 0 && payout <= 0.7 ? 0.7 : payout <= 1 ? 0.5 : 0.2) : 0)
-        : 0;
+    const dimensions = Object.fromEntries(RADAR_AXES.map(axis => [axis, axes[axis].score]));
+    const metricsAvailable = Object.values(axes).reduce((sum, axis) => sum + axis.available, 0);
+    const metricsTotal = Object.values(axes).reduce((sum, axis) => sum + axis.total, 0);
+    const axesAvailable = Object.values(axes).filter(axis => isNum(axis.score)).length;
 
     return {
-        'Retours': clamp(returns == null ? null : (returns / 30) * 5, 0, 5),
-        'Marges': clamp(margins == null ? null : (margins / 90) * 5, 0, 5),
-        'Croissance': clamp(growth == null ? null : ((growth + 15) / 55) * 5, 0, 5),
-        'Rentabilité': clamp(profitability == null ? null : (profitability / 75) * 5, 0, 5),
-        'Dividende': clamp(dividend, 0, 5),
-        'Santé': clamp(health, 0, 5),
+        dimensions,
+        axes,
+        coverage: {
+            metricsAvailable,
+            metricsTotal,
+            percent: metricsTotal ? (metricsAvailable / metricsTotal) * 100 : 0,
+            axesAvailable,
+            axesTotal: RADAR_AXES.length,
+        },
     };
 }
 
-// Score /20 over the axes that could be computed; null below 4 axes.
-export function quantScore(dimensions) {
+export function radarDimensions(financial = {}, detail = {}) {
+    return quantProfile(financial, detail).dimensions;
+}
+
+// Score /20 over equally weighted available axes. Rich profiles additionally
+// require at least 60% of the underlying metrics, so a sparse payload cannot
+// look as authoritative as a complete one.
+export function quantScore(input) {
+    const dimensions = input?.dimensions || input;
+    if (input?.coverage) {
+        if (input.coverage.axesAvailable < 4 || input.coverage.percent < QUANT_MIN_COVERAGE * 100) return null;
+    }
     const values = Object.values(dimensions || {}).filter(isNum);
     if (values.length < 4) return null;
     return (values.reduce((s, v) => s + v, 0) / (values.length * 5)) * 20;
