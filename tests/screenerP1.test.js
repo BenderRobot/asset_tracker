@@ -33,6 +33,20 @@ beforeEach(() => {
         logger: { error: vi.fn() },
         isNum: v => typeof v === 'number' && Number.isFinite(v),
         escHtml: v => { const el = document.createElement('span'); el.textContent = v ?? ''; return el.innerHTML; },
+        FIN_STATEMENT_DEFS: {
+            income: { label: 'Compte de résultat', rows: [
+                { label: 'Revenus', key: 'annualTotalRevenue' },
+                { label: 'Résultat net', key: 'annualNetIncome' },
+                { label: 'BPA dilué', key: 'annualDilutedEPS', decimals: true, perShare: true },
+            ] },
+            balance: { label: 'Bilan', rows: [
+                { label: 'Total actifs', key: 'annualTotalAssets' },
+                { label: 'Dette totale', key: 'annualTotalDebt' },
+            ] },
+            cashflow: { label: 'Flux de trésorerie', rows: [
+                { label: 'Free Cash Flow', key: 'annualFreeCashFlow' },
+            ] },
+        },
     });
     vm.runInContext(source.slice(source.indexOf('class ScreenerApp'), source.indexOf("document.addEventListener('DOMContentLoaded'"))
         + '\nglobalThis.App = ScreenerApp;', context);
@@ -701,6 +715,42 @@ describe('Screener P2 robustness', () => {
         expect(headers[1]).toContain('31 décembre 2025');
         expect(headers[2]).toContain('31 mars 2025');
         expect(document.getElementById('finances-meta').textContent).toContain('BPA exprimées par action ordinaire');
+    });
+
+    it('switches finance views with valid denominators and exports all statements as CSV', async () => {
+        app.currentData = {
+            ...app.currentData,
+            hasStatements: true,
+            currency: { quote: 'USD', priceIso: 'USD', finIso: 'USD', finCurrencies: ['USD'], finCurrencyMixed: false },
+            fundamentals: [
+                { year: '2024', endDate: '2024-12-31', periodType: '12M', currency: 'USD', annualTotalRevenue: 1000,
+                    annualNetIncome: 100, annualDilutedEPS: 2, annualTotalAssets: 1600, annualTotalDebt: 320, annualFreeCashFlow: 80 },
+                { year: '2025', endDate: '2025-12-31', periodType: '12M', currency: 'USD', annualTotalRevenue: 1200,
+                    annualNetIncome: 180, annualDilutedEPS: 3, annualTotalAssets: 2000, annualTotalDebt: 500, annualFreeCashFlow: 120 },
+            ],
+        };
+        app.setupFinanceTabButtons();
+        await app.renderFinancesTab();
+
+        document.querySelector('[data-fin-view="change"]').click();
+        expect(document.getElementById('fin-table').textContent).toContain('+80,0%');
+        expect(document.getElementById('finances-meta').textContent).toContain('aucun trou n’est interpolé');
+
+        document.querySelector('[data-fin-view="common"]').click();
+        expect(document.getElementById('fin-table').textContent).toContain('15,0%');
+        expect(document.getElementById('fin-table').textContent).toContain('non comparable à un total');
+
+        app.renderFinancesStatement('balance');
+        expect(document.getElementById('fin-table').textContent).toContain('25,0%');
+
+        const csv = app.buildFinancesCsv();
+        expect(csv).toContain('Yahoo Finance — fundamentals-timeseries');
+        expect(csv).toContain('"Compte de résultat"');
+        expect(csv).toContain('"Bilan"');
+        expect(csv).toContain('"Flux de trésorerie"');
+        expect(csv).toContain('"2025-12-31"');
+        expect(csv).toContain('"USD"');
+        expect(csv).toContain('"180"');
     });
 
     it('renders the quote before optional fundamentals, benchmark and FX finish', async () => {

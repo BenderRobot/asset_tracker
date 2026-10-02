@@ -252,6 +252,133 @@ export function fiscalPeriodLabel(period, { short = false } = {}) {
     return `${short ? '' : 'Exercice clos le '}${close}${suffix}`;
 }
 
+function statementMetricCurrency(period, key) {
+    return normalizeCurrency(period?.currencyByMetric?.[key] || period?.currency).iso;
+}
+
+function consecutiveAnnualPeriods(current, previous) {
+    if (!current || !previous) return false;
+    const currentType = String(current.periodType || '12M').toUpperCase();
+    const previousType = String(previous.periodType || '12M').toUpperCase();
+    if (currentType !== previousType) return false;
+    if (current.endDate && previous.endDate) {
+        const gapDays = (Date.parse(`${current.endDate}T00:00:00Z`) - Date.parse(`${previous.endDate}T00:00:00Z`)) / 86400000;
+        return Number.isFinite(gapDays) && gapDays >= 300 && gapDays <= 430;
+    }
+    const gapYears = Number(current.year) - Number(previous.year);
+    return Number.isFinite(gapYears) && gapYears === 1;
+}
+
+// `periods` must be ordered newest first, as displayed by the Finances table.
+// Missing/zero denominators, incomparable currencies and fiscal gaps stay null.
+export function financialStatementViewValue(periods, index, row, statementKey, mode = 'amount') {
+    const period = periods?.[index];
+    const value = period?.[row?.key];
+    if (!isNum(value)) return null;
+    if (mode === 'amount') return value;
+
+    if (mode === 'change') {
+        const previous = periods[index + 1];
+        const previousValue = previous?.[row.key];
+        if (!isNum(previousValue) || previousValue === 0 || !consecutiveAnnualPeriods(period, previous)) return null;
+        const currentCurrency = statementMetricCurrency(period, row.key);
+        const previousCurrency = statementMetricCurrency(previous, row.key);
+        if ((currentCurrency || previousCurrency) && currentCurrency !== previousCurrency) return null;
+        return ((value - previousValue) / Math.abs(previousValue)) * 100;
+    }
+
+    if (mode === 'common') {
+        if (row.perShare) return null;
+        const denominatorKey = statementKey === 'balance' ? 'annualTotalAssets' : 'annualTotalRevenue';
+        const denominator = period[denominatorKey];
+        if (!isNum(denominator) || denominator === 0) return null;
+        const valueCurrency = statementMetricCurrency(period, row.key);
+        const denominatorCurrency = statementMetricCurrency(period, denominatorKey);
+        if ((valueCurrency || denominatorCurrency) && valueCurrency !== denominatorCurrency) return null;
+        return (value / Math.abs(denominator)) * 100;
+    }
+
+    return null;
+}
+
+function marketDateParts(timestamp, timeZone) {
+    if (!isNum(timestamp) || timestamp <= 0) return null;
+    try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            year: 'numeric', month: '2-digit', day: '2-digit', timeZone: timeZone || 'UTC',
+        }).formatToParts(new Date(timestamp * 1000));
+        const value = type => parts.find(part => part.type === type)?.value;
+        const year = Number(value('year'));
+        const month = value('month');
+        const day = value('day');
+        return Number.isFinite(year) && month && day ? { year, iso: `${year}-${month}-${day}` } : null;
+    } catch {
+        return marketDateParts(timestamp, 'UTC');
+    }
+}
+
+// Aggregates provider dividend events by civil year in the exchange timezone.
+// Absence is interpreted only inside calendar years fully covered by the
+// provider response; an incomplete current/start year never becomes a claimed
+// suspension.
+export function dividendEventSummary(events, coverage = {}) {
+    const timeZone = coverage.exchangeTimezoneName || 'UTC';
+    const clean = (events || [])
+        .map(event => ({ timestamp: Number(event?.timestamp), amount: Number(event?.amount) }))
+        .filter(event => isNum(event.timestamp) && event.timestamp > 0 && isNum(event.amount) && event.amount >= 0)
+        .sort((a, b) => a.timestamp - b.timestamp);
+    const start = marketDateParts(Number(coverage.startTimestamp), timeZone);
+    const end = marketDateParts(Number(coverage.endTimestamp), timeZone);
+    if (!clean.length) {
+        return { annual: [], latestComplete: null, lastChange: null, continuityYears: null,
+            missingCompleteYears: [], lastEvent: null, eventCount: 0, coverageKnown: !!(start && end), timeZone };
+    }
+
+    const grouped = new Map();
+    clean.forEach(event => {
+        const date = marketDateParts(event.timestamp, timeZone);
+        if (!date) return;
+        const row = grouped.get(date.year) || { year: date.year, total: 0, count: 0, events: [] };
+        row.total += event.amount;
+        row.count += 1;
+        row.events.push(event);
+        grouped.set(date.year, row);
+    });
+    const firstYear = Math.min(...grouped.keys());
+    const lastYear = end?.year ?? Math.max(...grouped.keys());
+    const annual = [];
+    for (let year = firstYear; year <= lastYear; year++) {
+        const row = grouped.get(year) || { year, total: 0, count: 0, events: [] };
+        const complete = !!(start && end && start.iso <= `${year}-01-01` && end.iso >= `${year}-12-31`);
+        annual.push({ ...row, complete });
+    }
+
+    const completed = annual.filter(row => row.complete);
+    const latestComplete = completed.at(-1) || null;
+    const previousComplete = completed.length >= 2 ? completed.at(-2) : null;
+    let lastChange = null;
+    if (latestComplete && previousComplete && latestComplete.year === previousComplete.year + 1) {
+        if (previousComplete.total > 0) {
+            const percent = ((latestComplete.total - previousComplete.total) / previousComplete.total) * 100;
+            lastChange = {
+                fromYear: previousComplete.year, toYear: latestComplete.year, percent,
+                direction: percent > 0.05 ? 'increase' : percent < -0.05 ? 'decrease' : 'stable',
+            };
+        } else if (latestComplete.total > 0) {
+            lastChange = { fromYear: previousComplete.year, toYear: latestComplete.year, percent: null, direction: 'resumed' };
+        }
+    }
+    let continuityYears = completed.length ? 0 : null;
+    for (let index = completed.length - 1; index >= 0 && completed[index].count > 0; index--) continuityYears += 1;
+    const missingCompleteYears = completed.filter(row => row.count === 0).map(row => row.year);
+
+    return {
+        annual, latestComplete, lastChange, continuityYears, missingCompleteYears,
+        lastEvent: clean.at(-1) || null, eventCount: clean.length,
+        coverageKnown: !!(start && end), timeZone,
+    };
+}
+
 // Year-end multiples from real statements and the real closing price.
 // priceAt(t) → price in priceIso major units; fxAt(t) → finIso→priceIso rate.
 export function historicalMultiples(rows, priceAt, fxAt) {

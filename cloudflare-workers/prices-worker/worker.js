@@ -559,7 +559,20 @@ export default {
             }))
             .filter(event => Number.isFinite(event.timestamp) && event.timestamp > 0 && Number.isFinite(event.amount))
             .sort((a, b) => a.timestamp - b.timestamp);
-          return jsonResponse({ symbol, currency: result?.meta?.currency || null, events }, 200, origin, { attempts, finalStatus });
+          const chartTimestamps = (result?.timestamp || []).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+          const marketTime = Number(result?.meta?.regularMarketTime);
+          return jsonResponse({
+            symbol,
+            currency: result?.meta?.currency || null,
+            eventDateType: 'ex-dividend',
+            coverage: {
+              range: '10y',
+              startTimestamp: chartTimestamps[0] ?? null,
+              endTimestamp: Number.isFinite(marketTime) ? marketTime : (chartTimestamps.at(-1) ?? null),
+              exchangeTimezoneName: result?.meta?.exchangeTimezoneName || 'UTC',
+            },
+            events,
+          }, 200, origin, { attempts, finalStatus });
         } catch (err) {
           try { console.error(`[PricesProxy][DIVIDENDS] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
           return jsonResponse({ error: 'Upstream provider error' }, 502, origin, { attempts: err.attempts, finalStatus: err.finalStatus });

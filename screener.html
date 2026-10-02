@@ -433,10 +433,27 @@
                                 <div class="kpi-big-value" id="div-kpi-cagr">—</div>
                             </div>
                         </div>
+                        <div class="dividend-event-kpi-grid" aria-label="Synthèse des événements de dividende">
+                            <div class="quant-card dividend-kpi-card">
+                                <div class="quant-card-header"><span class="quant-card-title">Dernière année complète</span></div>
+                                <div class="kpi-big-value" id="div-kpi-event-total">—</div>
+                                <div class="kpi-secondary-value" id="div-kpi-event-total-note">Événements Yahoo</div>
+                            </div>
+                            <div class="quant-card dividend-kpi-card">
+                                <div class="quant-card-header"><span class="quant-card-title">Évolution annuelle</span></div>
+                                <div class="kpi-big-value" id="div-kpi-last-change">—</div>
+                                <div class="kpi-secondary-value" id="div-kpi-last-change-note">Années civiles complètes</div>
+                            </div>
+                            <div class="quant-card dividend-kpi-card">
+                                <div class="quant-card-header"><span class="quant-card-title">Continuité observée</span></div>
+                                <div class="kpi-big-value" id="div-kpi-continuity">—</div>
+                                <div class="kpi-secondary-value" id="div-kpi-continuity-note">Couverture à confirmer</div>
+                            </div>
+                        </div>
                         <div class="quant-dashboard-grid">
                             <div class="quant-card">
                                 <div class="quant-card-header">
-                                    <span class="quant-card-title">Historique des versements</span>
+                                    <span class="quant-card-title">Dividendes par année civile</span>
                                 </div>
                                 <div class="quant-chart-container">
                                     <div id="dividend-payments-state" class="chart-inline-state" aria-live="polite" hidden>
@@ -445,6 +462,7 @@
                                     </div>
                                     <canvas id="chart-dividend-payments"></canvas>
                                 </div>
+                                <p class="dividend-source-note">Somme des événements datés par Yahoo dans la devise indiquée, sans conversion ni distinction récurrent/exceptionnel.</p>
                             </div>
                             <div class="quant-card">
                                 <div class="quant-card-header">
@@ -464,6 +482,21 @@
                                 </div>
                             </div>
                         </div>
+                        <section class="dividend-events-panel" aria-labelledby="dividend-events-title">
+                            <div class="dividend-events-header">
+                                <div>
+                                    <h3 id="dividend-events-title">Derniers événements de dividende</h3>
+                                    <p>Dates de détachement indiquées par Yahoo pour l’ajustement du cours ; ce ne sont pas des dates de crédit sur le compte.</p>
+                                </div>
+                                <span id="dividend-events-coverage" class="dividend-events-coverage"></span>
+                            </div>
+                            <div class="fin-table-wrap">
+                                <table class="fin-table dividend-events-table" id="dividend-events-table">
+                                    <thead><tr><th scope="col">Date de détachement</th><th scope="col">Montant / action</th><th scope="col">Devise Yahoo</th></tr></thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </section>
                     </div>
                 </div>
 
@@ -471,10 +504,20 @@
                 <div id="tab-finances" class="screener-tab-content" role="tabpanel" aria-labelledby="screener-tab-finances" hidden>
                     <div id="finances-empty" class="valuation-skeleton" style="display:none;">Données financières indisponibles pour ce titre.</div>
                     <div id="finances-content">
-                        <div class="fin-statement-tabs">
-                            <button class="fin-statement-tab active" data-statement="income">Compte de résultat</button>
-                            <button class="fin-statement-tab" data-statement="balance">Bilan</button>
-                            <button class="fin-statement-tab" data-statement="cashflow">Flux de trésorerie</button>
+                        <div class="finances-toolbar">
+                            <div class="fin-statement-tabs" role="group" aria-label="État financier">
+                                <button type="button" class="fin-statement-tab active" data-statement="income" aria-pressed="true">Compte de résultat</button>
+                                <button type="button" class="fin-statement-tab" data-statement="balance" aria-pressed="false">Bilan</button>
+                                <button type="button" class="fin-statement-tab" data-statement="cashflow" aria-pressed="false">Flux de trésorerie</button>
+                            </div>
+                            <div class="finances-actions">
+                                <div class="fin-view-tabs" role="group" aria-label="Mode d’analyse">
+                                    <button type="button" class="fin-view-btn active" data-fin-view="amount" aria-pressed="true">Montants</button>
+                                    <button type="button" class="fin-view-btn" data-fin-view="change" aria-pressed="false">Variation annuelle</button>
+                                    <button type="button" class="fin-view-btn" data-fin-view="common" aria-pressed="false">Structure (%)</button>
+                                </div>
+                                <button type="button" id="finances-export-csv" class="fin-export-btn"><i class="fas fa-download" aria-hidden="true"></i> Exporter CSV</button>
+                            </div>
                         </div>
                         <p id="finances-meta" class="finances-meta"></p>
                         <div class="fin-table-wrap">

@@ -7,7 +7,8 @@ import logger from '../utils/logger.js';
 import {
     YEAR_MS, normalizeCurrency, fxSymbol, currencyContext, valueAt, commonSessions, dailyCloseAt, monthlyCloses, normalizePair,
     cagr, annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
-    hasFundamentalProfile, hasFinancialStatements, fiscalPeriodLabel, historicalShareBasis,
+    hasFundamentalProfile, hasFinancialStatements, fiscalPeriodLabel, financialStatementViewValue,
+    dividendEventSummary, historicalShareBasis,
     quantProfile, quantScore, fairPriceModel, simpleDcf,
 } from './screenerMetrics.js';
 
@@ -303,6 +304,7 @@ class ScreenerApp {
         this._dividendChartSymbol = null;
         this._valuationChartSymbol = null;
         this._modalReturnFocus = null;
+        this.currentFinanceView = 'amount';
     }
 
     async init() {
@@ -980,7 +982,12 @@ class ScreenerApp {
     async fetchDividendEvents(symbol) {
         const url = `${PROXY}?symbol=${encodeURIComponent(symbol)}&type=DIVIDENDS`;
         const data = await this.safeFetchJson(url);
-        return Array.isArray(data?.events) ? data.events : [];
+        return {
+            events: Array.isArray(data?.events) ? data.events : [],
+            currency: data?.currency || null,
+            eventDateType: data?.eventDateType || null,
+            coverage: data?.coverage || null,
+        };
     }
 
     async fetchPriceHistory(symbol, period, { daily = false } = {}) {
@@ -3692,7 +3699,7 @@ class ScreenerApp {
     setQuantCurrencyNote(currency) {
         const note = document.getElementById('quant-currency-note');
         const currencyText = this.currentData.currency.finCurrencyMixed
-            ? `Devises de publication variables (${this.currentData.currency.finCurrencies.join(', ')}) : vérifier la devise de chaque exercice dans Finances.`
+            ? `Devises de publication variables (${(this.currentData.currency.finCurrencies || []).join(', ')}) : vérifier la devise de chaque exercice dans Finances.`
             : (currency ? `Montants publiés en ${currency}, par exercice fiscal (source : Yahoo Finance).` : '');
         if (note) note.textContent = currencyText
             + (this.currentData.shareBasis === null ? ' Base par titre coté non confirmée : les historiques par action cotée sont indisponibles.' : '');
@@ -3822,6 +3829,14 @@ class ScreenerApp {
         document.querySelectorAll('.fin-statement-tab').forEach(btn => {
             btn.addEventListener('click', () => this.renderFinancesStatement(btn.dataset.statement));
         });
+        document.querySelectorAll('.fin-view-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (!['amount', 'change', 'common'].includes(btn.dataset.finView)) return;
+                this.currentFinanceView = btn.dataset.finView;
+                this.renderFinancesStatement(this.currentFinStatement || 'income');
+            });
+        });
+        document.getElementById('finances-export-csv')?.addEventListener('click', () => this.exportFinancesCsv());
     }
 
     async renderFinancesTab() {
@@ -3845,7 +3860,17 @@ class ScreenerApp {
         const def = FIN_STATEMENT_DEFS[statementKey];
         if (!def) return;
         this.currentFinStatement = statementKey;
-        document.querySelectorAll('.fin-statement-tab').forEach(b => b.classList.toggle('active', b.dataset.statement === statementKey));
+        document.querySelectorAll('.fin-statement-tab').forEach(b => {
+            const active = b.dataset.statement === statementKey;
+            b.classList.toggle('active', active);
+            b.setAttribute('aria-pressed', String(active));
+        });
+        const mode = this.currentFinanceView || 'amount';
+        document.querySelectorAll('.fin-view-btn').forEach(b => {
+            const active = b.dataset.finView === mode;
+            b.classList.toggle('active', active);
+            b.setAttribute('aria-pressed', String(active));
+        });
 
         const fundamentals = [...(this._finFundamentals || [])].sort((a, b) =>
             String(b.endDate || b.year).localeCompare(String(a.endDate || a.year)));
@@ -3869,29 +3894,88 @@ class ScreenerApp {
                 + `<span class="fin-period-meta">${escHtml([publishedCurrency, periodType].filter(Boolean).join(' · ') + warning)}</span></th>`;
         }).join('');
         tbody.innerHTML = def.rows.map(row => {
-            const cells = fundamentals.map(y => {
-                const val = y[row.key];
+            const cells = fundamentals.map((y, index) => {
+                const val = financialStatementViewValue(fundamentals, index, row, statementKey, mode);
                 if (!isNum(val)) return '<td>—</td>';
-                const formatted = row.decimals ? this.fmt(val, 2) : this.fmtBig(val);
+                const formatted = mode === 'amount'
+                    ? (row.decimals ? this.fmt(val, 2) : this.fmtBig(val))
+                    : `${mode === 'change' && val > 0 ? '+' : ''}${this.fmt(val, 1)}%`;
                 const classes = [val < 0 ? 'fin-negative' : '', y.metricConflicts?.includes(row.key) ? 'fin-conflict' : '']
                     .filter(Boolean).join(' ');
                 const metricCurrency = normalizeCurrency(y.currencyByMetric?.[row.key] || y.currency || currency).iso;
-                const currencySuffix = metricCurrency && metricCurrency !== periodCurrency(y)
+                const currencySuffix = mode === 'amount' && metricCurrency && metricCurrency !== periodCurrency(y)
                     ? ` <small>${escHtml(metricCurrency)}</small>` : '';
                 const title = y.metricConflicts?.includes(row.key)
                     ? ' title="Valeurs contradictoires reçues pour cette métrique ; première valeur conservée"' : '';
                 return `<td${classes ? ` class="${classes}"` : ''}${title}>${formatted}${currencySuffix}</td>`;
             }).join('');
-            const unit = row.perShare ? 'par action ordinaire publiée' : 'montant total';
+            const commonReference = statementKey === 'balance' ? 'en % du total actif' : 'en % du chiffre d’affaires';
+            const unit = mode === 'change' ? 'variation vs exercice précédent'
+                : mode === 'common' ? (row.perShare ? 'non comparable à un total' : commonReference)
+                    : row.perShare ? 'par action ordinaire publiée' : 'montant total';
             return `<tr><th scope="row"><span>${escHtml(row.label)}</span><small>${unit}</small></th>${cells}</tr>`;
         }).join('');
 
         const meta = document.getElementById('finances-meta');
         if (meta) {
             const currencyWarning = this.currentData.currency.finCurrencyMixed
-                ? ` Les devises varient selon les exercices (${this.currentData.currency.finCurrencies.join(', ')}) : les montants ne sont pas directement comparables.` : '';
-            meta.textContent = `Montants totaux publiés, sauf les lignes BPA exprimées par action ordinaire. Pour un ADR, aucun ratio vers le titre coté n’est supposé.${currencyWarning}`;
+                ? ` Les devises varient selon les exercices (${(this.currentData.currency.finCurrencies || []).join(', ')}) : les montants ne sont pas directement comparables.` : '';
+            const descriptions = {
+                amount: 'Montants totaux publiés, sauf les lignes BPA exprimées par action ordinaire. Pour un ADR, aucun ratio vers le titre coté n’est supposé.',
+                change: 'Variation par rapport à l’exercice annuel précédent. Une période manquante, un changement de devise ou une base nulle produit « — » ; aucun trou n’est interpolé.',
+                common: statementKey === 'balance'
+                    ? 'Analyse de structure : chaque montant est rapporté au total actif du même exercice. Les bases nulles ou de devise incompatible restent indisponibles.'
+                    : 'Analyse de structure : chaque montant est rapporté au chiffre d’affaires du même exercice. Les BPA par action et les bases nulles ou incompatibles restent indisponibles.',
+            };
+            meta.textContent = `${descriptions[mode]}${mode === 'amount' ? currencyWarning : ''}`;
         }
+    }
+
+    buildFinancesCsv() {
+        const fundamentals = [...(this._finFundamentals || [])].sort((a, b) =>
+            String(b.endDate || b.year).localeCompare(String(a.endDate || a.year)));
+        if (!fundamentals.length) return '';
+        const headers = ['source', 'symbole', 'état', 'ligne', 'métrique', 'exercice_clos', 'type_période', 'devise', 'unité', 'valeur_publiée', 'statut_source'];
+        const rows = [];
+        Object.entries(FIN_STATEMENT_DEFS).forEach(([statementKey, statement]) => {
+            statement.rows.forEach(row => {
+                fundamentals.forEach(period => {
+                    const currency = normalizeCurrency(period.currencyByMetric?.[row.key] || period.currency || this._finCurrency).iso || '';
+                    const conflict = period.metricConflicts?.includes(row.key);
+                    rows.push([
+                        'Yahoo Finance — fundamentals-timeseries', this.currentSymbol || '', statement.label,
+                        row.label, row.key, period.endDate || period.year || '', period.periodType || '12M', currency,
+                        row.perShare ? `par action ordinaire publiée${currency ? ` (${currency})` : ''}` : `montant total${currency ? ` (${currency})` : ''}`,
+                        isNum(period[row.key]) ? period[row.key] : '', conflict ? 'contradiction source — première valeur conservée' : 'publié',
+                    ]);
+                });
+            });
+        });
+        const cell = value => {
+            const numeric = typeof value === 'number';
+            let text = value == null ? '' : String(value);
+            if (!numeric && /^[=+\-@]/.test(text)) text = `'${text}`;
+            return `"${text.replace(/"/g, '""')}"`;
+        };
+        return [headers, ...rows].map(row => row.map(cell).join(';')).join('\r\n');
+    }
+
+    exportFinancesCsv() {
+        const csv = this.buildFinancesCsv();
+        if (!csv) {
+            this.showTempMessage('Aucune donnée financière à exporter.');
+            return false;
+        }
+        const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const safeSymbol = String(this.currentSymbol || 'actif').replace(/[^A-Za-z0-9._-]/g, '_');
+        link.href = url;
+        link.download = `screener_${safeSymbol}_comptes_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+        this.showTempMessage('États financiers exportés en CSV.');
+        return true;
     }
 
     // ─── Chart helpers ────────────────────────────────────────────────────────

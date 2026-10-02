@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-    YEAR_MS, normalizeCurrency, currencyContext, valueAt, alignSeriesByTime, commonSessions, dailyCloseAt, normalizePair,
+    YEAR_MS, normalizeCurrency, currencyContext, valueAt, alignSeriesByTime, commonSessions, dailyCloseAt, normalizePair, cagr,
     annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
-    hasFundamentalProfile, hasFinancialStatements, fiscalPeriodLabel, historicalShareBasis,
+    hasFundamentalProfile, hasFinancialStatements, fiscalPeriodLabel, financialStatementViewValue, historicalShareBasis,
     quantProfile, radarDimensions, quantScore, fairPriceModel, simpleDcf,
 } from '../src/screenerMetrics.js';
 
@@ -146,6 +146,34 @@ describe('fundamentals', () => {
         });
         expect(fiscalPeriodLabel(row)).toBe('Exercice clos le 30 septembre 2025');
     });
+
+    it('computes annual changes only across consecutive comparable fiscal periods', () => {
+        const row = { key: 'annualNetIncome' };
+        const periods = [
+            { year: '2025', endDate: '2025-12-31', periodType: '12M', currency: 'USD', annualNetIncome: 120 },
+            { year: '2024', endDate: '2024-12-31', periodType: '12M', currency: 'USD', annualNetIncome: 100 },
+        ];
+        expect(financialStatementViewValue(periods, 0, row, 'income', 'change')).toBeCloseTo(20, 9);
+        expect(financialStatementViewValue(periods, 1, row, 'income', 'change')).toBeNull();
+        expect(financialStatementViewValue([periods[0], { ...periods[1], currency: 'EUR' }], 0, row, 'income', 'change')).toBeNull();
+        expect(financialStatementViewValue([periods[0], { ...periods[1], currency: null }], 0, row, 'income', 'change')).toBeNull();
+        expect(financialStatementViewValue([periods[0], { ...periods[1], endDate: '2023-12-31' }], 0, row, 'income', 'change')).toBeNull();
+    });
+
+    it('uses revenue or total assets as valid common-size denominators', () => {
+        const period = {
+            year: '2025', currency: 'USD', annualTotalRevenue: 1000, annualNetIncome: 150,
+            annualTotalAssets: 2000, annualTotalDebt: 500, annualDilutedEPS: 4,
+        };
+        expect(financialStatementViewValue([period], 0, { key: 'annualNetIncome' }, 'income', 'common')).toBe(15);
+        expect(financialStatementViewValue([period], 0, { key: 'annualTotalDebt' }, 'balance', 'common')).toBe(25);
+        expect(financialStatementViewValue([period], 0, { key: 'annualDilutedEPS', perShare: true }, 'income', 'common')).toBeNull();
+        expect(financialStatementViewValue([{ ...period, annualTotalRevenue: 0 }], 0, { key: 'annualNetIncome' }, 'income', 'common')).toBeNull();
+        expect(financialStatementViewValue([{
+            ...period, currency: null,
+            currencyByMetric: { annualNetIncome: 'USD', annualTotalRevenue: 'EUR' },
+        }], 0, { key: 'annualNetIncome' }, 'income', 'common')).toBeNull();
+    });
 });
 
 describe('quantitative profile', () => {
@@ -267,7 +295,9 @@ describe('P1 historical data regressions', () => {
         expect(annualSeriesStats([100, null, 121]).cagr).toBeCloseTo(10, 9);
         expect(annualSeriesStats([100, 121], ['2023', '2025']).cagr).toBeCloseTo(10, 9);
         expect(annualSeriesStats([null, 100, null, 121], ['2022', '2023', '2024', '2025']).cagr).toBeCloseTo(10, 9);
-        expect(annualSeriesStats([100, 121], ['2023-09-30', '2025-09-30']).cagr).toBeCloseTo(10, 2);
+        const exactYears = (day('2025-09-30') - day('2023-09-30')) / YEAR_MS;
+        expect(annualSeriesStats([100, 121], ['2023-09-30', '2025-09-30']).cagr)
+            .toBeCloseTo(cagr(100, 121, exactYears), 9);
     });
 
     it('preserves published ordinary EPS instead of replacing the average with current shares', () => {

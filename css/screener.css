@@ -55,6 +55,8 @@
 .kpi-modal-close:focus-visible,
 .kpi-val-btn:focus-visible,
 .fin-statement-tab:focus-visible,
+.fin-view-btn:focus-visible,
+.fin-export-btn:focus-visible,
 .popular-asset-card:focus-visible,
 .screener-clear-btn:focus-visible,
 .custom-select-trigger:focus-visible {
@@ -2466,6 +2468,59 @@
     min-height: auto;
 }
 
+.dividend-event-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.dividend-source-note {
+    margin: 10px 0 0;
+    color: var(--text-muted, #94a3b8);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.dividend-events-panel {
+    margin-top: 20px;
+    padding: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 12px;
+    background: var(--card-bg, #1a1f2e);
+}
+
+.dividend-events-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.dividend-events-header h3 {
+    margin: 0 0 5px;
+    color: var(--text-primary, #f1f5f9);
+    font-size: 15px;
+}
+
+.dividend-events-header p,
+.dividend-events-coverage {
+    margin: 0;
+    color: var(--text-muted, #94a3b8);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.dividend-events-coverage {
+    flex: 0 0 auto;
+    text-align: right;
+}
+
+.dividend-events-table th:first-child {
+    min-width: 150px;
+}
+
 .kpi-big-value {
     font-size: 22px;
     font-weight: 800;
@@ -2473,25 +2528,51 @@
 }
 
 @media (max-width: 900px) {
-    .dividend-kpi-grid {
+    .dividend-kpi-grid,
+    .dividend-event-kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 370px) {
-    .dividend-kpi-grid {
+    .dividend-kpi-grid,
+    .dividend-event-kpi-grid {
         grid-template-columns: 1fr;
     }
 }
 
+@media (max-width: 600px) {
+    .dividend-events-panel {
+        padding: 14px;
+    }
+
+    .dividend-events-header {
+        flex-direction: column;
+    }
+
+    .dividend-events-coverage {
+        text-align: left;
+    }
+}
+
 /* ─── Finances tab ─────────────────────────────────────────── */
+.finances-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 20px 0 12px;
+}
+
 .fin-statement-tabs {
     display: flex;
     gap: 8px;
-    margin: 20px 0 16px;
+    min-width: 0;
 }
 
-.fin-statement-tab {
+.fin-statement-tab,
+.fin-view-btn,
+.fin-export-btn {
     background: var(--card-bg, #1a1f2e);
     border: 1px solid rgba(255, 255, 255, 0.07);
     color: var(--text-muted, #94a3b8);
@@ -2501,16 +2582,38 @@
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s;
+    white-space: nowrap;
 }
 
-.fin-statement-tab:hover {
+.fin-statement-tab:hover,
+.fin-view-btn:hover,
+.fin-export-btn:hover {
     color: var(--text-primary, #f1f5f9);
+    border-color: rgba(129, 140, 248, 0.45);
 }
 
-.fin-statement-tab.active {
+.fin-statement-tab.active,
+.fin-view-btn.active {
     background: rgba(99, 102, 241, 0.15);
     border-color: rgba(99, 102, 241, 0.4);
     color: #818cf8;
+}
+
+.finances-actions,
+.fin-view-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.fin-view-btn {
+    padding-inline: 11px;
+}
+
+.fin-export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
 }
 
 .fin-table-wrap {
@@ -2571,6 +2674,14 @@
 .fin-table thead th {
     color: var(--text-primary, #f1f5f9);
     font-weight: 700;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--card-bg, #1a1f2e);
+}
+
+.fin-table thead th:first-child {
+    z-index: 3;
 }
 
 .fin-table tbody tr:hover {
@@ -2584,6 +2695,25 @@
 .fin-table td.fin-conflict {
     text-decoration: underline dotted #f59e0b;
     text-underline-offset: 3px;
+}
+
+@media (max-width: 1050px) {
+    .finances-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .fin-statement-tabs,
+    .finances-actions {
+        overflow-x: auto;
+        padding-bottom: 3px;
+    }
+
+    .fin-statement-tab,
+    .fin-view-btn,
+    .fin-export-btn {
+        flex: 0 0 auto;
+    }
 }
 
 /* GRILLE VALORISATION */
