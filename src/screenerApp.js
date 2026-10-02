@@ -285,7 +285,13 @@ class ScreenerApp {
         this._fxCache = new Map();
         this._loadToken = 0;
         this._modalToken = 0;
+        this._periodRequestToken = 0;
+        this._modalPeriodRequestToken = 0;
         this._searchToken = 0;
+        this._chartCurrencyToken = 0;
+        this.requestTimeoutMs = 15000;
+        this.chartCurrency = 'NATIVE';
+        this._chartCurrencyRates = null;
         this.quantCharts = [];
         this.dividendCharts = [];
         this.valGridCharts = [];
@@ -295,6 +301,7 @@ class ScreenerApp {
         this.setupSearch();
         this.renderPopularAssets();
         this.setupTabs();
+        this.setupChartCurrencyToggle();
         this.setupWatchlistButton();
         // Bound once: render() runs on every search and used to stack a new
         // listener per load, so one click triggered N modal loads.
@@ -504,22 +511,50 @@ class ScreenerApp {
     async loadStock(symbol) {
         // A slower response for a previous symbol must never overwrite the current one.
         const token = ++this._loadToken;
+        ++this._periodRequestToken;
+        const openModal = document.getElementById('kpi-modal');
+        if (openModal?.style.display === 'flex') this.closeKpiModal();
         this.currentSymbol = symbol;
         this.showState('loading');
 
         try {
-            const [quoteSummary, priceHistory, sp500History, fundamentals] = await Promise.all([
+            // Start optional requests immediately, but only the quote and its price
+            // history block the first paint.
+            const benchmarkPromise = this.fetchPriceHistory(SP500_SYMBOL, this.currentPeriod).catch(() => null);
+            const fundamentalsPromise = this.fetchFundamentals(symbol);
+            const [quoteSummary, priceHistory] = await Promise.all([
                 this.fetchQuoteSummary(symbol),
-                // The page stays usable without the chart: render() skips an empty series.
                 this.fetchPriceHistory(symbol, this.currentPeriod).catch(() => null),
-                this.fetchPriceHistory(SP500_SYMBOL, this.currentPeriod).catch(() => null),
-                this.fetchFundamentals(symbol),
             ]);
             if (token !== this._loadToken) return;
 
             if (!quoteSummary || quoteSummary.error) {
                 throw new Error(`Aucune donnée trouvée pour "${symbol}"`);
             }
+
+            const preliminaryCurrency = currencyContext(quoteSummary, []);
+            this.currentData = {
+                quoteSummary, priceHistory, sp500History: null, fundamentals: [],
+                currency: preliminaryCurrency, hasFundamentals: false, rows: [],
+                finFx: null, eurFx: null, eurFxPending: preliminaryCurrency.priceIso !== 'EUR',
+                pru: null, shareBasis: historicalShareBasis(quoteSummary, preliminaryCurrency),
+                priceHistoryLong: null,
+            };
+            this._chartCurrencyRates = null;
+            this.render();
+            this.showState('panel');
+
+            const url = new URL(window.location);
+            url.searchParams.set('ticker', symbol);
+            window.history.replaceState({}, '', url);
+
+            const [sp500History, fundamentals, eurFx, pru] = await Promise.all([
+                benchmarkPromise,
+                fundamentalsPromise,
+                this.fetchFxSeries(preliminaryCurrency.quote, 'EUR', '1mo'),
+                this.computePru(symbol, preliminaryCurrency).catch(() => null),
+            ]);
+            if (token !== this._loadToken) return;
 
             const currency = currencyContext(quoteSummary, fundamentals);
             const hasFundamentals = hasFundamentalProfile(quoteSummary);
@@ -529,25 +564,25 @@ class ScreenerApp {
                 : [];
             // Statements in another currency (ADR, dual listing) are converted with
             // the real FX series; without it the cross ratios are not shown at all.
-            const [finFx, eurFx, pru] = await Promise.all([
-                hasFundamentals ? this.fetchFxSeries(currency.finIso, currency.priceIso, '10y') : null,
-                this.fetchFxSeries(currency.quote, 'EUR', '1mo'),
-                this.computePru(symbol, currency),
-            ]);
+            const finFx = hasFundamentals
+                ? await this.fetchFxSeries(currency.finIso, currency.priceIso, '10y') : null;
             if (token !== this._loadToken) return;
 
             this.currentData = {
                 quoteSummary, priceHistory, sp500History, fundamentals,
-                currency, hasFundamentals, rows, finFx, eurFx, pru, shareBasis,
+                currency, hasFundamentals, rows, finFx, eurFx, eurFxPending: false, pru, shareBasis,
                 priceHistoryLong: null,
             };
-            this.render();
-            this.showState('panel');
-
-            // Update URL without reload
-            const url = new URL(window.location);
-            url.searchParams.set('ticker', symbol);
-            window.history.replaceState({}, '', url);
+            if (this.chartCurrency === 'EUR') {
+                const converted = await this.prepareMainChartCurrency();
+                if (token !== this._loadToken) return;
+                if (!converted) this.chartCurrency = 'NATIVE';
+            } else {
+                this._chartCurrencyRates = null;
+            }
+            this.render({ resetTab: false });
+            const activeTab = document.querySelector('.screener-tab.active')?.dataset.tab;
+            if (activeTab && activeTab !== 'resume') await this.renderTabContent(activeTab);
 
         } catch (err) {
             if (token !== this._loadToken) return;
@@ -660,21 +695,86 @@ class ScreenerApp {
                 const target = document.getElementById(`tab-${name}`);
                 if (target) {
                     target.classList.add('active');
-                    if (name === 'valorisation') {
-                        await this.renderValuationTab();
-                    } else if (name === 'quantitatif') {
-                        await this.renderQuantitativeTab();
-                    } else if (name === 'dividende') {
-                        await this.renderDividendeTab();
-                    } else if (name === 'finances') {
-                        await this.renderFinancesTab();
-                    }
+                    await this.renderTabContent(name);
                 }
             });
         });
         // Initial setup for tab-specific listeners
         this.setupValuationTabListeners();
         this.setupFinanceTabButtons();
+    }
+
+    async renderTabContent(name) {
+        if (name === 'valorisation') await this.renderValuationTab();
+        else if (name === 'quantitatif') await this.renderQuantitativeTab();
+        else if (name === 'dividende') await this.renderDividendeTab();
+        else if (name === 'finances') await this.renderFinancesTab();
+    }
+
+    setupChartCurrencyToggle() {
+        document.querySelectorAll('.chart-currency-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const target = btn.dataset.currency;
+                if (!this.currentData || target === this.chartCurrency) return;
+                const token = ++this._chartCurrencyToken;
+                btn.setAttribute('aria-busy', 'true');
+                let ready = true;
+                if (target === 'EUR') ready = await this.prepareMainChartCurrency();
+                if (token !== this._chartCurrencyToken) return;
+                btn.removeAttribute('aria-busy');
+                if (!ready) {
+                    this.showTempMessage('Conversion historique EUR indisponible. Les graphiques restent dans la devise de cotation.', 3500);
+                    this.syncChartCurrencyToggle();
+                    return;
+                }
+                this.chartCurrency = target;
+                if (target === 'NATIVE') this._chartCurrencyRates = null;
+                this.syncChartCurrencyToggle();
+                this.renderMainPriceCharts();
+            });
+        });
+        this.syncChartCurrencyToggle();
+    }
+
+    syncChartCurrencyToggle() {
+        document.querySelectorAll('.chart-currency-btn').forEach(btn => {
+            const selected = btn.dataset.currency === this.chartCurrency;
+            btn.classList.toggle('active', selected);
+            btn.setAttribute('aria-pressed', String(selected));
+        });
+    }
+
+    async prepareMainChartCurrency() {
+        const stock = this.currentData?.priceHistory || [];
+        const benchmark = this.currentData?.sp500History || [];
+        const [stockRates, benchmarkRates] = await Promise.all([
+            this.getConversionArray('EUR', stock, this.currentData?.currency?.quote),
+            benchmark.length ? this.getConversionArray('EUR', benchmark, 'USD') : [],
+        ]);
+        if (!stockRates) return false;
+        this._chartCurrencyRates = {
+            stock: { data: stock, rates: stockRates },
+            benchmark: { data: benchmark, rates: benchmarkRates },
+        };
+        return true;
+    }
+
+    chartSeries(data, kind = 'stock') {
+        if (this.chartCurrency !== 'EUR') return data;
+        const conversion = this._chartCurrencyRates?.[kind];
+        if (!conversion || conversion.data !== data || !conversion.rates) return null;
+        return data.map((point, index) => ({ ...point, c: point.c * conversion.rates[index] }));
+    }
+
+    renderMainPriceCharts() {
+        this.renderPriceChart();
+        this.renderRegressionChart();
+        this.renderSP500Chart();
+    }
+
+    retryMainPeriod(period = this.currentPeriod) {
+        const btn = document.querySelector(`.period-btn[data-period="${period}"]`);
+        return this.changeMainPeriod(period, btn, { force: true });
     }
 
     setupWatchlistButton() {
@@ -748,6 +848,36 @@ class ScreenerApp {
         el.style.opacity = '1';
         clearTimeout(el._timeout);
         el._timeout = setTimeout(() => { el.style.opacity = '0'; }, ms);
+    }
+
+    showRetryMessage(msg, retry) {
+        this.showTempMessage(msg, 8000);
+        const el = document.getElementById('screener-temp-msg');
+        if (!el || typeof retry !== 'function') return;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Réessayer';
+        button.className = 'screener-retry-btn';
+        button.addEventListener('click', () => {
+            clearTimeout(el._timeout);
+            el.style.opacity = '0';
+            retry();
+        }, { once: true });
+        el.append(' ', button);
+    }
+
+    setInlineState(id, kind = null, message = '', retry = null) {
+        const state = document.getElementById(id);
+        if (!state) return;
+        state.hidden = !kind;
+        state.className = `chart-inline-state${kind ? ` is-${kind}` : ''}`;
+        const label = state.querySelector('.chart-inline-state-label');
+        if (label) label.textContent = message;
+        const button = state.querySelector('.chart-inline-retry');
+        if (button) {
+            button.hidden = typeof retry !== 'function';
+            button.onclick = typeof retry === 'function' ? retry : null;
+        }
     }
 
     async fetchQuoteSummary(symbol) {
@@ -825,8 +955,15 @@ class ScreenerApp {
     // answers intermittent 502/503 through the Worker: one delayed retry absorbs
     // them before the page gives up.
     async safeFetchJson(url, opts = {}, attempt = 0) {
+        const controller = new AbortController();
+        const externalSignal = opts.signal;
+        const forwardAbort = () => controller.abort(externalSignal?.reason);
+        if (externalSignal?.aborted) forwardAbort();
+        else externalSignal?.addEventListener('abort', forwardAbort, { once: true });
+        const timeoutMs = this.requestTimeoutMs;
+        const timeoutId = setTimeout(() => controller.abort(new Error('Screener request timeout')), timeoutMs);
         try {
-            const res = await fetch(url, opts);
+            const res = await fetch(url, { ...opts, signal: controller.signal });
             const text = await res.text();
             if (!res.ok) {
                 if ([502, 503, 504].includes(res.status) && attempt < 1) {
@@ -851,22 +988,32 @@ class ScreenerApp {
             }
         } catch (err) {
             logger.error('[Fetch] Error fetching', url, err);
+            if (controller.signal.aborted && !externalSignal?.aborted) {
+                const timeoutError = new Error(`La requête a dépassé ${Math.round(timeoutMs / 1000)} secondes. Réessayez dans quelques instants.`);
+                timeoutError.name = 'TimeoutError';
+                throw timeoutError;
+            }
             throw err;
+        } finally {
+            clearTimeout(timeoutId);
+            externalSignal?.removeEventListener('abort', forwardAbort);
         }
     }
 
     // ─── Render ───────────────────────────────────────────────────────────────
-    render() {
-        // Problem 1: Reset active tab to Resume on new search
-        const tabs = document.querySelectorAll('.screener-tab');
-        const contents = document.querySelectorAll('.screener-tab-content');
-        tabs.forEach(t => t.classList.remove('active'));
-        contents.forEach(c => c.classList.remove('active'));
+    render({ resetTab = true } = {}) {
+        if (resetTab) {
+            const tabs = document.querySelectorAll('.screener-tab');
+            const contents = document.querySelectorAll('.screener-tab-content');
+            tabs.forEach(t => t.classList.remove('active'));
+            contents.forEach(c => c.classList.remove('active'));
 
-        const resumeTab = Array.from(tabs).find(t => t.dataset.tab === 'resume');
-        const resumeContent = document.getElementById('tab-resume');
-        if (resumeTab) resumeTab.classList.add('active');
-        if (resumeContent) resumeContent.classList.add('active');
+            const resumeTab = Array.from(tabs).find(t => t.dataset.tab === 'resume');
+            const resumeContent = document.getElementById('tab-resume');
+            if (resumeTab) resumeTab.classList.add('active');
+            if (resumeContent) resumeContent.classList.add('active');
+        }
+        this.syncChartCurrencyToggle();
 
         const { quoteSummary } = this.currentData;
         const profile = quoteSummary.assetProfile || {};
@@ -982,6 +1129,12 @@ class ScreenerApp {
 
         valueEl.hidden = false;
         const fx = this.currentData?.eurFx;
+        if (this.currentData?.eurFxPending) {
+            valueEl.textContent = 'Conversion EUR en cours…';
+            metaEl.hidden = true;
+            metaEl.textContent = '';
+            return;
+        }
         if (!normalized.iso || !isNum(fx?.latest) || fx.latest <= 0) {
             valueEl.textContent = 'Conversion EUR indisponible';
             valueEl.classList.add('is-unavailable');
@@ -1003,6 +1156,22 @@ class ScreenerApp {
         metaEl.hidden = false;
         metaEl.textContent = `1 ${fromIso} = ${rateText} EUR${dateText ? ` · change du ${dateText}` : ''}${fx.stale ? ' · taux ancien' : ''}`;
         metaEl.classList.toggle('is-stale', !!fx.stale);
+    }
+
+    majorPriceInEur(value) {
+        if (!isNum(value)) return null;
+        const priceIso = this.currentData?.currency?.priceIso;
+        if (priceIso === 'EUR') return value;
+        const rate = this.currentData?.eurFx?.marketRate;
+        return isNum(rate) && rate > 0 ? value * rate : null;
+    }
+
+    eurSecondaryHtml(value, className = 'valuation-price-eur') {
+        if (this.currentData?.currency?.priceIso === 'EUR') return '';
+        const eur = this.majorPriceInEur(value);
+        return isNum(eur)
+            ? `<span class="${className}">≈ ${this.fmt(eur, this.priceDecimals(eur))} €</span>`
+            : '';
     }
 
     // Favicon from the company website, initial letter otherwise. Yahoo strings
@@ -1069,14 +1238,17 @@ class ScreenerApp {
 
     // ─── Price Chart ──────────────────────────────────────────────────────────
     renderPriceChart() {
-        const data = this.currentData.priceHistory;
+        const rawData = this.currentData.priceHistory;
+        const data = this.chartSeries(rawData);
         const canvas = document.getElementById('price-chart');
         // Never leave the previous symbol's chart on screen
         if (this.priceChart) { this.priceChart.destroy(); this.priceChart = null; }
         if (!data || !data.length) {
             ['cs-perf', 'cs-cagr', 'cs-vol'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = '—'; el.className = 'cs-value'; } });
+            this.setInlineState('price-chart-state', 'error', 'Historique du cours indisponible.', () => this.retryMainPeriod());
             return;
         }
+        this.setInlineState('price-chart-state');
 
         const labels = data.map(d => new Date(d.t).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' }));
         const values = data.map(d => d.c);
@@ -1086,8 +1258,24 @@ class ScreenerApp {
         const color = isUp ? '#10b981' : '#ef4444';
 
         // PRU of the position still held, already converted to the quote currency
-        const avgPrice = this.currentData.pru?.value ?? null;
-        const currency = this.currentData.currency.quote || '';
+        const nativeAvgPrice = this.currentData.pru?.value ?? null;
+        const avgPrice = this.chartCurrency === 'EUR' && isNum(nativeAvgPrice)
+            ? nativeAvgPrice * (this.currentData.eurFx?.latest ?? NaN) : nativeAvgPrice;
+        const currency = this.chartCurrency === 'EUR' ? 'EUR' : (this.currentData.currency.quote || '');
+
+        const quotePrice = this.currentData.quoteSummary?.price || {};
+        const current = quotePrice.regularMarketPrice?.raw;
+        if (this.chartCurrency === 'EUR') {
+            const rate = this.currentData.eurFx?.latest;
+            document.getElementById('price-chart-label').textContent = isNum(current) && isNum(rate)
+                ? `${this.fmt(current * rate, this.priceDecimals(current * rate))} EUR · cours converti`
+                : `Cours (${currency})`;
+        } else {
+            const changePct = quotePrice.regularMarketChangePercent?.raw;
+            const pctText = isNum(changePct) ? `${changePct >= 0 ? '+' : ''}${(changePct * 100).toFixed(2)}%` : '—';
+            document.getElementById('price-chart-label').textContent = isNum(current)
+                ? `${this.fmt(current, 2)} ${currency}  ${pctText}` : '—';
+        }
 
         // Chart stats — an annualised rate over less than a year is not meaningful
         const perfPct = ((last - first) / first) * 100;
@@ -1133,13 +1321,17 @@ class ScreenerApp {
 
     // ─── Regression Chart ─────────────────────────────────────────────────────
     renderRegressionChart() {
-        const data = this.currentData.priceHistory;
+        const data = this.chartSeries(this.currentData.priceHistory);
         const canvas = document.getElementById('regression-chart');
         if (this.regressionChart) { this.regressionChart.destroy(); this.regressionChart = null; }
         if (!data || data.length < 4) {
             ['reg-current', 'reg-value', 'reg-slope'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = '—'; el.className = 'cs-value'; } });
+            this.setInlineState('regression-chart-state', data?.length ? 'empty' : 'error',
+                data?.length ? 'Historique insuffisant pour la tendance.' : 'Historique indisponible.',
+                data?.length ? null : () => this.retryMainPeriod());
             return;
         }
+        this.setInlineState('regression-chart-state');
 
         const values = data.map(d => d.c);
         const n = values.length;
@@ -1159,7 +1351,7 @@ class ScreenerApp {
         const lowerBand = regressionLine.map(v => v * Math.exp(-sigma));
 
         const labels = data.map(d => new Date(d.t).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' }));
-        const currency = this.currentData.quoteSummary?.price?.currency || '';
+        const currency = this.chartCurrency === 'EUR' ? 'EUR' : (this.currentData.quoteSummary?.price?.currency || '');
         const currentPrice = values[n - 1];
         const regCurrentPrice = regressionLine[n - 1];
 
@@ -1199,9 +1391,22 @@ class ScreenerApp {
             if (el) { el.textContent = '—'; el.className = 'cs-value'; }
         });
 
-        const stock = this.currentData.priceHistory || [];
-        const sp500 = this.currentData.sp500History || [];
-        if (!stock.length || !sp500.length) return;
+        const stock = this.chartSeries(this.currentData.priceHistory || [], 'stock') || [];
+        const sp500 = this.chartSeries(this.currentData.sp500History || [], 'benchmark') || [];
+        const note = document.getElementById('sp500-currency-note');
+        const comparisonFxMissing = this.chartCurrency === 'EUR'
+            && (this.currentData.sp500History || []).length > 0
+            && !this._chartCurrencyRates?.benchmark?.rates;
+        if (note) note.textContent = comparisonFxMissing
+            ? 'Comparaison EUR indisponible : taux historique du benchmark manquant.'
+            : `Base 100 · séances clôturées communes · hors dividendes · ${this.chartCurrency === 'EUR' ? 'séries converties en EUR aux taux historiques' : 'devises de cotation'}`;
+        if (!stock.length || !sp500.length) {
+            this.setInlineState('sp500-chart-state', 'error',
+                comparisonFxMissing ? 'Change historique du benchmark indisponible.' : 'Benchmark indisponible.',
+                () => this.retryMainPeriod());
+            return;
+        }
+        this.setInlineState('sp500-chart-state');
 
         // Same local session dates on both exchanges; skip holidays and open
         // sessions rather than pairing today's stock with yesterday's index.
@@ -1451,7 +1656,7 @@ class ScreenerApp {
             `<div class="valuation-row">
                 <span class="valuation-label">Prix actuel</span>
                 <div class="valuation-bar-wrap"><div class="valuation-bar-fill neutral" style="width:${(currentPrice / maxVal * 100).toFixed(1)}%"></div></div>
-                <span class="valuation-price">${this.fmt(currentPrice, 2)} ${currency}</span>
+                <span class="valuation-price-stack"><span class="valuation-price">${this.fmt(currentPrice, 2)} ${currency}</span>${this.eurSecondaryHtml(currentPrice)}</span>
             </div>`,
             ...items.map(item => {
                 const barPct = (item.value / maxVal * 100).toFixed(1);
@@ -1460,7 +1665,7 @@ class ScreenerApp {
                 return `<div class="valuation-row"${titleAttr}>
                     <span class="valuation-label">${item.label}</span>
                     <div class="valuation-bar-wrap"><div class="valuation-bar-fill ${cls}" style="width:${barPct}%"></div></div>
-                    <span class="valuation-price">${this.fmt(item.value, 2)} ${item.currency}</span>
+                    <span class="valuation-price-stack"><span class="valuation-price">${this.fmt(item.value, 2)} ${item.currency}</span>${this.eurSecondaryHtml(item.value)}</span>
                 </div>`;
             })
         ].join('');
@@ -1471,27 +1676,49 @@ class ScreenerApp {
     // ─── Period Buttons ───────────────────────────────────────────────────────
     setupPeriodButtons() {
         document.querySelectorAll('.period-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                if (!this.currentData || btn.dataset.period === this.currentPeriod) return;
-                document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                this.currentPeriod = btn.dataset.period;
-
-                const token = this._loadToken;
-                const period = this.currentPeriod;
-                const [priceHistory, sp500History] = await Promise.all([
-                    this.fetchPriceHistory(this.currentSymbol, period).catch(() => null),
-                    this.fetchPriceHistory(SP500_SYMBOL, period).catch(() => null),
-                ]);
-                // Ignore a response that arrives after another period or symbol was chosen.
-                if (token !== this._loadToken || period !== this.currentPeriod || !priceHistory) return;
-                this.currentData.priceHistory = priceHistory;
-                this.currentData.sp500History = sp500History;
-                this.renderPriceChart();
-                this.renderRegressionChart();
-                this.renderSP500Chart();
-            });
+            btn.addEventListener('click', () => this.changeMainPeriod(btn.dataset.period, btn));
         });
+    }
+
+    async changeMainPeriod(period, btn, { force = false } = {}) {
+        if (!this.currentData || (!force && period === this.currentPeriod)) return;
+        const loadToken = this._loadToken;
+        const requestToken = ++this._periodRequestToken;
+        btn?.setAttribute('aria-busy', 'true');
+        ['price-chart-state', 'regression-chart-state', 'sp500-chart-state']
+            .forEach(id => this.setInlineState(id, 'loading', 'Chargement de la période…'));
+        try {
+            const [priceHistory, sp500History] = await Promise.all([
+                this.fetchPriceHistory(this.currentSymbol, period).catch(() => null),
+                this.fetchPriceHistory(SP500_SYMBOL, period).catch(() => null),
+            ]);
+            if (loadToken !== this._loadToken || requestToken !== this._periodRequestToken) return;
+            if (!priceHistory?.length) {
+                const retry = () => this.changeMainPeriod(period, btn, { force: true });
+                ['price-chart-state', 'regression-chart-state', 'sp500-chart-state']
+                    .forEach(id => this.setInlineState(id, 'error', 'Période indisponible.', retry));
+                this.showRetryMessage('Historique indisponible : la période précédente est conservée.', retry);
+                return;
+            }
+
+            this.currentData.priceHistory = priceHistory;
+            this.currentData.sp500History = sp500History;
+            if (this.chartCurrency === 'EUR') {
+                const converted = await this.prepareMainChartCurrency();
+                if (loadToken !== this._loadToken || requestToken !== this._periodRequestToken) return;
+                if (!converted) {
+                    this.chartCurrency = 'NATIVE';
+                    this._chartCurrencyRates = null;
+                    this.syncChartCurrencyToggle();
+                    this.showTempMessage('Conversion historique EUR indisponible pour cette période.', 3500);
+                }
+            }
+            this.currentPeriod = period;
+            document.querySelectorAll('.period-btn').forEach(b => b.classList.toggle('active', b === btn));
+            this.renderMainPriceCharts();
+        } finally {
+            btn?.removeAttribute('aria-busy');
+        }
     }
 
     // ─── UI States ────────────────────────────────────────────────────────────
@@ -1662,8 +1889,8 @@ class ScreenerApp {
     // NATIVE keeps the quote currency. XAU goes through USD and the gold future
     // (USD per troy ounce). Returns null when a series is missing: the caller
     // shows the native values and says so, a rate of 1 is never assumed.
-    async getConversionArray(target, dataPoints) {
-        const quote = this.currentData.currency.quote;
+    async getConversionArray(target, dataPoints, sourceCurrency = null) {
+        const quote = sourceCurrency || this.currentData.currency.quote;
         if (!dataPoints?.length || target === 'NATIVE' || target === quote) return dataPoints.map(() => 1);
 
         const span = (dataPoints[dataPoints.length - 1].t - dataPoints[0].t) / 86400000;
@@ -1838,6 +2065,7 @@ class ScreenerApp {
         this.trendPrice = null;
         this.modalHistory = null;
         this.masterHistoryBuffer = null;
+        this.setInlineState('kpi-modal-chart-state');
 
         document.getElementById('kpi-modal-stats').innerHTML = '';
         if (this.modalChart) {
@@ -1873,34 +2101,46 @@ class ScreenerApp {
             ? `${price.exchangeName} · ${this.currentSymbol}`
             : this.currentSymbol;
 
-        // The currency selector always starts on the quote currency.
+        // Keep the global price-chart currency when opening a detail modal.
+        const modalCurrency = this.chartCurrency === 'EUR' ? 'EUR' : 'NATIVE';
         const nativeOption = document.querySelector('#kpi-currency-options .custom-select-option[data-value="NATIVE"]');
         if (nativeOption) nativeOption.textContent = `${currency} — Devise de cotation`;
-        document.getElementById('kpi-currency-select').value = 'NATIVE';
-        document.getElementById('kpi-currency-label').textContent = currency || 'Native';
+        document.getElementById('kpi-currency-select').value = modalCurrency;
+        document.getElementById('kpi-currency-label').textContent = modalCurrency === 'EUR' ? 'EUR' : (currency || 'Native');
         document.querySelectorAll('#kpi-currency-options .custom-select-option')
-            .forEach(o => o.classList.toggle('selected', o.dataset.value === 'NATIVE'));
+            .forEach(o => o.classList.toggle('selected', o.dataset.value === modalCurrency));
 
         modal.style.display = 'flex';
         document.body.style.overflow = 'hidden';
 
         this.currentModalKpi = kpiType;
         this.currentModalPeriod = '10y';
+        ++this._modalPeriodRequestToken;
         const token = ++this._modalToken;
 
-        // - 10y weekly buffer for EMA50/EMA200 (50 weeks ≈ 1yr, 200 weeks ≈ 4yr)
-        // - max monthly for the long-term trend line
-        // - 10y monthly for the initial chart
-        const [buffer10ywk, bufferMax, history10y] = await Promise.all([
-            this.fetchPriceHistory(this.currentSymbol, '10ywk').catch(() => null),
-            this.fetchPriceHistory(this.currentSymbol, 'max').catch(() => null),
-            this.fetchPriceHistory(this.currentSymbol, '10y').catch(() => null),
-        ]);
+        // Only price/regression need the three shared histories. Comparison
+        // requests daily series itself; radar needs none; valuation owns one
+        // daily long history through getLongHistory().
+        const needsSharedHistory = kpiType === 'price' || kpiType === 'regression';
+        if (needsSharedHistory) this.setInlineState('kpi-modal-chart-state', 'loading', 'Chargement de l’historique…');
+        const [buffer10ywk, bufferMax, history10y] = needsSharedHistory
+            ? await Promise.all([
+                this.fetchPriceHistory(this.currentSymbol, '10ywk').catch(() => null),
+                this.fetchPriceHistory(this.currentSymbol, 'max').catch(() => null),
+                this.fetchPriceHistory(this.currentSymbol, '10y').catch(() => null),
+            ])
+            : [null, null, null];
         if (token !== this._modalToken) return;
 
         this.masterHistoryBuffer = buffer10ywk;
         // The modal keeps its own series: the Résumé charts keep their period.
         this.modalHistory = history10y;
+        if (needsSharedHistory) {
+            const periodBtn = document.querySelector('.kpi-period-btn[data-period="10y"]');
+            if (history10y?.length) this.setInlineState('kpi-modal-chart-state');
+            else this.setInlineState('kpi-modal-chart-state', 'error', 'Historique détaillé indisponible.',
+                () => this.changeModalPeriod('10y', periodBtn, { force: true }));
+        }
 
         // Long-term trend: semi-log regression of the full monthly history, at the last date.
         if (bufferMax && bufferMax.length > 10) {
@@ -1918,6 +2158,9 @@ class ScreenerApp {
 
     closeKpiModal() {
         const modal = document.getElementById('kpi-modal');
+        // Invalidate every pending history/conversion/render before hiding the DOM.
+        ++this._modalToken;
+        ++this._modalPeriodRequestToken;
         // Nettoyage mode radar
         document.querySelector('.radar-analysis-container')?.remove();
         const sidebarContent = document.querySelector('.kpi-modal-sidebar-content');
@@ -1932,6 +2175,9 @@ class ScreenerApp {
                 this.modalChart = null;
             }
         }
+        this.modalHistory = null;
+        this.masterHistoryBuffer = null;
+        this.trendPrice = null;
     }
 
     async renderKpiModalContent(kpiType) {
@@ -1994,6 +2240,7 @@ class ScreenerApp {
         if (fpWrapper) fpWrapper.style.display = isPriceMode ? '' : 'none';
         if (deviseWrapper) deviseWrapper.style.display = (isPriceMode || isRegression) ? '' : 'none';
         if (divWrapper) divWrapper.style.display = (isPriceMode || isRegression) ? '' : 'none';
+        if (isValuation) document.querySelector('.kpi-modal-period-btns')?.setAttribute('style', 'display:none');
 
         // Render based on type
         switch (kpiType) {
@@ -2393,6 +2640,7 @@ class ScreenerApp {
         this._modalRawValues = values;
     }
     async renderComparisonModal(canvas, statsContainer) {
+        this.setInlineState('kpi-modal-chart-state', 'loading', 'Chargement de la comparaison…');
         const benchmarkTicker = document.getElementById('kpi-comp-benchmark')?.value || '^GSPC';
         const benchmarkLabel = document.getElementById('kpi-comp-benchmark-label')?.textContent || 'S&P 500';
         const period = this.currentModalPeriod;
@@ -2400,20 +2648,26 @@ class ScreenerApp {
         const stockData = await this.fetchPriceHistory(this.currentSymbol, period, { daily: true }).catch(() => null);
         if (token !== this._modalToken) return;
 
-        let benchmarkData = this._cachedBenchmarkData?.[benchmarkTicker]?.[period];
+        const benchmarkEntry = this._cachedBenchmarkData?.[benchmarkTicker]?.[period];
+        const benchmarkTtlMs = 15 * 60 * 1000;
+        let benchmarkData = benchmarkEntry && Date.now() - benchmarkEntry.cachedAt < benchmarkTtlMs
+            ? benchmarkEntry.data : null;
         if (!benchmarkData) {
             benchmarkData = await this.fetchPriceHistory(benchmarkTicker, period, { daily: true }).catch(() => null);
             if (token !== this._modalToken) return;
             if (benchmarkData) {
                 if (!this._cachedBenchmarkData[benchmarkTicker]) this._cachedBenchmarkData[benchmarkTicker] = {};
-                this._cachedBenchmarkData[benchmarkTicker][period] = benchmarkData;
+                this._cachedBenchmarkData[benchmarkTicker][period] = { data: benchmarkData, cachedAt: Date.now() };
             }
         }
 
         if (!stockData?.length || !benchmarkData?.length) {
             statsContainer.innerHTML = '<p style="color:#64748b;padding:16px">Données de comparaison indisponibles.</p>';
+            this.setInlineState('kpi-modal-chart-state', 'error', 'Comparaison indisponible.',
+                () => this.renderKpiModalContent('sp500'));
             return;
         }
+        this.setInlineState('kpi-modal-chart-state');
 
         // The offered benchmarks are price indices/futures, not total-return
         // series. Compare unadjusted closes on common completed session dates.
@@ -2794,6 +3048,7 @@ class ScreenerApp {
             <div class="kpi-val-kpi">
                 <span class="kpi-val-kpi-label">Prix juste</span>
                 <span class="kpi-val-kpi-value neutral">${this.fmt(result.fairPrice, 2)} ${currency}</span>
+                ${this.eurSecondaryHtml(result.fairPrice, 'kpi-val-kpi-eur')}
             </div>
             <div class="kpi-val-kpi">
                 <span class="kpi-val-kpi-label">Rendement estimé</span>
@@ -2875,23 +3130,33 @@ class ScreenerApp {
 
     setupModalPeriodButtons() {
         document.querySelectorAll('.kpi-period-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const period = btn.dataset.period;
-                if (period === this.currentModalPeriod) return;
-
-                document.querySelectorAll('.kpi-period-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                this.currentModalPeriod = period;
-
-                const token = this._modalToken;
-                const newPriceHistory = await this.fetchPriceHistory(this.currentSymbol, period).catch(() => null);
-                if (token !== this._modalToken || period !== this.currentModalPeriod) return;
-                if (newPriceHistory) {
-                    this.modalHistory = newPriceHistory;
-                    await this.renderKpiModalContent(this.currentModalKpi);
-                }
-            });
+            btn.addEventListener('click', () => this.changeModalPeriod(btn.dataset.period, btn));
         });
+    }
+
+    async changeModalPeriod(period, btn, { force = false } = {}) {
+        if (!force && period === this.currentModalPeriod) return;
+        const modalToken = this._modalToken;
+        const requestToken = ++this._modalPeriodRequestToken;
+        btn?.setAttribute('aria-busy', 'true');
+        this.setInlineState('kpi-modal-chart-state', 'loading', 'Chargement de la période…');
+        try {
+            const newPriceHistory = await this.fetchPriceHistory(this.currentSymbol, period).catch(() => null);
+            if (modalToken !== this._modalToken || requestToken !== this._modalPeriodRequestToken) return;
+            if (!newPriceHistory?.length) {
+                const retry = () => this.changeModalPeriod(period, btn, { force: true });
+                this.setInlineState('kpi-modal-chart-state', 'error', 'Période indisponible.', retry);
+                this.showRetryMessage('Historique détaillé indisponible : la période précédente est conservée.', retry);
+                return;
+            }
+            this.modalHistory = newPriceHistory;
+            this.currentModalPeriod = period;
+            document.querySelectorAll('.kpi-period-btn').forEach(b => b.classList.toggle('active', b === btn));
+            this.setInlineState('kpi-modal-chart-state');
+            await this.renderKpiModalContent(this.currentModalKpi);
+        } finally {
+            btn?.removeAttribute('aria-busy');
+        }
     }
 
     updateModalBottomStats() {
@@ -3221,6 +3486,12 @@ class ScreenerApp {
         const el = (id) => document.getElementById(id);
         if (el('div-kpi-yield')) el('div-kpi-yield').textContent = divYield ? `${divYield.toFixed(2)}%` : '—';
         if (el('div-kpi-rate')) el('div-kpi-rate').textContent = divRate ? `${this.fmt(divRate, 2)} ${priceCurrency}` : '—';
+        const divRateEur = el('div-kpi-rate-eur');
+        if (divRateEur) {
+            const eur = this.currentData.currency.priceIso === 'EUR' ? null : this.majorPriceInEur(divRate);
+            divRateEur.hidden = !isNum(eur);
+            divRateEur.textContent = isNum(eur) ? `≈ ${this.fmt(eur, this.priceDecimals(eur))} € au taux du jour` : '';
+        }
         if (el('div-kpi-payout')) el('div-kpi-payout').textContent = payoutRatioCurrent != null ? `${(payoutRatioCurrent * 100).toFixed(1)}%` : '—';
 
         // Dividend growth: from the first paying fiscal year to the last one

@@ -439,6 +439,49 @@
     padding-bottom: 0;
 }
 
+.chart-currency-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 3px 0 4px auto;
+    padding-left: 12px;
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.chart-currency-btn {
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 7px;
+    background: rgba(99, 102, 241, 0.06);
+    color: var(--text-muted);
+    padding: 5px 8px;
+    font: 600 11px 'Inter', sans-serif;
+    cursor: pointer;
+}
+
+.chart-currency-btn.active {
+    border-color: #6366f1;
+    background: rgba(99, 102, 241, 0.2);
+    color: #a5b4fc;
+}
+
+.chart-currency-btn[aria-busy="true"] {
+    opacity: 0.55;
+    cursor: wait;
+}
+
+.screener-retry-btn {
+    margin-left: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    padding: 4px 8px;
+    font: 700 11px 'Inter', sans-serif;
+    cursor: pointer;
+}
+
 .screener-tab {
     background: none;
     border: none;
@@ -465,6 +508,18 @@
 .screener-tab.disabled {
     opacity: 0.4;
     cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+    .screener-tabs {
+        overflow-x: auto;
+    }
+
+    .chart-currency-toggle {
+        position: sticky;
+        right: 0;
+        background: var(--bg-primary, #0b1020);
+    }
 }
 
 /* ─── Cards Grid ──────────────────────────────────────────── */
@@ -522,6 +577,46 @@
     flex: 1;
     min-height: 180px;
     position: relative;
+}
+
+.chart-inline-state {
+    position: absolute;
+    z-index: 4;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: calc(100% - 16px);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.92);
+    color: #cbd5e1;
+    padding: 6px 9px;
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: center;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.chart-inline-state[hidden] {
+    display: none;
+}
+
+.chart-inline-state.is-error {
+    border-color: rgba(245, 158, 11, 0.5);
+    color: #fbbf24;
+}
+
+.chart-inline-retry {
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    padding: 3px 6px;
+    font: 700 10px 'Inter', sans-serif;
+    cursor: pointer;
 }
 
 .chart-period-btns {
@@ -778,6 +873,27 @@
     color: var(--text-primary);
     min-width: 75px;
     text-align: right;
+}
+
+.valuation-price-stack {
+    min-width: 92px;
+    text-align: right;
+}
+
+.valuation-price-stack .valuation-price {
+    display: block;
+    min-width: 0;
+}
+
+.valuation-price-eur,
+.kpi-secondary-value,
+.kpi-val-kpi-eur {
+    display: block;
+    margin-top: 2px;
+    color: #a5b4fc;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
 }
 
 
@@ -1184,6 +1300,7 @@
 .kpi-modal-chart-wrapper {
     height: 100%;
     width: 100%;
+    position: relative;
 }
 
 .kpi-modal-stats-pills {

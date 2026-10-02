@@ -132,6 +132,11 @@
                     <button class="screener-tab" data-tab="dividende">Dividende</button>
                     <button class="screener-tab" data-tab="finances">Finances</button>
                     <button class="screener-tab" data-tab="valorisation">Valorisation</button>
+                    <div class="chart-currency-toggle" role="group" aria-label="Devise des graphiques de cours">
+                        <span>Graphiques de cours</span>
+                        <button type="button" class="chart-currency-btn active" data-currency="NATIVE" aria-pressed="true">Cotation</button>
+                        <button type="button" class="chart-currency-btn" data-currency="EUR" aria-pressed="false">EUR</button>
+                    </div>
                 </div>
 
                 <!-- RESUME TAB CONTENT -->
@@ -155,6 +160,10 @@
                                 </button>
                             </div>
                             <div class="chart-container">
+                                <div id="price-chart-state" class="chart-inline-state" aria-live="polite" hidden>
+                                    <span class="chart-inline-state-label"></span>
+                                    <button type="button" class="chart-inline-retry" hidden>Réessayer</button>
+                                </div>
                                 <canvas id="price-chart"></canvas>
                             </div>
                             <div class="chart-stats">
@@ -176,6 +185,10 @@
                                 </button>
                             </div>
                             <div class="chart-container">
+                                <div id="regression-chart-state" class="chart-inline-state" aria-live="polite" hidden>
+                                    <span class="chart-inline-state-label"></span>
+                                    <button type="button" class="chart-inline-retry" hidden>Réessayer</button>
+                                </div>
                                 <canvas id="regression-chart"></canvas>
                             </div>
                             <div class="chart-stats">
@@ -197,9 +210,13 @@
                                 </button>
                             </div>
                             <div class="chart-container">
+                                <div id="sp500-chart-state" class="chart-inline-state" aria-live="polite" hidden>
+                                    <span class="chart-inline-state-label"></span>
+                                    <button type="button" class="chart-inline-retry" hidden>Réessayer</button>
+                                </div>
                                 <canvas id="sp500-chart"></canvas>
                             </div>
-                            <p class="valuation-disclaimer">Base 100 · séances clôturées communes · hors dividendes · devises de cotation</p>
+                            <p id="sp500-currency-note" class="valuation-disclaimer">Base 100 · séances clôturées communes · hors dividendes · devises de cotation</p>
                             <div class="chart-stats">
                                 <div class="chart-stat"><span id="sp-diff-label" class="cs-label">Diff.</span><span id="sp-diff"
                                         class="cs-value">—</span></div>
@@ -394,6 +411,7 @@
                             <div class="quant-card" style="min-height:auto;">
                                 <div class="quant-card-header"><span class="quant-card-title">Dividende / action</span></div>
                                 <div class="kpi-big-value" id="div-kpi-rate">—</div>
+                                <div class="kpi-secondary-value" id="div-kpi-rate-eur" hidden></div>
                             </div>
                             <div class="quant-card" style="min-height:auto;">
                                 <div class="quant-card-header"><span class="quant-card-title">Taux de distribution</span></div>
@@ -648,6 +666,10 @@
 
                 <div class="kpi-modal-chart-section">
                     <div class="kpi-modal-chart-wrapper">
+                        <div id="kpi-modal-chart-state" class="chart-inline-state" aria-live="polite" hidden>
+                            <span class="chart-inline-state-label"></span>
+                            <button type="button" class="chart-inline-retry" hidden>Réessayer</button>
+                        </div>
                         <canvas id="kpi-modal-chart"></canvas>
                     </div>
                 </div>

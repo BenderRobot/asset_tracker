@@ -4,7 +4,7 @@ Date : 1er octobre 2026. Référence : commit `301d7f7` (`fix codex screener 1`)
 
 ## Suivi — correctifs P1 autorisés le 1er octobre
 
-**Les neuf P1 sont corrigés localement ; aucun déploiement effectué.** Les sections d'audit plus bas décrivent l'état avant ces corrections. L'affichage EUR et les P2/P3 restent des lots distincts.
+**Les neuf P1 sont corrigés localement ; aucun déploiement effectué.** Les sections d'audit plus bas décrivent l'état avant ces corrections. La première phase de l'affichage EUR est également livrée localement ; les P2/P3 restent des lots distincts.
 
 | Point | Correction livrée |
 |---|---|
@@ -18,7 +18,25 @@ Date : 1er octobre 2026. Référence : commit `301d7f7` (`fix codex screener 1`)
 | V3 | Hypothèses hors domaine et résultats non finis rejetés ; message explicite, champs signalés, aucune projection invalide. |
 | T1 | Validation SEARCH distincte du ticker, noms composés/accentués acceptés ; réponses tardives ignorées ; résolution du nom sur Entrée et sélection aux flèches. |
 
-Validation : **61 fichiers, 479 tests réussis** (`npm test`), dont 26 tests supplémentaires. Le script de reproduction est désormais un contrôle des six régressions corrigées. Vérifications réelles en lecture seule : Worker local → Yahoo pour « Air Liquide » = 200, résultat `AI.PA` ; BPA Apple publié/restitué = **7,46 / 7,46 USD** ; historique AAPL quotidien dix ans disponible (2 512 points lors du contrôle).
+### Suivi — affichage EUR, phase 1
+
+- En-tête partagé par les cinq onglets et en-tête des modales : cours natif conservé, contre-valeur EUR secondaire et date du taux.
+- Conversion générique par devise Yahoo, y compris les unités mineures GBp/GBX ; précision adaptative pour les petits prix.
+- Un cours déjà en EUR n'est pas dupliqué. Les indices restent exprimés en points et leur contre-valeur est marquée « indicative ».
+- Un taux absent produit « Conversion EUR indisponible » ; un taux ancien est signalé. Le cache FX expire après quinze minutes et un échec n'est pas mémorisé, afin qu'une nouvelle tentative soit possible immédiatement.
+- Résumé, estimations de valorisation, calculateur et montant du dividende reprennent la contre-valeur. Le dividende précise « au taux du jour ».
+- Un sélecteur global « Cotation / EUR » pilote les graphiques de cours du Résumé et initialise les modales dans la même devise. Cours, régression et benchmark sont convertis point par point avec le taux de chaque date ; une série FX manquante ne déclenche jamais l'emploi du taux courant. Les graphiques purement financiers restent dans la devise de publication, conformément à la règle de cohérence définie plus bas.
+
+### Suivi — robustesse P2, phase 1
+
+- La période du Résumé et celle des modales ne changent qu'après réception d'un historique valide. En cas de panne, l'ancien graphique et son bouton actif restent cohérents, avec une action « Réessayer ».
+- Les demandes de période concurrentes sont ordonnées par jeton. Fermer une modale invalide ses chargements et nettoie historique, tendance et graphiques temporaires.
+- `safeFetchJson` interrompt une requête bloquée après quinze secondes et accepte aussi un signal d'annulation externe.
+- Le cache des benchmarks expire après quinze minutes. Comme le cache FX, il ne conserve pas un échec.
+- Le cours et son historique sont désormais rendus avant les fondamentaux, le benchmark et le change. La seconde passe enrichit la vue sans ramener l'utilisateur de force sur Résumé et actualise l'onglet qu'il a ouvert entre-temps.
+- Restent à traiter dans la phase suivante : réduction des requêtes propres à chaque modale et états intégrés dans chaque carte plutôt qu'un message global.
+
+Validation : **61 fichiers, 497 tests réussis** (`npm test`), dont 44 tests supplémentaires par rapport au début du lot P1. Le script de reproduction est désormais un contrôle des six régressions corrigées. Vérifications réelles en lecture seule : Worker local → Yahoo pour « Air Liquide » = 200, résultat `AI.PA` ; BPA Apple publié/restitué = **7,46 / 7,46 USD** ; historique AAPL quotidien dix ans disponible (2 512 points lors du contrôle).
 
 Pas de validation visuelle dans un navigateur réel : les parcours sont testés sur le HTML réel avec DOM et canvas simulés. Pour publier le lot, le front **et** le Worker Prices devront être déployés. Les références de lignes ci-dessous correspondent au code audité avant correction.
 

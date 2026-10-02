@@ -8,7 +8,7 @@ import * as metrics from '../src/screenerMetrics.js';
 // canvas renderer only. Network payloads stay deterministic and credential-free.
 const source = readFileSync(new URL('../src/screenerApp.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../screener.html', import.meta.url), 'utf8');
-let app, document, dom, charts;
+let app, document, dom, charts, context;
 const pending = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
 beforeEach(() => {
@@ -24,9 +24,9 @@ beforeEach(() => {
         destroy() { this.destroyed = true; charts.delete(this.canvas); }
         static getChart(canvas) { return charts.get(canvas); }
     }
-    const context = vm.createContext({
+    context = vm.createContext({
         ...metrics, document, window: dom.window, Chart, Date, Intl, console,
-        setTimeout, clearTimeout,
+        setTimeout, clearTimeout, AbortController, DOMException, URL, fetch: vi.fn(),
         Storage: class { getPurchases() { return []; } },
         PROXY: 'https://example.invalid', SP500_SYMBOL: '^GSPC', MIN_ANNUALISED_YEARS: 0.9,
         logger: { error: vi.fn() },
@@ -227,6 +227,30 @@ describe('Screener EUR quote', () => {
         expect(meta.classList.contains('is-stale')).toBe(true);
     });
 
+    it('adds the same EUR countervalue to valuation estimates and dividends', async () => {
+        app.currentData = {
+            ...app.currentData,
+            currency: { quote: 'USD', priceIso: 'USD', priceFactor: 1, finIso: 'USD', needsFx: false },
+            eurFx: { latest: 0.9, marketRate: 0.9, fromIso: 'USD', toIso: 'EUR' },
+            finFx: { latest: 1, at: () => 1 },
+            quoteSummary: {
+                price: { currency: 'USD', regularMarketPrice: { raw: 100 } },
+                defaultKeyStatistics: { sharesOutstanding: { raw: 100 }, trailingEps: { raw: 5 } },
+                financialData: { freeCashflow: { raw: 500 }, totalRevenue: { raw: 2000 }, revenueGrowth: { raw: 0.05 } },
+                summaryDetail: { trailingPE: { raw: 20 }, dividendYield: { raw: 0.02 }, dividendRate: { raw: 2 } },
+            },
+        };
+        app.renderValuation();
+        expect(document.getElementById('valuation-list').textContent).toContain('90,00 €');
+        expect(app.calculatorHeaderHtml({ result: { fairPrice: 120, estReturn: 4, safetyMargin: 10 } }, 'USD')).toContain('108,00 €');
+
+        app.safeFetchJson = vi.fn(async () => ({ chart: { result: [{ events: { dividends: {} } }] } }));
+        await app.renderDividendeTab();
+        const dividendEur = document.getElementById('div-kpi-rate-eur');
+        expect(dividendEur.hidden).toBe(false);
+        expect(dividendEur.textContent).toContain('1,80 € au taux du jour');
+    });
+
     it('expires FX cache entries and retries immediately after a failed request', async () => {
         const now = Date.parse('2026-10-01T12:00:00Z');
         vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -242,5 +266,220 @@ describe('Screener EUR quote', () => {
         expect(fx.stale).toBe(false);
         expect(app.fetchPriceHistory).toHaveBeenCalledTimes(2);
         expect(app.fetchPriceHistory).toHaveBeenLastCalledWith('USDEUR=X', '1mo', { daily: true });
+    });
+
+    it('converts modal history with the FX rate from each date', async () => {
+        const first = Date.parse('2026-09-01T16:00:00Z');
+        const second = Date.parse('2026-09-30T16:00:00Z');
+        app.currentData.currency.quote = 'USD';
+        app.fetchFxSeries = vi.fn(async () => ({
+            latest: 0.9,
+            at: t => t === first ? 0.8 : 0.9,
+        }));
+        const rates = await app.getConversionArray('EUR', [
+            { t: first, c: 100 },
+            { t: second, c: 100 },
+        ]);
+        expect(rates).toEqual([0.8, 0.9]);
+        expect(rates[0]).not.toBe(0.9);
+    });
+
+    it('switches the main price charts to dated EUR rates and back to native values', async () => {
+        const first = { t: Date.parse('2026-09-01T16:00:00Z'), session: '2026-09-01', closed: true, c: 100 };
+        const second = { t: Date.parse('2026-09-30T16:00:00Z'), session: '2026-09-30', closed: true, c: 100 };
+        const stock = [first, second, { ...second, t: second.t + 1000, session: '2026-10-01', c: 100 }, { ...second, t: second.t + 2000, session: '2026-10-02', c: 100 }];
+        const benchmark = stock.map((point, index) => ({ ...point, c: 200 + index * 2 }));
+        app.currentData = {
+            ...app.currentData,
+            priceHistory: stock,
+            sp500History: benchmark,
+            pru: { value: 75 },
+            eurFx: { latest: 0.9, marketRate: 0.9 },
+            currency: { quote: 'USD', priceIso: 'USD', priceFactor: 1, finIso: 'USD' },
+            quoteSummary: { price: {
+                currency: 'USD', regularMarketPrice: { raw: 100 }, regularMarketChangePercent: { raw: 0.01 },
+            } },
+        };
+        app.getConversionArray = vi.fn(async (_target, data, source) => {
+            expect(source).toBe('USD');
+            return data === stock ? [0.8, 0.85, 0.88, 0.9] : [0.8, 0.85, 0.88, 0.9];
+        });
+        app.setupChartCurrencyToggle();
+
+        document.querySelector('.chart-currency-btn[data-currency="EUR"]').click();
+        await vi.waitFor(() => expect(app.chartCurrency).toBe('EUR'));
+        expect(charts.get(document.getElementById('price-chart')).config.data.datasets[0].data).toEqual([80, 85, 88, 90]);
+        expect(document.getElementById('price-chart-label').textContent).toContain('90,00 EUR');
+        expect(document.getElementById('sp500-currency-note').textContent).toContain('taux historiques');
+        expect(document.querySelector('.chart-currency-btn[data-currency="EUR"]').getAttribute('aria-pressed')).toBe('true');
+
+        document.querySelector('.chart-currency-btn[data-currency="NATIVE"]').click();
+        expect(app.chartCurrency).toBe('NATIVE');
+        expect(charts.get(document.getElementById('price-chart')).config.data.datasets[0].data).toEqual([100, 100, 100, 100]);
+        expect(document.getElementById('price-chart-label').textContent).toContain('USD');
+    });
+
+    it('keeps native charts selected when historical FX is unavailable', async () => {
+        app.currentData.priceHistory = [{ t: Date.now(), session: '2026-10-01', closed: true, c: 100 }];
+        app.currentData.sp500History = [];
+        app.getConversionArray = vi.fn(async () => null);
+        app.setupChartCurrencyToggle();
+        document.querySelector('.chart-currency-btn[data-currency="EUR"]').click();
+        await vi.waitFor(() => expect(document.getElementById('screener-temp-msg')).not.toBeNull());
+        expect(app.chartCurrency).toBe('NATIVE');
+        expect(document.querySelector('.chart-currency-btn[data-currency="NATIVE"]').getAttribute('aria-pressed')).toBe('true');
+        expect(document.getElementById('screener-temp-msg').textContent).toContain('indisponible');
+    });
+
+    it('carries the global EUR choice into a price detail modal', async () => {
+        app.chartCurrency = 'EUR';
+        app.currentData = {
+            ...app.currentData,
+            hasFundamentals: true,
+            quoteSummary: { price: {
+                currency: 'USD', quoteType: 'EQUITY', regularMarketPrice: { raw: 100 },
+                regularMarketChangePercent: { raw: 0.01 }, shortName: 'Test',
+            }, assetProfile: {} },
+        };
+        app.fetchPriceHistory = vi.fn(async () => []);
+        app.renderKpiModalContent = vi.fn(async () => {});
+        await app.openKpiModal('price');
+        expect(document.getElementById('kpi-currency-select').value).toBe('EUR');
+        expect(document.getElementById('kpi-currency-label').textContent).toBe('EUR');
+        expect(document.querySelector('#kpi-currency-options [data-value="EUR"]').classList.contains('selected')).toBe(true);
+    });
+});
+
+describe('Screener P2 robustness', () => {
+    const history = () => Array.from({ length: 4 }, (_, index) => ({
+        t: Date.parse(`2026-09-${String(index + 1).padStart(2, '0')}T16:00:00Z`),
+        session: `2026-09-${String(index + 1).padStart(2, '0')}`,
+        closed: true,
+        c: 100 + index,
+    }));
+
+    it('keeps the previous summary period after failure and retries from the message', async () => {
+        app.currentData.priceHistory = history();
+        app.currentData.sp500History = history();
+        app.currentData.quoteSummary.price = { currency: 'USD', regularMarketPrice: { raw: 103 } };
+        app.fetchPriceHistory = vi.fn().mockRejectedValue(new Error('502'));
+        app.setupPeriodButtons();
+
+        const previous = document.querySelector('.period-btn[data-period="1y"]');
+        const requested = document.querySelector('.period-btn[data-period="3mo"]');
+        requested.click();
+        await vi.waitFor(() => expect(document.querySelector('.screener-retry-btn')).not.toBeNull());
+        expect(app.currentPeriod).toBe('1y');
+        expect(previous.classList.contains('active')).toBe(true);
+        expect(requested.classList.contains('active')).toBe(false);
+        expect(document.getElementById('price-chart-state').textContent).toContain('Période indisponible');
+        expect(document.getElementById('price-chart-state').hidden).toBe(false);
+
+        app.fetchPriceHistory.mockResolvedValue(history());
+        document.querySelector('.screener-retry-btn').click();
+        await vi.waitFor(() => expect(app.currentPeriod).toBe('3mo'));
+        expect(requested.classList.contains('active')).toBe(true);
+        expect(requested.hasAttribute('aria-busy')).toBe(false);
+        expect(document.getElementById('price-chart-state').hidden).toBe(true);
+    });
+
+    it('keeps the previous modal period on failure, then accepts a successful retry', async () => {
+        app.currentModalPeriod = '10y';
+        app.currentModalKpi = 'price';
+        app.modalHistory = history();
+        app.fetchPriceHistory = vi.fn().mockResolvedValue(null);
+        app.renderKpiModalContent = vi.fn(async () => {});
+        app.setupModalPeriodButtons();
+
+        const previous = document.querySelector('.kpi-period-btn[data-period="10y"]');
+        const requested = document.querySelector('.kpi-period-btn[data-period="1mo"]');
+        requested.click();
+        await vi.waitFor(() => expect(document.querySelector('.screener-retry-btn')).not.toBeNull());
+        expect(app.currentModalPeriod).toBe('10y');
+        expect(previous.classList.contains('active')).toBe(true);
+        expect(document.getElementById('kpi-modal-chart-state').textContent).toContain('Période indisponible');
+
+        app.fetchPriceHistory.mockResolvedValue(history());
+        document.querySelector('.screener-retry-btn').click();
+        await vi.waitFor(() => expect(app.currentModalPeriod).toBe('1mo'));
+        expect(requested.classList.contains('active')).toBe(true);
+        expect(app.renderKpiModalContent).toHaveBeenCalledWith('price');
+    });
+
+    it('invalidates an in-flight modal period request when the modal closes', async () => {
+        const request = pending();
+        app.currentModalPeriod = '10y';
+        app.currentModalKpi = 'price';
+        app.modalHistory = history();
+        app.fetchPriceHistory = vi.fn(() => request.promise);
+        app.renderKpiModalContent = vi.fn(async () => {});
+        app.setupModalPeriodButtons();
+
+        document.querySelector('.kpi-period-btn[data-period="1mo"]').click();
+        await vi.waitFor(() => expect(app.fetchPriceHistory).toHaveBeenCalled());
+        app.closeKpiModal();
+        request.resolve(history());
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(app.currentModalPeriod).toBe('10y');
+        expect(app.modalHistory).toBeNull();
+        expect(app.renderKpiModalContent).not.toHaveBeenCalled();
+    });
+
+    it('aborts a stalled fetch at the configured timeout', async () => {
+        app.requestTimeoutMs = 5;
+        context.fetch.mockImplementation((_url, options) => new Promise((resolve, reject) => {
+            options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+        }));
+        await expect(app.safeFetchJson('https://example.invalid/stalled')).rejects.toMatchObject({ name: 'TimeoutError' });
+        expect(context.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders the quote before optional fundamentals, benchmark and FX finish', async () => {
+        const fundamentals = pending();
+        const benchmark = pending();
+        const points = history();
+        app.render = vi.fn();
+        app.showState = vi.fn();
+        app.fetchQuoteSummary = vi.fn(async () => ({
+            price: { currency: 'USD', quoteType: 'EQUITY', regularMarketPrice: { raw: 100 } },
+            financialData: { financialCurrency: 'USD' },
+        }));
+        app.fetchPriceHistory = vi.fn(symbol => symbol === '^GSPC' ? benchmark.promise : Promise.resolve(points));
+        app.fetchFundamentals = vi.fn(() => fundamentals.promise);
+        app.fetchFxSeries = vi.fn(async () => ({ latest: 0.9, marketRate: 0.9, at: () => 0.9 }));
+        app.computePru = vi.fn(async () => null);
+
+        const loading = app.loadStock('AAPL');
+        await vi.waitFor(() => expect(app.render).toHaveBeenCalledTimes(1));
+        expect(app.currentData.fundamentals).toEqual([]);
+        expect(app.currentData.eurFxPending).toBe(true);
+        expect(app.showState).toHaveBeenCalledWith('panel');
+
+        benchmark.resolve(points);
+        fundamentals.resolve([{ year: '2025', currency: 'USD', annualNetIncome: 100 }]);
+        await loading;
+        expect(context.logger.error.mock.calls).toEqual([]);
+        expect(app.render).toHaveBeenCalledTimes(2);
+        expect(app.render).toHaveBeenLastCalledWith({ resetTab: false });
+        expect(app.currentData.fundamentals).toHaveLength(1);
+        expect(app.currentData.eurFxPending).toBe(false);
+    });
+
+    it('prefetches three histories only for price-based modals', async () => {
+        app.currentData.hasFundamentals = true;
+        app.currentData.quoteSummary = { price: { currency: 'USD', regularMarketPrice: { raw: 100 } }, assetProfile: {} };
+        app.fetchPriceHistory = vi.fn(async () => []);
+        app.renderKpiModalContent = vi.fn(async () => {});
+
+        await app.openKpiModal('price');
+        expect(app.fetchPriceHistory).toHaveBeenCalledTimes(3);
+        app.closeKpiModal();
+
+        for (const type of ['sp500', 'radar', 'valuation']) {
+            app.fetchPriceHistory.mockClear();
+            await app.openKpiModal(type);
+            expect(app.fetchPriceHistory, type).not.toHaveBeenCalled();
+            app.closeKpiModal();
+        }
     });
 });
