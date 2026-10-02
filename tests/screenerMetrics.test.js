@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import {
     YEAR_MS, normalizeCurrency, currencyContext, valueAt, alignSeriesByTime, commonSessions, dailyCloseAt, normalizePair,
     annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
-    hasFundamentalProfile, historicalShareBasis, quantProfile, radarDimensions, quantScore, fairPriceModel, simpleDcf,
+    hasFundamentalProfile, hasFinancialStatements, fiscalPeriodLabel, historicalShareBasis,
+    quantProfile, radarDimensions, quantScore, fairPriceModel, simpleDcf,
 } from '../src/screenerMetrics.js';
 
 const r = raw => ({ raw });
@@ -126,6 +127,25 @@ describe('fundamentals', () => {
         expect(estimates[1].pe).toBeCloseTo(458.04 / 21.9251, 6);
         expect(forwardEstimates(TSM, 458.04, () => null)).toEqual([]);
     });
+
+    it('detects annual statements independently from quoteSummary.financialData', () => {
+        expect(hasFinancialStatements([{ year: '2025', endDate: '2025-09-30', annualNetIncome: 10 }])).toBe(true);
+        expect(hasFinancialStatements([{ year: '2025', endDate: '2025-09-30', annualNetIncome: null }])).toBe(false);
+        expect(hasFinancialStatements([])).toBe(false);
+    });
+
+    it('preserves fiscal identity metadata and formats the full close date', () => {
+        const [row] = fundamentalRows([{
+            fiscalId: '12M:2025-09-30', year: '2025', endDate: '2025-09-30', periodType: '12M',
+            currency: 'USD', currencies: ['USD'], currencyByMetric: { annualNetIncome: 'USD' },
+            annualNetIncome: 10,
+        }]);
+        expect(row).toMatchObject({
+            fiscalId: '12M:2025-09-30', endDate: '2025-09-30', periodType: '12M',
+            currency: 'USD', currencies: ['USD'],
+        });
+        expect(fiscalPeriodLabel(row)).toBe('Exercice clos le 30 septembre 2025');
+    });
 });
 
 describe('quantitative profile', () => {
@@ -247,6 +267,7 @@ describe('P1 historical data regressions', () => {
         expect(annualSeriesStats([100, null, 121]).cagr).toBeCloseTo(10, 9);
         expect(annualSeriesStats([100, 121], ['2023', '2025']).cagr).toBeCloseTo(10, 9);
         expect(annualSeriesStats([null, 100, null, 121], ['2022', '2023', '2024', '2025']).cagr).toBeCloseTo(10, 9);
+        expect(annualSeriesStats([100, 121], ['2023-09-30', '2025-09-30']).cagr).toBeCloseTo(10, 2);
     });
 
     it('preserves published ordinary EPS instead of replacing the average with current shares', () => {

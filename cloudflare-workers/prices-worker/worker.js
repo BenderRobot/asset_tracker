@@ -29,12 +29,13 @@ const FUNDAMENTALS_METRICS = [
   'annualBasicAverageShares', 'annualDilutedAverageShares',
 ];
 
-// Yahoo returns one { meta: { type: [name] }, [name]: [{ asOfDate, reportedValue }] } block per
-// requested metric. Reshape that into one row per fiscal year with all metrics as columns, which
-// is far easier for the frontend to consume than hunting through 28 separate arrays.
-function reshapeFundamentalsTimeseries(raw, symbol) {
+// Yahoo returns one { meta: { type: [name] }, [name]: [{ asOfDate, periodType,
+// reportedValue }] } block per requested metric. Keep the exact fiscal-period
+// identity: grouping by the four-digit year used to merge two different closes
+// in the same calendar year and silently relabel currency changes.
+export function reshapeFundamentalsTimeseries(raw, symbol) {
   const results = raw?.timeseries?.result || [];
-  const byYear = {};
+  const byPeriod = new Map();
 
   for (const block of results) {
     const metric = block?.meta?.type?.[0];
@@ -45,15 +46,41 @@ function reshapeFundamentalsTimeseries(raw, symbol) {
       const asOfDate = point?.asOfDate;
       if (!asOfDate) continue;
       const year = asOfDate.slice(0, 4);
-      if (!byYear[year]) byYear[year] = { year, endDate: asOfDate };
-      byYear[year][metric] = point.reportedValue?.raw ?? null;
-      // Reporting currency (TWD for TSM, JPY for TM...): differs from the quote
-      // currency for ADRs and dual listings, the frontend converts with it.
-      if (point.currencyCode && !byYear[year].currency) byYear[year].currency = point.currencyCode;
+      const periodType = point.periodType || block?.meta?.periodType || '12M';
+      const fiscalId = `${periodType}:${asOfDate}`;
+      if (!byPeriod.has(fiscalId)) {
+        byPeriod.set(fiscalId, {
+          fiscalId, year, endDate: asOfDate, periodType,
+          currencyByMetric: {}, currencies: [], metricConflicts: [],
+        });
+      }
+
+      const period = byPeriod.get(fiscalId);
+      const value = point.reportedValue?.raw ?? null;
+      // A duplicated source value is never silently overwritten. The first
+      // usable value is retained and the frontend can expose the conflict.
+      if (period[metric] == null) period[metric] = value;
+      else if (value != null && period[metric] !== value && !period.metricConflicts.includes(metric)) {
+        period.metricConflicts.push(metric);
+      }
+
+      // Reporting currency (TWD for TSM, JPY for TM...): preserve it per
+      // metric as Yahoo may change presentation currency between periods or
+      // exceptionally disagree inside one period.
+      if (point.currencyCode) {
+        if (!period.currencyByMetric[metric]) period.currencyByMetric[metric] = point.currencyCode;
+        if (!period.currencies.includes(point.currencyCode)) period.currencies.push(point.currencyCode);
+      }
     }
   }
 
-  const years = Object.values(byYear).sort((a, b) => a.year.localeCompare(b.year));
+  const years = [...byPeriod.values()]
+    .map(period => ({
+      ...period,
+      currency: period.currencies.length === 1 ? period.currencies[0] : null,
+      currencyConflict: period.currencies.length > 1,
+    }))
+    .sort((a, b) => a.endDate.localeCompare(b.endDate) || a.periodType.localeCompare(b.periodType));
   return { symbol, years };
 }
 

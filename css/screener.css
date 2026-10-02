@@ -2520,6 +2520,13 @@
     border-radius: 12px;
 }
 
+.finances-meta {
+    margin: 0 0 12px;
+    color: var(--text-muted, #94a3b8);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
 .fin-table {
     width: 100%;
     border-collapse: collapse;
@@ -2541,6 +2548,26 @@
     background: var(--card-bg, #1a1f2e);
 }
 
+.fin-table tbody th {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-weight: 600;
+}
+
+.fin-table tbody th span,
+.fin-period-label {
+    display: block;
+}
+
+.fin-table tbody th small,
+.fin-period-meta {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-muted, #94a3b8);
+    font-size: 10px;
+    font-weight: 500;
+}
+
 .fin-table thead th {
     color: var(--text-primary, #f1f5f9);
     font-weight: 700;
@@ -2552,6 +2579,11 @@
 
 .fin-table td.fin-negative {
     color: #ef4444;
+}
+
+.fin-table td.fin-conflict {
+    text-decoration: underline dotted #f59e0b;
+    text-underline-offset: 3px;
 }
 
 /* GRILLE VALORISATION */

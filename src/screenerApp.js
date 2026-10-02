@@ -7,7 +7,8 @@ import logger from '../utils/logger.js';
 import {
     YEAR_MS, normalizeCurrency, fxSymbol, currencyContext, valueAt, commonSessions, dailyCloseAt, monthlyCloses, normalizePair,
     cagr, annualSeriesStats, median, averageCost, fundamentalRows, historicalMultiples, forwardEstimates,
-    hasFundamentalProfile, historicalShareBasis, quantProfile, quantScore, fairPriceModel, simpleDcf,
+    hasFundamentalProfile, hasFinancialStatements, fiscalPeriodLabel, historicalShareBasis,
+    quantProfile, quantScore, fairPriceModel, simpleDcf,
 } from './screenerMetrics.js';
 
 const PROXY = PRICE_PROXY_URL;
@@ -40,8 +41,8 @@ const FIN_STATEMENT_DEFS = {
             { label: 'Résultat avant impôts', key: 'annualPretaxIncome' },
             { label: 'Impôts', key: 'annualTaxProvision' },
             { label: 'Résultat net', key: 'annualNetIncome' },
-            { label: 'BPA de base', key: 'annualBasicEPS', decimals: true },
-            { label: 'BPA dilué', key: 'annualDilutedEPS', decimals: true },
+            { label: 'BPA de base', key: 'annualBasicEPS', decimals: true, perShare: true },
+            { label: 'BPA dilué', key: 'annualDilutedEPS', decimals: true, perShare: true },
         ],
     },
     balance: {
@@ -578,7 +579,7 @@ class ScreenerApp {
             const preliminaryCurrency = currencyContext(quoteSummary, []);
             this.currentData = {
                 quoteSummary, priceHistory, sp500History: null, fundamentals: [],
-                currency: preliminaryCurrency, hasFundamentals: false, rows: [],
+                currency: preliminaryCurrency, hasFundamentals: false, hasStatements: false, rows: [],
                 finFx: null, eurFx: null, eurFxPending: preliminaryCurrency.priceIso !== 'EUR',
                 pru: null, shareBasis: historicalShareBasis(quoteSummary, preliminaryCurrency),
                 priceHistoryLong: null,
@@ -601,19 +602,20 @@ class ScreenerApp {
 
             const currency = currencyContext(quoteSummary, fundamentals);
             const hasFundamentals = hasFundamentalProfile(quoteSummary);
+            const hasStatements = hasFinancialStatements(fundamentals);
             const shareBasis = historicalShareBasis(quoteSummary, currency);
-            const rows = hasFundamentals
+            const rows = hasStatements
                 ? fundamentalRows(fundamentals, { ordinaryPerQuoted: shareBasis })
                 : [];
             // Statements in another currency (ADR, dual listing) are converted with
             // the real FX series; without it the cross ratios are not shown at all.
-            const finFx = hasFundamentals
+            const finFx = hasStatements && currency.finIso && currency.priceIso
                 ? await this.fetchFxSeries(currency.finIso, currency.priceIso, '10y') : null;
             if (token !== this._loadToken) return;
 
             this.currentData = {
                 quoteSummary, priceHistory, sp500History, fundamentals,
-                currency, hasFundamentals, rows, finFx, eurFx, eurFxPending: false, pru, shareBasis,
+                currency, hasFundamentals, hasStatements, rows, finFx, eurFx, eurFxPending: false, pru, shareBasis,
                 priceHistoryLong: null,
             };
             if (this.chartCurrency === 'EUR') {
@@ -1103,19 +1105,22 @@ class ScreenerApp {
         this.updateWatchlistButtonState();
     }
 
-    // Statements, valuation and the quantitative profile only exist for
-    // operating companies: for ETFs, indices and crypto they stay disabled
-    // instead of showing charts computed from empty fields.
+    // Annual statements come from a dedicated endpoint and may exist even
+    // when Yahoo omits quoteSummary.financialData. Valuation/radar still need
+    // the real-time fundamental profile; history tabs only need statements.
     updateTabAvailability() {
         const { hasFundamentals, quoteSummary } = this.currentData;
+        const hasStatements = this.currentData.hasStatements
+            ?? hasFinancialStatements(this.currentData.fundamentals);
         const type = quoteSummary.price?.quoteType || '';
         const reason = `Non disponible pour ce type d'actif (${type || 'inconnu'}) : aucun état financier publié.`;
-        ['quantitatif', 'finances', 'valorisation'].forEach(name => {
+        const availability = { quantitatif: hasStatements, finances: hasStatements, valorisation: hasFundamentals };
+        Object.entries(availability).forEach(([name, available]) => {
             const tab = document.querySelector(`.screener-tab[data-tab="${name}"]`);
             if (!tab) return;
-            tab.classList.toggle('disabled', !hasFundamentals);
-            tab.setAttribute('aria-disabled', String(!hasFundamentals));
-            if (hasFundamentals) delete tab.dataset.disabledReason;
+            tab.classList.toggle('disabled', !available);
+            tab.setAttribute('aria-disabled', String(!available));
+            if (available) delete tab.dataset.disabledReason;
             else {
                 tab.dataset.disabledReason = reason;
                 tab.tabIndex = -1;
@@ -3512,7 +3517,7 @@ class ScreenerApp {
         const currency = calc.currency;
         const long = this.currentData.priceHistoryLong || [];
         const hist = historicalMultiples(this.currentData.rows, t => this.toMajor(dailyCloseAt(long, t)), t => this.finToPrice(t));
-        const years = hist.map(h => h.year);
+        const years = hist.map(h => fiscalPeriodLabel(h, { short: true }));
         const ratio = (price, perShare) => (isNum(price) && isNum(perShare) && perShare > 0 ? price / perShare : null);
         const stats = qs.defaultKeyStatistics || {};
 
@@ -3583,16 +3588,17 @@ class ScreenerApp {
             const quoteSummary = this.currentData.quoteSummary;
             const currency = currencyContext(quoteSummary, fundamentals);
             const hasFundamentals = hasFundamentalProfile(quoteSummary);
+            const hasStatements = hasFinancialStatements(fundamentals);
             const shareBasis = historicalShareBasis(quoteSummary, currency);
-            const rows = hasFundamentals
+            const rows = hasStatements
                 ? fundamentalRows(fundamentals, { ordinaryPerQuoted: shareBasis })
                 : [];
-            const finFx = hasFundamentals
+            const finFx = hasStatements && currency.finIso && currency.priceIso
                 ? await this.fetchFxSeries(currency.finIso, currency.priceIso, '10y') : null;
             if (requestToken !== this._fundamentalsRetryToken || loadToken !== this._loadToken || symbol !== this.currentSymbol) return null;
             this.currentData = {
                 ...this.currentData,
-                fundamentals, currency, hasFundamentals, shareBasis, rows, finFx,
+                fundamentals, currency, hasFundamentals, hasStatements, shareBasis, rows, finFx,
             };
             this.updateTabAvailability();
         }
@@ -3604,7 +3610,8 @@ class ScreenerApp {
         if (!qs) return false;
 
         const fundamentals = this.currentData.fundamentals || [];
-        const hasHistory = this.currentData.hasFundamentals && fundamentals.length >= 2;
+        const hasStatements = this.currentData.hasStatements ?? hasFinancialStatements(fundamentals);
+        const hasHistory = hasStatements && fundamentals.length >= 2;
         const emptyEl = document.getElementById('quant-empty');
         const gridEl = document.getElementById('quant-grid');
         if (this._quantChartSymbol && this._quantChartSymbol !== this.currentSymbol) {
@@ -3619,7 +3626,7 @@ class ScreenerApp {
         }
         if (gridEl) gridEl.style.display = hasHistory ? '' : 'none';
         if (!hasHistory) {
-            if (this.currentData.hasFundamentals && fundamentals.length === 0) {
+            if ((this.currentData.hasFundamentals || hasStatements) && fundamentals.length === 0) {
                 this.setInlineState('quant-tab-state', 'error', 'Historique financier indisponible.',
                     () => this.retryQuantitativeData());
             } else {
@@ -3635,53 +3642,59 @@ class ScreenerApp {
 
         // Statements are shown in their reporting currency.
         const currency = this.currentData.currency.finIso || '';
-        const years = fundamentals.map(y => y.year);
+        const periods = fundamentals.map(y => fiscalPeriodLabel(y, { short: true }));
+        const timeline = fundamentals.map(y => y.endDate || y.year);
         const field = key => fundamentals.map(y => (isNum(y[key]) ? y[key] : null));
+        const amountField = key => this.currentData.currency.finCurrencyMixed ? [] : field(key);
         const ratio = (num, den) => fundamentals.map(y => (isNum(y[num]) && isNum(y[den]) && y[den] !== 0 ? (y[num] / y[den]) * 100 : null));
         this.setQuantCurrencyNote(currency);
 
-        this.renderQuantBarChart('chart-revenue', 'Revenus', years, field('annualTotalRevenue'), '#3b82f6', 'footer-revenue', currency);
-        this.renderQuantBarChart('chart-earnings', 'Bénéfices', years, field('annualNetIncome'), '#fbbf24', 'footer-earnings', currency);
-        this.renderQuantGroupedBarChart('chart-fcf', years, [
-            { label: 'Opérationnel', data: field('annualOperatingCashFlow'), color: '#f97316' },
-            { label: 'Free Cash Flow', data: field('annualFreeCashFlow'), color: '#fbbf24' }
-        ], 'footer-fcf', currency, 1);
+        this.renderQuantBarChart('chart-revenue', 'Revenus', periods, amountField('annualTotalRevenue'), '#3b82f6', 'footer-revenue', currency, timeline);
+        this.renderQuantBarChart('chart-earnings', 'Bénéfices', periods, amountField('annualNetIncome'), '#fbbf24', 'footer-earnings', currency, timeline);
+        this.renderQuantGroupedBarChart('chart-fcf', periods, [
+            { label: 'Opérationnel', data: amountField('annualOperatingCashFlow'), color: '#f97316' },
+            { label: 'Free Cash Flow', data: amountField('annualFreeCashFlow'), color: '#fbbf24' }
+        ], 'footer-fcf', currency, 1, timeline);
 
         // Margins: null when revenue is missing or zero for a year
         this.renderQuantLineChart('chart-margins', [
             { label: 'Brute', data: ratio('annualGrossProfit', 'annualTotalRevenue'), color: '#3b82f6' },
             { label: 'Opé.', data: ratio('annualOperatingIncome', 'annualTotalRevenue'), color: '#fbbf24' },
             { label: 'Nette', data: ratio('annualNetIncome', 'annualTotalRevenue'), color: '#ef4444' }
-        ], years, 'footer-margins', '%');
+        ], periods, 'footer-margins', '%');
 
-        this.renderQuantGroupedBarChart('chart-returns', years, [
+        this.renderQuantGroupedBarChart('chart-returns', periods, [
             { label: 'ROE', data: ratio('annualNetIncome', 'annualStockholdersEquity'), color: '#8b5cf6' },
             { label: 'ROA', data: ratio('annualNetIncome', 'annualTotalAssets'), color: '#10b981' }
         ], null, '%');
 
-        this.renderQuantGroupedBarChart('chart-cash-debt', years, [
-            { label: 'Trésorerie', data: field('annualCashAndCashEquivalents'), color: '#10b981' },
-            { label: 'Dette', data: field('annualTotalDebt'), color: '#ef4444' }
+        this.renderQuantGroupedBarChart('chart-cash-debt', periods, [
+            { label: 'Trésorerie', data: amountField('annualCashAndCashEquivalents'), color: '#10b981' },
+            { label: 'Dette', data: amountField('annualTotalDebt'), color: '#ef4444' }
         ], null, currency);
 
         // Dividend per share: dividends paid ÷ average shares (per quoted share)
-        const dps = this.currentData.rows.map(r => r.dividendPerShare);
-        this.renderQuantBarChart('chart-dividend', 'Dividende / action (estimé)', years, dps.some(v => v > 0) ? dps : [], '#14b8a6', 'footer-dividend', currency);
+        const dps = this.currentData.currency.finCurrencyMixed ? [] : this.currentData.rows.map(r => r.dividendPerShare);
+        this.renderQuantBarChart('chart-dividend', 'Dividende / action (estimé)', periods, dps.some(v => v > 0) ? dps : [], '#14b8a6', 'footer-dividend', currency, timeline);
 
-        this.renderQuantGroupedBarChart('chart-shares', years, [
+        this.renderQuantGroupedBarChart('chart-shares', periods, [
             { label: 'De base', data: field('annualBasicAverageShares'), color: '#8b5cf6' },
             { label: 'Diluées', data: field('annualDilutedAverageShares'), color: '#a78bfa' }
-        ], 'footer-shares', '', 0);
+        ], 'footer-shares', '', 0, timeline);
 
-        this.renderQuantBarChart('chart-capex', 'CAPEX', years,
-            fundamentals.map(y => (isNum(y.annualCapitalExpenditure) ? Math.abs(y.annualCapitalExpenditure) : null)),
-            '#ec4899', 'footer-capex', currency);
+        this.renderQuantBarChart('chart-capex', 'CAPEX', periods,
+            this.currentData.currency.finCurrencyMixed ? []
+                : fundamentals.map(y => (isNum(y.annualCapitalExpenditure) ? Math.abs(y.annualCapitalExpenditure) : null)),
+            '#ec4899', 'footer-capex', currency, timeline);
         return true;
     }
 
     setQuantCurrencyNote(currency) {
         const note = document.getElementById('quant-currency-note');
-        if (note) note.textContent = (currency ? `Montants publiés en ${currency}, par exercice fiscal (source : Yahoo Finance).` : '')
+        const currencyText = this.currentData.currency.finCurrencyMixed
+            ? `Devises de publication variables (${this.currentData.currency.finCurrencies.join(', ')}) : vérifier la devise de chaque exercice dans Finances.`
+            : (currency ? `Montants publiés en ${currency}, par exercice fiscal (source : Yahoo Finance).` : '');
+        if (note) note.textContent = currencyText
             + (this.currentData.shareBasis === null ? ' Base par titre coté non confirmée : les historiques par action cotée sont indisponibles.' : '');
     }
 
@@ -3711,7 +3724,8 @@ class ScreenerApp {
         const finCurrency = this.currentData.currency.finIso || '';
         const detail = qs.summaryDetail || {};
         const fundamentals = this.currentData.fundamentals || [];
-        const hasFundamentals = this.currentData.hasFundamentals && fundamentals.length >= 2;
+        const hasFundamentals = (this.currentData.hasStatements ?? hasFinancialStatements(fundamentals))
+            && fundamentals.length >= 2;
 
         // dividendYield first: the trailing yield mixes currencies for ADRs
         const divYield = (detail.dividendYield?.raw ?? detail.trailingAnnualDividendYield?.raw ?? 0) * 100;
@@ -3720,7 +3734,8 @@ class ScreenerApp {
             ?? null;
         const payoutRatioCurrent = detail.payoutRatio?.raw ?? null;
 
-        const dpsSeries = hasFundamentals ? this.currentData.rows.map(r => r.dividendPerShare) : [];
+        const dpsSeries = hasFundamentals && !this.currentData.currency.finCurrencyMixed
+            ? this.currentData.rows.map(r => r.dividendPerShare) : [];
         const hasDividendHistory = dpsSeries.some(v => v > 0);
         const hasDividendIndication = hasDividendHistory || divYield > 0 || divRate > 0;
 
@@ -3746,19 +3761,21 @@ class ScreenerApp {
             const firstIdx = dpsSeries.findIndex(v => v > 0);
             const lastIdx = dpsSeries.length - 1;
             const years = (this.currentData.rows[lastIdx].endTs - this.currentData.rows[firstIdx].endTs) / YEAR_MS;
-            const growth = cagr(dpsSeries[firstIdx], dpsSeries[lastIdx], Math.round(years));
+            const growth = cagr(dpsSeries[firstIdx], dpsSeries[lastIdx], years);
             if (growth != null) cagrText = `${growth >= 0 ? '+' : ''}${growth.toFixed(1)}%/an`;
         }
         if (el('div-kpi-cagr')) el('div-kpi-cagr').textContent = cagrText;
 
         // The accounting-based charts do not wait for the independent event
         // request, so a provider outage only affects payment history.
+        const periodLabels = fundamentals.map(y => fiscalPeriodLabel(y, { short: true }));
+        const periodTimeline = fundamentals.map(y => y.endDate || y.year);
         this.renderQuantBarChart('chart-dividend-annual', 'Dividende / action (estimé)',
-            fundamentals.map(y => y.year), hasDividendHistory ? dpsSeries : [], '#14b8a6', 'footer-dividend-annual', finCurrency);
+            periodLabels, hasDividendHistory ? dpsSeries : [], '#14b8a6', 'footer-dividend-annual', finCurrency, periodTimeline);
         const payoutSeries = hasFundamentals
             ? fundamentals.map(y => (y.annualNetIncome > 0 && isNum(y.annualCommonStockDividendPaid) ? (Math.abs(y.annualCommonStockDividendPaid) / y.annualNetIncome) * 100 : null))
             : [];
-        this.renderQuantLineChart('chart-payout-ratio', [{ label: 'Payout Ratio', data: payoutSeries, color: '#14b8a6' }], fundamentals.map(y => y.year), null, '%');
+        this.renderQuantLineChart('chart-payout-ratio', [{ label: 'Payout Ratio', data: payoutSeries, color: '#14b8a6' }], periodLabels, null, '%');
 
         // Chart 1: real per-payment history. The Worker strips the underlying
         // Yahoo chart response so the browser receives only useful events.
@@ -3809,7 +3826,7 @@ class ScreenerApp {
 
     async renderFinancesTab() {
         const fundamentals = this.currentData.fundamentals || [];
-        const hasFundamentals = this.currentData.hasFundamentals && fundamentals.length >= 1;
+        const hasFundamentals = this.currentData.hasStatements ?? hasFinancialStatements(fundamentals);
         // Statements are in their reporting currency, not the quote currency (ADRs).
         const currency = this.currentData.currency.finIso || '';
 
@@ -3830,23 +3847,51 @@ class ScreenerApp {
         this.currentFinStatement = statementKey;
         document.querySelectorAll('.fin-statement-tab').forEach(b => b.classList.toggle('active', b.dataset.statement === statementKey));
 
-        const fundamentals = this._finFundamentals || [];
+        const fundamentals = [...(this._finFundamentals || [])].sort((a, b) =>
+            String(b.endDate || b.year).localeCompare(String(a.endDate || a.year)));
         const currency = this._finCurrency || '';
         const table = document.getElementById('fin-table');
         if (!table) return;
 
         const thead = table.querySelector('thead tr');
         const tbody = table.querySelector('tbody');
-        thead.innerHTML = `<th>Ligne${currency ? ` (${escHtml(currency)})` : ''}</th>` + fundamentals.map(y => `<th>${escHtml(y.year)}</th>`).join('');
+        const periodCurrency = period => {
+            const currencies = period.currencies?.length ? period.currencies : [period.currency || currency];
+            const normalised = [...new Set(currencies.map(code => normalizeCurrency(code).iso).filter(Boolean))];
+            return normalised.length === 1 ? normalised[0] : normalised.join(' / ');
+        };
+        thead.innerHTML = '<th scope="col">Ligne / unité</th>' + fundamentals.map(period => {
+            const publishedCurrency = periodCurrency(period);
+            const periodType = String(period.periodType || '12M').toUpperCase() === '12M'
+                ? '12 mois' : period.periodType;
+            const warning = period.currencyConflict ? ' · devises source incohérentes' : '';
+            return `<th scope="col"><span class="fin-period-label">${escHtml(fiscalPeriodLabel(period))}</span>`
+                + `<span class="fin-period-meta">${escHtml([publishedCurrency, periodType].filter(Boolean).join(' · ') + warning)}</span></th>`;
+        }).join('');
         tbody.innerHTML = def.rows.map(row => {
             const cells = fundamentals.map(y => {
                 const val = y[row.key];
                 if (!isNum(val)) return '<td>—</td>';
                 const formatted = row.decimals ? this.fmt(val, 2) : this.fmtBig(val);
-                return `<td${val < 0 ? ' class="fin-negative"' : ''}>${formatted}</td>`;
+                const classes = [val < 0 ? 'fin-negative' : '', y.metricConflicts?.includes(row.key) ? 'fin-conflict' : '']
+                    .filter(Boolean).join(' ');
+                const metricCurrency = normalizeCurrency(y.currencyByMetric?.[row.key] || y.currency || currency).iso;
+                const currencySuffix = metricCurrency && metricCurrency !== periodCurrency(y)
+                    ? ` <small>${escHtml(metricCurrency)}</small>` : '';
+                const title = y.metricConflicts?.includes(row.key)
+                    ? ' title="Valeurs contradictoires reçues pour cette métrique ; première valeur conservée"' : '';
+                return `<td${classes ? ` class="${classes}"` : ''}${title}>${formatted}${currencySuffix}</td>`;
             }).join('');
-            return `<tr><td>${row.label}</td>${cells}</tr>`;
+            const unit = row.perShare ? 'par action ordinaire publiée' : 'montant total';
+            return `<tr><th scope="row"><span>${escHtml(row.label)}</span><small>${unit}</small></th>${cells}</tr>`;
         }).join('');
+
+        const meta = document.getElementById('finances-meta');
+        if (meta) {
+            const currencyWarning = this.currentData.currency.finCurrencyMixed
+                ? ` Les devises varient selon les exercices (${this.currentData.currency.finCurrencies.join(', ')}) : les montants ne sont pas directement comparables.` : '';
+            meta.textContent = `Montants totaux publiés, sauf les lignes BPA exprimées par action ordinaire. Pour un ADR, aucun ratio vers le titre coté n’est supposé.${currencyWarning}`;
+        }
     }
 
     // ─── Chart helpers ────────────────────────────────────────────────────────
@@ -3873,7 +3918,7 @@ class ScreenerApp {
         return canvas;
     }
 
-    renderQuantBarChart(id, label, labels, data, color, footerId, currency = '') {
+    renderQuantBarChart(id, label, labels, data, color, footerId, currency = '', timeline = labels) {
         const footer = footerId ? document.getElementById(footerId) : null;
         if (footer) footer.innerHTML = '';
         const canvas = this.prepareChartCanvas(id, [data]);
@@ -3909,12 +3954,12 @@ class ScreenerApp {
             }
         });
         this.trackTabChart(chart, canvas);
-        this.renderQuantFooter(footerId, data, labels);
+        this.renderQuantFooter(footerId, data, timeline);
     }
 
     // Grouped bar chart for several datasets sharing the same year labels (e.g. OCF vs FCF).
     // footerSeriesIndex picks which dataset the Perf/CAGR footer is computed from.
-    renderQuantGroupedBarChart(id, labels, datasets, footerId, currency = '', footerSeriesIndex = 0) {
+    renderQuantGroupedBarChart(id, labels, datasets, footerId, currency = '', footerSeriesIndex = 0, timeline = labels) {
         const footer = footerId ? document.getElementById(footerId) : null;
         if (footer) footer.innerHTML = '';
         const canvas = this.prepareChartCanvas(id, datasets.map(ds => ds.data));
@@ -3950,7 +3995,7 @@ class ScreenerApp {
             }
         });
         this.trackTabChart(chart, canvas);
-        this.renderQuantFooter(footerId, datasets[footerSeriesIndex]?.data, labels);
+        this.renderQuantFooter(footerId, datasets[footerSeriesIndex]?.data, timeline);
     }
 
     // Perf/CAGR footer, only when the series has real positive endpoints.

@@ -5,7 +5,7 @@
 // comportement contre le VRAI module, `fetch` global étant stubé pour éviter
 // tout appel réseau réel vers Yahoo.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import worker, { _resetRateLimiterStateForTests } from '../cloudflare-workers/prices-worker/worker.js';
+import worker, { _resetRateLimiterStateForTests, reshapeFundamentalsTimeseries } from '../cloudflare-workers/prices-worker/worker.js';
 
 // INCIDENT POST-MORTEM (2026-09-23) : l'ancien rate limiter consommait une
 // écriture KV (`env.RATE_LIMIT.put()`) À CHAQUE requête autorisée — le plan
@@ -75,6 +75,44 @@ function stubFetch({ yahooOk = true } = {}) {
 // simulé : le Worker attend entre ses tentatives Yahoo via setTimeout, qui
 // doit rester réel.
 const FROZEN_NOW = new Date('2026-01-15T12:00:30.000Z');
+
+describe('Prices Worker — identité des exercices fiscaux', () => {
+    it('conserve deux clôtures de la même année et leur type de période', () => {
+        const block = (metric, points) => ({ meta: { type: [metric] }, [metric]: points });
+        const raw = { timeseries: { result: [
+            block('annualTotalRevenue', [
+                { asOfDate: '2025-03-31', periodType: '12M', currencyCode: 'EUR', reportedValue: { raw: 100 } },
+                { asOfDate: '2025-12-31', periodType: '12M', currencyCode: 'USD', reportedValue: { raw: 150 } },
+            ]),
+            block('annualNetIncome', [
+                { asOfDate: '2025-03-31', periodType: '12M', currencyCode: 'EUR', reportedValue: { raw: 10 } },
+                { asOfDate: '2025-12-31', periodType: '12M', currencyCode: 'USD', reportedValue: { raw: 20 } },
+            ]),
+        ] } };
+
+        const result = reshapeFundamentalsTimeseries(raw, 'TEST');
+        expect(result.years).toHaveLength(2);
+        expect(result.years.map(period => period.fiscalId)).toEqual(['12M:2025-03-31', '12M:2025-12-31']);
+        expect(result.years.map(period => period.currency)).toEqual(['EUR', 'USD']);
+    });
+
+    it('préserve la devise par métrique et signale les valeurs contradictoires', () => {
+        const raw = { timeseries: { result: [{
+            meta: { type: ['annualNetIncome'] },
+            annualNetIncome: [
+                { asOfDate: '2025-12-31', periodType: '12M', currencyCode: 'USD', reportedValue: { raw: 10 } },
+                { asOfDate: '2025-12-31', periodType: '12M', currencyCode: 'EUR', reportedValue: { raw: 11 } },
+            ],
+        }] } };
+
+        const [period] = reshapeFundamentalsTimeseries(raw, 'TEST').years;
+        expect(period.annualNetIncome).toBe(10);
+        expect(period.metricConflicts).toContain('annualNetIncome');
+        expect(period.currencyConflict).toBe(true);
+        expect(period.currencies).toEqual(['USD', 'EUR']);
+        expect(period.currencyByMetric.annualNetIncome).toBe('USD');
+    });
+});
 
 describe('Prices Worker — validation, rate limiting, erreurs génériques (P1)', () => {
     beforeEach(() => {

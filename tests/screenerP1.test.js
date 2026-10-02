@@ -678,6 +678,31 @@ describe('Screener P2 robustness', () => {
         expect(app.quantCharts.length).toBeGreaterThan(0);
     });
 
+    it('shows dated annual statements even when quoteSummary.financialData is absent', async () => {
+        app.currentData = {
+            ...app.currentData,
+            quoteSummary: { price: { currency: 'USD', quoteType: 'EQUITY' } },
+            hasFundamentals: false,
+            hasStatements: true,
+            currency: { quote: 'USD', priceIso: 'USD', finIso: 'USD', finCurrencies: ['USD'], finCurrencyMixed: false },
+            fundamentals: [
+                { fiscalId: '12M:2025-03-31', year: '2025', endDate: '2025-03-31', periodType: '12M', currency: 'USD', annualNetIncome: 10 },
+                { fiscalId: '12M:2025-12-31', year: '2025', endDate: '2025-12-31', periodType: '12M', currency: 'USD', annualNetIncome: 20 },
+            ],
+        };
+
+        app.updateTabAvailability();
+        await app.renderFinancesTab();
+
+        expect(document.querySelector('[data-tab="finances"]').classList.contains('disabled')).toBe(false);
+        expect(document.querySelector('[data-tab="quantitatif"]').classList.contains('disabled')).toBe(false);
+        expect(document.querySelector('[data-tab="valorisation"]').classList.contains('disabled')).toBe(true);
+        const headers = [...document.querySelectorAll('#fin-table thead th')].map(node => node.textContent);
+        expect(headers[1]).toContain('31 décembre 2025');
+        expect(headers[2]).toContain('31 mars 2025');
+        expect(document.getElementById('finances-meta').textContent).toContain('BPA exprimées par action ordinaire');
+    });
+
     it('renders the quote before optional fundamentals, benchmark and FX finish', async () => {
         const fundamentals = pending();
         const benchmark = pending();

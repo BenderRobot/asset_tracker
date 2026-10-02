@@ -34,12 +34,23 @@ export function fxSymbol(fromIso, toIso) {
 export function currencyContext(quoteSummary, fundamentals = []) {
     const quote = quoteSummary?.price?.currency || quoteSummary?.summaryDetail?.currency || null;
     const { iso: priceIso, factor: priceFactor } = normalizeCurrency(quote);
-    const financial = fundamentals.find(y => y.currency)?.currency
-        || quoteSummary?.financialData?.financialCurrency
-        || quoteSummary?.earnings?.financialCurrency
-        || priceIso;
+    const statementCurrencies = [...new Set((fundamentals || []).flatMap(period => {
+        const published = period?.currencies?.length ? period.currencies : [period?.currency];
+        return published.map(code => normalizeCurrency(code).iso).filter(Boolean);
+    }))];
+    const finCurrencyMixed = statementCurrencies.length > 1;
+    const financial = statementCurrencies.length === 1 ? statementCurrencies[0]
+        : statementCurrencies.length > 1 ? null
+        : quoteSummary?.financialData?.financialCurrency
+            || quoteSummary?.earnings?.financialCurrency
+            || priceIso;
     const finIso = normalizeCurrency(financial).iso;
-    return { quote, priceIso, priceFactor, finIso, needsFx: !!(finIso && priceIso && finIso !== priceIso) };
+    return {
+        quote, priceIso, priceFactor, finIso,
+        finCurrencies: statementCurrencies,
+        finCurrencyMixed,
+        needsFx: !!(finIso && priceIso && finIso !== priceIso),
+    };
 }
 
 // ─── Series helpers ─────────────────────────────────────────────────────────
@@ -109,7 +120,15 @@ export function cagr(first, last, years) {
 
 // Perf/CAGR footer of the annual charts: only defined on positive endpoints.
 export function annualSeriesStats(series, years = null) {
-    const points = (series || []).map((v, i) => ({ v, year: years ? Number(years[i]) : i })).filter(p => isNum(p.v));
+    const position = (value, fallback) => {
+        if (isNum(value)) return value;
+        if (/^\d{4}$/.test(String(value || ''))) return Number(value);
+        const timestamp = Date.parse(String(value || ''));
+        return Number.isFinite(timestamp) ? timestamp / YEAR_MS : fallback;
+    };
+    const points = (series || [])
+        .map((v, i) => ({ v, year: years ? position(years[i], i) : i }))
+        .filter(p => isNum(p.v));
     if (points.length < 2) return null;
     const start = points[0].v, end = points[points.length - 1].v;
     if (start === 0) return null;
@@ -184,7 +203,15 @@ export function fundamentalRows(fundamentals, { ordinaryPerQuoted = 1 } = {}) {
         const shares = confirmed && isNum(sharesOf(y)) ? sharesOf(y) / factor : null;
         const publishedEps = num(y.annualDilutedEPS) ?? num(y.annualBasicEPS);
         return {
+            fiscalId: y.fiscalId || `${y.periodType || '12M'}:${y.endDate || y.year}`,
             year: y.year,
+            endDate: y.endDate || null,
+            periodType: y.periodType || '12M',
+            currency: y.currency || null,
+            currencies: y.currencies || (y.currency ? [y.currency] : []),
+            currencyByMetric: y.currencyByMetric || {},
+            currencyConflict: !!y.currencyConflict,
+            metricConflicts: y.metricConflicts || [],
             endTs: y.endDate ? Date.parse(`${y.endDate}T23:59:59Z`) : null,
             revenue: y.annualTotalRevenue ?? null,
             netIncome: y.annualNetIncome ?? null,
@@ -203,6 +230,28 @@ export function fundamentalRows(fundamentals, { ordinaryPerQuoted = 1 } = {}) {
     });
 }
 
+// Statement availability is independent from quoteSummary.financialData.
+// Yahoo may omit that real-time module while still returning valid annual
+// statements from fundamentals-timeseries.
+export function hasFinancialStatements(fundamentals) {
+    return (fundamentals || []).some(period => period && (period.endDate || period.year)
+        && Object.entries(period).some(([key, value]) => key.startsWith('annual') && isNum(value)));
+}
+
+export function fiscalPeriodLabel(period, { short = false } = {}) {
+    const endDate = period?.endDate;
+    let close = period?.year || 'date inconnue';
+    if (endDate && Number.isFinite(Date.parse(`${endDate}T00:00:00Z`))) {
+        close = new Intl.DateTimeFormat('fr-FR', {
+            day: 'numeric', month: short ? 'short' : 'long', year: 'numeric', timeZone: 'UTC',
+        }).format(new Date(`${endDate}T00:00:00Z`));
+    }
+    const periodType = period?.periodType;
+    const suffix = periodType && !['12M', 'ANNUAL', 'FY'].includes(String(periodType).toUpperCase())
+        ? ` · ${periodType}` : '';
+    return `${short ? '' : 'Exercice clos le '}${close}${suffix}`;
+}
+
 // Year-end multiples from real statements and the real closing price.
 // priceAt(t) → price in priceIso major units; fxAt(t) → finIso→priceIso rate.
 export function historicalMultiples(rows, priceAt, fxAt) {
@@ -212,7 +261,10 @@ export function historicalMultiples(rows, priceAt, fxAt) {
         const price = r.endTs ? priceAt(r.endTs) : null;
         const rate = r.endTs ? fxAt(r.endTs) : null;
         return {
+            fiscalId: r.fiscalId,
             year: r.year,
+            endDate: r.endDate,
+            periodType: r.periodType,
             endTs: r.endTs,
             price,
             fcfPerShare: isNum(r.fcfPerShare) && isNum(rate) ? r.fcfPerShare * rate : null,
