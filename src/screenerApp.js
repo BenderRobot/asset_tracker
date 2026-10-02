@@ -1375,14 +1375,24 @@ class ScreenerApp {
         // Annualized slope, derived from the actual data cadence (not assumed weekly)
         const pointsPerYear = this.calcPeriodsPerYear(data);
         const annualSlope = (Math.exp(slope * pointsPerYear) - 1) * 100;
+        const spanYears = (data[n - 1].t - data[0].t) / YEAR_MS;
+        const periodTrend = ((regressionLine[n - 1] / regressionLine[0]) - 1) * 100;
+        const annualisedMeaningful = spanYears >= MIN_ANNUALISED_YEARS;
+        const periodLabels = { '1mo': '1M', '3mo': '3M', '6mo': '6M', ytd: 'YTD' };
 
         document.getElementById('reg-current').textContent = `${this.fmt(currentPrice, 2)} ${currency}`;
         this.setColorValue(document.getElementById('reg-value'),
             `${this.fmt(regCurrentPrice, 2)} ${currency}`,
             currentPrice >= regCurrentPrice);
+        const slopeLabel = document.getElementById('reg-slope-label');
+        if (slopeLabel) slopeLabel.textContent = annualisedMeaningful
+            ? 'Pente /an' : `Tendance ${periodLabels[this.currentPeriod] || 'période'}`;
+        const displayedSlope = annualisedMeaningful ? annualSlope : periodTrend;
         this.setColorValue(document.getElementById('reg-slope'),
-            `${annualSlope >= 0 ? '+' : ''}${annualSlope.toFixed(1)}%/an`,
-            annualSlope >= 0);
+            `${displayedSlope >= 0 ? '+' : ''}${displayedSlope.toFixed(1)}%${annualisedMeaningful ? '/an' : ''}`,
+            displayedSlope >= 0);
+        const title = document.getElementById('regression-card-title');
+        if (title) title.textContent = 'Tendance semi-log';
 
         this.regressionChart = new Chart(canvas.getContext('2d'), {
             type: 'line',
@@ -1390,7 +1400,7 @@ class ScreenerApp {
                 labels,
                 datasets: [
                     { label: 'Prix', data: values, borderColor: '#10b981', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.3 },
-                    { label: 'Régression', data: regressionLine, borderColor: '#f59e0b', borderWidth: 2, borderDash: [4, 3], pointRadius: 0, fill: false },
+                    { label: 'Tendance', data: regressionLine, borderColor: '#f59e0b', borderWidth: 2, borderDash: [4, 3], pointRadius: 0, fill: false },
                     { label: 'Bande sup.', data: upperBand, borderColor: 'rgba(245,158,11,0.25)', borderWidth: 1, borderDash: [2, 4], pointRadius: 0, fill: '+1', backgroundColor: 'rgba(245,158,11,0.04)' },
                     { label: 'Bande inf.', data: lowerBand, borderColor: 'rgba(245,158,11,0.25)', borderWidth: 1, borderDash: [2, 4], pointRadius: 0, fill: false },
                 ]
@@ -2071,7 +2081,10 @@ class ScreenerApp {
 
         // ── CLEAN SWEEP : Reset absolute avant ouverture ───────
         const modalContent = modal.querySelector('.kpi-modal-content');
-        if (modalContent) modalContent.classList.remove('radar-mode-layout');
+        if (modalContent) {
+            modalContent.classList.remove('radar-mode-layout', 'regression-mode-layout');
+            modalContent.classList.toggle('regression-mode-layout', kpiType === 'regression');
+        }
 
         // Supprimer les résidus du mode radar
         document.querySelector('.radar-analysis-container')?.remove();
@@ -2207,12 +2220,16 @@ class ScreenerApp {
         if (!canvas || !statsContainer) return;
 
         // 1. HARD RESET LAYOUT & UI STATES
-        if (modalContent) modalContent.classList.remove('radar-mode-layout');
+        if (modalContent) {
+            modalContent.classList.remove('radar-mode-layout', 'regression-mode-layout');
+            modalContent.classList.toggle('regression-mode-layout', kpiType === 'regression');
+        }
         document.querySelector('.kpi-modal-info')?.removeAttribute('style');
         document.querySelector('.kpi-modal-period-btns')?.removeAttribute('style');
+        statsContainer.removeAttribute('style');
 
         const sidebarTitle = document.querySelector('.kpi-modal-sidebar-header h3');
-        if (sidebarTitle) sidebarTitle.textContent = 'Paramètres';
+        if (sidebarTitle) sidebarTitle.textContent = kpiType === 'regression' ? 'Réglages de tendance' : 'Paramètres';
 
         // Hide score badge by default (only for radar mode)
         document.querySelectorAll('.header-score-badge').forEach(b => b.style.display = 'none');
@@ -2249,6 +2266,8 @@ class ScreenerApp {
 
         const divWrapper = document.getElementById('kpi-show-dividends-wrapper');
         const compSettings = document.getElementById('kpi-comparison-settings');
+
+        modalContent?.classList.toggle('regression-mode-layout', isRegression);
 
         if (regSettings) regSettings.style.display = isRegression ? 'block' : 'none';
         if (valSettings) valSettings.style.display = isValuation ? 'block' : 'none';
@@ -2493,20 +2512,20 @@ class ScreenerApp {
         const datasets = [
             // σ bands (draw first so they're behind)
             ...(bandsOn ? [
-                { label: '+2σ', data: pad(b2up), borderColor: BAND2_COL, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
-                { label: '+1σ', data: pad(b1up), borderColor: BAND1_COL, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
-                { label: '-1σ', data: pad(b1dn), borderColor: BAND1_COL, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
-                { label: '-2σ', data: pad(b2dn), borderColor: BAND2_COL, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
+                { label: null, isBand: true, data: pad(b2up), borderColor: BAND2_COL, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
+                { label: null, isBand: true, data: pad(b1up), borderColor: BAND1_COL, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
+                { label: null, isBand: true, data: pad(b1dn), borderColor: BAND1_COL, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
+                { label: null, isBand: true, data: pad(b2dn), borderColor: BAND2_COL, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
             ] : []),
             // Projection bands
             ...(bandsOn && projCount > 0 ? [
-                { label: null, data: ppad(pB2up), borderColor: 'rgba(148,163,184,0.2)', borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
-                { label: null, data: ppad(pB1up), borderColor: 'rgba(148,163,184,0.3)', borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
-                { label: null, data: ppad(pB1dn), borderColor: 'rgba(148,163,184,0.3)', borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
-                { label: null, data: ppad(pB2dn), borderColor: 'rgba(148,163,184,0.2)', borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
+                { label: null, isBand: true, data: ppad(pB2up), borderColor: 'rgba(148,163,184,0.2)', borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
+                { label: null, isBand: true, data: ppad(pB1up), borderColor: 'rgba(148,163,184,0.3)', borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
+                { label: null, isBand: true, data: ppad(pB1dn), borderColor: 'rgba(148,163,184,0.3)', borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
+                { label: null, isBand: true, data: ppad(pB2dn), borderColor: 'rgba(148,163,184,0.2)', borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, order: 5 },
             ] : []),
             // Régression historique (solid)
-            { label: 'Régression', data: pad(regressionLine), borderColor: REG_COL, borderWidth: 2, pointRadius: 0, fill: false, order: 2 },
+            { label: 'Tendance', data: pad(regressionLine), borderColor: REG_COL, borderWidth: 2, pointRadius: 0, fill: false, order: 2 },
             // Régression projection (dashed, connected)
             ...(projCount > 0 ? [
                 { label: 'Projection', data: ppad(pReg), borderColor: REG_COL, borderWidth: 2, borderDash: [7, 4], pointRadius: 0, fill: false, order: 2 },
@@ -2529,7 +2548,7 @@ class ScreenerApp {
                         display: true,
                         labels: {
                             color: '#94a3b8',
-                            filter: item => item.text != null,
+                            filter: (item, chartData) => item.text != null && !chartData.datasets[item.datasetIndex]?.isBand,
                             usePointStyle: true,
                             pointStyleWidth: 20,
                             boxHeight: 2,
@@ -2541,7 +2560,7 @@ class ScreenerApp {
                         intersect: false,
                         callbacks: {
                             label: ctx => {
-                                if (ctx.parsed.y == null) return null;
+                                if (ctx.parsed.y == null || ctx.dataset.isBand) return null;
                                 return `${ctx.dataset.label}: ${this.fmt(ctx.parsed.y, 2)} ${currency}`;
                             }
                         }
@@ -2559,8 +2578,10 @@ class ScreenerApp {
                         grid: { color: 'rgba(255,255,255,0.04)' },
                         ticks: {
                             color: '#64748b',
-                            callback: v => this.fmt(v, 2)
-                        }
+                            maxTicksLimit: 8,
+                            callback: v => this.fmt(v, Math.abs(v) >= 100 ? 0 : 2)
+                        },
+                        title: { display: true, text: currency || 'Prix', color: '#64748b', font: { size: 11, weight: '600' } }
                     }
                 }
             }
@@ -2589,67 +2610,62 @@ class ScreenerApp {
         const devSign = dev >= 0 ? '+' : '';
         const devColor = dev >= 0 ? '#10b981' : '#ef4444';
         
-        let cagrBadge = null;
+        let trendBadge = null;
         if (cagr !== null && !isNaN(cagr)) {
-            const cagrSign = cagr >= 0 ? '+' : '';
-            cagrBadge = { text: `${cagrSign}${cagr.toFixed(1)}%/an`, color: REG_COL, bg: 'rgba(245,158,11,0.12)' };
+            const fittedPeriodTrend = ((regressionLine[n - 1] / regressionLine[0]) - 1) * 100;
+            const shownTrend = spanYears >= MIN_ANNUALISED_YEARS ? cagr : fittedPeriodTrend;
+            const trendSign = shownTrend >= 0 ? '+' : '';
+            trendBadge = {
+                text: spanYears >= MIN_ANNUALISED_YEARS
+                    ? `${trendSign}${shownTrend.toFixed(1)}%/an`
+                    : `${trendSign}${shownTrend.toFixed(1)}% sur période`,
+                color: REG_COL,
+                bg: 'rgba(245,158,11,0.12)'
+            };
         } else {
-            cagrBadge = { text: '—', color: REG_COL, bg: 'rgba(245,158,11,0.12)' };
+            trendBadge = { text: '—', color: REG_COL, bg: 'rgba(245,158,11,0.12)' };
         }
         const projTarget = pReg.length > 0 ? pReg[pReg.length - 1] : null;
 
         const f = v => `${this.fmt(v, 2)} ${currency}`;
 
         // ── Helper: one stat card ──
-        const card = (label, value, valueColor = '#e2e8f0', badge = null, dot = null, line = null) => `
-            <div style="
-                display:inline-flex;flex-direction:column;align-items:flex-start;
-                background:linear-gradient(145deg, rgba(30, 36, 51, 0.7) 0%, rgba(20, 25, 40, 0.9) 100%);
-                border:1px solid rgba(255,255,255,0.08);
-                border-radius:14px;padding:12px 18px;gap:6px;flex-shrink:0;
-                box-shadow:0 4px 12px rgba(0,0,0,0.15);
-            ">
-                <div style="display:flex;align-items:center;gap:8px;">
-                    ${dot ? `<span style="width:10px;height:10px;border-radius:50%;background:${dot};display:inline-block;flex-shrink:0;box-shadow:0 0 6px ${dot};"></span>` : ''}
-                    ${line ? `<span style="width:18px;height:3px;background:${line};display:inline-block;flex-shrink:0;border-radius:2px;box-shadow:0 0 6px ${line};"></span>` : ''}
-                    <span style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;">${label}</span>
+        const card = (label, value, valueColor = '#e2e8f0', badge = null, dot = null, line = null, extraClass = '') => `
+            <div class="regression-stat-card ${extraClass}">
+                <div class="regression-stat-label">
+                    ${dot ? `<span class="regression-stat-dot" style="--stat-color:${dot}"></span>` : ''}
+                    ${line ? `<span class="regression-stat-line" style="--stat-color:${line}"></span>` : ''}
+                    <span>${label}</span>
                 </div>
-                <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px;">
-                    <span style="font-size:18px;font-weight:800;color:${valueColor};">${value}</span>
-                    ${badge ? `<span style="font-size:12px;font-weight:700;color:${badge.color};background:${badge.bg};padding:3px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.05);">${badge.text}</span>` : ''}
+                <div class="regression-stat-value-row">
+                    <span class="regression-stat-value" style="color:${valueColor}">${value}</span>
+                    ${badge ? `<span class="regression-stat-badge" style="color:${badge.color};background:${badge.bg}">${badge.text}</span>` : ''}
                 </div>
             </div>`;
 
-        statsContainer.style.cssText = 'position:relative; width:100%; box-sizing:border-box; padding:20px 0 0; right:auto; bottom:auto; z-index:10; margin-top:auto;';
+        statsContainer.style.cssText = '';
         statsContainer.innerHTML = `
-            <div style="display:flex;align-items:stretch;justify-content:center;gap:12px;flex-wrap:wrap;width:100%;">
+            <div class="regression-stats-grid">
                 ${card('Prix', f(curPrice), '#f8fafc', null, PRICE_COL)}
-                ${card('Régression', f(regCur), REG_COL, cagrBadge, null, REG_COL)}
+                ${card('Tendance actuelle', f(regCur), REG_COL, trendBadge, null, REG_COL, 'is-trend')}
                 ${card('Écart', `${devSign}${dev.toFixed(1)}%`, devColor, null, null, null)}
                 ${bandsOn ? `
-                <div style="
-                    display:inline-flex;flex-direction:column;align-items:flex-start;
-                    background:linear-gradient(145deg, rgba(30, 36, 51, 0.7) 0%, rgba(20, 25, 40, 0.9) 100%);
-                    border:1px solid rgba(255,255,255,0.08);
-                    border-radius:14px;padding:12px 18px;gap:8px;flex-shrink:0;
-                    box-shadow:0 4px 12px rgba(0,0,0,0.15);
-                ">
-                    <span style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;">Bandes σ</span>
-                    <div style="display:flex;align-items:center;gap:16px;">
-                        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-                            <span style="font-size:11px;color:#94a3b8;font-weight:600;">+2σ <span style="color:#e2e8f0;font-weight:800;font-size:13px;margin-left:4px;">${f(b2up[n - 1])}</span></span>
-                            <span style="font-size:11px;color:#94a3b8;font-weight:600;">+1σ <span style="color:#e2e8f0;font-weight:800;font-size:13px;margin-left:4px;">${f(b1up[n - 1])}</span></span>
+                <div class="regression-stat-card is-bands">
+                    <div class="regression-stat-label"><span>Bandes σ</span></div>
+                    <div class="regression-band-grid">
+                        <div>
+                            <span>+2σ <strong>${f(b2up[n - 1])}</strong></span>
+                            <span>+1σ <strong>${f(b1up[n - 1])}</strong></span>
                         </div>
-                        <div style="width:1px;height:36px;background:rgba(255,255,255,0.1);"></div>
-                        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-                            <span style="font-size:11px;color:#94a3b8;font-weight:600;">-1σ <span style="color:#e2e8f0;font-weight:800;font-size:13px;margin-left:4px;">${f(b1dn[n - 1])}</span></span>
-                            <span style="font-size:11px;color:#94a3b8;font-weight:600;">-2σ <span style="color:#e2e8f0;font-weight:800;font-size:13px;margin-left:4px;">${f(b2dn[n - 1])}</span></span>
+                        <div>
+                            <span>-1σ <strong>${f(b1dn[n - 1])}</strong></span>
+                            <span>-2σ <strong>${f(b2dn[n - 1])}</strong></span>
                         </div>
                     </div>
                 </div>
                 ` : ''}
                 ${projTarget && projYears > 0 ? card(
-            `Proj. +${projYears}A`, f(projTarget), '#fbbf24',
+            `Projection +${projYears}A`, f(projTarget), '#fbbf24',
             null, null, REG_COL
         ) : ''}
                 ${card('R²', r2.toFixed(3), r2 >= 0.85 ? '#10b981' : r2 >= 0.65 ? '#f59e0b' : '#ef4444')}

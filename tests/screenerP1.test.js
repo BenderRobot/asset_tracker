@@ -119,6 +119,64 @@ describe('P1 screener journeys', () => {
         expect(app.fetchPriceHistory.mock.calls.every(call => call[2].daily)).toBe(true);
     });
 
+    it('shows the fitted trend over short periods instead of annualising it', () => {
+        const points = dates => dates.map((date, index) => ({
+            t: Date.parse(`${date}T16:00:00Z`),
+            session: date,
+            closed: true,
+            c: 100 * Math.pow(1.02, index),
+        }));
+        app.currentData.quoteSummary.price = { currency: 'USD' };
+        app.currentPeriod = '1mo';
+        app.currentData.priceHistory = points(['2026-09-01', '2026-09-10', '2026-09-20', '2026-09-30']);
+
+        app.renderRegressionChart();
+
+        expect(document.getElementById('regression-card-title').textContent).toBe('Tendance semi-log');
+        expect(document.getElementById('reg-slope-label').textContent).toBe('Tendance 1M');
+        expect(document.getElementById('reg-slope').textContent).toMatch(/^\+?6\.1%$/);
+        expect(document.getElementById('reg-slope').textContent).not.toContain('/an');
+
+        app.currentPeriod = '5y';
+        app.currentData.priceHistory = points(['2023-01-01', '2024-01-01', '2025-01-01', '2026-01-01']);
+        app.renderRegressionChart();
+        expect(document.getElementById('reg-slope-label').textContent).toBe('Pente /an');
+        expect(document.getElementById('reg-slope').textContent).toContain('/an');
+    });
+
+    it('uses the compact regression layout and removes sigma bands from the legend', async () => {
+        app.modalHistory = ['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01'].map((date, index) => ({
+            t: Date.parse(`${date}T16:00:00Z`),
+            c: 100 * Math.pow(1.03, index),
+            a: 100 * Math.pow(1.03, index),
+        }));
+        app.currentModalPeriod = '3mo';
+
+        await app.renderKpiModalContent('regression');
+
+        const content = document.querySelector('.kpi-modal-content');
+        const modalChart = charts.get(document.getElementById('kpi-modal-chart'));
+        expect(content.classList.contains('regression-mode-layout')).toBe(true);
+        expect(document.querySelector('.kpi-modal-sidebar-header h3').textContent).toBe('Réglages de tendance');
+        expect(document.querySelector('.regression-stats-grid')).not.toBeNull();
+        expect(document.querySelectorAll('.regression-stat-card')).toHaveLength(6);
+        expect(document.getElementById('kpi-modal-stats').textContent).toContain('sur période');
+        expect(modalChart.config.data.datasets.filter(dataset => dataset.isBand)
+            .every(dataset => dataset.label == null)).toBe(true);
+        const bandIndex = modalChart.config.data.datasets.findIndex(dataset => dataset.isBand);
+        expect(modalChart.config.options.plugins.legend.labels.filter(
+            { text: 'Band', datasetIndex: bandIndex }, modalChart.config.data,
+        )).toBe(false);
+        expect(modalChart.config.options.scales.y.ticks.maxTicksLimit).toBe(8);
+        expect(modalChart.config.options.plugins.tooltip.callbacks.label({
+            parsed: { y: 120 }, dataset: { isBand: true },
+        })).toBeNull();
+
+        await app.renderKpiModalContent('price');
+        expect(content.classList.contains('regression-mode-layout')).toBe(false);
+        expect(document.querySelector('.kpi-modal-sidebar-header h3').textContent).toBe('Paramètres');
+    });
+
     it('loads daily fiscal-close data and preserves local sessions across time zones', async () => {
         vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-01T10:00:00Z'));
         app.currentData.priceHistoryLong = null;

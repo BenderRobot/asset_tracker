@@ -179,7 +179,7 @@
                         <!-- Regression lineaire -->
                         <div class="screener-card chart-card">
                             <div class="screener-card-header">
-                                <span class="card-title">Régression linéaire</span>
+                                <span id="regression-card-title" class="card-title">Tendance semi-log</span>
                                 <button class="kpi-expand-btn" data-kpi="regression" title="Voir les détails">
                                     <i class="fas fa-expand-alt"></i>
                                 </button>
@@ -196,7 +196,7 @@
                                         class="cs-value">—</span></div>
                                 <div class="chart-stat"><span class="cs-label">Régression</span><span id="reg-value"
                                         class="cs-value">—</span></div>
-                                <div class="chart-stat"><span class="cs-label">Pente /an</span><span id="reg-slope"
+                                <div class="chart-stat"><span id="reg-slope-label" class="cs-label">Pente /an</span><span id="reg-slope"
                                         class="cs-value">—</span></div>
                             </div>
                         </div>
@@ -773,6 +773,7 @@
                                 <span>Afficher les bandes σ</span>
                             </label>
                         </div>
+                        <p class="regression-settings-note">Les bandes σ décrivent la dispersion historique autour de la tendance. Elles ne constituent pas un intervalle de prévision.</p>
                     </div>
 
                     <!-- Comparaison settings -->
