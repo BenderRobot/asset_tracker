@@ -8,6 +8,7 @@ import * as metrics from '../src/screenerMetrics.js';
 // canvas renderer only. Network payloads stay deterministic and credential-free.
 const source = readFileSync(new URL('../src/screenerApp.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../screener.html', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../css/screener.css', import.meta.url), 'utf8');
 let app, document, dom, charts, context;
 const pending = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
@@ -755,5 +756,20 @@ describe('Screener P2 robustness', () => {
         expect(analysis.textContent.match(/ROE/g)).toHaveLength(1);
         expect(analysis.textContent).toContain('Trésorerie');
         expect(charts.get(document.getElementById('kpi-modal-chart')).config.data.datasets[0].spanGaps).toBe(false);
+    });
+
+    it('keeps all five tabs and dividend KPIs usable at 390 and 360 px', () => {
+        const tabs = document.querySelector('.screener-tabs');
+        const tabList = tabs.querySelector('.screener-tab-list');
+        const dividendGrid = document.querySelector('#tab-dividende .dividend-kpi-grid');
+
+        expect(tabList.querySelectorAll('.screener-tab')).toHaveLength(5);
+        expect(tabs.lastElementChild.classList.contains('chart-currency-toggle')).toBe(true);
+        expect(dividendGrid.getAttribute('style')).toBeNull();
+        expect(dividendGrid.querySelectorAll('.dividend-kpi-card')).toHaveLength(4);
+        expect(dividendGrid.textContent).toContain('Rendement actuel');
+        expect(css).toMatch(/@media \(max-width: 900px\)[\s\S]*?\.dividend-kpi-grid\s*\{\s*grid-template-columns:\s*repeat\(2/);
+        expect(css).toMatch(/@media \(max-width: 370px\)[\s\S]*?\.dividend-kpi-grid\s*\{\s*grid-template-columns:\s*1fr/);
+        expect(css).toMatch(/\.kpi-modal-content\.regression-mode-layout[\s\S]*?height:\s*100dvh\s*!important/);
     });
 });

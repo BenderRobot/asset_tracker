@@ -449,10 +449,16 @@
 
 .screener-tabs {
     display: flex;
+    align-items: flex-end;
     gap: 4px;
     margin-bottom: 20px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     padding-bottom: 0;
+}
+
+.screener-tab-list {
+    display: flex;
+    min-width: 0;
 }
 
 .chart-currency-toggle {
@@ -528,13 +534,29 @@
 
 @media (max-width: 900px) {
     .screener-tabs {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+        overflow: visible;
+    }
+
+    .screener-tab-list {
         overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        scrollbar-width: thin;
+        scroll-snap-type: inline proximity;
+    }
+
+    .screener-tab {
+        flex: 0 0 auto;
+        scroll-snap-align: start;
     }
 
     .chart-currency-toggle {
-        position: sticky;
-        right: 0;
-        background: var(--bg-primary, #0b1020);
+        position: static;
+        align-self: flex-end;
+        margin: 0 0 6px;
+        padding-left: 0;
     }
 }
 
@@ -2394,10 +2416,30 @@
 }
 
 /* ─── Dividende tab ────────────────────────────────────────── */
+.dividend-kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dividend-kpi-card {
+    min-height: auto;
+}
+
 .kpi-big-value {
     font-size: 22px;
     font-weight: 800;
     color: var(--text-primary, #f1f5f9);
+}
+
+@media (max-width: 900px) {
+    .dividend-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 370px) {
+    .dividend-kpi-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* ─── Finances tab ─────────────────────────────────────────── */
@@ -2780,5 +2822,282 @@
 
     .regression-stat-card.is-bands {
         grid-column: auto;
+    }
+}
+
+/* ─── Compact Screener layout (390 / 360 px) ─────────────────────────────── */
+@media (max-width: 700px) {
+    .screener-wrapper {
+        padding: 14px;
+    }
+
+    .screener-search-section {
+        margin-bottom: 20px;
+    }
+
+    .stock-header {
+        align-items: stretch;
+        padding: 16px;
+    }
+
+    .stock-header-left,
+    .stock-header-info {
+        min-width: 0;
+    }
+
+    .stock-name {
+        overflow-wrap: anywhere;
+        font-size: 19px;
+    }
+
+    .stock-header-right {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        width: 100%;
+        gap: 12px;
+    }
+
+    .stock-price-block {
+        grid-column: 1 / -1;
+        text-align: left;
+    }
+
+    .stock-score-badge {
+        justify-self: start;
+    }
+
+    .btn-add-portfolio {
+        justify-content: center;
+        justify-self: stretch;
+        white-space: normal;
+    }
+
+    .screener-tab {
+        padding: 10px 14px;
+    }
+
+    .screener-card,
+    .quant-card,
+    .valuation-tab-main,
+    .valuation-tab-sidebar {
+        padding: 14px;
+    }
+
+    .screener-card-header {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .chart-period-btns {
+        order: 3;
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+
+    .period-btn {
+        flex: 1 0 42px;
+    }
+
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .info-row:nth-child(odd) {
+        padding-right: 0;
+    }
+
+    .radar-container {
+        height: 190px;
+    }
+
+    .quant-dashboard-grid,
+    .val-dashboard-grid {
+        gap: 12px;
+        padding: 12px 0;
+    }
+
+    .quant-card:not(.dividend-kpi-card) {
+        min-height: 280px;
+    }
+
+    .quant-card-header {
+        margin-bottom: 14px;
+    }
+
+    .fin-statement-tabs {
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        padding-bottom: 3px;
+        scrollbar-width: thin;
+    }
+
+    .fin-statement-tab {
+        flex: 0 0 auto;
+    }
+
+    .fin-table-wrap {
+        max-width: 100%;
+        overscroll-behavior-inline: contain;
+    }
+
+    .valuation-tab-layout {
+        gap: 12px;
+        min-height: 0;
+    }
+
+    .valuation-tab-chart-container {
+        min-height: 300px;
+        padding: 8px;
+    }
+
+    .kpi-modal-period-btns {
+        justify-content: flex-start;
+        max-width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        scrollbar-width: thin;
+    }
+
+    .kpi-period-btn {
+        flex: 0 0 auto;
+    }
+
+    .kpi-modal-stats-pills {
+        position: static;
+        width: 100%;
+    }
+
+    .kpi-stats-pill-green {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    .screener-wrapper {
+        padding: 12px;
+    }
+
+    .screener-search-bar {
+        padding: 0 12px;
+        gap: 8px;
+    }
+
+    #screener-search-input {
+        min-width: 0;
+        font-size: 15px;
+    }
+
+    .stock-header-left {
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .stock-logo-container {
+        width: 44px;
+        height: 44px;
+    }
+
+    .stock-price {
+        font-size: 25px;
+    }
+
+    .stock-score-badge {
+        padding: 8px 12px;
+    }
+
+    #stock-score-value {
+        font-size: 22px;
+    }
+
+    .screener-tab-list {
+        margin-inline: -12px;
+        padding-inline: 12px;
+    }
+
+    .chart-currency-toggle {
+        align-self: stretch;
+        justify-content: flex-end;
+    }
+
+    .val-metrics-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .kpi-modal {
+        align-items: stretch;
+        padding: 0;
+    }
+
+    .kpi-modal-content,
+    .kpi-modal-content.radar-mode-layout,
+    .kpi-modal-content.regression-mode-layout {
+        width: 100% !important;
+        height: 100dvh !important;
+        max-width: none !important;
+        max-height: 100dvh !important;
+        border-radius: 0 !important;
+        overflow-y: auto !important;
+    }
+
+    .kpi-modal-main,
+    .radar-mode-layout .kpi-modal-main,
+    .regression-mode-layout .kpi-modal-main {
+        width: 100% !important;
+        padding: 16px !important;
+        box-sizing: border-box;
+    }
+
+    .kpi-modal-main-header {
+        padding-right: 44px;
+    }
+
+    .kpi-modal-main-price {
+        font-size: 26px;
+    }
+
+    .kpi-modal-chart-section,
+    .radar-mode-layout .kpi-modal-chart-section,
+    .regression-mode-layout .kpi-modal-chart-section {
+        min-height: 260px;
+        height: 280px !important;
+        margin-top: 16px !important;
+    }
+
+    .kpi-modal-sidebar,
+    .radar-mode-layout .kpi-modal-sidebar,
+    .regression-mode-layout .kpi-modal-sidebar {
+        width: 100% !important;
+        min-width: 0 !important;
+        padding: 20px 16px !important;
+        box-sizing: border-box;
+        overflow: visible !important;
+    }
+
+    .kpi-modal-sidebar-header {
+        padding-right: 44px !important;
+    }
+
+    .kpi-modal-close {
+        position: fixed;
+        top: max(12px, env(safe-area-inset-top));
+        right: 12px;
+        z-index: 10002;
+        background: #1e2433;
+    }
+
+    .analysis-grid {
+        gap: 12px !important;
+    }
+
+    .analysis-card,
+    .quant-method-summary {
+        padding: 14px !important;
+    }
+
+    .quant-method-coverage {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
     }
 }

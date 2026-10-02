@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/screener.css?v=114">
+    <link rel="stylesheet" href="css/screener.css?v=115">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -130,11 +130,13 @@
 
                 <!-- TABS -->
                 <div class="screener-tabs">
-                    <button class="screener-tab active" data-tab="resume">Résumé</button>
-                    <button class="screener-tab" data-tab="quantitatif">Quantitatif</button>
-                    <button class="screener-tab" data-tab="dividende">Dividende</button>
-                    <button class="screener-tab" data-tab="finances">Finances</button>
-                    <button class="screener-tab" data-tab="valorisation">Valorisation</button>
+                    <div class="screener-tab-list">
+                        <button class="screener-tab active" data-tab="resume">Résumé</button>
+                        <button class="screener-tab" data-tab="quantitatif">Quantitatif</button>
+                        <button class="screener-tab" data-tab="dividende">Dividende</button>
+                        <button class="screener-tab" data-tab="finances">Finances</button>
+                        <button class="screener-tab" data-tab="valorisation">Valorisation</button>
+                    </div>
                     <div class="chart-currency-toggle" role="group" aria-label="Devise des graphiques de cours">
                         <span>Graphiques de cours</span>
                         <button type="button" class="chart-currency-btn active" data-currency="NATIVE" aria-pressed="true">Cotation</button>
@@ -411,21 +413,21 @@
                 <div id="tab-dividende" class="screener-tab-content">
                     <div id="dividende-empty" class="valuation-skeleton" style="display:none;">Cette société ne verse pas de dividende (ou aucune donnée disponible).</div>
                     <div id="dividende-content">
-                        <div class="quant-dashboard-grid" style="grid-template-columns: repeat(4, 1fr);">
-                            <div class="quant-card" style="min-height:auto;">
-                                <div class="quant-card-header"><span class="quant-card-title">Yield actuel</span></div>
+                        <div class="quant-dashboard-grid dividend-kpi-grid">
+                            <div class="quant-card dividend-kpi-card">
+                                <div class="quant-card-header"><span class="quant-card-title">Rendement actuel</span></div>
                                 <div class="kpi-big-value" id="div-kpi-yield">—</div>
                             </div>
-                            <div class="quant-card" style="min-height:auto;">
+                            <div class="quant-card dividend-kpi-card">
                                 <div class="quant-card-header"><span class="quant-card-title">Dividende / action</span></div>
                                 <div class="kpi-big-value" id="div-kpi-rate">—</div>
                                 <div class="kpi-secondary-value" id="div-kpi-rate-eur" hidden></div>
                             </div>
-                            <div class="quant-card" style="min-height:auto;">
+                            <div class="quant-card dividend-kpi-card">
                                 <div class="quant-card-header"><span class="quant-card-title">Taux de distribution</span></div>
                                 <div class="kpi-big-value" id="div-kpi-payout">—</div>
                             </div>
-                            <div class="quant-card" style="min-height:auto;">
+                            <div class="quant-card dividend-kpi-card">
                                 <div class="quant-card-header"><span class="quant-card-title">Croissance du dividende</span></div>
                                 <div class="kpi-big-value" id="div-kpi-cagr">—</div>
                             </div>
