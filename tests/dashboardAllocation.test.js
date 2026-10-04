@@ -21,12 +21,13 @@ describe('Dashboard Asset Allocation UI', () => {
         document.body.innerHTML = '<div id="dashboard-allocation-container"></div>';
         const app = Object.create(DashboardApp.prototype);
 
-        app.renderAllocation(holdings);
+        app.renderAllocation(holdings, 500);
 
         const text = document.getElementById('dashboard-allocation-container').textContent;
-        expect(text).toContain('Valeur actuelle · hors cash');
-        expect(text).toContain('66.7%');
-        expect(text).toContain('33.3%');
+        expect(text).toContain('Valeur actuelle · cash inclus');
+        expect(text).toContain('50.0%');
+        expect(text).toContain('25.0%');
+        expect(text).toContain('Cash');
         expect(text.indexOf('ETF')).toBeLessThan(text.indexOf('Actions'));
     });
 
@@ -42,10 +43,13 @@ describe('Dashboard Asset Allocation UI', () => {
             <div id="alloc-current-breakdown"></div>`;
         const app = Object.create(DashboardApp.prototype);
         app.lastHoldings = holdings;
+        app.lastCashTotal = 500;
+        app.lastCashTransactions = [{ ticker: 'EUR', assetType: 'Cash', price: 500, quantity: 1, date: '2024-01-01' }];
         app.buildAllocationChart = vi.fn();
 
         app.openAllocationModal();
         expect(app.buildAllocationChart.mock.calls.at(-1)[4]).toBe('market');
+        expect(app.buildAllocationChart.mock.calls.at(-1)[5]).toBe(500);
 
         document.querySelector('[data-basis="invested"]').click();
         expect(app.buildAllocationChart.mock.calls.at(-1)[4]).toBe('invested');

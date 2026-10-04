@@ -11,7 +11,7 @@ import { DataManager } from './dataManager.js';
 import { DividendManager } from './dividendManager.js'; // NEW: Import Dividend Manager
 // AJOUT : Importer MarketStatus (avec le cache buster)
 import { MarketStatus } from './marketStatus.js';
-import { fetchGeminiDiversificationAdvice } from './geminiService.js'; // Import Gemini AI
+import { fetchGeminiDiversificationAdvice, fetchGeminiRiskAdvice } from './geminiService.js'; // Import Gemini AI
 import { getBrokersSync, populateSelect } from './brokerService.js';
 import { mountPerformerTable } from './performerTable.js';
 
@@ -1225,7 +1225,15 @@ class AnalyticsApp {
             top3Weight: top3Weight,
             assetTypeBreakdown: byType,
             heavyCount: heavy.length,
-            largestPosition: { name: largest.name, weight: largest.weight }
+            largestPosition: { name: largest.name, weight: largest.weight },
+            positions: sorted.map(asset => ({
+                ticker: asset.ticker,
+                name: asset.name,
+                weight: asset.weight,
+                currentValue: asset.currentValue,
+                gainPct: asset.gainPct
+            })),
+            cashReserve: report.portfolioSnapshot?.cash ?? report.summary?.cashReserve ?? null
         });
     }
 
@@ -1395,26 +1403,25 @@ class AnalyticsApp {
             content.style.backgroundColor = '#1e293b';
         }
 
-        // Load Gemini AI Risk Advice automatically
+        this.loadGeminiRiskAdvice(report);
+    }
+
+    async loadGeminiRiskAdvice(report = this.lastReport) {
         const adviceContent = document.getElementById('risk-advice-content');
-        if (adviceContent && report && report.risk) {
-            // Simulate loading delay then show placeholder
-            setTimeout(() => {
-                adviceContent.innerHTML = `
-                    <p style="margin: 0; line-height: 1.6;">
-                        <strong>Analyse de votre profil de risque:</strong><br><br>
-                        Votre portefeuille présente une volatilité de ${risk.volatility}% et un max drawdown de ${risk.maxDrawdown}%, 
-                        classifié comme <strong>${risk.riskLevel}</strong>.<br><br>
-                        ${sortedByVolatility.length > 0
-                        ? `Les actifs les plus volatils de votre portefeuille sont : ${sortedByVolatility.slice(0, 3).map(a => a.ticker).join(', ')}. 
-                               Considérez une diversification accrue si votre tolérance au risque est modérée.`
-                        : 'Votre diversification actuelle semble appropriée pour votre profil.'}
-                        <br><br>
-                        <em style="opacity: 0.8; font-size: 12px;">Note : L'intégration complète de Gemini AI est en cours de développement.</em>
-                    </p>
-                `;
-            }, 800);
-        }
+        if (!adviceContent || !report?.risk) return;
+        adviceContent.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);"><div>Analyse Gemini en cours...</div></div>';
+        const positions = (report.assets || []).map(asset => ({
+            ticker: asset.ticker,
+            name: asset.name,
+            weight: asset.weight,
+            currentValue: asset.currentValue,
+            gainPct: asset.gainPct
+        }));
+        adviceContent.innerHTML = await fetchGeminiRiskAdvice({
+            risk: report.risk,
+            positions,
+            totalValue: report.portfolioSnapshot?.totalValue ?? report.summary?.totalValue ?? null
+        });
     }
 
     setupEventListeners() {
@@ -1636,13 +1643,7 @@ class AnalyticsApp {
                                 <div>Analyse en cours...</div>
                             </div>
                         `;
-                        // TODO: Call Gemini API for risk-specific advice
-                        // For now, show a placeholder message
-                        setTimeout(() => {
-                            adviceContent.innerHTML = `
-                                <p style="margin: 0;">L'intégration de Gemini AI pour les conseils de gestion du risque sera disponible prochainement. Cette fonctionnalité analysera votre volatilité de portefeuille, votre max drawdown, et fournira des recommandations personnalisées pour optimiser votre profil de risque.</p>
-                            `;
-                        }, 1500);
+                        self.loadGeminiRiskAdvice(report);
                     }
                 }
             }
@@ -1678,7 +1679,15 @@ class AnalyticsApp {
                         top3Weight: top3Weight,
                         assetTypeBreakdown: byType,
                         heavyCount: heavy.length,
-                        largestPosition: { name: largest.name, weight: largest.weight }
+                        largestPosition: { name: largest.name, weight: largest.weight },
+                        positions: sorted.map(asset => ({
+                            ticker: asset.ticker,
+                            name: asset.name,
+                            weight: asset.weight,
+                            currentValue: asset.currentValue,
+                            gainPct: asset.gainPct
+                        })),
+                        cashReserve: report.portfolioSnapshot?.cash ?? report.summary?.cashReserve ?? null
                     });
                 }
             }

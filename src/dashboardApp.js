@@ -290,12 +290,14 @@ export class DashboardApp {
         };
         this._latestPortfolioSnapshotId = snapshot.snapshotId;
         this.lastHoldings = holdings;
+        this.lastCashTotal = cashReserve.total;
+        this.lastCashTransactions = this.dataManager.splitCanonicalPurchases(this.storage.getPurchases?.() || []).cash;
         // Le sélecteur d'actualités représente lui aussi le portefeuille
         // courant : le reconstruire depuis les positions canoniques empêche un
         // actif totalement vendu de rester visible via l'historique brut.
         this.renderAssetSelect();
         this.renderKPIs(engineSummary, cashReserve.total, holdings);
-        this.renderAllocation(holdings);
+        this.renderAllocation(holdings, cashReserve.total);
         if (this.chart?.currentMode !== 'asset') this.ui.updatePortfolioSummary(canonicalSummary, canonicalSummary.movementsCount, canonicalSummary.cash, this.marketStatus);
         if (stale || degraded) {
             this.showCacheBadge();
@@ -627,10 +629,10 @@ export class DashboardApp {
         }
     }
 
-    renderAllocation(holdings) {
+    renderAllocation(holdings, cashTotal = 0) {
         const container = document.getElementById('dashboard-allocation-container');
         if (!container) return;
-        const allocation = calculateCurrentAllocation(holdings, 'market');
+        const allocation = calculateCurrentAllocation(holdings, 'market', cashTotal);
         if (!allocation.valid) {
             container.innerHTML = `<div style="color:var(--text-muted);font-size:11px;text-align:center;padding:16px 6px;">Allocation indisponible · cours manquant pour ${allocation.unavailable.map(escHtml).join(', ')}</div>`;
             return;
@@ -661,7 +663,7 @@ export class DashboardApp {
         barHTML += '</div>'; listHTML += '</div>';
 
         // CORRECTION: Ajout de style="display: flex; flex-direction: column; height: 100%;" au wrapper pour forcer l'empilement vertical.
-        container.innerHTML = `<div class="allocation-wrapper" style="display:flex;flex-direction:column;height:100%;"><div class="allocation-basis-label">Valeur actuelle · hors cash</div>${barHTML}${listHTML}</div>`;
+        container.innerHTML = `<div class="allocation-wrapper" style="display:flex;flex-direction:column;height:100%;"><div class="allocation-basis-label">Valeur actuelle · cash inclus</div>${barHTML}${listHTML}</div>`;
     }
 
     renderKPIs(data, cashTotal = 0, holdings = []) {
@@ -746,7 +748,8 @@ export class DashboardApp {
 
         const articleLimit = this.selectedAssetFilter ? 8 : 2;
 
-        const promises = uniqueNames.map(name => this.fetchGoogleRSS(`${name} actualité financière`, articleLimit));
+        const promises = uniqueNames.map(name => this.fetchGoogleRSS(`${name} actualité financière`, articleLimit)
+            .then(items => items.map(item => ({ ...item, assetName: name }))));
         try {
             const results = await Promise.all(promises);
             let allNews = results.flat();
@@ -920,7 +923,7 @@ export class DashboardApp {
 
         try {
             const description = newsItem.fullDescription || '';
-            const context = `${newsItem.title}. Sujet: ${newsItem.name}.`;
+            const context = `Titre: ${newsItem.title}. Sujet: ${newsItem.name}. Source: ${newsItem.source}. URL: ${newsItem.url || 'indisponible'}. Extrait RSS: ${description || 'indisponible'}.`;
 
             console.log('[openNewsModal] Calling fetchGeminiSummary with context:', context.substring(0, 100));
 
@@ -930,7 +933,7 @@ export class DashboardApp {
             console.log('[openNewsModal] Got summary:', summary);
 
             this.currentGeminiSummary = summary;
-            summaryDiv.textContent = summary;
+            summaryDiv.innerHTML = summary;
         } catch (error) {
             console.error('[openNewsModal] Error:', error);
             summaryDiv.innerHTML = "Analyse indisponible (Erreur API).";
@@ -943,14 +946,16 @@ export class DashboardApp {
         // 1. Déterminer le nom de la société à partir du titre de la news (ex: "AST SpaceMobile")
         // La structure de la news est: TITRE (ex: "AST SpaceMobile, Inc. étend...")
         const newsTitle = newsItem.title || newsItem.name;
+        const explicitAssetName = (newsItem.assetName || '').toLowerCase();
 
         // 2. Recherche stricte par Nom/Ticker (plus fiable que le match de sous-chaîne sur name)
         // La recherche 'Find' est suffisante car chaque actif est unique.
         const foundHolding = allHoldings.find(h =>
             // Tentative A: Le nom de l'actif du portefeuille est inclus dans le titre de la news
-            newsTitle.includes(h.name) ||
+            (explicitAssetName && explicitAssetName === String(h.name || '').toLowerCase()) ||
+            (String(h.name || '').length > 1 && newsTitle.toLowerCase().includes(String(h.name).toLowerCase())) ||
             // Tentative B: Match par le ticker exact si la news le contient
-            newsTitle.includes(h.ticker)
+            (String(h.ticker || '').length > 0 && newsTitle.toUpperCase().includes(String(h.ticker).toUpperCase()))
         );
 
         if (foundHolding) {
@@ -1000,7 +1005,7 @@ export class DashboardApp {
 
         // APPEL CENTRALISÉ avec les données du portefeuille
         fetchGeminiContext(newsItem.title, currentSummary, holdingDetails)
-            .then(contextSummary => { contextContent.textContent = contextSummary; })
+            .then(contextSummary => { contextContent.innerHTML = contextSummary; })
             .catch(() => { contextContent.innerHTML = "Échec de l'analyse contextuelle."; });
     }
 
@@ -1660,7 +1665,11 @@ export class DashboardApp {
         const breakdown = document.getElementById('alloc-current-breakdown');
         const basisToggle = document.getElementById('alloc-basis-toggle');
 
-        const render = (basis) => this.buildAllocationChart(this.lastHoldings || [], wrap, legend, breakdown, basis);
+        const render = (basis) => this.buildAllocationChart(
+            this.lastHoldings || [], wrap, legend, breakdown, basis,
+            this.lastCashTotal === undefined ? 0 : this.lastCashTotal,
+            this.lastCashTransactions || []
+        );
 
         if (basisToggle) {
             basisToggle.querySelectorAll('.toggle-btn').forEach(btn => {
@@ -1677,9 +1686,9 @@ export class DashboardApp {
         render(activeBtn?.dataset.basis || 'market');
     }
 
-    buildAllocationChart(holdings, chartWrap, legend, breakdown, basis = 'market') {
+    buildAllocationChart(holdings, chartWrap, legend, breakdown, basis = 'market', cashTotal = 0, cashTransactions = []) {
         const TYPES = ALLOCATION_TYPES;
-        const timeline = buildAllocationTimeline(holdings, basis);
+        const timeline = buildAllocationTimeline(holdings, basis, new Date(), cashTotal, cashTransactions);
         const { points, activeTypes } = timeline;
 
         if (!timeline.valid) {
@@ -1814,8 +1823,8 @@ export class DashboardApp {
 
     renderAllocationBreakdown(allocation, breakdown) {
         const breakdownLabel = allocation.basis === 'market'
-            ? 'Répartition actuelle · valeur de marché · hors cash'
-            : 'Répartition actuelle · montant investi · hors cash';
+            ? 'Répartition actuelle · valeur de marché + cash'
+            : 'Répartition actuelle · montants investis + cash';
         const fmtK = v => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v);
         breakdown.innerHTML = `
             <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">${breakdownLabel}</div>

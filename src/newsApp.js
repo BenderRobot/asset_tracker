@@ -94,6 +94,7 @@ class NewsApp {
                     const source = parts.length > 1 ? parts.pop().trim() : feed.label;
                     const title = parts.join(' - ').trim();
                     const datetime = pubDate ? new Date(pubDate).getTime() : Date.now();
+                    const description = item.querySelector('description')?.textContent || '';
 
                     return {
                         title,
@@ -102,6 +103,7 @@ class NewsApp {
                         label: feed.label,
                         datetime,
                         formattedDate: formatFullDateTime(datetime, true),
+                        fullDescription: description,
                     };
                 });
             })
@@ -271,7 +273,7 @@ class NewsApp {
         setTimeout(() => modal.classList.add('show'), 10);
 
         try {
-            const context = `Titre: "${newsItem.title}". Source: ${newsItem.source}. Sujet: ${newsItem.label}`;
+            const context = `Titre: "${newsItem.title}". Source: ${newsItem.source}. Sujet: ${newsItem.label}. URL: ${newsItem.link || 'indisponible'}. Extrait RSS: ${newsItem.fullDescription || 'indisponible'}`;
             const summary = await fetchGeminiSummary(context);
             this.currentGeminiSummary = summary;
             summaryDiv.innerHTML = summary;

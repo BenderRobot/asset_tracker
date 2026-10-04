@@ -35,7 +35,7 @@ const EXTRA_ORIGINS = [
 // budget, article) : ils sont légitimement longs. `message` est la saisie de
 // l'utilisateur. Une limite unique de 8000 caractères rejetait le prompt
 // système de l'assistant dès un portefeuille de taille moyenne.
-const MAX_CONTEXT_LEN = 60000;         // system, prompt
+const MAX_CONTEXT_LEN = 120000;        // system, prompt (positions + historique + budget)
 const MAX_MESSAGE_LEN = 8000;          // message saisi par l'utilisateur
 const MAX_HISTORY_ITEM_LEN = 20000;    // un message d'historique (les réponses IA peuvent être longues)
 const MAX_TOTAL_LEN = 200000;          // somme de tous les champs texte
@@ -224,10 +224,6 @@ export default {
       let contents = [];
 
       if (body.system || body.history || body.message) {
-        if (body.system) {
-          contents.push({ role: 'user', parts: [{ text: body.system }] });
-          contents.push({ role: 'model', parts: [{ text: 'Compris, je suis ton assistant financier personnel. Pose-moi tes questions !' }] });
-        }
         if (Array.isArray(body.history)) {
           body.history.forEach(msg => {
             contents.push({ role: msg.role === 'assistant' ? 'model' : 'user', parts: [{ text: msg.text }] });
@@ -243,7 +239,8 @@ export default {
       }
 
       const isAssistantRequest = !!(body.system || body.history || body.message);
-      const enableWebSearch = body.enableWebSearch !== false && isAssistantRequest;
+      const enableWebSearch = body.enableWebSearch === true
+        || (body.enableWebSearch !== false && isAssistantRequest);
 
       const geminiBody = {
         contents,
@@ -253,13 +250,19 @@ export default {
           thinkingConfig: { thinkingBudget: 0 },
         },
       };
+      // Le contexte applicatif est une instruction de confiance, pas un faux
+      // tour utilisateur. Cela évite aussi d'inventer un acquittement "model"
+      // dans chaque conversation.
+      if (body.system) {
+        geminiBody.systemInstruction = { parts: [{ text: body.system }] };
+      }
       if (enableWebSearch) {
         geminiBody.tools = [{ google_search: {} }];
       }
 
-      const geminiRes = await fetch(`${GEMINI_MODEL_URL}?key=${apiKey}`, {
+      const geminiRes = await fetch(GEMINI_MODEL_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(geminiBody),
       });
 
@@ -272,9 +275,28 @@ export default {
       }
 
       const geminiData = await geminiRes.json();
-      const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const candidate = geminiData?.candidates?.[0];
+      const text = (candidate?.content?.parts || [])
+        .map(part => typeof part?.text === 'string' ? part.text : '')
+        .join('');
 
-      return jsonResponse({ text }, 200, origin);
+      if (!text.trim()) {
+        console.warn('[GeminiProxy] Empty Gemini response:', candidate?.finishReason || geminiData?.promptFeedback?.blockReason || 'unknown');
+        return jsonResponse({
+          error: 'Empty AI response',
+          finishReason: candidate?.finishReason || null,
+          promptFeedback: geminiData?.promptFeedback || null,
+        }, 502, origin);
+      }
+
+      return jsonResponse({
+        text,
+        finishReason: candidate?.finishReason || null,
+        groundingMetadata: candidate?.groundingMetadata || null,
+        promptFeedback: geminiData?.promptFeedback || null,
+        usageMetadata: geminiData?.usageMetadata || null,
+        modelVersion: geminiData?.modelVersion || null,
+      }, 200, origin);
 
     } catch (err) {
       console.error('[GeminiProxy] Error:', err.message);

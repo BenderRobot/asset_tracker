@@ -71,13 +71,19 @@ export async function buildExpensesContext(uid) {
   });
 
   const pastMonthKeys = Object.keys(monthBuckets).filter((k) => k !== currentMonthKey).sort().slice(-AVERAGE_MONTHS);
-  const nMonths = pastMonthKeys.length || 1;
+  // Une banque fraîchement connectée peut ne contenir que le mois courant.
+  // L'ancienne logique divisait alors une somme vide par 1 et annonçait à
+  // Gemini 0 € de revenus/dépenses malgré des opérations bien présentes.
+  const analysisMonthKeys = pastMonthKeys.length
+    ? pastMonthKeys
+    : (monthBuckets[currentMonthKey] ? [currentMonthKey] : []);
+  const nMonths = analysisMonthKeys.length || 1;
 
-  const avgMonthlyIncome = pastMonthKeys.reduce((s, k) => s + monthBuckets[k].income, 0) / nMonths;
-  const avgMonthlyExpenses = pastMonthKeys.reduce((s, k) => s + monthBuckets[k].expenses, 0) / nMonths;
+  const avgMonthlyIncome = analysisMonthKeys.reduce((s, k) => s + monthBuckets[k].income, 0) / nMonths;
+  const avgMonthlyExpenses = analysisMonthKeys.reduce((s, k) => s + monthBuckets[k].expenses, 0) / nMonths;
 
   const categoryTotals = {};
-  pastMonthKeys.forEach((k) => {
+  analysisMonthKeys.forEach((k) => {
     Object.entries(monthBuckets[k].byCategory).forEach(([label, amount]) => {
       categoryTotals[label] = (categoryTotals[label] || 0) + amount;
     });
@@ -87,7 +93,11 @@ export async function buildExpensesContext(uid) {
     .sort((a, b) => b.avgMonthly - a.avgMonthly);
 
   return {
-    monthsAnalyzed: pastMonthKeys.length,
+    generatedAt: Date.now(),
+    monthsAnalyzed: analysisMonthKeys.length,
+    analyzedMonthKeys: analysisMonthKeys,
+    usesPartialCurrentMonth: pastMonthKeys.length === 0 && analysisMonthKeys.includes(currentMonthKey),
+    currentMonth: monthBuckets[currentMonthKey] || null,
     avgMonthlyIncome,
     avgMonthlyExpenses,
     avgMonthlyCashflow: avgMonthlyIncome - avgMonthlyExpenses,
@@ -120,10 +130,19 @@ export function formatExpensesContextAsText(ctx) {
     ? ctx.categoryAverages.slice(0, 10).map((c) => `- ${c.label}: ~${c.avgMonthly.toFixed(2)}€/mois en moyenne`).join('\n')
     : 'Pas assez d\'historique pour une moyenne par catégorie.';
 
-  return `Analyse basée sur ${ctx.monthsAnalyzed || 'moins d\'un'} mois complet(s) d'historique bancaire réel.
+  const periodDescription = ctx.usesPartialCurrentMonth
+    ? `le mois courant partiel (${ctx.analyzedMonthKeys?.[0] || 'période actuelle'})`
+    : `${ctx.monthsAnalyzed || 'moins d\'un'} mois complet(s) (${(ctx.analyzedMonthKeys || []).join(', ') || 'période inconnue'})`;
+  const currentMonthText = ctx.currentMonth
+    ? `Mois courant à date: revenus ${ctx.currentMonth.income.toFixed(2)}€, dépenses ${ctx.currentMonth.expenses.toFixed(2)}€, cashflow ${(ctx.currentMonth.income - ctx.currentMonth.expenses).toFixed(2)}€.`
+    : 'Aucune opération pour le mois courant.';
+
+  return `Analyse générée le ${ctx.generatedAt ? new Date(ctx.generatedAt).toISOString() : 'date inconnue'}.
+Analyse basée sur ${periodDescription} d'historique bancaire réel.
 Revenus moyens réels: ${ctx.avgMonthlyIncome.toFixed(2)}€/mois
 Dépenses moyennes réelles: ${ctx.avgMonthlyExpenses.toFixed(2)}€/mois
 Cashflow moyen actuel: ${ctx.avgMonthlyCashflow.toFixed(2)}€/mois
+${currentMonthText}
 
 === CHARGES FIXES (détectées automatiquement ou ajoutées manuellement par l'utilisateur) ===
 ${chargesText}

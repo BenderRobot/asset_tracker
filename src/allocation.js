@@ -1,8 +1,11 @@
+import { transactionKind } from './financialTransactions.js';
+
 export const ALLOCATION_TYPES = Object.freeze({
     ETF: Object.freeze({ color: '#10b981', label: 'ETF' }),
     Stock: Object.freeze({ color: '#3b82f6', label: 'Actions' }),
     Crypto: Object.freeze({ color: '#f59e0b', label: 'Cryptos' }),
     'Real Estate': Object.freeze({ color: '#8b5cf6', label: 'Immobilier' }),
+    Cash: Object.freeze({ color: '#06b6d4', label: 'Cash' }),
     Other: Object.freeze({ color: '#94a3b8', label: 'Autres' })
 });
 
@@ -18,7 +21,7 @@ export function normalizeAllocationType(raw) {
 const isCurrentPosition = holding => Number(holding?.quantity) > 0.0001;
 const finiteAmount = value => value !== null && value !== undefined && Number.isFinite(Number(value));
 
-export function calculateCurrentAllocation(holdings, basis = 'market') {
+export function calculateCurrentAllocation(holdings, basis = 'market', cashTotal = 0) {
     const byType = Object.fromEntries(Object.keys(ALLOCATION_TYPES).map(type => [type, 0]));
     const unavailable = [];
 
@@ -31,6 +34,9 @@ export function calculateCurrentAllocation(holdings, basis = 'market') {
         }
         if (Number(value) > 0) byType[type] += Number(value);
     });
+
+    if (!finiteAmount(cashTotal)) unavailable.push('Cash');
+    else if (Number(cashTotal) > 0) byType.Cash = Number(cashTotal);
 
     const total = Object.values(byType).reduce((sum, value) => sum + value, 0);
     const rows = Object.entries(byType)
@@ -101,13 +107,38 @@ function replayHolding(holding, basis) {
     });
 }
 
-export function buildAllocationTimeline(holdings, basis = 'market', today = new Date()) {
-    const current = calculateCurrentAllocation(holdings, basis);
+function replayCash(cashTransactions, cashTotal) {
+    const transactions = (cashTransactions || [])
+        .filter(transaction => ['cash', 'dividend'].includes(transactionKind(transaction)) && transactionDate(transaction))
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+    if (!transactions.length || !(cashTotal > 0)) return [];
+
+    let rawBalance = 0;
+    const rawStates = transactions.map(transaction => {
+        rawBalance += (Number(transaction.price) || 0) * Number(transaction.quantity ?? 1);
+        return { date: transactionDate(transaction), value: rawBalance };
+    });
+    const rawFinal = rawStates.at(-1)?.value || 0;
+    if (!(rawFinal > 0)) return [];
+
+    const scale = cashTotal / rawFinal;
+    let previous = 0;
+    return rawStates.map(state => {
+        const canonicalState = Math.max(0, state.value * scale);
+        const amount = canonicalState - previous;
+        previous = canonicalState;
+        return { date: state.date, type: 'Cash', amount };
+    });
+}
+
+export function buildAllocationTimeline(holdings, basis = 'market', today = new Date(), cashTotal = 0, cashTransactions = []) {
+    const current = calculateCurrentAllocation(holdings, basis, cashTotal);
     if (!current.valid) return { ...current, points: [], activeTypes: [] };
 
     const events = (holdings || [])
         .filter(isCurrentPosition)
         .flatMap(holding => replayHolding(holding, basis))
+        .concat(replayCash(cashTransactions, Number(cashTotal) || 0))
         .sort((a, b) => a.date.localeCompare(b.date));
 
     const cumulative = Object.fromEntries(Object.keys(ALLOCATION_TYPES).map(type => [type, 0]));

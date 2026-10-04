@@ -60,7 +60,7 @@ function fakeKV() {
     };
 }
 
-function stubFetch({ geminiOk = true } = {}) {
+function stubFetch({ geminiOk = true, geminiData = null } = {}) {
     return vi.stubGlobal('fetch', vi.fn(async (url) => {
         const u = String(url);
         if (u === JWKS_URL) {
@@ -70,7 +70,7 @@ function stubFetch({ geminiOk = true } = {}) {
             if (!geminiOk) return { ok: false, status: 503, text: async () => 'upstream broken (should never reach the client)' };
             return {
                 ok: true,
-                json: async () => ({ candidates: [{ content: { parts: [{ text: 'Réponse IA factice.' }] } }] })
+                json: async () => geminiData || ({ candidates: [{ content: { parts: [{ text: 'Réponse IA factice.' }] } }] })
             };
         }
         throw new Error(`Unexpected fetch to ${u}`);
@@ -142,11 +142,53 @@ describe('Gemini Worker — authentification et quotas (P0)', () => {
         expect(data.text).toBe('Réponse IA factice.');
     });
 
+    it('transmet le contexte applicatif via systemInstruction et la clé via header', async () => {
+        stubFetch();
+        const token = await makeToken({ uid: 'context-user' });
+        const res = await worker.fetch(postRequest({
+            system: 'PORTFOLIO: 1000 EUR',
+            history: [
+                { role: 'user', text: 'Première question' },
+                { role: 'assistant', text: 'Première réponse' }
+            ],
+            message: 'Actualise',
+            enableWebSearch: true
+        }, { Authorization: `Bearer ${token}` }), makeEnv());
+
+        expect(res.status).toBe(200);
+        const geminiCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).startsWith(GEMINI_URL_PREFIX));
+        expect(geminiCall).toBeTruthy();
+        expect(String(geminiCall[0])).toBe(GEMINI_URL_PREFIX);
+        expect(geminiCall[1].headers['x-goog-api-key']).toBe('fake-key-for-tests');
+
+        const payload = JSON.parse(geminiCall[1].body);
+        expect(payload.systemInstruction.parts[0].text).toBe('PORTFOLIO: 1000 EUR');
+        expect(payload.contents.map(item => item.role)).toEqual(['user', 'model', 'user']);
+        expect(payload.contents[2].parts[0].text).toBe('Actualise');
+        expect(payload.tools).toEqual([{ google_search: {} }]);
+        expect(payload.contents.some(item => item.parts?.[0]?.text?.startsWith('Compris'))).toBe(false);
+    });
+
+    it('active Google Search pour un prompt simple uniquement sur demande explicite', async () => {
+        stubFetch();
+        const token = await makeToken({ uid: 'news-user' });
+        const env = makeEnv();
+
+        await worker.fetch(postRequest(
+            { prompt: 'Résume cet article', enableWebSearch: true },
+            { Authorization: `Bearer ${token}` }
+        ), env);
+
+        const geminiCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).startsWith(GEMINI_URL_PREFIX));
+        const payload = JSON.parse(geminiCall[1].body);
+        expect(payload.tools).toEqual([{ google_search: {} }]);
+    });
+
     it('input trop volumineux (prompt > limite) → 400, jamais transmis à Gemini', async () => {
         stubFetch();
         const geminiSpy = vi.mocked(fetch);
         const token = await makeToken();
-        const hugePrompt = 'x'.repeat(70000);
+        const hugePrompt = 'x'.repeat(130000);
         const res = await worker.fetch(postRequest({ prompt: hugePrompt }, { Authorization: `Bearer ${token}` }), makeEnv());
         expect(res.status).toBe(400);
         // Seul le JWKS a dû être appelé — jamais l'API Gemini avec ce prompt.
@@ -213,5 +255,15 @@ describe('Gemini Worker — authentification et quotas (P0)', () => {
         expect(res.status).toBe(502);
         const data = await res.json();
         expect(data.error).not.toMatch(/upstream broken/);
+    });
+
+    it('une réponse Gemini vide ou bloquée devient une erreur explicite', async () => {
+        stubFetch({ geminiData: { candidates: [], promptFeedback: { blockReason: 'SAFETY' } } });
+        const token = await makeToken();
+        const res = await worker.fetch(postRequest({ prompt: 'salut' }, { Authorization: `Bearer ${token}` }), makeEnv());
+        expect(res.status).toBe(502);
+        const data = await res.json();
+        expect(data.error).toBe('Empty AI response');
+        expect(data.promptFeedback.blockReason).toBe('SAFETY');
     });
 });

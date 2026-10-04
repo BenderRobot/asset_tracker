@@ -6,11 +6,10 @@ import { auth } from './firebaseConfig.js';
 import { GEMINI_PROXY_URL } from './config.js';
 import { getAuthHeader } from './authFetchHeaders.js';
 import { buildExpensesContext, formatExpensesContextAsText } from './expensesContext.js';
+import { formatSafeGeminiHtml } from './safeGeminiHtml.js';
 
 function formatGeminiText(text) {
-  return (text || '')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>');
+  return formatSafeGeminiHtml(text);
 }
 
 const btn = document.getElementById('expenses-ai-analyze-btn');
