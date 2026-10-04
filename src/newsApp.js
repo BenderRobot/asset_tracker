@@ -6,6 +6,7 @@ import { PriceAPI } from './api.js';
 import { DataManager } from './dataManager.js';
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 import { getAuthHeader } from './authFetchHeaders.js';
+import { findHoldingForNews } from './newsHoldingMatcher.js';
 
 // Même proxy que dashboardApp.js — fonctionne avec timeout 30s
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url=';
@@ -21,7 +22,7 @@ function formatFullDateTime(timestamp, includeTime = true) {
     return date.toLocaleString('fr-FR', options);
 }
 
-class NewsApp {
+export class NewsApp {
     constructor() {
         this.feeds = this.loadFeeds();
         this.currentNews = this.loadNewsCache();
@@ -34,6 +35,11 @@ class NewsApp {
         this.myAssetsFilter = false;
         this.currentModalNewsItem = null;
         this.currentGeminiSummary = null;
+        this._newsModalGeneration = 0;
+        this._newsSummaryRequestSeq = 0;
+        this._newsContextRequestSeq = 0;
+        this._newsSummaryAbortController = null;
+        this._newsContextAbortController = null;
     }
 
     loadFeeds() {
@@ -233,23 +239,38 @@ class NewsApp {
         return div.innerHTML;
     }
 
-    getHoldingDetailsForNews(newsItem) {
-        const allPurchases = this.storage.getPurchases().filter(p => p.assetType !== 'Cash' && p.assetType !== 'Dividend');
-        const allHoldings = this.dataManager.calculateHoldings(allPurchases);
-        const newsTitleLower = (newsItem.title || newsItem.name).toLowerCase();
-
-        const foundHolding = allHoldings.find(h => {
-            const nameLower = h.name.toLowerCase();
-            const tickerLower = h.ticker.toLowerCase();
-            return newsTitleLower.includes(nameLower) || nameLower.includes(newsTitleLower) || newsTitleLower.includes(tickerLower);
-        });
-
-        return (foundHolding && foundHolding.quantity > 0) ? foundHolding : null;
+    async getHoldingDetailsForNews(newsItem) {
+        const purchases = this.storage.getPurchases();
+        const marketResult = await this.dataManager.getCanonicalMarketSnapshot(purchases);
+        const analyticsSnapshot = await this.dataManager.buildAnalyticsSnapshot(purchases, marketResult);
+        const foundHolding = findHoldingForNews(newsItem, analyticsSnapshot.holdings);
+        if (!foundHolding) return null;
+        const portfolio = analyticsSnapshot.portfolioSnapshot;
+        return {
+            ...foundHolding,
+            weight: portfolio.totalValue > 0
+                ? (Number(foundHolding.currentValue || 0) / portfolio.totalValue) * 100
+                : null,
+            portfolioTotalValue: portfolio.totalValue,
+            cashReserve: portfolio.cash,
+            portfolioStatus: portfolio.status,
+            pricesTimestamp: portfolio.pricesTimestamp,
+            sourceStale: portfolio.sourceStale,
+            staleInstruments: [...(portfolio.staleInstruments || [])]
+        };
     }
 
     async openNewsModal(newsItem) {
         const modal = document.getElementById('news-modal');
         if (!modal) return;
+
+        const modalGeneration = ++this._newsModalGeneration;
+        const requestId = ++this._newsSummaryRequestSeq;
+        this._newsSummaryAbortController?.abort();
+        this._newsContextAbortController?.abort();
+        this._newsContextRequestSeq++;
+        const abortController = new AbortController();
+        this._newsSummaryAbortController = abortController;
 
         this.currentModalNewsItem = newsItem;
         this.currentGeminiSummary = null;
@@ -274,11 +295,22 @@ class NewsApp {
 
         try {
             const context = `Titre: "${newsItem.title}". Source: ${newsItem.source}. Sujet: ${newsItem.label}. URL: ${newsItem.link || 'indisponible'}. Extrait RSS: ${newsItem.fullDescription || 'indisponible'}`;
-            const summary = await fetchGeminiSummary(context);
+            const summary = await fetchGeminiSummary(context, { signal: abortController.signal });
+            if (requestId !== this._newsSummaryRequestSeq
+                || modalGeneration !== this._newsModalGeneration
+                || this.currentModalNewsItem !== newsItem) return;
             this.currentGeminiSummary = summary;
             summaryDiv.innerHTML = summary;
         } catch (error) {
+            if (error?.name === 'AbortError') return;
+            if (requestId !== this._newsSummaryRequestSeq
+                || modalGeneration !== this._newsModalGeneration
+                || this.currentModalNewsItem !== newsItem) return;
             summaryDiv.innerHTML = 'Analyse indisponible (Erreur API).';
+        } finally {
+            if (this._newsSummaryAbortController === abortController) {
+                this._newsSummaryAbortController = null;
+            }
         }
     }
 
@@ -298,8 +330,13 @@ class NewsApp {
         }
 
         if (contextBox.style.display === 'block') {
+            const hideRequestId = ++this._newsContextRequestSeq;
+            this._newsContextAbortController?.abort();
+            this._newsContextAbortController = null;
             contextBox.classList.remove('show');
-            setTimeout(() => contextBox.style.display = 'none', 300);
+            setTimeout(() => {
+                if (this._newsContextRequestSeq === hideRequestId) contextBox.style.display = 'none';
+            }, 300);
             return;
         }
 
@@ -308,9 +345,38 @@ class NewsApp {
         contextContent.innerHTML = '<span class="loading-text">Gemini contextualise...</span>';
         setTimeout(() => contextBox.classList.add('show'), 10);
 
-        fetchGeminiContext(newsItem.title, currentSummary, this.getHoldingDetailsForNews(newsItem))
-            .then(contextSummary => { contextContent.innerHTML = contextSummary; })
-            .catch(() => { contextContent.innerHTML = "Échec de l'analyse contextuelle."; });
+        const requestId = ++this._newsContextRequestSeq;
+        const modalGeneration = this._newsModalGeneration;
+        this._newsContextAbortController?.abort();
+        const abortController = new AbortController();
+        this._newsContextAbortController = abortController;
+
+        Promise.resolve(this.getHoldingDetailsForNews(newsItem))
+            .then(holdingDetails => {
+                if (requestId !== this._newsContextRequestSeq
+                    || modalGeneration !== this._newsModalGeneration
+                    || this.currentModalNewsItem !== newsItem) return null;
+                return fetchGeminiContext(newsItem.title, currentSummary, holdingDetails, { signal: abortController.signal });
+            })
+            .then(contextSummary => {
+                if (contextSummary === null) return;
+                if (requestId !== this._newsContextRequestSeq
+                    || modalGeneration !== this._newsModalGeneration
+                    || this.currentModalNewsItem !== newsItem) return;
+                contextContent.innerHTML = contextSummary;
+            })
+            .catch(error => {
+                if (error?.name === 'AbortError') return;
+                if (requestId !== this._newsContextRequestSeq
+                    || modalGeneration !== this._newsModalGeneration
+                    || this.currentModalNewsItem !== newsItem) return;
+                contextContent.innerHTML = "Échec de l'analyse contextuelle.";
+            })
+            .finally(() => {
+                if (this._newsContextAbortController === abortController) {
+                    this._newsContextAbortController = null;
+                }
+            });
     }
 
     setupModalEventListeners() {
@@ -320,10 +386,19 @@ class NewsApp {
 
         const closeModal = () => {
             if (modal) {
+                const closeGeneration = ++this._newsModalGeneration;
+                this._newsSummaryRequestSeq++;
+                this._newsContextRequestSeq++;
+                this._newsSummaryAbortController?.abort();
+                this._newsContextAbortController?.abort();
+                this._newsSummaryAbortController = null;
+                this._newsContextAbortController = null;
                 modal.classList.remove('show');
                 const contextBox = document.getElementById('modal-news-context');
                 if (contextBox) contextBox.style.display = 'none';
-                setTimeout(() => { modal.style.display = 'none'; }, 300);
+                setTimeout(() => {
+                    if (this._newsModalGeneration === closeGeneration) modal.style.display = 'none';
+                }, 300);
             }
         };
         if (closeBtn) closeBtn.onclick = closeModal;

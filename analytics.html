@@ -475,12 +475,12 @@
                     <h3>⚠️ Risque <i class="fas fa-external-link-alt"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
-                        <span class="metric-label">Volatilité</span>
-                        <span id="volatility" class="metric-value">0%</span>
+                        <span class="metric-label">Volatilité ann. (1 an)</span>
+                        <span id="volatility" class="metric-value">—</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-label">Max Drawdown</span>
-                        <span id="max-drawdown" class="metric-value">0%</span>
+                        <span class="metric-label">Max Drawdown (1 an)</span>
+                        <span id="max-drawdown" class="metric-value">—</span>
                     </div>
                     <div class="metric-row">
                         <span class="metric-label">Niveau</span>
@@ -1045,12 +1045,12 @@
                             <div>
                                 <div
                                     style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
-                                    Volatilité
+                                    Volatilité annualisée
                                     <span class="info-tooltip"
-                                        data-tooltip="Mesure la dispersion des rendements. Une volatilité élevée signifie que vos actifs fluctuent beaucoup."
+                                        data-tooltip="Écart-type annualisé des rendements quotidiens TWR sur un an. Les flux sont neutralisés, les dividendes et la pondération cash sont inclus."
                                         style="cursor: help; opacity: 0.6;">ℹ️</span>
                                 </div>
-                                <div id="risk-volatility" style="font-size: 20px; font-weight: 600; color: #f59e0b;">0%
+                                <div id="risk-volatility" style="font-size: 20px; font-weight: 600; color: #f59e0b;">—
                                 </div>
                             </div>
                             <div>
@@ -1058,10 +1058,10 @@
                                     style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
                                     Max Drawdown
                                     <span class="info-tooltip"
-                                        data-tooltip="La plus grande perte depuis un pic. Indique combien vous pourriez perdre dans le pire scénario."
+                                        data-tooltip="Plus forte baisse de l'indice TWR depuis un pic sur la période analysée."
                                         style="cursor: help; opacity: 0.6;">ℹ️</span>
                                 </div>
-                                <div id="risk-drawdown" style="font-size: 20px; font-weight: 600; color: #ef4444;">0%
+                                <div id="risk-drawdown" style="font-size: 20px; font-weight: 600; color: #ef4444;">—
                                 </div>
                             </div>
                             <div>
@@ -1081,23 +1081,24 @@
                                     style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
                                     Sharpe Ratio
                                     <span class="info-tooltip"
-                                        data-tooltip="Rendement par unité de risque. >1 = bon, <1 = risque élevé pour le rendement."
+                                        data-tooltip="Ratio annualisé calculé sur les mêmes rendements quotidiens, avec un taux sans risque fixé à 0 %."
                                         style="cursor: help; opacity: 0.6;">ℹ️</span>
                                 </div>
                                 <div id="risk-sharpe"
                                     style="font-size: 20px; font-weight: 600; color: var(--text-primary);">-</div>
                             </div>
                         </div>
+                        <div id="risk-data-scope" style="font-size: 11px; color: var(--text-secondary); margin-top: 14px;">Historique en cours de chargement…</div>
                     </div>
 
                     <!-- Risk Distribution -->
                     <div style="margin-bottom: 24px;">
                         <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">📈 Répartition par
-                            Volatilité</h4>
+                            volatilité annualisée historique</h4>
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
                             <div
                                 style="padding: 12px; background: var(--bg-card); border-radius: 6px; border-left: 3px solid #10b981;">
-                                <div style="font-size: 11px; color: var(--text-secondary);">Faible (10%)</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Faible (&lt;10%)</div>
                                 <div id="risk-low-count"
                                     style="font-size: 18px; font-weight: 600; color: #10b981; margin-top: 4px;">
                                     0</div>
@@ -1130,8 +1131,8 @@
 
                     <!-- Top Risky Assets -->
                     <div style="margin-bottom: 24px;">
-                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">⚡ Top 5 Actifs
-                            les Plus Volatils</h4>
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">⚡ Top 5 actifs
+                            les plus volatils (1 an)</h4>
                         <div id="risk-top-volatile" style="font-size: 13px;"></div>
                     </div>
 

@@ -23,6 +23,7 @@ import { marketDataMetrics } from './marketDataMetrics.js';
 import { mountPerformerTable } from './performerTable.js';
 import { FUTURE_ACCENT_COLOR, selectIndexDisplayInstrument } from './indexFutures.js';
 import { ALLOCATION_TYPES, buildAllocationTimeline, calculateCurrentAllocation } from './allocation.js';
+import { findHoldingForNews } from './newsHoldingMatcher.js';
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -83,6 +84,11 @@ export class DashboardApp {
         this.chart = null;
         this.currentModalNewsItem = null;
         this.currentGeminiSummary = null;
+        this._newsModalGeneration = 0;
+        this._newsSummaryRequestSeq = 0;
+        this._newsContextRequestSeq = 0;
+        this._newsSummaryAbortController = null;
+        this._newsContextAbortController = null;
         this.portfolioNews = [];
         this.globalNews = [];
         this.lastHoldings = [];
@@ -540,10 +546,19 @@ export class DashboardApp {
 
         const closeModal = () => {
             if (modal) {
+                const closeGeneration = ++this._newsModalGeneration;
+                this._newsSummaryRequestSeq++;
+                this._newsContextRequestSeq++;
+                this._newsSummaryAbortController?.abort();
+                this._newsContextAbortController?.abort();
+                this._newsSummaryAbortController = null;
+                this._newsContextAbortController = null;
                 modal.classList.remove('show');
                 const contextBox = document.getElementById('modal-news-context');
                 if (contextBox) contextBox.style.display = 'none';
-                setTimeout(() => { modal.style.display = 'none'; }, 300);
+                setTimeout(() => {
+                    if (this._newsModalGeneration === closeGeneration) modal.style.display = 'none';
+                }, 300);
             }
         };
         if (closeBtn) closeBtn.onclick = closeModal;
@@ -898,6 +913,14 @@ export class DashboardApp {
 
 
 
+        const modalGeneration = ++this._newsModalGeneration;
+        const requestId = ++this._newsSummaryRequestSeq;
+        this._newsSummaryAbortController?.abort();
+        this._newsContextAbortController?.abort();
+        this._newsContextRequestSeq++;
+        const abortController = new AbortController();
+        this._newsSummaryAbortController = abortController;
+
         this.currentModalNewsItem = newsItem;
         this.currentGeminiSummary = null;
 
@@ -928,44 +951,41 @@ export class DashboardApp {
             console.log('[openNewsModal] Calling fetchGeminiSummary with context:', context.substring(0, 100));
 
             // UTILISATION DU SERVICE CENTRALISÉ
-            const summary = await fetchGeminiSummary(context);
+            const summary = await fetchGeminiSummary(context, { signal: abortController.signal });
+
+            if (requestId !== this._newsSummaryRequestSeq
+                || modalGeneration !== this._newsModalGeneration
+                || this.currentModalNewsItem !== newsItem) return;
 
             console.log('[openNewsModal] Got summary:', summary);
 
             this.currentGeminiSummary = summary;
             summaryDiv.innerHTML = summary;
         } catch (error) {
+            if (error?.name === 'AbortError') return;
+            if (requestId !== this._newsSummaryRequestSeq
+                || modalGeneration !== this._newsModalGeneration
+                || this.currentModalNewsItem !== newsItem) return;
             console.error('[openNewsModal] Error:', error);
             summaryDiv.innerHTML = "Analyse indisponible (Erreur API).";
+        } finally {
+            if (this._newsSummaryAbortController === abortController) {
+                this._newsSummaryAbortController = null;
+            }
         }
     }
 
     getHoldingDetailsForNews(newsItem) {
-        const allHoldings = this.lastHoldings || [];
-
-        // 1. Déterminer le nom de la société à partir du titre de la news (ex: "AST SpaceMobile")
-        // La structure de la news est: TITRE (ex: "AST SpaceMobile, Inc. étend...")
-        const newsTitle = newsItem.title || newsItem.name;
-        const explicitAssetName = (newsItem.assetName || '').toLowerCase();
-
-        // 2. Recherche stricte par Nom/Ticker (plus fiable que le match de sous-chaîne sur name)
-        // La recherche 'Find' est suffisante car chaque actif est unique.
-        const foundHolding = allHoldings.find(h =>
-            // Tentative A: Le nom de l'actif du portefeuille est inclus dans le titre de la news
-            (explicitAssetName && explicitAssetName === String(h.name || '').toLowerCase()) ||
-            (String(h.name || '').length > 1 && newsTitle.toLowerCase().includes(String(h.name).toLowerCase())) ||
-            // Tentative B: Match par le ticker exact si la news le contient
-            (String(h.ticker || '').length > 0 && newsTitle.toUpperCase().includes(String(h.ticker).toUpperCase()))
-        );
-
-        if (foundHolding) {
-            // S'assurer que le DataManager a retourné des chiffres valides
-            if (foundHolding.quantity > 0) {
-                return foundHolding;
-            }
-        }
-
-        return null; // Retourne null si aucune position détenue n'est trouvée
+        const foundHolding = findHoldingForNews(newsItem, this.lastHoldings || []);
+        if (!foundHolding) return null;
+        const totalValue = (this.lastHoldings || []).reduce((sum, holding) =>
+            sum + (Number(holding.currentValue) || 0), 0) + (Number(this.lastCashTotal) || 0);
+        return {
+            ...foundHolding,
+            weight: totalValue > 0 ? (Number(foundHolding.currentValue || 0) / totalValue) * 100 : null,
+            portfolioTotalValue: totalValue || null,
+            cashReserve: Number(this.lastCashTotal) || 0
+        };
     }
 
 
@@ -993,8 +1013,13 @@ export class DashboardApp {
         // -----------------------------------------------------------------------
 
         if (contextBox.style.display === 'block') {
+            const hideRequestId = ++this._newsContextRequestSeq;
+            this._newsContextAbortController?.abort();
+            this._newsContextAbortController = null;
             contextBox.classList.remove('show');
-            setTimeout(() => contextBox.style.display = 'none', 300);
+            setTimeout(() => {
+                if (this._newsContextRequestSeq === hideRequestId) contextBox.style.display = 'none';
+            }, 300);
             return;
         }
 
@@ -1003,10 +1028,33 @@ export class DashboardApp {
         contextContent.innerHTML = '<span class="loading-text">Gemini contextualise...</span>';
         setTimeout(() => contextBox.classList.add('show'), 10);
 
-        // APPEL CENTRALISÉ avec les données du portefeuille
-        fetchGeminiContext(newsItem.title, currentSummary, holdingDetails)
-            .then(contextSummary => { contextContent.innerHTML = contextSummary; })
-            .catch(() => { contextContent.innerHTML = "Échec de l'analyse contextuelle."; });
+        const requestId = ++this._newsContextRequestSeq;
+        const modalGeneration = this._newsModalGeneration;
+        this._newsContextAbortController?.abort();
+        const abortController = new AbortController();
+        this._newsContextAbortController = abortController;
+
+        // APPEL CENTRALISÉ avec les données du portefeuille. Une réponse d'un
+        // ancien article ne peut jamais remplacer celle de l'article courant.
+        fetchGeminiContext(newsItem.title, currentSummary, holdingDetails, { signal: abortController.signal })
+            .then(contextSummary => {
+                if (requestId !== this._newsContextRequestSeq
+                    || modalGeneration !== this._newsModalGeneration
+                    || this.currentModalNewsItem !== newsItem) return;
+                contextContent.innerHTML = contextSummary;
+            })
+            .catch(error => {
+                if (error?.name === 'AbortError') return;
+                if (requestId !== this._newsContextRequestSeq
+                    || modalGeneration !== this._newsModalGeneration
+                    || this.currentModalNewsItem !== newsItem) return;
+                contextContent.innerHTML = "Échec de l'analyse contextuelle.";
+            })
+            .finally(() => {
+                if (this._newsContextAbortController === abortController) {
+                    this._newsContextAbortController = null;
+                }
+            });
     }
 
     formatFullDateTime(timestamp, includeTime = true) {

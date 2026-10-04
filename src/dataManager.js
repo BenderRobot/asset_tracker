@@ -1214,14 +1214,204 @@ export class DataManager {
         const winRate = rankedHoldings.length > 0 ? (winners.length / rankedHoldings.length) * 100 : 0;
         return { topPerformers: sorted.slice(0, 3), worstPerformers: sorted.slice(-3).reverse(), winners: winners.length, losers: losers.length, avgGain: avgGain.toFixed(2), winRate: winRate.toFixed(1), summary: 'Performance analysée' };
     }
-    calculateRisk(holdings) {
-        if (holdings.length === 0) return { volatility: '0.00', maxDrawdown: '0.00', riskLevel: 'N/A', recommendation: 'Aucune donnée.' };
-        const returns = holdings.map(a => a.gainPct || 0);
-        const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-        const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
-        const volatility = Math.sqrt(variance);
-        const maxDrawdown = Math.min(...returns.map(r => Math.min(r, 0)));
-        return { volatility: volatility.toFixed(2), maxDrawdown: maxDrawdown.toFixed(2), riskLevel: volatility < 15 ? 'Faible' : 'Élevé', recommendation: 'Risque calculé' };
+    _unavailableRisk(reason = 'HISTORICAL_DATA_UNAVAILABLE', details = {}) {
+        return {
+            status: 'unavailable',
+            reason,
+            volatility: null,
+            maxDrawdown: null,
+            annualizedReturn: null,
+            sharpeRatio: null,
+            riskLevel: 'Indisponible',
+            observations: 0,
+            periodDays: 365,
+            includesDividends: true,
+            cashIncluded: true,
+            assetRisks: [],
+            recommendation: 'Historique insuffisant pour calculer le risque.',
+            ...details
+        };
+    }
+
+    // Conservé pour les anciens producteurs synchrones de rapport. Une simple
+    // photographie des performances par position ne permet PAS de calculer une
+    // volatilité ou un drawdown : on refuse désormais d'inventer ces chiffres.
+    calculateRisk() {
+        return this._unavailableRisk('HISTORICAL_SERIES_REQUIRED');
+    }
+
+    _riskFromReturnSeries(returns, annualizationPeriods) {
+        if (!Array.isArray(returns) || returns.length === 0) return null;
+        const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+        const variance = returns.length > 1
+            ? returns.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / (returns.length - 1)
+            : 0;
+        const periodVolatility = Math.sqrt(Math.max(0, variance));
+        const volatility = periodVolatility * Math.sqrt(annualizationPeriods) * 100;
+
+        let wealth = 1;
+        let peak = 1;
+        let maxDrawdown = 0;
+        for (const value of returns) {
+            wealth *= 1 + value;
+            peak = Math.max(peak, wealth);
+            maxDrawdown = Math.min(maxDrawdown, (wealth / peak) - 1);
+        }
+
+        const annualizedReturn = wealth > 0
+            ? (Math.pow(wealth, annualizationPeriods / returns.length) - 1) * 100
+            : null;
+        const sharpeRatio = periodVolatility > 0
+            ? (mean / periodVolatility) * Math.sqrt(annualizationPeriods)
+            : null;
+        return { volatility, maxDrawdown: maxDrawdown * 100, annualizedReturn, sharpeRatio };
+    }
+
+    _calculateAssetRisks(historicalDataMap, assetTickers, cryptoTickers) {
+        if (!(historicalDataMap instanceof Map)) return [];
+        return assetTickers.flatMap(ticker => {
+            const history = historicalDataMap.get(ticker);
+            if (!history) return [];
+            const entries = history instanceof Map ? [...history.entries()] : Object.entries(history);
+            const prices = entries
+                .map(([timestamp, price]) => [Number(timestamp), Number(price)])
+                .filter(([timestamp, price]) => Number.isFinite(timestamp) && Number.isFinite(price) && price > 0)
+                .sort((a, b) => a[0] - b[0]);
+            const returns = [];
+            for (let index = 1; index < prices.length; index++) {
+                const value = (prices[index][1] / prices[index - 1][1]) - 1;
+                if (Number.isFinite(value) && value > -1) returns.push(value);
+            }
+            if (returns.length < 5) return [];
+            const metrics = this._riskFromReturnSeries(returns, cryptoTickers.has(ticker) ? 365 : 252);
+            return metrics ? [{ ticker, observations: returns.length, ...metrics }] : [];
+        });
+    }
+
+    /**
+     * Calcule le risque sur l'indice TWR quotidien canonique. Les flux externes
+     * sont neutralisés par HistoryCalculator, les dividendes sont inclus et la
+     * pondération cash dilue le rendement de la poche risquée à chaque point.
+     */
+    calculateHistoricalRisk(graph, options = {}) {
+        const {
+            annualizationPeriods = 252,
+            periodDays = 365,
+            minObservations = 20,
+            assetTickers = [],
+            cryptoTickers = new Set(),
+            excludedRealEstate = 0
+        } = options;
+        if (!graph?.dataQuality?.valid) {
+            return this._unavailableRisk(graph?.dataQuality?.reason || 'HISTORICAL_DATA_UNAVAILABLE', {
+                periodDays,
+                excludedRealEstate,
+                failedInstruments: [...(graph?.dataQuality?.failedInstruments || [])]
+            });
+        }
+
+        const twr = Array.isArray(graph.twrWithDividends) ? graph.twrWithDividends : graph.twr;
+        if (!Array.isArray(twr)) return this._unavailableRisk('HISTORICAL_SERIES_UNAVAILABLE', { periodDays, excludedRealEstate });
+
+        const returns = [];
+        for (let index = 1; index < twr.length; index++) {
+            const previous = Number(twr[index - 1]);
+            const current = Number(twr[index]);
+            if (!(previous > 0) || !Number.isFinite(current)) continue;
+            const sleeveReturn = (current / previous) - 1;
+            if (!Number.isFinite(sleeveReturn) || sleeveReturn <= -1) continue;
+
+            // TWR mesure la poche titres. Pour mesurer le portefeuille complet,
+            // le cash est considéré sans risque et réduit l'exposition au marché.
+            const previousTotal = Number(graph.values?.[index - 1]);
+            const previousAssets = Number(graph.assetValues?.[index - 1]);
+            const exposure = previousTotal > 0 && Number.isFinite(previousAssets)
+                ? Math.max(0, previousAssets / previousTotal)
+                : 1;
+            const portfolioReturn = sleeveReturn * exposure;
+            if (Number.isFinite(portfolioReturn) && portfolioReturn > -1) returns.push(portfolioReturn);
+        }
+
+        if (returns.length < minObservations) {
+            return this._unavailableRisk('INSUFFICIENT_OBSERVATIONS', {
+                observations: returns.length,
+                periodDays,
+                excludedRealEstate,
+                minimumObservations: minObservations
+            });
+        }
+
+        const metrics = this._riskFromReturnSeries(returns, annualizationPeriods);
+        const volatility = metrics.volatility;
+        const riskLevel = volatility < 10 ? 'Faible' : volatility <= 20 ? 'Modéré' : 'Élevé';
+        const estimated = !!graph.dataQuality.estimated;
+        return {
+            status: estimated ? 'estimated' : 'available',
+            reason: estimated ? graph.dataQuality.estimateReason : null,
+            volatility: Number(volatility.toFixed(2)),
+            maxDrawdown: Number(metrics.maxDrawdown.toFixed(2)),
+            annualizedReturn: metrics.annualizedReturn == null ? null : Number(metrics.annualizedReturn.toFixed(2)),
+            sharpeRatio: metrics.sharpeRatio == null ? null : Number(metrics.sharpeRatio.toFixed(2)),
+            riskLevel,
+            observations: returns.length,
+            annualizationPeriods,
+            periodDays,
+            includesDividends: true,
+            cashIncluded: true,
+            excludedRealEstate,
+            assetRisks: this._calculateAssetRisks(graph.historicalDataMap, assetTickers, cryptoTickers)
+                .map(item => ({
+                    ...item,
+                    volatility: Number(item.volatility.toFixed(2)),
+                    maxDrawdown: Number(item.maxDrawdown.toFixed(2)),
+                    annualizedReturn: item.annualizedReturn == null ? null : Number(item.annualizedReturn.toFixed(2)),
+                    sharpeRatio: item.sharpeRatio == null ? null : Number(item.sharpeRatio.toFixed(2))
+                })),
+            recommendation: estimated
+                ? 'Risque historique estimé : certains cours proviennent d\'un prix de transaction.'
+                : `Risque calculé sur ${returns.length} rendements quotidiens, dividendes et cash inclus.`
+        };
+    }
+
+    async calculatePortfolioRisk(purchases, periodDays = 365) {
+        const { assets, cash, realEstate } = this.splitCanonicalPurchases(purchases);
+        const quantities = new Map();
+        for (const row of assets) {
+            const ticker = String(row.ticker || '').toUpperCase();
+            quantities.set(ticker, (quantities.get(ticker) || 0) + Number(row.quantity || 0));
+        }
+        const assetTickers = [...quantities]
+            .filter(([, quantity]) => quantity > 0.0001)
+            .map(([ticker]) => ticker);
+        const cryptoTickers = new Set(assetTickers.filter(ticker => isCryptoTicker(ticker)));
+
+        if (assetTickers.length === 0) {
+            if (cash.length > 0) {
+                return {
+                    ...this._unavailableRisk('CASH_ONLY_PORTFOLIO', { periodDays, excludedRealEstate: realEstate.length }),
+                    status: 'available', volatility: 0, maxDrawdown: 0, annualizedReturn: 0,
+                    riskLevel: 'Faible', recommendation: 'Portefeuille composé uniquement de cash.', cashIncluded: true
+                };
+            }
+            return this._unavailableRisk('NO_MARKET_ASSETS', { periodDays, excludedRealEstate: realEstate.length });
+        }
+
+        try {
+            const graph = await this.calculateGenericHistory([...assets, ...cash], periodDays, false);
+            return this.calculateHistoricalRisk(graph, {
+                annualizationPeriods: cryptoTickers.size > 0 ? 365 : 252,
+                periodDays,
+                assetTickers,
+                cryptoTickers,
+                excludedRealEstate: realEstate.length
+            });
+        } catch (error) {
+            console.error('[Risk] Impossible de calculer le risque historique:', error);
+            return this._unavailableRisk('HISTORICAL_CALCULATION_FAILED', {
+                periodDays,
+                excludedRealEstate: realEstate.length
+            });
+        }
     }
 
     // === DIAGNOSTIC — LECTURE SEULE, NE MODIFIE JAMAIS LES DONNÉES ===

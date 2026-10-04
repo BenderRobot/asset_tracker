@@ -653,7 +653,7 @@ Titre:`;
             const canonical = analyticsSnapshot.portfolioSnapshot;
             const performance = this.dataManager.analyzePerformance(holdings);
             const diversification = this.dataManager.calculateDiversification(holdings);
-            const risk = this.dataManager.calculateRisk(holdings);
+            const risk = await this.dataManager.calculatePortfolioRisk(purchases, 365);
 
             const byType = {};
             holdings.forEach(h => {
@@ -789,7 +789,23 @@ Titre:`;
                 },
                 risk: {
                     volatility: risk.volatility,
-                    riskLevel: risk.riskLevel
+                    maxDrawdown: risk.maxDrawdown,
+                    annualizedReturn: risk.annualizedReturn,
+                    sharpeRatio: risk.sharpeRatio,
+                    riskLevel: risk.riskLevel,
+                    status: risk.status,
+                    observations: risk.observations,
+                    periodDays: risk.periodDays,
+                    includesDividends: risk.includesDividends,
+                    cashIncluded: risk.cashIncluded,
+                    excludedRealEstate: risk.excludedRealEstate,
+                    recommendation: risk.recommendation,
+                    assets: (risk.assetRisks || []).map(asset => ({
+                        ticker: asset.ticker,
+                        volatility: asset.volatility,
+                        maxDrawdown: asset.maxDrawdown,
+                        observations: asset.observations
+                    }))
                 },
                 cash: {
                     total: canonical.cash,

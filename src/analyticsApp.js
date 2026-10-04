@@ -12,6 +12,7 @@ import { DividendManager } from './dividendManager.js'; // NEW: Import Dividend 
 // AJOUT : Importer MarketStatus (avec le cache buster)
 import { MarketStatus } from './marketStatus.js';
 import { fetchGeminiDiversificationAdvice, fetchGeminiRiskAdvice } from './geminiService.js'; // Import Gemini AI
+import { escapeGeminiHtml } from './safeGeminiHtml.js';
 import { getBrokersSync, populateSelect } from './brokerService.js';
 import { mountPerformerTable } from './performerTable.js';
 
@@ -71,6 +72,7 @@ class AnalyticsApp {
             }
         }
         const analyticsSnapshot = await this.dataManager.buildAnalyticsSnapshot(purchases, marketResult);
+        const historicalRisk = await this.dataManager.calculatePortfolioRisk(purchases, 365);
         const { cash } = this.dataManager.splitCanonicalPurchases(purchases);
         const dividendsReceived = cash
             .filter(p => (p.assetType || '').toLowerCase() === 'dividend' || p.type === 'dividend')
@@ -80,6 +82,7 @@ class AnalyticsApp {
             analyticsSnapshot.cashReserve, dividendsReceived
         );
         report.portfolioSnapshot = analyticsSnapshot.portfolioSnapshot;
+        report.risk = historicalRisk;
 
         // Store report for modals to access
         this.lastReport = report;
@@ -168,24 +171,27 @@ class AnalyticsApp {
             if (el) el.textContent = value;
         };
 
-        setValue('volatility', risk.volatility + '%');
-        setValue('max-drawdown', risk.maxDrawdown + '%');
+        const formatRiskPct = value => value !== null && value !== undefined && Number.isFinite(Number(value))
+            ? `${Number(value).toFixed(2)}%`
+            : '—';
+        setValue('volatility', formatRiskPct(risk?.volatility));
+        setValue('max-drawdown', formatRiskPct(risk?.maxDrawdown));
 
         const levelEl = document.getElementById('risk-level');
         if (levelEl) {
-            levelEl.textContent = risk.riskLevel;
+            levelEl.textContent = risk?.riskLevel || 'Indisponible';
             levelEl.className = 'metric-value risk-badge';
 
-            if (risk.riskLevel === 'Faible') {
+            if (risk?.riskLevel === 'Faible') {
                 levelEl.classList.add('risk-low');
-            } else if (risk.riskLevel === 'Modéré') {
+            } else if (risk?.riskLevel === 'Modéré') {
                 levelEl.classList.add('risk-moderate');
-            } else {
+            } else if (risk?.riskLevel === 'Élevé') {
                 levelEl.classList.add('risk-high');
             }
         }
 
-        setValue('risk-recommendation', risk.recommendation);
+        setValue('risk-recommendation', risk?.recommendation || 'Historique indisponible.');
     }
 
     async calculatePassiveIncome() {
@@ -1284,9 +1290,21 @@ class AnalyticsApp {
         const assets = report.assets;
         const risk = report.risk;
 
-        // Populate Modal Metrics
-        document.getElementById('risk-volatility').textContent = risk.volatility + '%';
-        document.getElementById('risk-drawdown').textContent = risk.maxDrawdown + '%';
+        const formatRiskPct = value => value !== null && value !== undefined && Number.isFinite(Number(value))
+            ? `${Number(value).toFixed(2)}%`
+            : '—';
+
+        // Ces métriques proviennent de la série TWR quotidienne sur un an.
+        document.getElementById('risk-volatility').textContent = formatRiskPct(risk.volatility);
+        document.getElementById('risk-drawdown').textContent = formatRiskPct(risk.maxDrawdown);
+        const scopeEl = document.getElementById('risk-data-scope');
+        if (scopeEl) {
+            const quality = risk.status === 'estimated' ? ' · estimation partielle' : '';
+            const realEstate = risk.excludedRealEstate > 0 ? ` · ${risk.excludedRealEstate} actif(s) immobilier(s) exclu(s)` : '';
+            scopeEl.textContent = risk.status === 'unavailable'
+                ? `Historique indisponible (${risk.observations || 0} observation(s)).`
+                : `${risk.observations} rendements quotidiens · dividendes et cash inclus${realEstate}${quality}`;
+        }
 
         // Risk Level Badge
         const levelEl = document.getElementById('risk-level-modal');
@@ -1299,24 +1317,20 @@ class AnalyticsApp {
             } else if (risk.riskLevel === 'Modéré') {
                 levelEl.style.background = 'rgba(251, 191, 36, 0.2)';
                 levelEl.style.color = '#fbbf24';
-            } else {
+            } else if (risk.riskLevel === 'Élevé') {
                 levelEl.style.background = 'rgba(239, 68, 68, 0.2)';
                 levelEl.style.color = '#ef4444';
+            } else {
+                levelEl.style.background = 'rgba(148, 163, 184, 0.15)';
+                levelEl.style.color = 'var(--text-secondary)';
             }
         }
 
-
-        // Sharpe Ratio (simplified calculation: avg return / volatility)
-        // Note: True Sharpe uses risk-free rate, but we use 0% for simplicity
+        // Sharpe annualisé sur les mêmes rendements quotidiens (taux sans risque 0%).
         const sharpeEl = document.getElementById('risk-sharpe');
         if (sharpeEl) {
-            const avgReturn = assets.length > 0
-                ? assets.reduce((sum, a) => sum + (a.gainPct || 0), 0) / assets.length
-                : 0;
-            const volatility = parseFloat(risk.volatility) || 1; // Avoid division by zero
-
-            if (volatility > 0 && assets.length > 0) {
-                const sharpe = avgReturn / volatility;
+            const sharpe = risk.sharpeRatio == null ? null : Number(risk.sharpeRatio);
+            if (Number.isFinite(sharpe)) {
                 sharpeEl.textContent = sharpe.toFixed(2);
 
                 // Color coding: >1 = good (green), 0-1 = ok (yellow), <0 = bad (red)
@@ -1333,53 +1347,49 @@ class AnalyticsApp {
             }
         }
 
-        // Risk Distribution by Volatility
-        // NOTE: Since individual asset volatility is not calculated in dataManager,
-        // we use absolute gainPct as a proxy for risk assessment
-        const totalValue = assets.reduce((sum, a) => sum + (a.currentValue || 0), 0);
+        // Volatilité individuelle réellement calculée depuis les cours historiques.
+        const riskByTicker = new Map((risk.assetRisks || []).map(item => [String(item.ticker).toUpperCase(), item]));
+        const assetsWithRisk = assets.flatMap(asset => {
+            const metrics = riskByTicker.get(String(asset.ticker).toUpperCase());
+            return metrics ? [{ ...asset, historicalVolatility: metrics.volatility, riskObservations: metrics.observations }] : [];
+        });
+        const coveredValue = assetsWithRisk.reduce((sum, asset) => sum + (Number(asset.currentValue) || 0), 0);
 
-        // Use absolute gainPct as volatility proxy
-        const assetsWithRisk = assets.map(a => ({
-            ...a,
-            volatilityProxy: Math.abs(a.gainPct || 0)
-        }));
-
-        const lowRisk = assetsWithRisk.filter(a => a.volatilityProxy < 10);
-        const medRisk = assetsWithRisk.filter(a => a.volatilityProxy >= 10 && a.volatilityProxy <= 20);
-        const highRisk = assetsWithRisk.filter(a => a.volatilityProxy > 20);
+        const lowRisk = assetsWithRisk.filter(a => a.historicalVolatility < 10);
+        const medRisk = assetsWithRisk.filter(a => a.historicalVolatility >= 10 && a.historicalVolatility <= 20);
+        const highRisk = assetsWithRisk.filter(a => a.historicalVolatility > 20);
 
         const lowValue = lowRisk.reduce((sum, a) => sum + (a.currentValue || 0), 0);
         const medValue = medRisk.reduce((sum, a) => sum + (a.currentValue || 0), 0);
         const highValue = highRisk.reduce((sum, a) => sum + (a.currentValue || 0), 0);
 
         document.getElementById('risk-low-count').textContent = lowRisk.length;
-        document.getElementById('risk-low-pct').textContent = totalValue > 0 ? ((lowValue / totalValue) * 100).toFixed(1) + '% du total' : '0% du total';
+        document.getElementById('risk-low-pct').textContent = coveredValue > 0 ? ((lowValue / coveredValue) * 100).toFixed(1) + '% analysés' : 'Indisponible';
 
         document.getElementById('risk-med-count').textContent = medRisk.length;
-        document.getElementById('risk-med-pct').textContent = totalValue > 0 ? ((medValue / totalValue) * 100).toFixed(1) + '% du total' : '0% du total';
+        document.getElementById('risk-med-pct').textContent = coveredValue > 0 ? ((medValue / coveredValue) * 100).toFixed(1) + '% analysés' : 'Indisponible';
 
         document.getElementById('risk-high-count').textContent = highRisk.length;
-        document.getElementById('risk-high-pct').textContent = totalValue > 0 ? ((highValue / totalValue) * 100).toFixed(1) + '% du total' : '0% du total';
+        document.getElementById('risk-high-pct').textContent = coveredValue > 0 ? ((highValue / coveredValue) * 100).toFixed(1) + '% analysés' : 'Indisponible';
 
-        // Top 5 Most Volatile Assets (using absolute gainPct as proxy)
+        // Top 5 des volatilités annualisées historiques.
         const sortedByVolatility = [...assetsWithRisk]
-            .filter(a => a.volatilityProxy > 0)
-            .sort((a, b) => b.volatilityProxy - a.volatilityProxy)
+            .sort((a, b) => b.historicalVolatility - a.historicalVolatility)
             .slice(0, 5);
 
         const topVolatileHTML = sortedByVolatility.map(asset => `
             <div style="display: flex; justify-content: space-between; padding: 8px; background: var(--bg-card); border-radius: 6px; margin-bottom: 6px;">
                 <div style="flex: 1; min-width: 0; margin-right: 12px;">
-                    <div style="font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${asset.name}</div>
-                    <div style="font-size: 11px; color: var(--text-secondary);">${asset.ticker}</div>
+                    <div style="font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeGeminiHtml(asset.name)}</div>
+                    <div style="font-size: 11px; color: var(--text-secondary);">${escapeGeminiHtml(asset.ticker)}</div>
                 </div>
                 <div style="text-align: right; flex-shrink: 0;">
-                    <div style="font-weight: 600; color: ${asset.volatilityProxy > 20 ? '#ef4444' : asset.volatilityProxy > 10 ? '#f59e0b' : '#10b981'};">${asset.volatilityProxy.toFixed(2)}%</div>
-                    <div style="font-size: 11px; color: var(--text-secondary);">${this.formatEUR(asset.currentValue)}</div>
+                    <div style="font-weight: 600; color: ${asset.historicalVolatility > 20 ? '#ef4444' : asset.historicalVolatility >= 10 ? '#f59e0b' : '#10b981'};">${asset.historicalVolatility.toFixed(2)}%</div>
+                    <div style="font-size: 11px; color: var(--text-secondary);">${asset.riskObservations} observations</div>
                 </div>
             </div>
         `).join('');
-        document.getElementById('risk-top-volatile').innerHTML = topVolatileHTML || '<p style="color: var(--text-muted); text-align: center;">Aucune donnée</p>';
+        document.getElementById('risk-top-volatile').innerHTML = topVolatileHTML || '<p style="color: var(--text-muted); text-align: center;">Historique individuel insuffisant</p>';
 
         // Force visibility
         modal.style.display = 'flex';
