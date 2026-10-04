@@ -22,6 +22,7 @@ import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI mana
 import { marketDataMetrics } from './marketDataMetrics.js';
 import { mountPerformerTable } from './performerTable.js';
 import { FUTURE_ACCENT_COLOR, selectIndexDisplayInstrument } from './indexFutures.js';
+import { ALLOCATION_TYPES, buildAllocationTimeline, calculateCurrentAllocation } from './allocation.js';
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -294,7 +295,7 @@ export class DashboardApp {
         // actif totalement vendu de rester visible via l'historique brut.
         this.renderAssetSelect();
         this.renderKPIs(engineSummary, cashReserve.total, holdings);
-        this.renderAllocation(holdings, engineSummary.totalCurrentEUR);
+        this.renderAllocation(holdings);
         if (this.chart?.currentMode !== 'asset') this.ui.updatePortfolioSummary(canonicalSummary, canonicalSummary.movementsCount, canonicalSummary.cash, this.marketStatus);
         if (stale || degraded) {
             this.showCacheBadge();
@@ -626,59 +627,26 @@ export class DashboardApp {
         }
     }
 
-    renderAllocation(holdings, totalValue) { // totalValue here is Global Portfolio Value
+    renderAllocation(holdings) {
         const container = document.getElementById('dashboard-allocation-container');
-
-        // FILTRE STRICT : Uniquement les actifs boursiers
-        const marketAssets = holdings.filter(h => {
-            const type = (h.assetType || 'Stock').toLowerCase(); // Default to Stock if undefined
-            return ['etf', 'stock', 'crypto'].includes(type) && h.currentValue > 0;
-        });
-
-        // Recalcul du total spécifique "Boursier" pour les pourcentages
-        const marketTotalValue = marketAssets.reduce((sum, h) => sum + h.currentValue, 0);
-
         if (!container) return;
-        if (marketTotalValue === 0) {
-            container.innerHTML = '<div style="color:var(--text-muted); font-size:12px; text-align:center; padding: 20px;">Aucun actif boursier (Actions, ETF, Crypto).</div>';
+        const allocation = calculateCurrentAllocation(holdings, 'market');
+        if (!allocation.valid) {
+            container.innerHTML = `<div style="color:var(--text-muted);font-size:11px;text-align:center;padding:16px 6px;">Allocation indisponible · cours manquant pour ${allocation.unavailable.map(escHtml).join(', ')}</div>`;
             return;
         }
 
-        const categories = {
-            'ETF': { value: 0, color: '#10b981', label: 'ETF' },
-            'Stock': { value: 0, color: '#3b82f6', label: 'Actions' },
-            'Crypto': { value: 0, color: '#f59e0b', label: 'Cryptos' }
-        };
-
-        marketAssets.forEach(h => {
-            // Normalisation du type pour matcher les clés (Stock, ETF, Crypto)
-            let type = h.assetType || 'Stock';
-            // Sécurité : si le casing diffère, on map manuellement
-            if (type.toLowerCase() === 'stock') type = 'Stock';
-            if (type.toLowerCase() === 'etf') type = 'ETF';
-            if (type.toLowerCase() === 'crypto') type = 'Crypto';
-
-            if (categories[type]) {
-                categories[type].value += h.currentValue;
-            }
-        });
-
-        const data = Object.values(categories)
-            .filter(c => c.value > 0.01) // Filtrer les valeurs nulles
-            .map(c => ({ ...c, pct: (c.value / marketTotalValue) * 100 })) // % basé sur le total Boursier
-            .sort((a, b) => b.value - a.value);
-
-        if (data.length === 0) {
+        if (allocation.rows.length === 0) {
             container.innerHTML = '<div style="color:var(--text-muted); font-size:12px; text-align:center; padding: 20px;">Aucune donnée.</div>';
             return;
         }
 
-        const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+        const fmt = (v) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 
         let barHTML = '<div class="allocation-bar">';
         let listHTML = '<div class="allocation-list" style="flex-grow: 1;">'; // Ajout de flex-grow: 1 pour la robustesse
 
-        data.forEach(item => {
+        allocation.rows.forEach(item => {
             barHTML += `<div class="alloc-segment" style="width: ${item.pct}%; background-color: ${item.color};"></div>`;
             listHTML += `<div class="alloc-row">
                 <div class="alloc-left">
@@ -693,7 +661,7 @@ export class DashboardApp {
         barHTML += '</div>'; listHTML += '</div>';
 
         // CORRECTION: Ajout de style="display: flex; flex-direction: column; height: 100%;" au wrapper pour forcer l'empilement vertical.
-        container.innerHTML = `<div class="allocation-wrapper" style="display: flex; flex-direction: column; height: 100%;">${barHTML}${listHTML}</div>`;
+        container.innerHTML = `<div class="allocation-wrapper" style="display:flex;flex-direction:column;height:100%;"><div class="allocation-basis-label">Valeur actuelle · hors cash</div>${barHTML}${listHTML}</div>`;
     }
 
     renderKPIs(data, cashTotal = 0, holdings = []) {
@@ -1706,83 +1674,27 @@ export class DashboardApp {
         }
 
         const activeBtn = basisToggle?.querySelector('.toggle-btn.active');
-        render(activeBtn?.dataset.basis || 'invested');
+        render(activeBtn?.dataset.basis || 'market');
     }
 
-    buildAllocationChart(holdings, chartWrap, legend, breakdown, basis = 'invested') {
-        const TYPES = {
-            'ETF':         { color: '#10b981', label: 'ETF' },
-            'Stock':       { color: '#3b82f6', label: 'Actions' },
-            'Crypto':      { color: '#f59e0b', label: 'Cryptos' },
-            'Real Estate': { color: '#8b5cf6', label: 'Immobilier' },
-        };
-        const typeKeys = Object.keys(TYPES);
+    buildAllocationChart(holdings, chartWrap, legend, breakdown, basis = 'market') {
+        const TYPES = ALLOCATION_TYPES;
+        const timeline = buildAllocationTimeline(holdings, basis);
+        const { points, activeTypes } = timeline;
 
-        const normalizeType = raw => {
-            const r = (raw || '').toLowerCase();
-            if (r === 'etf') return 'ETF';
-            if (r === 'stock') return 'Stock';
-            if (r === 'crypto') return 'Crypto';
-            if (r === 'real estate' || r === 'realestate') return 'Real Estate';
-            return 'Stock';
-        };
-
-        const events = [];
-        holdings.forEach(h => {
-            const type = normalizeType(h.assetType);
-            const purchases = (h.purchases || []).filter(p => p.quantity > 0 && p.date);
-            if (!purchases.length) return;
-            const totalRaw = purchases.reduce((s, p) => s + p.price * p.quantity, 0);
-            // Vue "Portefeuille": valorise les quantités historiques au prix ACTUEL
-            // (pas de vrai mark-to-market historique), pour rester cohérent avec
-            // "Répartition actuelle" sans appel API supplémentaire. Un actif sans
-            // currentValue live (ex: cotation manquante) contribue pour 0, comme
-            // dans "Répartition actuelle" — pas de repli sur le prix d'achat, pour
-            // que le dernier point du graphique corresponde toujours au résumé.
-            const pricePerUnitEUR = (h.quantity > 0 && h.currentValue > 0) ? h.currentValue / h.quantity : 0;
-            purchases.forEach(p => {
-                const weight = totalRaw > 0 ? (p.price * p.quantity) / totalRaw : 1 / purchases.length;
-                const amount = basis === 'market' ? pricePerUnitEUR * p.quantity : p.price * p.quantity;
-                events.push({ date: p.date.substring(0, 10), type, amount });
-            });
-        });
-
-        if (events.length < 2) {
-            chartWrap.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px;">Pas assez de données historiques.</div>';
+        if (!timeline.valid) {
+            chartWrap.innerHTML = `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px;text-align:center;">Allocation indisponible<br>Cours manquant pour ${timeline.unavailable.map(escHtml).join(', ')}</div>`;
             legend.innerHTML = '';
             breakdown.innerHTML = '';
             return;
         }
 
-        events.sort((a, b) => a.date.localeCompare(b.date));
-
-        const cumulative = {};
-        typeKeys.forEach(k => cumulative[k] = 0);
-        const timePoints = [];
-
-        events.forEach(e => {
-            cumulative[e.type] = (cumulative[e.type] || 0) + e.amount;
-            const last = timePoints[timePoints.length - 1];
-            if (last && last.date === e.date) {
-                last.cum = { ...cumulative };
-            } else {
-                timePoints.push({ date: e.date, cum: { ...cumulative } });
-            }
-        });
-
-        const todayStr = new Date().toISOString().substring(0, 10);
-        if (timePoints[timePoints.length - 1]?.date !== todayStr) {
-            timePoints.push({ date: todayStr, cum: { ...cumulative } });
+        if (points.length < 2) {
+            chartWrap.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px;">Pas assez de données historiques.</div>';
+            legend.innerHTML = '';
+            this.renderAllocationBreakdown(timeline, breakdown);
+            return;
         }
-
-        const points = timePoints.map(tp => {
-            const total = typeKeys.reduce((s, k) => s + (tp.cum[k] || 0), 0);
-            const pcts = {};
-            typeKeys.forEach(k => pcts[k] = total > 0 ? (tp.cum[k] || 0) / total * 100 : 0);
-            return { date: tp.date, pcts };
-        });
-
-        const activeTypes = typeKeys.filter(k => (cumulative[k] || 0) > 0);
 
         const W = 780, H = 320, ML = 42, MR = 12, MT = 10, MB = 32;
         const cW = W - ML - MR, cH = H - MT - MB;
@@ -1897,32 +1809,21 @@ export class DashboardApp {
                 <span style="font-size:12px;color:var(--text-secondary);">${TYPES[k].label}</span>
             </div>`).join('');
 
-        // Basis "market": valeur actuelle réelle par type (currentValue).
-        // Basis "invested": montant investi par type (cumulative, déjà calculé plus haut).
-        let byType, totalByType, breakdownLabel;
-        if (basis === 'market') {
-            byType = {};
-            typeKeys.forEach(k => byType[k] = 0);
-            holdings.forEach(h => {
-                const t = normalizeType(h.assetType);
-                if ((h.currentValue || 0) > 0) byType[t] += h.currentValue;
-            });
-            breakdownLabel = 'Répartition actuelle (valeur totale)';
-        } else {
-            byType = cumulative;
-            breakdownLabel = 'Répartition actuelle (montant investi)';
-        }
-        totalByType = typeKeys.reduce((s, k) => s + (byType[k] || 0), 0);
+        this.renderAllocationBreakdown(timeline, breakdown);
+    }
 
+    renderAllocationBreakdown(allocation, breakdown) {
+        const breakdownLabel = allocation.basis === 'market'
+            ? 'Répartition actuelle · valeur de marché · hors cash'
+            : 'Répartition actuelle · montant investi · hors cash';
         const fmtK = v => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v);
         breakdown.innerHTML = `
             <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">${breakdownLabel}</div>
             <div style="display:flex;gap:16px;flex-wrap:wrap;">
-                ${activeTypes.map(k => {
-                    const pct = totalByType > 0 ? ((byType[k] || 0) / totalByType) * 100 : 0;
+                ${allocation.rows.map(row => {
                     return `<div style="display:flex;flex-direction:column;gap:2px;">
-                        <span style="font-size:15px;font-weight:700;color:${TYPES[k].color};">${pct.toFixed(1)}%</span>
-                        <span style="font-size:11px;color:var(--text-muted);">${TYPES[k].label} · ${fmtK(byType[k] || 0)}</span>
+                        <span style="font-size:15px;font-weight:700;color:${row.color};">${row.pct.toFixed(1)}%</span>
+                        <span style="font-size:11px;color:var(--text-muted);">${row.label} · ${fmtK(row.value)}</span>
                     </div>`;
                 }).join('')}
             </div>`;
