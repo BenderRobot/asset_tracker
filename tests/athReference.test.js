@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HistoricalChart } from '../src/historicalChart.js';
-import { DataManager, computeAthReference } from '../src/dataManager.js';
+import { DataManager, computeAthReference, mergeAthIntradayHistory } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 
 describe('computeAthReference (engine)', () => {
@@ -82,48 +82,40 @@ describe('computeAthReference (engine)', () => {
     });
 
     it('performance: the refreshed 1D session immediately crosses a stale cached ATH', () => {
-        const ath = computeAthReference({
-            kind: 'performance',
+        const allHistory = {
             // The cached All series still ends on a provisional +49.5% point.
             // Yesterday's canonical close was +49%; today then gains 2%.
-            allHistory: {
-                // The normalized previous daily bar can be timestamped after
-                // portfolio-local midnight, so sessionDates owns the boundary.
-                timestamps: [0, 50, 210, 250],
-                sessionDates: ['2026-09-30', '2026-10-01', '2026-10-01', '2026-10-02'],
-                twr: [1, 1.5, 1.49, 1.495]
-            },
-            visibleHistory: {
-                timestamps: [200, 300],
-                twr: [1, 1.02]
-            },
-            stitchLiveSession: true,
-            liveSessionDate: '2026-10-02'
+            // The normalized previous daily bar can be timestamped after
+            // portfolio-local midnight, so sessionDates owns the boundary.
+            timestamps: [0, 50, 210, 250],
+            sessionDates: ['2026-09-30', '2026-10-01', '2026-10-01', '2026-10-02'],
+            twr: [1, 1.5, 1.49, 1.495]
+        };
+        const visibleHistory = { timestamps: [200, 300], values: [149, 151.98], twr: [1, 1.02] };
+        const ath = computeAthReference({
+            kind: 'performance', visibleHistory,
+            allHistory: mergeAthIntradayHistory(allHistory, visibleHistory, null, () => '2026-10-02')
         });
 
         // 1.49 * 1.02 = 1.5198: today's live point is the new canonical ATH.
         expect(ath.value).toBeCloseTo(2, 8);
         expect(ath.fromAthPct).toBeCloseTo(0, 8);
-        expect(ath.at).toEqual({ source: 'visible', index: 1 });
+        expect(ath.at.source).toBe('intraday');
     });
 
     it('performance: keeps an intraday ATH after the live session pulls back', () => {
+        const allHistory = {
+            timestamps: [0, 100, 250],
+            sessionDates: ['2026-09-30', '2026-10-01', '2026-10-02'],
+            twr: [1, 1.49, 1.495]
+        };
+        const visibleHistory = { timestamps: [200, 260, 300], values: [149, 153.47, 151.98], twr: [1, 1.03, 1.02] };
         const ath = computeAthReference({
-            kind: 'performance',
-            allHistory: {
-                timestamps: [0, 100, 250],
-                sessionDates: ['2026-09-30', '2026-10-01', '2026-10-02'],
-                twr: [1, 1.49, 1.495]
-            },
-            visibleHistory: {
-                timestamps: [200, 260, 300],
-                twr: [1, 1.03, 1.02]
-            },
-            stitchLiveSession: true,
-            liveSessionDate: '2026-10-02'
+            kind: 'performance', visibleHistory,
+            allHistory: mergeAthIntradayHistory(allHistory, visibleHistory, null, () => '2026-10-02')
         });
 
-        expect(ath.at).toEqual({ source: 'visible', index: 1 });
+        expect(ath.at.source).toBe('intraday');
         expect(ath.fromAthPct).toBeCloseTo((1.02 / 1.03 - 1) * 100, 8);
     });
 
@@ -200,6 +192,166 @@ const render = (chart, graphData, athSource) => chart.renderChart(
 const athArg = (chart) => chart._renderChartJs.mock.calls.at(-1)[15];
 const athButton = () => document.querySelector('[data-refline="ath"]');
 
+// Friday's intraday high is above every daily close. Crypto continues to
+// trade on Sunday, while exchange-traded holdings remain on Friday's close.
+const at = iso => Date.parse(iso);
+const sessionDate = timestamp => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit'
+}).format(new Date(timestamp));
+function weekendHistories() {
+    const startValue = 37016.42;
+    const make = (timestamps, values, base = values[0]) => ({
+        labels: timestamps.map(String), timestamps, values,
+        invested: values.map(() => 28929.06),
+        totalReturn: values.map(value => value - 28929.06),
+        totalReturnPct: values.map(value => (value / 28929.06 - 1) * 100),
+        twr: values.map(value => value / base),
+        twrWithDividends: values.map(value => value / base),
+        dataQuality: { valid: true }
+    });
+    const all = make([
+        at('2026-09-30T23:59:59Z'), at('2026-10-01T23:59:59Z'),
+        at('2026-10-02T23:59:59Z'), at('2026-10-03T23:59:59Z'), at('2026-10-04T09:00:00Z')
+    ], [36000, startValue, 37568, 37568.76, 37580.49]);
+    all.sessionDates = ['2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04'];
+    const twoDays = make([
+        at('2026-10-01T22:00:00Z'), at('2026-10-02T14:20:00Z'),
+        at('2026-10-02T21:55:00Z'), at('2026-10-03T21:55:00Z'), at('2026-10-04T09:05:00Z')
+    ], [startValue, 37698.44, 37568, 37568.76, 37581.24]);
+    const oneDay = make([
+        at('2026-10-03T22:00:00Z'), at('2026-10-04T08:30:00Z'), at('2026-10-04T09:05:00Z')
+    ], [37568.76, 37582.17, 37581.24]);
+    return { all, twoDays, oneDay };
+}
+
+describe('ATH across the Friday-to-Sunday boundary', () => {
+    it('reconstructs the same weekend ATH from real daily and intraday engine outputs', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-10-04T11:09:00+02:00'));
+        try {
+            const daily = {
+                AAPL: {
+                    [at('2026-09-30T00:00:00Z')]: 36000,
+                    [at('2026-10-01T00:00:00Z')]: 36000,
+                    [at('2026-10-02T00:00:00Z')]: 36552.34
+                },
+                'BTC-EUR': {
+                    [at('2026-09-30T00:00:00Z')]: 1016.42,
+                    [at('2026-10-01T00:00:00Z')]: 1016.42,
+                    [at('2026-10-02T00:00:00Z')]: 1016.42,
+                    [at('2026-10-03T00:00:00Z')]: 1016.42,
+                    [at('2026-10-04T00:00:00Z')]: 1028.9
+                }
+            };
+            const intraday = {
+                AAPL: {
+                    [at('2026-10-01T19:55:00Z')]: 36000,
+                    [at('2026-10-02T14:20:00Z')]: 36682.02,
+                    [at('2026-10-02T19:55:00Z')]: 36552.34
+                },
+                'BTC-EUR': {
+                    [at('2026-10-01T21:55:00Z')]: 1016.42,
+                    [at('2026-10-02T14:20:00Z')]: 1016.42,
+                    [at('2026-10-02T21:55:00Z')]: 1016.42,
+                    [at('2026-10-03T21:55:00Z')]: 1016.42,
+                    [at('2026-10-04T08:30:00Z')]: 1029.83,
+                    [at('2026-10-04T09:05:00Z')]: 1028.9
+                }
+            };
+            const prices = {
+                AAPL: { price: 36552.34, previousClose: 36000, currency: 'EUR', lastUpdate: Date.now() },
+                'BTC-EUR': { price: 1028.9, previousClose: 1016.42, currency: 'EUR', lastUpdate: Date.now() }
+            };
+            const dm = new DataManager(createFakeStorage({ prices, conversionRate: 1 }), createFakeApi({
+                async getHistoricalPricesWithRetry(ticker, start, end, interval) {
+                    return interval === '1d' ? daily[ticker] : intraday[ticker];
+                }
+            }));
+            const purchases = [
+                purchase({ ticker: 'AAPL', date: '2026-09-29', price: 36000 }),
+                purchase({ ticker: 'BTC-EUR', assetType: 'Crypto', date: '2026-09-29', price: 1016.42 })
+            ];
+            const [all, two, one] = await Promise.all([
+                dm.calculateHistory(purchases, 'all'), dm.calculateHistory(purchases, 2), dm.calculateHistory(purchases, 1)
+            ]);
+            const shared = dm.mergeAthIntradayHistory(all, two, null, sessionDate);
+            const sunday = dm.mergeAthIntradayHistory(shared, one, shared, sessionDate);
+            const reference2 = dm.computeAthReference({ kind: 'performance', allHistory: shared, visibleHistory: two });
+            const reference1 = dm.computeAthReference({ kind: 'performance', allHistory: sunday, visibleHistory: one });
+            expect(shared.athIntraday.values[reference2.at.index]).toBeCloseTo(37698.44, 8);
+            expect(sunday.athIntraday.timestamps[reference1.at.index]).toBe(at('2026-10-02T14:20:00Z'));
+            expect(reference1.fromAthPct).toBeCloseTo(reference2.fromAthPct, 8);
+            expect(reference2.fromAthPct).toBeCloseTo((37581.24 / 37698.44 - 1) * 100, 8);
+        } finally { vi.useRealTimers(); }
+    });
+
+    it('keeps Friday\'s intraday peak and the same drawdown in 1D and 2D', () => {
+        const { all, twoDays, oneDay } = weekendHistories();
+        const shared = mergeAthIntradayHistory(all, twoDays, null, sessionDate);
+        const dayHistory = mergeAthIntradayHistory(shared, oneDay, shared, sessionDate);
+        const two = computeAthReference({ kind: 'performance', allHistory: shared, visibleHistory: twoDays });
+        const one = computeAthReference({ kind: 'performance', allHistory: dayHistory, visibleHistory: oneDay });
+
+        expect(shared.athIntraday.values[two.at.index]).toBe(37698.44);
+        expect(dayHistory.athIntraday.timestamps[one.at.index]).toBe(at('2026-10-02T14:20:00Z'));
+        expect(two.value).toBeCloseTo((37698.44 / 37016.42 - 1) * 100, 8);
+        expect(one.value).toBeCloseTo((37698.44 / 37568.76 - 1) * 100, 8);
+        expect(two.fromAthPct).toBeCloseTo((37581.24 / 37698.44 - 1) * 100, 8);
+        expect(one.fromAthPct).toBeCloseTo(two.fromAthPct, 8);
+        expect(one.fromAthPct).toBeLessThan(-0.005);
+    });
+
+    it('uses the same terminal index when 1D and 2D chaining differ slightly', () => {
+        const { all, twoDays, oneDay } = weekendHistories();
+        const shared = mergeAthIntradayHistory(all, twoDays, null, sessionDate);
+        const sampled = { ...oneDay, twr: oneDay.twr.map((ratio, index) => index === 0 ? ratio : ratio * 1.00001) };
+        const sunday = mergeAthIntradayHistory(shared, sampled, shared, sessionDate);
+        const two = computeAthReference({ kind: 'performance', allHistory: shared, visibleHistory: twoDays });
+        const one = computeAthReference({ kind: 'performance', allHistory: sunday, visibleHistory: sampled });
+        expect(one.fromAthPct).toBeCloseTo(two.fromAthPct, 8);
+        expect(sunday.athIntraday.timestamps[one.at.index]).toBe(at('2026-10-02T14:20:00Z'));
+    });
+
+    it('retains Friday\'s peak when Monday\'s history no longer contains it', () => {
+        const { all, twoDays, oneDay } = weekendHistories();
+        const shared = mergeAthIntradayHistory(all, twoDays, null, sessionDate);
+        const monday = { ...oneDay, timestamps: oneDay.timestamps.map(timestamp => timestamp + 86400000) };
+        const rebuilt = mergeAthIntradayHistory(all, monday, shared, sessionDate);
+        expect(Math.max(...rebuilt.athIntraday.values)).toBe(37698.44);
+        expect(rebuilt.athIntraday.timestamps).toContain(at('2026-10-02T14:20:00Z'));
+    });
+
+    it('rejects an invalid intraday high without erasing the previously observed peak', () => {
+        const { all, twoDays, oneDay } = weekendHistories();
+        const shared = mergeAthIntradayHistory(all, twoDays, null, sessionDate);
+        const invalid = { ...oneDay, twr: [1, 100, 100], dataQuality: { valid: false } };
+        const rebuilt = mergeAthIntradayHistory(all, invalid, shared, sessionDate);
+        expect(Math.max(...rebuilt.athIntraday.values)).toBe(37698.44);
+        expect(rebuilt.athCurrent).toBeNull();
+    });
+
+    it('keeps distinct dividend peaks and neutralises a purchase in the intraday return', () => {
+        const base = {
+            timestamps: [at('2026-10-01T23:59:59Z')], sessionDates: ['2026-10-01'],
+            values: [100], twr: [1.2], twrWithDividends: [1.3]
+        };
+        const recent = {
+            timestamps: [at('2026-10-01T22:00:00Z'), at('2026-10-02T10:00:00Z'), at('2026-10-02T12:00:00Z')],
+            // An added position doubles the euro value but leaves TWR intact.
+            values: [100, 103, 202], twr: [1, 1.03, 1.01], twrWithDividends: [1, 1.03, 1.04]
+        };
+        const shared = mergeAthIntradayHistory(base, recent, null, sessionDate);
+        const without = computeAthReference({ kind: 'performance', allHistory: shared, visibleHistory: recent });
+        const withDividends = computeAthReference({
+            kind: 'performance', allHistory: shared, visibleHistory: recent, includeDividends: true
+        });
+        expect(shared.athIntraday.values[without.at.index]).toBe(103);
+        expect(without.fromAthPct).toBeCloseTo((1.01 / 1.03 - 1) * 100, 8);
+        expect(shared.athIntraday.values[withDividends.at.index]).toBe(202);
+        expect(withDividends.fromAthPct).toBeCloseTo(0, 8);
+    });
+});
+
 describe('HistoricalChart ATH line', () => {
     beforeEach(() => {
         localStorage.clear();
@@ -212,6 +364,48 @@ describe('HistoricalChart ATH line', () => {
             </div>`;
     });
     afterEach(() => vi.restoreAllMocks());
+
+    it('loads Friday\'s intraday peak on a cold Sunday 1D view and retains it after navigation', async () => {
+        const { all, twoDays, oneDay } = weekendHistories();
+        const chart = makeChart();
+        chart.currentPeriod = 1;
+        chart.update = vi.fn();
+        const source = {
+            scope: 'portfolio', purchases: [purchase({ ticker: 'BTC-EUR' })],
+            producer: vi.fn(async () => all), intradayProducer: vi.fn(async () => twoDays)
+        };
+        chart._prefetchAthHistory(source);
+        await vi.waitFor(() => expect(chart._athPending.size).toBe(0));
+        render(chart, oneDay, source);
+        const one = athArg(chart);
+
+        chart.currentPeriod = 2;
+        render(chart, twoDays, source);
+        const two = athArg(chart);
+        expect(two.details.timestamp).toBe(at('2026-10-02T14:20:00Z'));
+        expect(two.details.totalValue).toBe(37698.44);
+        expect(two.details.fromAthPct).toBeCloseTo(one.details.fromAthPct, 8);
+        expect(two.value).toBeGreaterThanOrEqual((Math.max(...twoDays.twr) - 1) * 100 - 1e-8);
+
+        const restored = makeChart();
+        restored.currentPeriod = 1;
+        render(restored, oneDay, source);
+        expect(athArg(restored).details).toMatchObject({
+            timestamp: at('2026-10-02T14:20:00Z'), totalValue: 37698.44,
+            fromAthPct: expect.closeTo(one.details.fromAthPct, 8)
+        });
+        expect(source.intradayProducer).toHaveBeenCalledTimes(1);
+
+        // A subsequent build no longer has Friday's intraday candles.
+        source.intradayProducer.mockResolvedValue(oneDay);
+        await chart._refreshAthHistory(source);
+        render(chart, twoDays, source);
+        expect(athArg(chart).details).toMatchObject({
+            timestamp: at('2026-10-02T14:20:00Z'), totalValue: 37698.44,
+            fromAthPct: expect.closeTo(one.details.fromAthPct, 8)
+        });
+        chart.destroy(); restored.destroy();
+    });
 
     it('is hidden and never resolved in the € value view', () => {
         document.querySelector('#view-toggle .toggle-btn').dataset.view = 'global';

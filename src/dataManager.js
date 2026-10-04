@@ -1545,6 +1545,10 @@ export class DataManager {
         return computeAthReference(params);
     }
 
+    mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate) {
+        return mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate);
+    }
+
     // ============================================================
     // MODE INDICE — extrait de historicalChart.js. Un indice n'a ni position
     // au sens portefeuille ni "invested" réel ; on le modélise comme une
@@ -1612,15 +1616,93 @@ export class DataManager {
 //
 // Retourne { kind, value, at, fromAthPct } ou null (données absentes/
 // invalides : fail-closed).
-//   at         : { source: 'all' | 'visible', index } — le point où l'ATH a été
+//   at         : { source: 'all' | 'visible' | 'intraday', index } — le point où l'ATH a été
 //                atteint, pour que la vue y LISE date/Total Value/Total Return
 //                (sélecteur pur, aucun recalcul).
 //   fromAthPct : écart du dernier point visible par rapport à l'ATH (≤ 0),
 //                en % de prix (price) ou de performance TWR (performance).
 // ============================================================
+// Daily closes cannot retain an ATH reached and lost during a session. Keep
+// the two intraday peaks (with/without dividends) and the terminal observation
+// alongside the daily series. The compact extension survives cache rebuilds
+// and navigation; each record retains the valuation actually observed there.
+export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate) {
+    if (!allHistory || allHistory.dataQuality?.valid === false) return allHistory;
+    const fields = ['timestamps', 'values', 'totalReturn', 'totalReturnPct',
+        'totalReturnPctWithDividends', 'twr', 'twrWithDividends'];
+    const finite = value => value != null && Number.isFinite(Number(value));
+    const records = [];
+    const prior = previousHistory?.athIntraday;
+    for (let i = 0; i < (prior?.timestamps?.length ?? 0); i++) {
+        records.push(Object.fromEntries(fields.map(field => [field, prior[field]?.[i] ?? null])));
+    }
+
+    let current = null;
+    if (intradayHistory?.dataQuality?.valid !== false && intradayHistory?.timestamps?.some(finite)) {
+        const start = intradayHistory.timestamps.find(finite);
+        const startDate = sessionDate(start);
+        const dates = allHistory.sessionDates ?? allHistory.pointMeta?.map(point => point?.sessionDate);
+        const bases = {};
+        let terminal = intradayHistory.timestamps.length - 1;
+        while (terminal >= 0 && (!finite(intradayHistory.timestamps[terminal])
+            || !(intradayHistory.twr?.[terminal] > 0) || !finite(intradayHistory.values?.[terminal]))) terminal--;
+        for (const field of ['twr', 'twrWithDividends']) {
+            const ratios = field === 'twrWithDividends' && !Array.isArray(allHistory[field])
+                ? allHistory.twr : allHistory[field];
+            for (let i = 0; i < (ratios?.length ?? 0); i++) {
+                const beforeStart = dates?.[i] ? dates[i] < startDate
+                    : finite(allHistory.timestamps?.[i]) && allHistory.timestamps[i] < start;
+                if (beforeStart && finite(ratios[i]) && ratios[i] > 0) bases[field] = ratios[i];
+            }
+            // The same observed terminal point has one canonical index, even
+            // when a 1D/2D return chains trades at different candle intervals.
+            // Preserve that shared coordinate when switching the visible range.
+            const observedRatio = intradayHistory[field]?.[terminal]
+                ?? (field === 'twrWithDividends' ? intradayHistory.twr?.[terminal] : null);
+            if (previousHistory?.athCurrent?.timestamp === intradayHistory.timestamps[terminal]
+                && previousHistory.athCurrent[field] > 0 && observedRatio > 0) {
+                bases[field] = previousHistory.athCurrent[field] / observedRatio;
+            }
+        }
+        if (bases.twr > 0) {
+            for (let i = 0; i < intradayHistory.timestamps.length; i++) {
+                if (!finite(intradayHistory.timestamps[i]) || !(intradayHistory.twr?.[i] > 0)
+                    || !finite(intradayHistory.values?.[i])) continue;
+                const record = Object.fromEntries(fields.map(field => [field, intradayHistory[field]?.[i] ?? null]));
+                record.twr *= bases.twr;
+                const dividendRatio = intradayHistory.twrWithDividends?.[i] ?? intradayHistory.twr[i];
+                record.twrWithDividends = bases.twrWithDividends > 0 && finite(dividendRatio)
+                    ? bases.twrWithDividends * dividendRatio : null;
+                records.push(record);
+                current = record;
+            }
+        }
+    }
+    if (!records.length) return allHistory;
+    records.sort((a, b) => a.timestamps - b.timestamps);
+    const retained = new Set();
+    for (const field of ['twr', 'twrWithDividends']) {
+        let peak = null;
+        for (const record of records) {
+            if (finite(record[field]) && record[field] > (peak?.[field] ?? -Infinity)) peak = record;
+        }
+        if (peak) retained.add(peak);
+    }
+    if (current) retained.add(current);
+    const points = [...retained].sort((a, b) => a.timestamps - b.timestamps);
+    return {
+        ...allHistory,
+        athIntraday: Object.fromEntries(fields.map(field => [field, points.map(point => point[field])])),
+        athCurrent: current ? ((previousHistory?.athCurrent?.timestamp ?? -Infinity) > current.timestamps
+            ? previousHistory.athCurrent
+            : { timestamp: current.timestamps, twr: current.twr,
+                twrWithDividends: current.twrWithDividends }) : null
+    };
+}
+
 export function computeAthReference({
     kind, allHistory, visibleHistory, firstIndex = 0, lastIndex = null,
-    includeDividends = false, stitchLiveSession = false, liveSessionDate = null
+    includeDividends = false
 }) {
     if (!allHistory || !visibleHistory) return null;
     if (allHistory.dataQuality?.valid === false || visibleHistory.dataQuality?.valid === false) return null;
@@ -1668,60 +1750,29 @@ export function computeAthReference({
     const visible = scan(visibleTwr, firstIndex, visibleEnd);
     if (!(all.last > 0) || !(visible.last > 0)) return null;
 
-    // The all-time history is daily and deliberately cached for a long time,
-    // while a 1D visible history is refreshed from intraday observations. Join
-    // the live session return to the last canonical point strictly before that
-    // session. This makes today's current TWR (and a newly crossed ATH) known
-    // immediately instead of leaving fromAthPct frozen until the All cache is
-    // rebuilt. Strictly-before avoids chaining on top of a stale provisional
-    // candle from the same day.
-    let canonicalCurrent = all.last;
-    let liveCanonicalMax = -Infinity;
-    let athSource = { source: 'all', index: all.maxIndex };
-    if (stitchLiveSession && Array.isArray(allHistory.timestamps) && Array.isArray(visibleHistory.timestamps)) {
-        let liveStartTs = null;
-        for (let i = 0; i <= Math.min(visibleEnd, visibleHistory.timestamps.length - 1); i++) {
-            const ts = Number(visibleHistory.timestamps[i]);
-            if (Number.isFinite(ts)) { liveStartTs = ts; break; }
-        }
-        let base = null;
-        const allSessionDates = Array.isArray(allHistory.sessionDates)
-            ? allHistory.sessionDates
-            : allHistory.pointMeta?.map(point => point?.sessionDate ?? null);
-        if (liveSessionDate && Array.isArray(allSessionDates)) {
-            for (let i = 0; i < allTwr.length; i++) {
-                const sessionDate = allSessionDates[i];
-                if (typeof sessionDate === 'string' && sessionDate < liveSessionDate && isFinitePoint(allTwr[i])) {
-                    base = Number(allTwr[i]);
-                }
-            }
-        } else if (liveStartTs !== null) {
-            for (let i = 0; i < allTwr.length; i++) {
-                const ts = Number(allHistory.timestamps[i]);
-                if (Number.isFinite(ts) && ts < liveStartTs && isFinitePoint(allTwr[i])) base = Number(allTwr[i]);
-            }
-        }
-        if (base > 0) {
-            canonicalCurrent = base * visible.last;
-            liveCanonicalMax = base * visible.max;
-        }
-    }
-
-    const canonicalAth = Math.max(all.max, liveCanonicalMax);
-    if (liveCanonicalMax > all.max) athSource = { source: 'visible', index: visible.maxIndex };
+    // The shared intraday extension owns peaks missed by daily closes. It is
+    // independent of the selected period, so Friday's high is still the ATH
+    // when Sunday's 1D curve contains only the weekend crypto return.
+    const intraday = scan(pickTwr(allHistory.athIntraday ?? {}));
+    const peakFromIntraday = intraday.max > all.max;
+    let canonicalCurrent = includeDividends ? allHistory.athCurrent?.twrWithDividends : allHistory.athCurrent?.twr;
+    if (!(canonicalCurrent > 0)) canonicalCurrent = all.last;
+    const athSource = peakFromIntraday ? { source: 'intraday', index: intraday.maxIndex }
+        : { source: 'all', index: all.maxIndex };
+    const canonicalAth = Math.max(all.max, intraday.max);
 
     // Rebase at the two series' terminal observations.  The all-time series
     // uses daily candles while 1M uses intraday candles, so their chained TWR
     // can drift slightly inside the window and an older shared timestamp is
     // not a safe conversion anchor.  Anchoring at the end guarantees that the
     // line and the canonical all-time gap describe the same current state:
-    // visibleLast / rebasedAth === allLast / allAth.
+    // visibleLast / rebasedAth === canonicalCurrent / canonicalAth.
     const scale = visible.last / canonicalCurrent;
     const rebasedAthPct = (canonicalAth * scale - 1) * 100;
     // The complete daily history owns past ATH points. A short window (notably
     // 1M) must never promote a sampling/chaining drift to a historical high;
-    // the sole exception above is the explicit 1D live-session stitch, whose
-    // terminal return extends the canonical prior-close index to "now".
+    // intraday extension explicitly joins 1D/2D observations to the canonical
+    // prior-close index before promoting their peaks.
     const value = rebasedAthPct;
     if (!Number.isFinite(value)) return null;
     return {

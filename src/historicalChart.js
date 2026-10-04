@@ -60,6 +60,10 @@ const MARKET_SETTLE_MS = 30 * 60_000;
 const ATH_RETRY_DELAY_MS = 5 * 60 * 1000;
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
+const athSessionDate = timestamp => new Intl.DateTimeFormat('en-CA', {
+    timeZone: marketCalendarEngine.getPortfolioTimezone(),
+    year: 'numeric', month: '2-digit', day: '2-digit'
+}).format(new Date(Number(timestamp)));
 
 export class HistoricalChart {
     constructor(storage, dataManager, ui, investmentsPage) {
@@ -388,6 +392,10 @@ export class HistoricalChart {
 
     _commitHistory(key, data, period) {
         if (!this._isValidHistoryData(data)) return false;
+        const previous = this._historyCache.get(key)?.data;
+        if (period === 'all' && previous?.athIntraday && !data.athIntraday) {
+            data = this.dataManager.mergeAthIntradayHistory(data, null, previous, athSessionDate);
+        }
         const entry = { createdAt: Date.now(), data };
         this._historyCache.set(key, entry);
         while (this._historyCache.size > HISTORY_CHART_MEMORY_MAX_ENTRIES) this._historyCache.delete(this._historyCache.keys().next().value);
@@ -773,12 +781,28 @@ export class HistoricalChart {
     // awaits, so the all-time build runs in parallel with the snapshot/period
     // history instead of after the first paint. A repaint is only scheduled
     // when a render actually went out without the ATH (`_athRepaintKeys`).
+    _athHistoryProducer(source) {
+        if (!source.intradayProducer) return source.producer;
+        return async () => {
+            const key = this._historyKey(source.scope, source.purchases, 'all');
+            const [all, recent] = await Promise.all([source.producer(), source.intradayProducer()]);
+            const previous = this._historyCache.get(key)?.data;
+            return { ...this.dataManager.mergeAthIntradayHistory(all, recent, previous, athSessionDate),
+                athIntradayVersion: 1 };
+        };
+    }
+
     _getAthHistory(source, graphData, { forRender = true } = {}) {
         if (!source) return null;
-        if (this.currentPeriod === 'all') return graphData;
+        if (this.currentPeriod === 'all' && !source.intradayProducer) return graphData;
         const key = this._historyKey(source.scope, source.purchases, 'all');
-        const cached = this._peekCachedHistory(key, 'all', source.producer);
-        if (cached) return cached;
+        const producer = this._athHistoryProducer(source);
+        const cached = this._peekCachedHistory(key, 'all', producer);
+        if (cached) {
+            // Older daily-only entries do not contain Friday's intraday high.
+            if (source.intradayProducer && !cached.athIntradayVersion) this._refreshCachedHistory(key, 'all', producer);
+            return cached;
+        }
         if (this._athPending.has(key)) {
             if (forRender) this._athRepaintKeys.add(key);
             return null;
@@ -787,7 +811,7 @@ export class HistoricalChart {
 
         this._athPending.add(key);
         if (forRender) this._athRepaintKeys.add(key);
-        this._getCachedHistory(source.scope, source.purchases, 'all', source.producer)
+        this._getCachedHistory(source.scope, source.purchases, 'all', producer)
             .then(data => {
                 // Only a committed (valid) history ends up in the cache the
                 // repaint reads — anything else would loop on the same miss.
@@ -816,7 +840,7 @@ export class HistoricalChart {
     // would actually be drawn: line enabled, and a performance (%) or unit
     // price view — never for the € value view.
     _prefetchAthHistory(source) {
-        if (!this.refLineVisibility.ath || this.currentPeriod === 'all') return;
+        if (!this.refLineVisibility.ath) return;
         const view = document.querySelector('#view-toggle .toggle-btn.active')?.dataset.view;
         const athView = view === 'performance' || view === 'unit' || (!!this.currentBenchmark && view !== 'unit');
         if (athView) this._getAthHistory(source, null, { forRender: false });
@@ -834,7 +858,7 @@ export class HistoricalChart {
         const athView = view === 'performance' || view === 'unit' || (!!this.currentBenchmark && view !== 'unit');
         if (!athView) return null;
         const key = this._historyKey(source.scope, source.purchases, 'all');
-        return this._refreshCachedHistory(key, 'all', source.producer);
+        return this._refreshCachedHistory(key, 'all', this._athHistoryProducer(source));
     }
 
     // ========================================================
@@ -956,7 +980,10 @@ export class HistoricalChart {
                     purchases: targetAssetPurchases,
                     producer: () => targetAssetPurchases.length === 0
                         ? this.dataManager.calculateAssetHistory(currentTicker, 'all')
-                        : this.dataManager.calculateGenericHistory(targetAssetPurchases, 'all', true)
+                        : this.dataManager.calculateGenericHistory(targetAssetPurchases, 'all', true),
+                    intradayProducer: () => targetAssetPurchases.length === 0
+                        ? this.dataManager.calculateAssetHistory(currentTicker, 2)
+                        : this.dataManager.calculateGenericHistory(targetAssetPurchases, 2, true)
                 };
                 this._prefetchAthHistory(athSource);
 
@@ -1010,7 +1037,8 @@ export class HistoricalChart {
                 athSource = {
                     scope: 'portfolio',
                     purchases: historyPurchases,
-                    producer: () => this.dataManager.calculateHistory(historyPurchases, 'all')
+                    producer: () => this.dataManager.calculateHistory(historyPurchases, 'all'),
+                    intradayProducer: () => this.dataManager.calculateHistory(historyPurchases, 2)
                 };
                 this._prefetchAthHistory(athSource);
 
@@ -1513,27 +1541,24 @@ export class HistoricalChart {
     // all-time series of the active scope and formats the label.
     _resolveAthReference(athKind, athSource, graphData, firstIndex, lastIndex) {
         if (!athKind || !this.refLineVisibility.ath) return null;
-        const allHistory = this._getAthHistory(athSource, graphData);
+        let allHistory = this._getAthHistory(athSource, graphData);
         if (!allHistory) return null;
-        let liveSessionDate = null;
-        if (this.currentPeriod === 1) {
-            const firstTimestamp = graphData.timestamps?.find(timestamp => Number.isFinite(Number(timestamp)));
-            if (firstTimestamp !== undefined) {
-                const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
-                    timeZone: marketCalendarEngine.getPortfolioTimezone(),
-                    year: 'numeric', month: '2-digit', day: '2-digit'
-                }).formatToParts(new Date(Number(firstTimestamp))).map(part => [part.type, part.value]));
-                liveSessionDate = `${parts.year}-${parts.month}-${parts.day}`;
+        if (athKind === 'performance' && (this.currentPeriod === 1 || this.currentPeriod === 2)) {
+            allHistory = this.dataManager.mergeAthIntradayHistory(allHistory, graphData, allHistory, athSessionDate);
+            const key = this._historyKey(athSource.scope, athSource.purchases, 'all');
+            const cached = this._historyCache.get(key);
+            if (cached && JSON.stringify([cached.data.athIntraday, cached.data.athCurrent]) !==
+                JSON.stringify([allHistory.athIntraday, allHistory.athCurrent])) {
+                // Retain peaks without renewing the daily history's TTL. A
+                // period switch, midnight or a rebuild must not erase them.
+                const entry = { ...cached, data: allHistory };
+                this._historyCache.set(key, entry);
+                this._persistHistory(key, entry, 'all');
             }
         }
         const ath = this.dataManager.computeAthReference({
             kind: athKind, allHistory, visibleHistory: graphData,
-            firstIndex, lastIndex, includeDividends: this.includeDividends,
-            // On 1D the visible TWR is the live session return. Stitch it onto
-            // yesterday's canonical all-time index so a new high is visible
-            // immediately, even while the asynchronous All rebuild is running.
-            stitchLiveSession: this.currentPeriod === 1,
-            liveSessionDate
+            firstIndex, lastIndex, includeDividends: this.includeDividends
         });
         if (!ath) return null;
         const label = ath.kind === 'price'
@@ -1542,7 +1567,8 @@ export class HistoricalChart {
 
         // Stats-bar details: pure reads of the series at the point where the
         // engine located the ATH — no recomputation here.
-        const series = ath.at.source === 'visible' ? graphData : allHistory;
+        const series = ath.at.source === 'visible' ? graphData
+            : (ath.at.source === 'intraday' ? allHistory.athIntraday : allHistory);
         const i = ath.at.index;
         const read = (arr) => (Array.isArray(arr) && arr[i] !== null && arr[i] !== undefined && Number.isFinite(Number(arr[i]))) ? Number(arr[i]) : null;
         const returnPct = this.includeDividends && Array.isArray(series.totalReturnPctWithDividends)
@@ -1550,7 +1576,8 @@ export class HistoricalChart {
         const details = {
             kind: ath.kind,
             timestamp: read(series.timestamps),
-            intraday: ath.at.source === 'visible' && typeof this.currentPeriod === 'number' && this.currentPeriod <= 2,
+            intraday: ath.at.source === 'intraday' ||
+                (ath.at.source === 'visible' && typeof this.currentPeriod === 'number' && this.currentPeriod <= 2),
             price: ath.kind === 'price' ? ath.value : null,
             totalValue: ath.kind === 'performance' ? read(series.values) : null,
             totalReturn: ath.kind === 'performance' ? read(this._getPortfolioReturnSeries(series)) : null,
