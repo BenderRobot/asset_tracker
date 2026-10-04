@@ -192,6 +192,78 @@ const render = (chart, graphData, athSource) => chart.renderChart(
 const athArg = (chart) => chart._renderChartJs.mock.calls.at(-1)[15];
 const athButton = () => document.querySelector('[data-refline="ath"]');
 
+describe('ATH line visibility near the top of the chart', () => {
+    let chart, canvas, context;
+    beforeEach(() => {
+        document.body.innerHTML = '<div class="chart-wrapper"><canvas></canvas></div>';
+        canvas = document.querySelector('canvas');
+        context = {
+            save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), setLineDash: vi.fn(),
+            moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), roundRect: vi.fn(),
+            fill: vi.fn(), fillText: vi.fn(), measureText: () => ({ width: 70 })
+        };
+        vi.spyOn(canvas, 'getContext').mockReturnValue(context);
+        vi.stubGlobal('Chart', class {
+            constructor(ctx, config) { this.ctx = ctx; this.config = config; }
+            destroy() {}
+        });
+        chart = makeChart();
+    });
+    afterEach(() => {
+        chart._selectionCleanup?.();
+        chart.destroy();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    function draw(values, athValue, defaultMax) {
+        const graphData = {
+            labels: values.map(String), timestamps: values.map((_, i) => i + 1),
+            values: values.map(value => 100 + value), twr: values.map(value => 1 + value / 100)
+        };
+        HistoricalChart.prototype._renderChartJs.call(chart,
+            canvas, graphData, graphData.values, true, null, false, false, null,
+            '#2ecc71', 100, 0, values.length - 1, { mode: 'global' }, null, 0,
+            athValue === null ? null : { value: athValue, label: `ATH +${athValue}%` }
+        );
+        const config = chart.chart.config;
+        const min = Math.min(...values, 0);
+        const max = Math.max(defaultMax, config.options.scales.y.suggestedMax ?? defaultMax);
+        config.plugins.find(plugin => plugin.id === 'athReference').afterDatasetsDraw({
+            ctx: context, chartArea: { left: 50, right: 600, top: 10, bottom: 400 },
+            scales: { y: { min, max, getPixelForValue: value => 400 - (value - min) / (max - min) * 390 } }
+        });
+        return config;
+    }
+
+    it.each([
+        ['3M', 90, [0, -7.06, 3.76], 4.08, 4],
+        ['6M', 180, [0, 8, 19.98], 20.34, 20]
+    ])('%s includes the nearby ATH and draws its horizontal line', (_label, period, values, athValue, defaultMax) => {
+        chart.currentPeriod = period;
+        const config = draw(values, athValue, defaultMax);
+        expect(config.options.scales.y.suggestedMax).toBeGreaterThan(athValue);
+        expect(context.setLineDash).toHaveBeenCalledWith([4, 5]);
+        expect(context.moveTo.mock.calls[0][1]).toBeGreaterThan(10);
+        expect(context.lineTo.mock.calls[0][1]).toBeLessThan(400);
+        expect(context.fillText.mock.calls[0][0]).not.toContain('▲');
+    });
+
+    it('keeps a distant ATH as an off-scale badge', () => {
+        const config = draw([0, -0.01, 0.03], 2.5, 0.04);
+        expect(config.options.scales.y.suggestedMax).toBeUndefined();
+        expect(context.moveTo).not.toHaveBeenCalled();
+        expect(context.fillText.mock.calls[0][0]).toContain('▲');
+    });
+
+    it('keeps the normal scale and draws no ATH when the reference is disabled', () => {
+        const config = draw([0, -7.06, 3.76], null, 4);
+        expect(config.options.scales.y.suggestedMax).toBeUndefined();
+        expect(context.moveTo).not.toHaveBeenCalled();
+        expect(context.fillText).not.toHaveBeenCalled();
+    });
+});
+
 // Friday's intraday high is above every daily close. Crypto continues to
 // trade on Sunday, while exchange-traded holdings remain on Friday's close.
 const at = iso => Date.parse(iso);

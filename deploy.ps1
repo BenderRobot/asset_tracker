@@ -1,9 +1,29 @@
+<#
+.SYNOPSIS
+Deploie tout ou seulement une partie de la production.
+
+.EXAMPLE
+.\deploy.ps1
+
+.EXAMPLE
+.\deploy.ps1 firebase
+
+.EXAMPLE
+.\deploy.ps1 -Target github,worker
+#>
 param(
+    # Cibles a deployer. "All" conserve le comportement historique.
+    [Parameter(Position = 0)]
+    [ValidateSet('All', 'GitHub', 'Worker', 'Firebase')]
+    [string[]]$Target = @('All'),
     # Opt-out explicite : aucun Worker Cloudflare n'est deploye.
     [switch]$SkipWorker,
     # Redeploie tous les Workers meme si leur code n'a pas change depuis le
     # dernier deploiement reussi (ex. apres un rollback dans le dashboard Cloudflare).
-    [switch]$ForceWorkers
+    [switch]$ForceWorkers,
+    # Nombre de nouvelles tentatives apres un echec Firebase (2 = 3 essais au total).
+    [ValidateRange(0, 5)]
+    [int]$FirebaseRetries = 2
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,8 +43,23 @@ function Invoke-TestGate($label) {
 
 Set-Location $PSScriptRoot
 
+$allTargets = $Target -contains 'All'
+$deployGitHub = $allTargets -or $Target -contains 'GitHub'
+$deployWorkers = $allTargets -or $Target -contains 'Worker'
+$deployFirebase = $allTargets -or $Target -contains 'Firebase'
+$selectedTargets = @()
+if ($deployGitHub) { $selectedTargets += 'GitHub' }
+if ($deployWorkers -and -not $SkipWorker) { $selectedTargets += 'Workers' }
+if ($deployFirebase) { $selectedTargets += 'Firebase' }
+
+if ($selectedTargets.Count -eq 0) {
+    Write-Err "Aucune cible a deployer. Retirez -SkipWorker ou choisissez une autre cible."
+    exit 1
+}
+
 Write-Host "`n  DEPLOIEMENT PRODUCTION  " -ForegroundColor White -BackgroundColor DarkRed
 Write-Host "  -> asset-tracker.fr UNIQUEMENT`n" -ForegroundColor DarkRed
+Write-Host "  Cibles : $($selectedTargets -join ', ')`n" -ForegroundColor DarkGray
 
 # S'assurer d'etre sur main
 $currentBranch = git rev-parse --abbrev-ref HEAD
@@ -38,6 +73,7 @@ if ($currentBranch -ne "main") {
 # (arbre de travail inclus, il est commite plus bas), avant toute ecriture.
 Invoke-TestGate "code a deployer"
 
+if ($deployGitHub) {
 # --- COMMIT MESSAGE ---
 $defaultMsg = "deploy: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 $userInput = Read-Host "Commit message [Enter = '$defaultMsg']"
@@ -46,7 +82,7 @@ $commitMsg = if ($userInput.Trim()) { $userInput.Trim() } else { $defaultMsg }
 # ─────────────────────────────────────────────
 # STEP 1 - GITHUB (branche main)
 # ─────────────────────────────────────────────
-Write-Step "[1/3] Push GitHub -> main"
+Write-Step "[GitHub] Push -> main"
 
 # Mettre de côté les modifications en cours pour éviter les blocages du pull
 $stashed = $false
@@ -95,11 +131,13 @@ if ($commitsAhead -gt 0) {
 } else {
     Write-Warn "GitHub main is already up to date."
 }
+}
 
 # ─────────────────────────────────────────────
 # STEP 2 - CLOUDFLARE WORKERS (tous)
 # ─────────────────────────────────────────────
-Write-Step "[2/3] Cloudflare Workers"
+if ($deployWorkers) {
+Write-Step "[Workers] Cloudflare"
 
 if ($SkipWorker) {
     Write-Warn "Workers non deployes (-SkipWorker explicite)."
@@ -165,11 +203,13 @@ if ($SkipWorker) {
     }
     Write-Ok "$deployed Worker(s) Cloudflare deploye(s), $($workerConfigs.Count - $deployed) inchange(s)."
 }
+}
 
 # ─────────────────────────────────────────────
 # STEP 3 - FIREBASE PROD
 # ─────────────────────────────────────────────
-Write-Step "[3/3] Firebase deploy -> PROD (asset-tracker.fr)"
+if ($deployFirebase) {
+Write-Step "[Firebase] Deploy -> PROD (asset-tracker.fr)"
 
 if (-not (Test-Path ".\functions\node_modules")) {
     Write-Warn "functions/node_modules not found - running npm install..."
@@ -177,7 +217,67 @@ if (-not (Test-Path ".\functions\node_modules")) {
     if ($LASTEXITCODE -ne 0) { Write-Err "npm install failed."; exit 1 }
 }
 
-firebase deploy --only hosting:prod,firestore,functions
-if ($LASTEXITCODE -ne 0) { Write-Err "Firebase deploy failed."; exit 1 }
+# Utilise la version de firebase-tools verrouillee dans package-lock.json au
+# lieu d'une installation globale qui peut varier d'une machine a l'autre.
+$firebaseCli = Join-Path $PSScriptRoot 'node_modules\.bin\firebase.cmd'
+if (-not (Test-Path $firebaseCli)) {
+    Write-Warn "Firebase CLI locale introuvable - running npm install..."
+    npm install
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $firebaseCli)) {
+        Write-Err "Installation de Firebase CLI impossible."
+        exit 1
+    }
+}
+
+# Evite le faux message d'erreur "firebase-tools update check failed" cause
+# par le cache update-notifier sous Windows. Cela ne desactive pas le deploy.
+$env:NO_UPDATE_NOTIFIER = '1'
+
+$firebaseProject = 'asset-tracker-479809-b80f1'
+$maxAttempts = $FirebaseRetries + 1
+$firebaseSucceeded = $false
+$lastDebugLog = $null
+
+for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    if ($attempt -gt 1) {
+        Write-Warn "Nouvelle tentative Firebase ($attempt/$maxAttempts)..."
+    }
+
+    & $firebaseCli deploy --project $firebaseProject --only "hosting:prod,firestore,functions"
+    if ($LASTEXITCODE -eq 0) {
+        $firebaseSucceeded = $true
+        break
+    }
+
+    # Firebase cree ce fichier lors d'un vrai echec. On en garde une copie
+    # datee dans un dossier local ignore par Git pour faciliter le diagnostic.
+    $debugLog = Join-Path $PSScriptRoot 'firebase-debug.log'
+    if (Test-Path $debugLog) {
+        try {
+            $logDir = Join-Path $PSScriptRoot '.firebase\deploy-logs'
+            New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+            $logName = "firebase-deploy-{0}-attempt-{1}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $attempt
+            $lastDebugLog = Join-Path $logDir $logName
+            Copy-Item -LiteralPath $debugLog -Destination $lastDebugLog -Force
+            Write-Warn "Journal Firebase conserve : $lastDebugLog"
+        } catch {
+            Write-Warn "Impossible de conserver firebase-debug.log : $($_.Exception.Message)"
+        }
+    }
+
+    if ($attempt -lt $maxAttempts) {
+        $delay = [Math]::Min(30, 5 * [Math]::Pow(2, $attempt - 1))
+        Write-Warn "Echec Firebase. Nouvel essai dans $delay secondes."
+        Start-Sleep -Seconds $delay
+    }
+}
+
+if (-not $firebaseSucceeded) {
+    Write-Err "Firebase deploy failed after $maxAttempts attempt(s)."
+    Write-Warn "Relancez uniquement Firebase avec : .\deploy.ps1 firebase"
+    if ($lastDebugLog) { Write-Warn "Dernier journal : $lastDebugLog" }
+    exit 1
+}
 
 Write-Ok "Deploy PROD complete -> https://asset-tracker.fr"
+}

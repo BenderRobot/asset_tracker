@@ -2133,11 +2133,26 @@ export class HistoricalChart {
             }
         };
 
-        // ATH is drawn by this plugin rather than as a dataset, so it never
-        // takes part in the y-axis auto-scale: a far-away ATH must not flatten
-        // the visible curve. When it sits above the visible range, only a
-        // badge pinned to the top edge (▲) is shown. The badge is on the left
-        // so it never hides the latest point, which ends on the right.
+        // Include a nearby ATH in the scale with a little headroom. Otherwise
+        // the tick rounding can cap 3M at 4% for an ATH of 4.08%, or 6M at 20%
+        // for an ATH of 20.34%, leaving only the off-scale badge visible.
+        let visibleMin = Infinity, visibleMax = -Infinity;
+        for (const dataset of datasets) {
+            if (dataset.hidden) continue;
+            for (const value of dataset.data) {
+                if (value == null || !Number.isFinite(value)) continue;
+                visibleMin = Math.min(visibleMin, value);
+                visibleMax = Math.max(visibleMax, value);
+            }
+        }
+        const visibleSpan = visibleMax - visibleMin;
+        const athSuggestedMax = Number.isFinite(athReference?.value) && visibleSpan > 0
+            && athReference.value >= visibleMax && athReference.value - visibleMax <= visibleSpan * 0.1
+            ? athReference.value + visibleSpan * 0.05 : undefined;
+
+        // The plugin draws the line independently of the portfolio data. An
+        // ATH far above the visible range keeps its badge at the top edge.
+        // The badge is on the left so it never hides the latest point.
         const athPlugin = {
             id: 'athReference',
             afterDatasetsDraw: (chart) => {
@@ -2213,6 +2228,7 @@ export class HistoricalChart {
                     // Tick values are raw floats (53.400000000000006): format them
                     // with just enough decimals for the tick step, never more.
                     y: {
+                        ...(athSuggestedMax !== undefined ? { suggestedMax: athSuggestedMax } : {}),
                         ticks: {
                             callback: (v, _i, ticks) => {
                                 const step = ticks?.length > 1 ? Math.abs(ticks[1].value - ticks[0].value) : 0;
