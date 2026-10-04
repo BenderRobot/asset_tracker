@@ -189,6 +189,7 @@ export class UIComponents {
         this._tvLatest = { showBreakdown, formatSimple, formatPctSimple };
 
         const modal = this._ensureTotalValueModal();
+        const isModalOpen = modal.style.display !== 'none';
         const body = document.getElementById('total-value-modal-body');
         if (body) {
             const sectionTitle = (label) => `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:18px 0 4px;">${label}</div>`;
@@ -217,6 +218,14 @@ export class UIComponents {
                         : `<div style="color:var(--text-muted);font-size:12px;">Non disponible</div>`) +
                 `</div>`;
         }
+
+        // updateTopKPIs peut s'exécuter pendant que la modal est ouverte. Le
+        // remplacement de body.innerHTML ci-dessus recrée alors les conteneurs
+        // du détail par courtier : sans nouveau chargement, ils restent vides
+        // jusqu'à ce que l'utilisateur ferme puis rouvre la modal. Relancer le
+        // détail uniquement lorsque la modal est visible maintient son contenu
+        // synchronisé avec les cartes sans ajouter de travail réseau en arrière-plan.
+        if (isModalOpen) this._loadBrokerBreakdown();
 
         // All three top KPI cards (Total Value / Total Return / Var Today) open
         // this SAME modal now that it covers all three — each jumps straight
@@ -260,11 +269,22 @@ export class UIComponents {
         if (!this.dataManager) return;
         const { showBreakdown, formatSimple, formatPctSimple } = this._tvLatest || {};
         if (!showBreakdown) {
+            // Invalide aussi une ancienne requête encore en vol si le nouveau
+            // rendu passe en mode filtré/sans ventilation.
+            this._tvBreakdownRequestSeq = (this._tvBreakdownRequestSeq || 0) + 1;
             if (returnContainer) returnContainer.innerHTML = '';
             if (dayContainer) dayContainer.innerHTML = '';
             return;
         }
         if (returnContainer?.dataset.loading === '1') return;
+
+        // Un refresh peut reconstruire la modal pendant que les calculs du
+        // snapshot précédent sont encore en cours. Seule la requête la plus
+        // récente est autorisée à écrire dans les conteneurs visibles.
+        const requestId = (this._tvBreakdownRequestSeq || 0) + 1;
+        this._tvBreakdownRequestSeq = requestId;
+        const isCurrentRequest = (container) =>
+            requestId === this._tvBreakdownRequestSeq && !!container?.isConnected;
 
         const loadingHtml = `<div style="color:var(--text-muted);font-size:12px;padding:6px 0 6px 12px;">Chargement du détail par courtier…</div>`;
         if (returnContainer) { returnContainer.dataset.loading = '1'; returnContainer.innerHTML = loadingHtml; }
@@ -278,29 +298,29 @@ export class UIComponents {
         (async () => {
             try {
                 const returnResults = await this.dataManager.calculateReturnByBroker(purchases);
-                if (returnContainer) {
+                if (isCurrentRequest(returnContainer)) {
                     returnContainer.innerHTML = returnResults.map(b =>
                         UIComponents._tvRow(b.broker, b.totalReturn, UIComponents._tvColor(b.totalReturn), formatSimple, formatPctSimple, { compact: true, indent: true, noBorder: true, pct: b.totalReturnPct })
                     ).join('');
                 }
             } catch (err) {
-                if (returnContainer) returnContainer.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding-left:12px;">Détail indisponible</div>`;
+                if (isCurrentRequest(returnContainer)) returnContainer.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding-left:12px;">Détail indisponible</div>`;
                 console.warn('[UI] calculateReturnByBroker failed:', err);
             } finally {
-                if (returnContainer) returnContainer.dataset.loading = '';
+                if (isCurrentRequest(returnContainer)) returnContainer.dataset.loading = '';
             }
         })();
 
         (async () => {
             try {
                 const dayResults = await this.dataManager.calculateDayChangeByBroker(purchases);
-                if (dayContainer) {
+                if (isCurrentRequest(dayContainer)) {
                     dayContainer.innerHTML = dayResults.map(b =>
                         UIComponents._tvRow(b.broker, b.dayChange, UIComponents._tvColor(b.dayChange), formatSimple, formatPctSimple, { compact: true, indent: true, noBorder: true, pct: b.dayChangePct })
                     ).join('');
                 }
             } catch (err) {
-                if (dayContainer) dayContainer.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding-left:12px;">Détail indisponible</div>`;
+                if (isCurrentRequest(dayContainer)) dayContainer.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding-left:12px;">Détail indisponible</div>`;
                 console.warn('[UI] calculateDayChangeByBroker failed:', err);
             }
         })();

@@ -13,6 +13,7 @@ import { DividendManager } from './dividendManager.js'; // NEW: Import Dividend 
 import { MarketStatus } from './marketStatus.js';
 import { fetchGeminiDiversificationAdvice } from './geminiService.js'; // Import Gemini AI
 import { getBrokersSync, populateSelect } from './brokerService.js';
+import { mountPerformerTable } from './performerTable.js';
 
 class AnalyticsApp {
     constructor() {
@@ -960,185 +961,30 @@ class AnalyticsApp {
     }
 
     openTopPerformersModal() {
-        console.log('🚀 openTopPerformersModal EXECUTED!');
-        const modal = document.getElementById('top-performers-modal');
-        if (!modal) {
-            console.error('❌ Modal #top-performers-modal NOT FOUND');
-            return;
-        }
-
-        // Populate Table with all gainers
-        const tbody = document.getElementById('top-performers-table-body');
-        tbody.innerHTML = '';
-
-        const report = this.lastReport;
-        if (!report || !report.assets) {
-            console.error('❌ No report data available');
-            return;
-        }
-
-        console.log('🔍 DEBUG: report.assets:', report.assets);
-        console.log('🔍 DEBUG: Total assets:', report.assets.length);
-
-        // Get all assets with positive gains and sort by absolute gain descending
-        const gainers = report.assets
-            .filter(a => {
-                console.log(`🔍 Asset ${a.ticker}: gainEUR=${a.gainEUR}`);
-                return a.gainEUR > 0;
-            })
-            .sort((a, b) => b.gainEUR - a.gainEUR);
-
-        console.log('🔍 DEBUG: Gainers found:', gainers.length);
-
-        let totalGain = 0;
-        let totalInvested = 0;
-
-        gainers.forEach(asset => {
-            totalGain += asset.gainEUR;
-            totalInvested += asset.invested || 0;
-
-            const row = document.createElement('tr');
-            row.style.borderBottom = '1px solid var(--border-color)';
-            row.innerHTML = `
-                <td style="padding: 12px 8px;">
-                    <div style="font-weight: 600; color: var(--text-primary);">${asset.name}</div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">${asset.ticker}</div>
-                </td>
-                <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace; color: #10b981; font-weight: 600;">+${this.formatEUR(asset.gainEUR)}</td>
-                <td style="padding: 12px 8px; text-align: right;">
-                    <span style="background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 500; font-size: 12px;">
-                        +${asset.gainPct.toFixed(2)}%
-                    </span>
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
-
-        // Calculate weighted average percentage
-        const avgPct = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
-
-        // Add Total Row
-        const totalRow = document.createElement('tr');
-        totalRow.style.backgroundColor = 'var(--bg-secondary)';
-        totalRow.innerHTML = `
-            <td style="padding: 12px 8px; font-weight: 700;">TOTAL GAINS</td>
-            <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace; font-weight: 700; color: #10b981;">+${this.formatEUR(totalGain)}</td>
-            <td style="padding: 12px 8px; text-align: right;">
-                <span style="background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 12px;">
-                    +${avgPct.toFixed(2)}%
-                </span>
-            </td>
-        `;
-        tbody.appendChild(totalRow);
-
-        // Force visibility
-        modal.style.display = 'flex';
-        modal.style.setProperty('display', 'flex', 'important');
-        modal.style.zIndex = '9999999';
-        modal.style.position = 'fixed';
-        modal.style.top = '0';
-        modal.style.left = '0';
-        modal.style.width = '100vw';
-        modal.style.height = '100vh';
-        modal.style.backgroundColor = 'rgba(0,0,0,0.85)';
-        modal.style.visibility = 'visible';
-        modal.style.opacity = '1';
-
-        const content = modal.querySelector('.modal-content');
-        if (content) {
-            content.style.display = 'block';
-            content.style.visibility = 'visible';
-            content.style.opacity = '1';
-            content.style.zIndex = '10000000';
-            content.style.backgroundColor = '#1e293b';
-        }
+        this.openPerformersModal('gainer');
     }
 
     openWorstPerformersModal() {
-        console.log('🚀 openWorstPerformersModal EXECUTED!');
-        const modal = document.getElementById('worst-performers-modal');
-        if (!modal) {
-            console.error('❌ Modal #worst-performers-modal NOT FOUND');
-            return;
-        }
+        this.openPerformersModal('loser');
+    }
 
-        // Populate Table with all losers
-        const tbody = document.getElementById('worst-performers-table-body');
-        tbody.innerHTML = '';
-
+    openPerformersModal(type) {
+        const isLoser = type === 'loser';
+        const modal = document.getElementById(isLoser ? 'worst-performers-modal' : 'top-performers-modal');
         const report = this.lastReport;
-        if (!report || !report.assets) {
-            console.error('❌ No report data available');
-            return;
-        }
+        if (!modal || !report?.assets) return;
 
-        // Get all assets with negative gains and sort by absolute loss descending (most negative first)
-        const losers = report.assets
-            .filter(a => a.gainEUR < 0)
-            .sort((a, b) => a.gainEUR - b.gainEUR);
-
-        let totalLoss = 0;
-        let totalInvested = 0;
-
-        losers.forEach(asset => {
-            totalLoss += asset.gainEUR;
-            totalInvested += asset.invested || 0;
-
-            const row = document.createElement('tr');
-            row.style.borderBottom = '1px solid var(--border-color)';
-            row.innerHTML = `
-                <td style="padding: 12px 8px;">
-                    <div style="font-weight: 600; color: var(--text-primary);">${asset.name}</div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">${asset.ticker}</div>
-                </td>
-                <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace; color: #ef4444; font-weight: 600;">${this.formatEUR(asset.gainEUR)}</td>
-                <td style="padding: 12px 8px; text-align: right;">
-                    <span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-weight: 500; font-size: 12px;">
-                        ${asset.gainPct.toFixed(2)}%
-                    </span>
-                </td>
-            `;
-            tbody.appendChild(row);
+        // Exactement le même composant que le Dashboard : filtre par signe,
+        // total pondé et tri interactif sur les trois colonnes.
+        mountPerformerTable(modal.querySelector('.modal-body'), report.assets, type, {
+            formatCurrency: value => this.formatEUR(value)
         });
 
-        // Calculate weighted average percentage
-        const avgPct = totalInvested > 0 ? (totalLoss / totalInvested) * 100 : 0;
-
-        // Add Total Row
-        const totalRow = document.createElement('tr');
-        totalRow.style.backgroundColor = 'var(--bg-secondary)';
-        totalRow.innerHTML = `
-            <td style="padding: 12px 8px; font-weight: 700;">TOTAL PERTES</td>
-            <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace; font-weight: 700; color: #ef4444;">${this.formatEUR(totalLoss)}</td>
-            <td style="padding: 12px 8px; text-align: right;">
-                <span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 12px;">
-                    ${avgPct.toFixed(2)}%
-                </span>
-            </td>
-        `;
-        tbody.appendChild(totalRow);
-
-        // Force visibility
         modal.style.display = 'flex';
         modal.style.setProperty('display', 'flex', 'important');
-        modal.style.zIndex = '9999999';
-        modal.style.position = 'fixed';
-        modal.style.top = '0';
-        modal.style.left = '0';
-        modal.style.width = '100vw';
-        modal.style.height = '100vh';
-        modal.style.backgroundColor = 'rgba(0,0,0,0.85)';
         modal.style.visibility = 'visible';
         modal.style.opacity = '1';
-
-        const content = modal.querySelector('.modal-content');
-        if (content) {
-            content.style.display = 'block';
-            content.style.visibility = 'visible';
-            content.style.opacity = '1';
-            content.style.zIndex = '10000000';
-            content.style.backgroundColor = '#1e293b';
-        }
+        modal.style.zIndex = '9999999';
     }
 
     openPerformanceModal() {

@@ -20,6 +20,7 @@ import { auth } from './firebaseConfig.js';
 import { getAuthHeader } from './authFetchHeaders.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
 import { marketDataMetrics } from './marketDataMetrics.js';
+import { mountPerformerTable } from './performerTable.js';
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -1610,17 +1611,11 @@ export class DashboardApp {
         let sortedItems, titleText, iconClass, iconColor;
 
         if (type === 'gainer') {
-            titleText = 'Top Gainer — Actifs en plus-value';
+            titleText = 'Top Performers — Détails';
             iconClass = 'fa-arrow-trend-up'; iconColor = '#10b981';
-            sortedItems = [...holdings]
-                .filter(h => h.gainPct != null && h.gainEUR != null)
-                .sort((a, b) => (b.gainPct ?? -Infinity) - (a.gainPct ?? -Infinity));
         } else if (type === 'loser') {
-            titleText = 'Top Loser — Actifs en moins-value';
+            titleText = 'Worst Performers — Détails';
             iconClass = 'fa-arrow-trend-down'; iconColor = '#ef4444';
-            sortedItems = [...holdings]
-                .filter(h => h.gainPct != null && h.gainEUR != null)
-                .sort((a, b) => (a.gainPct ?? Infinity) - (b.gainPct ?? Infinity));
         } else {
             titleText = 'Top Holdings — Valeur du portefeuille';
             iconClass = 'fa-layer-group'; iconColor = '#3b82f6';
@@ -1634,40 +1629,33 @@ export class DashboardApp {
         iconEl.style.color = iconColor;
 
         const fmt = v => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(v);
+
+        // Même composant, mêmes filtres et mêmes totaux que les modals
+        // Top/Worst Performers d'Analytics. Les trois colonnes sont triables.
+        if (type === 'gainer' || type === 'loser') {
+            mountPerformerTable(body, holdings, type, { formatCurrency: fmt });
+            modal.style.display = 'flex';
+            return;
+        }
+
         const totalValue = sortedItems.reduce((s, h) => s + (h.currentValue || 0), 0);
 
         let html = `<table class="kpi-detail-table kpi-detail-table--${type}"><thead><tr>`;
-        if (type === 'gainer' || type === 'loser') {
-            html += '<th>#</th><th>Actif</th><th>Investi</th><th>Valeur</th><th>+/- €</th><th>+/- %</th>';
-        } else {
-            html += '<th>#</th><th>Actif</th><th>Valeur</th><th>% Port.</th><th>Perf.</th>';
-        }
+        html += '<th>#</th><th>Actif</th><th>Valeur</th><th>% Port.</th><th>Perf.</th>';
         html += '</tr></thead><tbody>';
 
         sortedItems.forEach((h, i) => {
             const gainPct = h.gainPct ?? 0;
-            const gainEUR = h.gainEUR ?? 0;
             const color = gainPct >= 0 ? '#10b981' : '#ef4444';
             const sign = gainPct >= 0 ? '+' : '';
-            if (type === 'gainer' || type === 'loser') {
-                html += `<tr>
-                    <td>${i + 1}</td>
-                    <td><div class="kpi-modal-name">${escHtml(h.name)}</div><div class="kpi-modal-sub">${escHtml(h.ticker)} · ${escHtml(h.assetType || '')}</div></td>
-                    <td>${fmt(h.invested || 0)}</td>
-                    <td>${fmt(h.currentValue || 0)}</td>
-                    <td style="color:${color};font-weight:600;">${sign}${fmt(gainEUR)}</td>
-                    <td style="color:${color};font-weight:600;">${sign}${gainPct.toFixed(2)}%</td>
-                </tr>`;
-            } else {
-                const pct = totalValue > 0 ? (h.currentValue / totalValue) * 100 : 0;
-                html += `<tr>
-                    <td>${i + 1}</td>
-                    <td><div class="kpi-modal-name">${escHtml(h.name)}</div><div class="kpi-modal-sub">${escHtml(h.ticker)} · ${escHtml(h.assetType || '')}</div></td>
-                    <td style="font-weight:600;">${fmt(h.currentValue || 0)}</td>
-                    <td>${pct.toFixed(1)}%</td>
-                    <td style="color:${color};font-weight:600;">${sign}${gainPct.toFixed(2)}%</td>
-                </tr>`;
-            }
+            const pct = totalValue > 0 ? (h.currentValue / totalValue) * 100 : 0;
+            html += `<tr>
+                <td>${i + 1}</td>
+                <td><div class="kpi-modal-name">${escHtml(h.name)}</div><div class="kpi-modal-sub">${escHtml(h.ticker)} · ${escHtml(h.assetType || '')}</div></td>
+                <td style="font-weight:600;">${fmt(h.currentValue || 0)}</td>
+                <td>${pct.toFixed(1)}%</td>
+                <td style="color:${color};font-weight:600;">${sign}${gainPct.toFixed(2)}%</td>
+            </tr>`;
         });
 
         html += '</tbody></table>';

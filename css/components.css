@@ -524,3 +524,111 @@ tbody tr:hover {
     min-height: 0;
 }
 
+/* Tableau partagé par les modals Top/Worst Performers d'Analytics et du Dashboard. */
+.performer-table-scroll {
+    overflow-x: auto;
+}
+
+.performer-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.performer-detail-table th {
+    padding: 11px 14px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-card);
+    position: sticky;
+    top: 0;
+}
+
+.performer-detail-table th:first-child,
+.performer-detail-table td:first-child {
+    text-align: left;
+}
+
+.performer-detail-table td {
+    padding: 11px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.performer-detail-table tbody tr:not(.performer-total-row):hover {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.performer-number {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.performer-asset-name {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.performer-asset-ticker {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+.performer-total-row {
+    background: var(--bg-secondary);
+    font-weight: 700;
+}
+
+.performer-empty {
+    color: var(--text-muted);
+    text-align: center !important;
+    padding: 24px 14px !important;
+}
+
+.performer-detail-table th[data-sort] {
+    cursor: pointer;
+    user-select: none;
+    padding-right: 30px;
+}
+
+.performer-detail-table th[data-sort]::after {
+    content: '⇅';
+    position: absolute;
+    right: 10px;
+    opacity: 0.35;
+}
+
+.performer-detail-table th[data-sort].sort-asc::after {
+    content: '▲';
+    color: var(--accent-blue);
+    opacity: 1;
+}
+
+.performer-detail-table th[data-sort].sort-desc::after {
+    content: '▼';
+    color: var(--accent-blue);
+    opacity: 1;
+}
+
+.performer-detail-table th[data-sort]:hover {
+    color: var(--accent-blue);
+}
+
+@media (max-width: 600px) {
+    .performer-detail-table th,
+    .performer-detail-table td {
+        padding: 9px 8px;
+        font-size: 11px;
+    }
+
+    .performer-asset-ticker {
+        font-size: 9px;
+    }
+}
+
