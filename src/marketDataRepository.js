@@ -1,8 +1,9 @@
 // Cache orchestration only. DataManager remains the financial engine.
 import { marketDataMetrics } from './marketDataMetrics.js';
 
-// v11: snapshots carry source freshness (sourceStale/staleInstruments).
-const VERSION = 11;
+// v12: current-position snapshots exclude fully liquidated assets. Bumping the
+// schema prevents a previously persisted ghost holding from being rendered.
+const VERSION = 12;
 const FRESH_TTL_MS = 30_000;
 const RETRY_MS = 30_000;
 const encode = (_, value) => value instanceof Map ? { $marketMap: [...value] } : value;

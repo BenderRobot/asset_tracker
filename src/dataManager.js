@@ -834,9 +834,20 @@ export class DataManager {
         });
         byTicker.forEach(agg => agg.purchases.sort((a, b) => new Date(a.date) - new Date(b.date)));
 
-        return Array.from(byTicker.entries()).map(([ticker, data]) =>
-            this._enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap, priceSnapshot?.prices, invalidTickers)
-        );
+        // `calculateHoldings` décrit exclusivement le portefeuille ACTUEL.
+        // Les transactions restent intactes dans le storage et continuent
+        // d'alimenter les historiques, mais un ticker dont la quantité nette est
+        // nulle après une vente totale ne doit plus devenir une position enrichie.
+        // Centraliser cette règle ici évite qu'une position soldée réapparaisse
+        // dans un consommateur qui oublierait son propre filtre (Dashboard KPI,
+        // allocation, Analytics, Assistant, actualités, etc.). Le seuil est le
+        // même que celui déjà utilisé par les vues pour absorber les minuscules
+        // résidus de calcul flottant.
+        return Array.from(byTicker.entries())
+            .filter(([, data]) => (data.quantity || 0) > 0.0001)
+            .map(([ticker, data]) =>
+                this._enrichAggregatedPosition(ticker, data, dynamicRate, yesterdayCloseMap, priceSnapshot?.prices, invalidTickers)
+            );
     }
 
     calculateSummary(holdings) {

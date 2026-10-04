@@ -287,6 +287,10 @@ export class DashboardApp {
         };
         this._latestPortfolioSnapshotId = snapshot.snapshotId;
         this.lastHoldings = holdings;
+        // Le sélecteur d'actualités représente lui aussi le portefeuille
+        // courant : le reconstruire depuis les positions canoniques empêche un
+        // actif totalement vendu de rester visible via l'historique brut.
+        this.renderAssetSelect();
         this.renderKPIs(engineSummary, cashReserve.total, holdings);
         this.renderAllocation(holdings, engineSummary.totalCurrentEUR);
         if (this.chart?.currentMode !== 'asset') this.ui.updatePortfolioSummary(canonicalSummary, canonicalSummary.movementsCount, canonicalSummary.cash, this.marketStatus);
@@ -496,12 +500,19 @@ export class DashboardApp {
         const selectEl = document.getElementById('portfolio-asset-select');
         if (!selectEl) return;
 
-        const purchases = this.storage.getPurchases();
-        const uniqueAssets = [...new Set(purchases.filter(p => p.assetType !== 'Cash').map(p => ({ ticker: p.ticker, name: p.name })))];
-
         const assetMap = new Map();
-        uniqueAssets.forEach(a => assetMap.set(a.name, { ticker: a.ticker, name: a.name }));
+        (this.lastHoldings || []).forEach(asset => {
+            if ((asset.quantity || 0) > 0.0001) {
+                assetMap.set(asset.ticker, { ticker: asset.ticker, name: asset.name || asset.ticker });
+            }
+        });
         const sortedAssets = Array.from(assetMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+
+        // Si l'actif sélectionné vient d'être vendu en totalité, revenir à
+        // la vue globale au lieu de conserver un filtre fantôme invisible.
+        if (this.selectedAssetFilter && !sortedAssets.some(asset => asset.name === this.selectedAssetFilter)) {
+            this.selectedAssetFilter = '';
+        }
 
         selectEl.innerHTML = '<option value="">Tout voir (Max 15)</option>' +
             sortedAssets.map(asset =>
