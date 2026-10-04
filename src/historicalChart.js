@@ -1022,7 +1022,10 @@ export class HistoricalChart {
                 // live "maintenant" — les deux peuvent légitimement différer.
 
                 const name = targetAssetPurchases[0]?.name || currentTicker;
-                titleConfig = { mode: 'asset', label: `${currentTicker} • ${name}`, icon: this.dataManager.isCryptoTicker(currentTicker) ? '₿' : '📊' };
+                const filteredTitle = this.investmentsPage.getChartTitleConfig?.(currentTicker);
+                titleConfig = filteredTitle?.mode === 'asset'
+                    ? filteredTitle
+                    : { mode: 'asset', label: `${currentTicker} • ${name}`, icon: this.dataManager.isCryptoTicker(currentTicker) ? '₿' : '📊' };
 
             // === MODE PORTFOLIO GLOBAL / FILTRÉ ===
             } else {
@@ -1166,12 +1169,14 @@ export class HistoricalChart {
                 if (info) info.style.display = 'none';
                 this._syncToolbarState(isSingleAsset || isIndexMode ? null : this.snapshotFreshness);
 
-                if (!isSingleAsset && !isIndexMode) {
-                    // SSOT (audit architecture) : plus de 4e argument "chartStats" —
-                    // investmentsPage.renderData ne doit plus recevoir de valeur issue
-                    // du graphique pour ses KPI secondaires, uniquement les positions
-                    // canoniques (targetHoldings/targetSummary), seule source qu'elle
-                    // est autorisée à agréger (voir investmentsPage.js::renderData).
+                if (!isIndexMode) {
+                    // Le tableau Investments existe aussi en mode actif unique :
+                    // targetHoldings contient alors uniquement la position filtrée.
+                    // L'ancienne garde `!isSingleAsset` sautait ce rendu et laissait
+                    // le placeholder "Loading…" indéfiniment, alors que les KPI et
+                    // le graphique avaient déjà terminé leur calcul.
+                    // SSOT : renderData reçoit toujours les positions/résumé/cash
+                    // canoniques, jamais une valeur recalculée depuis la courbe.
                     this.investmentsPage.renderData(targetHoldings, targetSummary, targetCashReserve.total);
                 }
             }
@@ -1599,6 +1604,7 @@ export class HistoricalChart {
         const titleIcon = document.getElementById('chart-title-icon');
         if (!titleText || !titleIcon || !titleConfig) return;
         titleText.textContent = titleConfig.label;
+        titleText.title = titleConfig.label;
         if (isSingleAssetMode && currentTicker) {
             const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
             const assetName = purchases[0]?.name || currentTicker;

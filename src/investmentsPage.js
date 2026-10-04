@@ -396,29 +396,37 @@ export class InvestmentsPage {
     this.attachRowClickListeners();
   }
 
-  getChartTitleConfig() { /* ... inchangé ... */
+  getChartTitleConfig(tickerOverride = null) {
     const selectedTickers = this.filterManager.getSelectedTickers();
-    if (selectedTickers.size === 1) {
-      const ticker = Array.from(selectedTickers)[0];
+    const tickers = tickerOverride
+      ? [String(tickerOverride).toUpperCase()]
+      : Array.from(selectedTickers);
+    const context = [];
+
+    // Le bandeau du graphique doit décrire le sous-portefeuille réellement
+    // affiché, pas uniquement le dernier filtre testé par une chaîne de if.
+    if (this.currentBrokerFilter) {
+      const brokerLabel = this.brokersList?.find(b => b.value === this.currentBrokerFilter)?.label || this.currentBrokerFilter;
+      context.push(brokerLabel);
+    }
+    if (this.currentAssetTypeFilter) context.push(this.currentAssetTypeFilter);
+
+    if (tickers.length === 1) {
+      const ticker = tickers[0];
       const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
       const icon = this.dataManager.isCryptoTicker(ticker) ? '₿' : '📊';
-      return { mode: 'asset', label: `${ticker} • ${name}`, icon: icon };
+      return { mode: 'asset', label: [...context, ticker, name].join(' • '), icon: icon };
     }
-    if (selectedTickers.size > 1) {
-      const tickers = Array.from(selectedTickers);
-      let label = tickers.length > 2 ? `${tickers.slice(0, 2).join(', ')}... (+${tickers.length - 2})` : tickers.join(', ');
+    if (tickers.length > 1) {
+      const tickerLabel = tickers.length > 2 ? `${tickers.slice(0, 2).join(', ')}... (+${tickers.length - 2})` : tickers.join(', ');
       const assetTypes = tickers.map(t => this.dataManager.isCryptoTicker(t) ? 'Crypto' : 'Stock');
       const uniqueTypes = [...new Set(assetTypes)];
       let icon = uniqueTypes.length === 1 && uniqueTypes[0] === 'Crypto' ? '₿' : '📈';
-      return { mode: 'filter', label: label, icon: icon };
+      return { mode: 'filter', label: [...context, tickerLabel].join(' • '), icon: icon };
     }
-    if (this.currentAssetTypeFilter) {
-      let icon = this.currentAssetTypeFilter === 'Crypto' ? '₿' : (this.currentAssetTypeFilter === 'Stock' ? '📊' : '🌍');
-      return { mode: 'filter', label: `${this.currentAssetTypeFilter}`, icon: icon };
-    }
-    if (this.currentBrokerFilter) {
-      const brokerLabel = this.brokersList?.find(b => b.value === this.currentBrokerFilter)?.label || this.currentBrokerFilter;
-      return { mode: 'filter', label: `${brokerLabel}`, icon: '🏦' };
+    if (context.length > 0) {
+      const icon = this.currentAssetTypeFilter === 'Crypto' ? '₿' : (this.currentBrokerFilter ? '🏦' : '📊');
+      return { mode: 'filter', label: context.join(' • '), icon };
     }
     return { mode: 'global', label: 'Portfolio Global', icon: '📈' };
   }

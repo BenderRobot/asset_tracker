@@ -62,14 +62,14 @@ function buildScenario() {
         filterManager: { getSelectedTickers: () => new Set() },
         getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'x' }),
         getFilteredPurchasesFromPage: () => purchases,
-        renderData: () => {}
+        renderData: vi.fn()
     };
 
     document.body.innerHTML = '<canvas id="historical-portfolio-chart"></canvas>';
     global.Chart = FakeChartJs;
 
     const chart = new HistoricalChart(storage, dataManager, null, investmentsPage);
-    return { chart, storage, dataManager, purchases };
+    return { chart, storage, dataManager, purchases, investmentsPage };
 }
 
 describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/actif/index)', () => {
@@ -106,6 +106,19 @@ describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/
         expect(kpis.totalReturnPct).toBeCloseTo(9.13, 1);
         expect(kpis.varToday).toBeCloseTo(-14.00, 2);
         expect(kpis.varTodayPct).toBeCloseTo(-1.81, 1);
+    });
+
+    it('TEST 2b — mode actif : le tableau reçoit la position filtrée et quitte Loading', async () => {
+        const { chart, investmentsPage } = buildScenario();
+
+        await chart.showAssetChart('SOI');
+
+        expect(investmentsPage.renderData).toHaveBeenCalledTimes(1);
+        const [holdings, summary, cash] = investmentsPage.renderData.mock.calls[0];
+        expect(holdings).toHaveLength(1);
+        expect(holdings[0]).toMatchObject({ ticker: 'SOI', quantity: 5 });
+        expect(summary.totalCurrentEUR).toBeCloseTo(760.25, 2);
+        expect(cash).toBe(0);
     });
 
     it('TEST 3 — changement portefeuille → actif : les KPI changent réellement de contexte', async () => {
