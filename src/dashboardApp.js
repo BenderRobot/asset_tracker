@@ -21,6 +21,7 @@ import { getAuthHeader } from './authFetchHeaders.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
 import { marketDataMetrics } from './marketDataMetrics.js';
 import { mountPerformerTable } from './performerTable.js';
+import { FUTURE_ACCENT_COLOR, selectIndexDisplayInstrument } from './indexFutures.js';
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -1066,57 +1067,55 @@ export class DashboardApp {
         // Récupération de tous les prix en une seule fois (via Promise.all pour paralléliser)
         const fetchPromises = indices.map(async (idx) => {
             let dashboardData = null;
-            let targetTicker = idx.ticker;
-            let isFuturesSwap = false;
-
-            // PAS DE FUTURES : Toujours utiliser le ticker réel de l'indice
-            // Si fermé → dernière journée, si ouvert → live
             const now = new Date();
             const hour = now.getHours();
             const min = now.getMinutes();
+            const cashMarketStatus = this.getMarketStatus(idx.ticker, hour, now.getDay(), min);
+            const displayInstrument = selectIndexDisplayInstrument(idx.ticker, cashMarketStatus, now);
+            let targetTicker = displayInstrument.ticker;
+            let isFuturesSwap = displayInstrument.isFuture;
+            let future = displayInstrument.future;
 
-            // EU Futures (08:00 - 09:00 : Pre-market Europe)
-            /* DESACTIVÉ CAR TICKERS FCE=F / FESX=F RETOURNENT 404
-            if (idx.ticker === '^FCHI' || idx.ticker === '^STOXX50E') {
-                // Marché officiel ouvre à 09:00. Avant (depuis 08:00), on affiche les futures.
-                // On peut aussi étendre après 17:30 si voulu, mais la demande spécifique est "à partir de 8h00".
-                const isPreMarketEU = (hour === 8);
-
-                if (isPreMarketEU) {
-                    if (idx.ticker === '^FCHI') targetTicker = 'FCE=F';      // CAC 40 Futures
-                    if (idx.ticker === '^STOXX50E') targetTicker = 'FESX=F'; // Euro Stoxx 50 Futures
-                    isFuturesSwap = true;
+            const fetchDashboardQuote = async (ticker) => {
+                try {
+                    console.log(`[Dashboard] Fetching data for ${ticker}...`);
+                    return await this.api.fetchIndexDataForDashboard(ticker);
+                } catch (error) {
+                    console.error(`[Dashboard] Error fetching ${ticker}:`, error);
+                    return null;
                 }
+            };
+
+            dashboardData = await fetchDashboardQuote(targetTicker);
+
+            // A missing future must never make the card disappear. Fall back to
+            // the followed cash index and clearly keep its CLOSED presentation.
+            if (!dashboardData && isFuturesSwap) {
+                console.warn(`[Dashboard] Future ${targetTicker} unavailable; falling back to ${idx.ticker}`);
+                targetTicker = idx.ticker;
+                isFuturesSwap = false;
+                future = null;
+                dashboardData = await fetchDashboardQuote(targetTicker);
             }
-            */
 
-            try {
-                // Utilisation de la nouvelle méthode précise (avec ticker potentiellement swapé)
-                console.log(`[Dashboard] Fetching data for ${targetTicker}...`);
-                dashboardData = await this.api.fetchIndexDataForDashboard(targetTicker);
-
-                if (!dashboardData) {
-                    console.warn(`[Dashboard] No data returned for ${targetTicker}`);
-                }
-
-                // Si succès, on met à jour le cache
-                if (dashboardData) {
-                    this.storage.setCurrentPrice(idx.ticker, {
-                        price: dashboardData.price,
-                        previousClose: dashboardData.previousClose,
-                        currency: dashboardData.currency,
-                        marketState: dashboardData.marketState, // Sera probablement 'REGULAR' pour les Futures
-                        lastUpdate: dashboardData.fetchedAt || Date.now()
-                    });
-                    console.log(`[Dashboard] ✓ ${idx.ticker}: ${dashboardData.price}`);
-                }
-            } catch (e) {
-                console.error(`[Dashboard] Error fetching ${targetTicker}:`, e);
+            if (!dashboardData) {
+                console.warn(`[Dashboard] No data returned for ${targetTicker}`);
+            } else {
+                // Keep cash-index and futures caches separate: storing ES=F at
+                // ^GSPC would corrupt the index card as soon as its market opens.
+                this.storage.setCurrentPrice(targetTicker, {
+                    price: dashboardData.price,
+                    previousClose: dashboardData.previousClose,
+                    currency: dashboardData.currency,
+                    marketState: dashboardData.marketState,
+                    lastUpdate: dashboardData.fetchedAt || Date.now()
+                });
+                console.log(`[Dashboard] ✓ ${targetTicker}: ${dashboardData.price}`);
             }
 
             // Fallback sur le cache si l'appel échoue
             if (!dashboardData) {
-                const cached = this.storage.getCurrentPrice(idx.ticker);
+                const cached = this.storage.getCurrentPrice(targetTicker);
                 if (cached) {
                     dashboardData = {
                         price: cached.price,
@@ -1157,12 +1156,12 @@ export class DashboardApp {
                 if (indexData) truePreviousClose = indexData.truePreviousClose;
             } catch (e) { console.warn(`[Sparkline ${targetTicker}] Error:`, e.message); }
 
-            return { idx, dashboardData, indexData, truePreviousClose, isFuturesSwap, targetTicker }; // Modified to include targetTicker
+            return { idx, dashboardData, indexData, truePreviousClose, isFuturesSwap, targetTicker, future };
         });
 
         const results = await Promise.all(fetchPromises);
 
-        for (const { idx, dashboardData, indexData, truePreviousClose, isFuturesSwap, targetTicker } of results) {
+        for (const { idx, dashboardData, indexData, truePreviousClose, isFuturesSwap, targetTicker, future } of results) {
 
             let currentPrice = dashboardData ? dashboardData.price : 0;
             let apiPreviousClose = dashboardData ? dashboardData.previousClose : 0;
@@ -1172,7 +1171,7 @@ export class DashboardApp {
             if (currentPrice <= 0 || apiPreviousClose <= 0) {
                 console.error(`[Card ${idx.ticker}] Invalid price data - current: ${currentPrice}, previous: ${apiPreviousClose}`);
                 // Essayer d'utiliser le cache comme dernier recours
-                const cached = this.storage.getCurrentPrice(idx.ticker);
+                const cached = this.storage.getCurrentPrice(targetTicker);
                 if (cached && cached.price > 0 && cached.previousClose > 0) {
                     currentPrice = cached.price;
                     apiPreviousClose = cached.previousClose;
@@ -1204,40 +1203,51 @@ export class DashboardApp {
             // Debug: vérifier 
             console.log(`[Card ${idx.ticker}] price: ${currentPrice}, apiPreviousClose: ${apiPreviousClose}, Ref: ${referenceClose}`);
 
-            // NOUVELLE LOGIQUE : Variation intelligente
-            const smartVar = this.getSmartVariation(
-                idx.ticker,
-                currentPrice,
-                referenceClose,
-                lastTradingDayClose || referenceClose,
-                indexData ? indexData.lastQuoteTime : null
-            );
+            // A future has its own previous close and its own variation. It must
+            // not inherit the CLOSED/LIVE semantics of the underlying cash index.
+            const smartVar = isFuturesSwap
+                ? {
+                    variation: currentPrice - referenceClose,
+                    variationPct: referenceClose > 0 ? ((currentPrice - referenceClose) / referenceClose) * 100 : 0,
+                    referencePrice: referenceClose,
+                    label: 'FUTURE',
+                    statusIcon: '◆',
+                    marketStatus: 'FUTURE'
+                }
+                : this.getSmartVariation(
+                    idx.ticker,
+                    currentPrice,
+                    referenceClose,
+                    lastTradingDayClose || referenceClose,
+                    dashboardData?.lastQuoteTime ?? null
+                );
 
             const change = smartVar.variation;
             const pct = smartVar.variationPct;
 
-            // CRITICAL FIX: Update currentData with the smart variation so Notifications see it
             // CRITICAL FIX: Update currentData with the smart variation so Notifications see it
             // Ensure storage.currentData exists
             if (!this.storage.currentData) {
                 this.storage.currentData = {};
             }
 
-            if (this.storage.currentData[idx.ticker]) {
-                this.storage.currentData[idx.ticker].changePercent = pct;
-                this.storage.currentData[idx.ticker].change = change;
-            } else {
-                // Should exist, but just in case
-                this.storage.currentData[idx.ticker] = {
-                    changePercent: pct,
-                    change: change,
-                    price: currentPrice
-                };
+            // Notifications configured for the cash index must not be evaluated
+            // against a futures price with a different scale.
+            if (!isFuturesSwap) {
+                if (this.storage.currentData[idx.ticker]) {
+                    this.storage.currentData[idx.ticker].changePercent = pct;
+                    this.storage.currentData[idx.ticker].change = change;
+                } else {
+                    this.storage.currentData[idx.ticker] = {
+                        changePercent: pct,
+                        change: change,
+                        price: currentPrice
+                    };
+                }
             }
 
 
-            let statusLabel = smartVar.label;
-            // if (isFuturesSwap) statusLabel = 'FUTURES'; // SUPPRIMÉ: On laisse getSmartVariation décider ('CLOSED' ou 'LIVE')
+            const statusLabel = smartVar.label;
 
             const statusIcon = smartVar.statusIcon;
             const indicatorColor = change > 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
@@ -1283,10 +1293,15 @@ export class DashboardApp {
 
             // Utiliser statusColor basé sur le statut
             let statusColor = '#9fa6bc';
-            if (statusLabel === 'LIVE') statusColor = '#10b981'; // Green
+            if (isFuturesSwap) statusColor = FUTURE_ACCENT_COLOR;
+            else if (statusLabel === 'LIVE') statusColor = '#10b981'; // Green
             else if (statusLabel === 'DELAYED') statusColor = '#f59e0b'; // Orange
             else if (statusLabel === 'CLOSED') statusColor = '#ef4444'; // Red
             else statusColor = change >= 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
+
+            const futureBadge = isFuturesSwap
+                ? `<span class="market-source-badge market-source-future" title="${escHtml(future.name)}">FUTURE · ${escHtml(future.code)}</span>`
+                : '';
 
             // Icône normalisée (Conteneur fixe pour éviter les décalages de hauteur sur BTC)
             const iconContent = idx.icon.includes('http')
@@ -1299,7 +1314,7 @@ export class DashboardApp {
 				<button class="market-card-delete" title="Supprimer"><i class="fas fa-trash-alt"></i></button>
 				${sparklineBg}
 				<div style="position:relative; z-index:2; display:flex; justify-content:space-between; align-items:flex-start;">
-					<span style="font-weight:600; font-size:13px; color:#e2e8f0; line-height:1.3;">${escHtml(idx.name)}</span>
+					<div class="market-card-title"><span>${escHtml(idx.name)}</span>${futureBadge}</div>
 					${iconHTML}
 				</div>
 				<div style="position:relative; z-index:2;">
@@ -1343,12 +1358,16 @@ export class DashboardApp {
             }
 
             // Nettoyage des anciennes classes de statut
-            cardElement.classList.remove('stat-positive', 'stat-negative', 'active-index');
+            cardElement.classList.remove('stat-positive', 'stat-negative', 'active-index', 'market-card-future');
 
             // Application de la nouvelle couleur du jour
             cardElement.classList.add(finalStatusClass);
-            cardElement.style.border = `1px solid ${indicatorColor}50`;
-            cardElement.style.boxShadow = `0 0 10px ${indicatorColor}10`;
+            if (isFuturesSwap) cardElement.classList.add('market-card-future');
+            const cardAccentColor = isFuturesSwap ? FUTURE_ACCENT_COLOR : indicatorColor;
+            cardElement.style.border = `1px solid ${cardAccentColor}80`;
+            cardElement.style.boxShadow = `0 0 12px ${cardAccentColor}22`;
+            cardElement.dataset.instrumentTicker = targetTicker;
+            cardElement.dataset.instrumentType = isFuturesSwap ? 'future' : 'cash';
 
             // Mise à jour du contenu
             cardElement.innerHTML = innerHTMLStructure;
@@ -1382,7 +1401,8 @@ export class DashboardApp {
 
                 await this.dataManager.repository.getPrice(targetTicker, { forceRefresh: true });
                 if (this.chart) {
-                    this.chart.showIndex(targetTicker, idx.name); // Use targetTicker (Futures if applicable)
+                    const chartName = isFuturesSwap ? `${idx.name} · Future ${future.code}` : idx.name;
+                    this.chart.showIndex(targetTicker, chartName);
                 }
                 if (window.innerWidth < 768) {
                     document.querySelector('.dashboard-chart-section')?.scrollIntoView({ behavior: 'smooth' });

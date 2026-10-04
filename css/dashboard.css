@@ -531,6 +531,39 @@
     transform: translateY(-2px);
 }
 
+.market-card-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding-right: 4px;
+    color: #e2e8f0;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.market-source-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 5px;
+    padding: 2px 5px;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.45px;
+    line-height: 1;
+}
+
+.market-source-future {
+    color: #d8b4fe;
+    background: rgba(168, 85, 247, 0.16);
+    border: 1px solid rgba(168, 85, 247, 0.55);
+}
+
+.market-card.market-card-future {
+    background: linear-gradient(145deg, rgba(168, 85, 247, 0.09), #0f172a 56%) !important;
+}
+
 .market-header {
     display: flex;
     justify-content: space-between;
@@ -1409,6 +1442,15 @@
     box-shadow: 0 0 20px rgba(16, 185, 129, 0.5) !important;
     /* Rayonnement Vert */
     background: rgba(16, 185, 129, 0.1) !important;
+}
+
+/* Futures keep their purple source code even when selected; green/red remain
+   reserved for the direction of the numeric variation. */
+.market-card.market-card-future,
+.market-card.market-card-future.active-index {
+    border-color: #a855f7 !important;
+    box-shadow: 0 0 18px rgba(168, 85, 247, 0.28) !important;
+    background: linear-gradient(145deg, rgba(168, 85, 247, 0.13), #0f172a 58%) !important;
 }
 
 /* === LOADER SVG (Porté depuis investments.css) === */

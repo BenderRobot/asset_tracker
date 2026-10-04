@@ -89,6 +89,24 @@ describe('PÉRIODE (period return) of the portfolio chart', () => {
         const kpis = chart.kpiManager.updateKPIs.mock.calls[0][0];
         expect(kpis.perfAbs).toBeCloseTo(52, 8);
         expect(kpis.perfPct).toBeCloseTo(32, 8);
+        expect(chart._renderChartJs.mock.calls[0][8]).toBe('#2ecc71');
+    });
+
+    it('colours the chart from the selected period, independently of Var Today', () => {
+        const chart = chartWithSpy();
+        chart.currentPeriod = 90;
+        const losingPeriod = {
+            ...graphData,
+            values: [200, 190, 185, 180],
+            twr: [1, 0.95, 0.925, 0.9],
+            totalReturn: [0, -10, -15, -20],
+            periodPnl: [0, -10, -15, -20]
+        };
+
+        chart.renderChart(document.createElement('canvas'), losingPeriod, {}, { mode: 'global' }, null, null, null, { varTodayAbs: 30, varTodayPct: 1 });
+
+        expect(chart.kpiManager.updateKPIs.mock.calls[0][0].perfPct).toBeCloseTo(-10, 8);
+        expect(chart._renderChartJs.mock.calls[0][8]).toBe('#e74c3c');
     });
 
     it('includes dividends only through the toggle, and keeps realised gains in All', () => {

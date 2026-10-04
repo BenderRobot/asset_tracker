@@ -331,8 +331,6 @@ export class ChartKPIManager {
      */
     _updatePeriodReturn({ isIndexMode, currentPeriod, perfAbs, perfPct, isPositive, decimals }) {
         const { performanceLabel, performancePercent } = this.elements;
-        // `isPositive` is the chart's day colour (Var Today). PÉRIODE is coloured
-        // by its own sign: a positive period was shown in red on a negative day.
         const absPositive = perfAbs >= 0;
         const pctPositive = perfPct >= 0;
 

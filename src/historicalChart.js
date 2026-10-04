@@ -1494,7 +1494,10 @@ export class HistoricalChart {
         // déjà la même valeur par construction pour le portefeuille en vue 1D.
         const displayPriceEnd = priceEnd;
 
-        const isPositive = (vsYesterdayAbs !== null ? vsYesterdayAbs : perfAbs) >= 0;
+        // The chart colour belongs to the range currently displayed. Using
+        // Var Today here made a losing 1W/1M/... range stay green whenever the
+        // current session happened to be positive (and conversely).
+        const isPositive = perfPct >= 0;
         const mainColor = isPositive ? '#2ecc71' : '#e74c3c';
 
         const avgPrice = this._computeAvgPrice(currentTicker, isIndexMode, kpiData?.portfolioSnapshot);
@@ -1939,45 +1942,13 @@ export class HistoricalChart {
         const ctx = canvas.getContext('2d');
         const datasets = [];
 
-        const makeGradient = (chart, refValue) => {
-            const ca = chart.chartArea, sc = chart.scales?.y;
-            if (!ca || !sc) return 'transparent';
-            const refPx = sc.getPixelForValue(refValue);
-            const z = Math.max(ca.top, Math.min(ca.bottom, refPx));
-            const h = ca.bottom - ca.top;
-            if (h <= 0) return 'transparent';
-            const r = (z - ca.top) / h;
+        const makeGradient = (chart) => {
+            const ca = chart.chartArea;
+            if (!ca) return 'transparent';
             const g = chart.ctx.createLinearGradient(0, ca.top, 0, ca.bottom);
-            // r is a fraction of PIXEL height (top-to-bottom), inverted versus
-            // y-axis VALUE space (higher values at the top). r<=0 means refValue
-            // sits at/above the chart's top, so every plotted value is BELOW it
-            // (all negative) — red. r>=1 means refValue sits at/below the
-            // bottom, so every value is ABOVE it (all positive) — green. (Bug
-            // found: these two were swapped — an all-positive curve filled red.)
-            if (r <= 0) { g.addColorStop(0, 'rgba(231,76,60,0.35)'); g.addColorStop(1, 'rgba(231,76,60,0.05)'); }
-            else if (r >= 1) { g.addColorStop(0, 'rgba(46,204,113,0.35)'); g.addColorStop(1, 'rgba(46,204,113,0.05)'); }
-            else {
-                g.addColorStop(0, 'rgba(46,204,113,0.35)'); g.addColorStop(r, 'rgba(46,204,113,0.05)');
-                g.addColorStop(r, 'rgba(231,76,60,0.05)'); g.addColorStop(1, 'rgba(231,76,60,0.35)');
-            }
-            return g;
-        };
-
-        // Colors each line segment green above `refValue`, red below it, with a
-        // sharp transition placed exactly where the segment crosses that value
-        // (rather than blending green-to-red across the whole segment).
-        const GREEN = 'rgba(46,204,113,0.95)', RED = 'rgba(231,76,60,0.95)';
-        const segmentColor = (ctx, refValue) => {
-            const y0 = ctx.p0.parsed.y, y1 = ctx.p1.parsed.y;
-            if (y0 == null || y1 == null) return mainColor;
-            const a0 = y0 >= refValue, a1 = y1 >= refValue;
-            if (a0 && a1) return GREEN;
-            if (!a0 && !a1) return RED;
-            const t = Math.abs(y0 - refValue) / (Math.abs(y0 - refValue) + Math.abs(y1 - refValue));
-            const [c0, c1] = a0 ? [GREEN, RED] : [RED, GREEN];
-            const g = ctx.chart.ctx.createLinearGradient(ctx.p0.x, 0, ctx.p1.x, 0);
-            g.addColorStop(0, c0); g.addColorStop(Math.max(0, t - 0.001), c0);
-            g.addColorStop(Math.min(1, t + 0.001), c1); g.addColorStop(1, c1);
+            const rgb = mainColor === '#e74c3c' ? '231,76,60' : '46,204,113';
+            g.addColorStop(0, `rgba(${rgb},0.35)`);
+            g.addColorStop(1, `rgba(${rgb},0.05)`);
             return g;
         };
 
@@ -1999,14 +1970,13 @@ export class HistoricalChart {
 
             datasets.push({
                 label: 'Total Value (%)', data: perfData, borderColor: mainColor,
-                backgroundColor: (c) => makeGradient(c.chart, 0), borderWidth: 2, fill: true,
+                backgroundColor: (c) => makeGradient(c.chart), borderWidth: 2, fill: true,
                 // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
                 // 2026-09-24, Phase 4) : tension=0 (jamais de spline qui inventerait
                 // une trajectoire visuelle entre deux observations réelles) et
                 // spanGaps=false (un point `null` doit rester un trou visible,
                 // jamais relié artificiellement à travers une absence de donnée).
                 pointRadius: 0, tension: 0, spanGaps: false,
-                segment: { borderColor: (c) => segmentColor(c, 0) },
                 isMain: true
             });
 
@@ -2024,16 +1994,13 @@ export class HistoricalChart {
                 datasets.push({ label: 'Investi (€)', data: graphData.invested, borderColor: '#3b82f6', borderWidth: 2, fill: false, pointRadius: 0, borderDash: [5, 5], hidden: true, tension: 0, spanGaps: false });
             }
             let label = isUnitView ? 'Prix unitaire (€)' : (isIndexMode ? 'Cours' : 'Total Value (€)');
-            const bicolorRef = (this.currentPeriod === 1 && referenceClose > 0) ? referenceClose : null;
-
             datasets.push({
                 label, data: displayValues, borderColor: mainColor,
-                backgroundColor: (c) => makeGradient(c.chart, bicolorRef || 0),
+                backgroundColor: (c) => makeGradient(c.chart),
                 // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
                 // 2026-09-24, Phase 4) : voir commentaire du dataset "Total Value (%)"
                 // plus haut — même règle (tension=0, spanGaps=false).
                 borderWidth: 3, fill: true, tension: 0, pointRadius: 0, spanGaps: false,
-                ...(bicolorRef ? { segment: { borderColor: (c) => segmentColor(c, bicolorRef) } } : {}),
                 isMain: true
             });
             if (this.currentPeriod === 1 && referenceClose > 0 && this.refLineVisibility.close) {
