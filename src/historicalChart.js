@@ -49,7 +49,9 @@ const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 // holding-interval validity and pointMeta.sessionDate.
 // Version 23 retains the lightweight session-date series required to join a
 // live 1D return to the correct prior-close point for ATH calculations.
-const HISTORY_CHART_CACHE_VERSION = 23;
+// Version 24 discards ATH indices built with a mutable terminal anchor.
+// Transactions and raw provider histories are not affected.
+const HISTORY_CHART_CACHE_VERSION = 24;
 const HISTORY_CHART_CACHE_MAX_ENTRIES = 8;
 // IndexedDB is not bound by the ~5 MB localStorage quota shared by the app:
 // every period of the portfolio and of recently viewed assets fits.
@@ -787,8 +789,7 @@ export class HistoricalChart {
             const key = this._historyKey(source.scope, source.purchases, 'all');
             const [all, recent] = await Promise.all([source.producer(), source.intradayProducer()]);
             const previous = this._historyCache.get(key)?.data;
-            return { ...this.dataManager.mergeAthIntradayHistory(all, recent, previous, athSessionDate),
-                athIntradayVersion: 1 };
+            return this.dataManager.mergeAthIntradayHistory(all, recent, previous, athSessionDate);
         };
     }
 
@@ -800,7 +801,7 @@ export class HistoricalChart {
         const cached = this._peekCachedHistory(key, 'all', producer);
         if (cached) {
             // Older daily-only entries do not contain Friday's intraday high.
-            if (source.intradayProducer && !cached.athIntradayVersion) this._refreshCachedHistory(key, 'all', producer);
+            if (source.intradayProducer && cached.athIntradayVersion !== 2) this._refreshCachedHistory(key, 'all', producer);
             return cached;
         }
         if (this._athPending.has(key)) {
@@ -1566,7 +1567,9 @@ export class HistoricalChart {
         }
         const ath = this.dataManager.computeAthReference({
             kind: athKind, allHistory, visibleHistory: graphData,
-            firstIndex, lastIndex, includeDividends: this.includeDividends
+            firstIndex, lastIndex, includeDividends: this.includeDividends,
+            intraday: this.currentPeriod === 1 || this.currentPeriod === 2,
+            sessionDate: athSessionDate
         });
         if (!ath) return null;
         const label = ath.kind === 'price'

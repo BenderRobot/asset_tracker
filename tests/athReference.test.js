@@ -395,6 +395,21 @@ describe('ATH across the Friday-to-Sunday boundary', () => {
         expect(sunday.athIntraday.timestamps[one.at.index]).toBe(at('2026-10-02T14:20:00Z'));
     });
 
+    it('keeps Friday\'s record stable across repeated 1D/2D navigation and JSON reloads', () => {
+        const { all, twoDays, oneDay } = weekendHistories();
+        let shared;
+        for (let i = 1; i <= 30; i++) {
+            const visible = { ...(i % 2 ? twoDays : oneDay), calculatedAt: i };
+            shared = mergeAthIntradayHistory(all, visible, shared, sessionDate);
+            const ath = computeAthReference({ kind: 'performance', allHistory: shared, visibleHistory: visible,
+                intraday: true, sessionDate, includeDividends: i % 3 === 0 });
+            expect(shared.athIntraday.values[ath.at.index]).toBe(37698.44);
+            expect(ath.value).toBeCloseTo((37698.44 / visible.values[0] - 1) * 100, 10);
+            expect(ath.fromAthPct).toBeCloseTo((37581.24 / 37698.44 - 1) * 100, 10);
+            shared = JSON.parse(JSON.stringify(shared));
+        }
+    });
+
     it('retains Friday\'s peak when Monday\'s history no longer contains it', () => {
         const { all, twoDays, oneDay } = weekendHistories();
         const shared = mergeAthIntradayHistory(all, twoDays, null, sessionDate);
@@ -435,6 +450,118 @@ describe('ATH across the Friday-to-Sunday boundary', () => {
     });
 });
 
+describe('ATH revisions and stable anchors', () => {
+    const opening = 37603.26;
+    const times = ['2026-10-05T00:00:00+02:00', '2026-10-05T09:10:00+02:00',
+        '2026-10-05T09:15:00+02:00', '2026-10-05T10:00:00+02:00'].map(at);
+    const daily = {
+        timestamps: [times[0] - 86400000], sessionDates: ['2026-10-04'],
+        values: [opening], twr: [1.3], twrWithDividends: [1.4]
+    };
+    const make = (values, calculatedAt = 1) => ({
+        timestamps: [...times], values, assetValues: values.map(value => value - 389.29),
+        twr: values.map(value => value / opening),
+        twrWithDividends: values.map(value => value / opening), calculatedAt,
+        dataQuality: { valid: true }
+    });
+    const merge = (history, previous, all = daily) => mergeAthIntradayHistory(all, history, previous, sessionDate);
+    const reference = (allHistory, visibleHistory, includeDividends = false) => computeAthReference({
+        kind: 'performance', allHistory, visibleHistory, includeDividends, intraday: true, sessionDate
+    });
+
+    it('corrects the reported 09:15 peak instead of keeping a phantom high', () => {
+        const provisional = make([opening, 37695.08, 37708.98, 37630.11]);
+        const first = merge(provisional);
+        const revised = make([opening, 37695.08, 37685, 37620.07], 2);
+        const next = merge(revised, first);
+        const ath = reference(next, revised, true);
+        expect(next.athIntraday.values[ath.at.index]).toBe(37695.08);
+        expect(next.athIntraday.timestamps[ath.at.index]).toBe(times[1]);
+        expect(ath.value).toBeCloseTo((37695.08 / opening - 1) * 100, 10);
+        expect(ath.fromAthPct).toBeCloseTo((37620.07 / 37695.08 - 1) * 100, 10);
+        expect(new Set(next.athIntraday.timestamps).size).toBe(next.athIntraday.timestamps.length);
+    });
+
+    it('does not accumulate drift when the last candle changes at the same timestamp', () => {
+        let retained;
+        for (let i = 1; i <= 40; i++) {
+            const end = i % 2 ? 37630.11 : 37620.07;
+            const visible = make([opening, 37695.08, 37685, end], i);
+            retained = merge(visible, retained);
+            for (const dividends of [false, true]) {
+                const ath = reference(retained, visible, dividends);
+                expect(ath.value).toBeCloseTo((37695.08 / opening - 1) * 100, 10);
+                expect(ath.fromAthPct).toBeCloseTo((end / 37695.08 - 1) * 100, 10);
+            }
+        }
+    });
+
+    it('replaces removed provisional bars and retains the next observed maximum', () => {
+        const first = merge(make([opening, 37695.08, 37708.98, 37630.11]));
+        const visible = make([opening, 37695.08, 37685, 37630.11], 2);
+        for (const field of ['timestamps', 'values', 'assetValues', 'twr', 'twrWithDividends']) visible[field].splice(2, 1);
+        const revised = merge(visible, first);
+        expect(revised.athIntraday.timestamps).not.toContain(times[2]);
+        expect(revised.athIntraday.values[reference(revised, visible).at.index]).toBe(37695.08);
+    });
+
+    it('an older cached 2D window cannot restore a subsequently corrected 1D peak', () => {
+        const old = make([opening, 37695.08, 37708.98, 37630.11], 1);
+        const visible = make([opening, 37695.08, 37685, 37620.07], 2);
+        const revised = merge(visible, merge(old));
+        const stale = merge(old, revised);
+        expect(stale.athIntraday).toEqual(revised.athIntraday);
+        expect(stale.athCurrent).toEqual(revised.athCurrent);
+    });
+
+    it('orders simultaneous requests by calculation sequence, not completion time', () => {
+        const old = { ...make([opening, 37695.08, 37708.98, 37630.11]), calculationSequence: 1 };
+        const visible = { ...make([opening, 37695.08, 37685, 37620.07]), calculationSequence: 2 };
+        const revised = merge(visible, merge(old));
+        expect(merge(old, revised).athIntraday).toEqual(revised.athIntraday);
+    });
+
+    it('does not promote transaction estimates or non-finite performance', () => {
+        const first = merge(make([opening, 37695.08, 37685, 37630.11]));
+        const estimate = { ...make([opening, 99999, 99999, 99999], 2), dataQuality: { valid: true, estimated: true } };
+        expect(merge(estimate, first).athIntraday).toEqual(first.athIntraday);
+        const invalid = make([opening, 99999, 99999, 37630.11], 3);
+        invalid.twr[1] = Infinity;
+        invalid.twr[2] = NaN;
+        expect(merge(invalid, first).athIntraday.values).not.toContain(99999);
+    });
+
+    it('drops unverifiable V1 peaks and reconstructs the record from current observations', () => {
+        const old = { athIntradayVersion: 1, athIntraday: {
+            timestamps: [times[2]], values: [37708.98], twr: [999], twrWithDividends: [999]
+        }, athCurrent: { timestamp: times[3], twr: 999 } };
+        const visible = make([opening, 37695.08, 37685, 37620.07]);
+        const rebuilt = merge(visible, old);
+        expect(rebuilt.athIntradayVersion).toBe(2);
+        expect(rebuilt.athIntraday.values[reference(rebuilt, visible).at.index]).toBe(37695.08);
+    });
+
+    it('keeps the line and drawdown consistent with an older displayed snapshot', () => {
+        const old = make([opening, 37695.08, 37685, 37630.11]);
+        const newer = make([opening, 37695.08, 37685, 37620.07], 2);
+        const retained = merge(newer, merge(old));
+        const ath = reference(retained, old);
+        expect(ath.value).toBeCloseTo((37695.08 / opening - 1) * 100, 10);
+        expect(ath.fromAthPct).toBeCloseTo((37630.11 / 37695.08 - 1) * 100, 10);
+    });
+
+    it('reanchors saved records once when a settled daily base is corrected', () => {
+        const visible = make([opening, 37695.08, 37685, 37620.07]);
+        const first = merge(visible);
+        const corrected = { ...daily, twr: [1.31], twrWithDividends: [1.41] };
+        const rebuilt = merge(null, first, corrected);
+        expect(rebuilt.athIntraday.twr[1]).toBeCloseTo(1.31 * visible.twr[1], 10);
+        const repeated = merge(null, rebuilt, corrected);
+        expect(repeated.athIntraday.twr).toEqual(rebuilt.athIntraday.twr);
+        expect(reference(repeated, visible).value).toBeCloseTo((37695.08 / opening - 1) * 100, 10);
+    });
+});
+
 describe('HistoricalChart ATH line', () => {
     beforeEach(() => {
         localStorage.clear();
@@ -447,6 +574,36 @@ describe('HistoricalChart ATH line', () => {
             </div>`;
     });
     afterEach(() => vi.restoreAllMocks());
+
+    it('reconciles the line, date and amount after the reported peak is revised and reloaded', () => {
+        const chart = makeChart();
+        chart.currentPeriod = 1;
+        const opening = 37603.26;
+        const timestamps = ['2026-10-05T00:00:00+02:00', '2026-10-05T09:10:00+02:00',
+            '2026-10-05T09:15:00+02:00', '2026-10-05T10:00:00+02:00'].map(at);
+        const make = (values, calculatedAt) => ({ labels: timestamps.map(String), timestamps, values,
+            twr: values.map(value => value / opening),
+            totalReturn: values.map(value => value - 28929.06), calculatedAt });
+        const all = { labels: ['previous close'], timestamps: [timestamps[0] - 86400000], sessionDates: ['2026-10-04'],
+            values: [opening], twr: [1.3], dataQuality: { valid: true } };
+        const source = { scope: 'portfolio', purchases: [purchase({ ticker: 'BTC-EUR' })], producer: vi.fn() };
+        const key = chart._historyKey(source.scope, source.purchases, 'all');
+        expect(chart._commitHistory(key, mergeAthIntradayHistory(all,
+            make([opening, 37695.08, 37708.98, 37630.11], 1), null, sessionDate), 'all')).toBe(true);
+        const revised = make([opening, 37695.08, 37685, 37620.07], 2);
+        render(chart, revised, source);
+        expect(athArg(chart)).toMatchObject({
+            value: expect.closeTo((37695.08 / opening - 1) * 100, 10),
+            details: { timestamp: timestamps[1], totalValue: 37695.08,
+                fromAthPct: expect.closeTo((37620.07 / 37695.08 - 1) * 100, 10) }
+        });
+        const restored = makeChart();
+        restored.currentPeriod = 1;
+        render(restored, revised, source);
+        expect(athArg(restored)).toEqual(athArg(chart));
+        expect(source.producer).not.toHaveBeenCalled();
+        chart.destroy(); restored.destroy();
+    });
 
     it('loads Friday\'s intraday peak on a cold Sunday 1D view and retains it after navigation', async () => {
         const { all, twoDays, oneDay } = weekendHistories();

@@ -2199,69 +2199,122 @@ export class DataManager {
 //   fromAthPct : écart du dernier point visible par rapport à l'ATH (≤ 0),
 //                en % de prix (price) ou de performance TWR (performance).
 // ============================================================
-// Daily closes cannot retain an ATH reached and lost during a session. Keep
-// the two intraday peaks (with/without dividends) and the terminal observation
-// alongside the daily series. The compact extension survives cache rebuilds
-// and navigation; each record retains the valuation actually observed there.
+// Daily closes miss intraday peaks. Keep a revision-aware recent window plus
+// older peaks, rather than freezing the maximum of every provisional candle.
+const athFinite = value => value != null && Number.isFinite(Number(value));
+const athPositive = value => athFinite(value) && Number(value) > 0;
+const athSameValue = (a, b) => athFinite(a) && athFinite(b) && Math.abs(Number(a) - Number(b)) <= 0.000001;
+const athFields = ['timestamps', 'values', 'assetValues', 'cash', 'totalReturn',
+    'totalReturnWithDividends', 'totalReturnPct', 'totalReturnPctWithDividends',
+    'twr', 'twrWithDividends', 'observedAt', 'observationSequence',
+    'anchorDate', 'anchorTwr', 'anchorTwrWithDividends'];
+const athRecords = history => (history?.timestamps ?? []).map((_, i) =>
+    Object.fromEntries(athFields.map(field => [field, history[field]?.[i] ?? null])));
+const athRevision = record => [Number(record.observedAt) || 0, Number(record.observationSequence) || 0];
+const athIsNewer = (a, b) => {
+    const [at, as] = athRevision(a), [bt, bs] = athRevision(b);
+    return at > bt || (at === bt && as >= bs);
+};
+
+// A common timestamp alone is NOT an anchor: an open candle can be revised.
+// Join only unchanged valuations, preferably at the beginning of the window.
+// Otherwise use the settled daily close strictly before the window's session.
+function athWindowBases(allHistory, history, records, sessionDate) {
+    const start = history.timestamps?.find(athFinite);
+    if (!athFinite(start)) return {};
+    const dates = allHistory.sessionDates ?? allHistory.pointMeta?.map(point => point?.sessionDate);
+    const startDate = sessionDate(start);
+    const bases = {};
+    for (let i = 0; i < (allHistory.timestamps?.length ?? 0); i++) {
+        const before = dates?.[i] ? dates[i] < startDate : allHistory.timestamps[i] < start;
+        if (!before || !athPositive(allHistory.twr?.[i])) continue;
+        bases.twr = Number(allHistory.twr[i]);
+        bases.twrWithDividends = Number(allHistory.twrWithDividends?.[i] ?? bases.twr);
+        bases.anchorDate = dates?.[i] ?? sessionDate(allHistory.timestamps[i]);
+    }
+    const byTime = new Map(records.map(record => [record.timestamps, record]));
+    for (let i = 0; i < history.timestamps.length; i++) {
+        const shared = byTime.get(history.timestamps[i]);
+        if (!shared || !athSameValue(shared.values, history.values?.[i])) continue;
+        if (athFinite(shared.assetValues) && !athSameValue(shared.assetValues, history.assetValues?.[i])) continue;
+        if (!athPositive(shared.twr) || !athPositive(history.twr?.[i])) continue;
+        bases.twr = shared.twr / history.twr[i];
+        const dividendRatio = history.twrWithDividends?.[i] ?? history.twr[i];
+        bases.twrWithDividends = athPositive(shared.twrWithDividends) && athPositive(dividendRatio)
+            ? shared.twrWithDividends / dividendRatio : null;
+        // A common point carries its original settled base for later revisions.
+        bases.anchorDate = shared.anchorDate;
+        bases.anchorTwr = shared.anchorTwr;
+        bases.anchorTwrWithDividends = shared.anchorTwrWithDividends;
+        break;
+    }
+    return bases;
+}
+
 export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate) {
     if (!allHistory || allHistory.dataQuality?.valid === false) return allHistory;
-    const fields = ['timestamps', 'values', 'totalReturn', 'totalReturnPct',
-        'totalReturnPctWithDividends', 'twr', 'twrWithDividends'];
-    const finite = value => value != null && Number.isFinite(Number(value));
-    const records = [];
-    const prior = previousHistory?.athIntraday;
-    for (let i = 0; i < (prior?.timestamps?.length ?? 0); i++) {
-        records.push(Object.fromEntries(fields.map(field => [field, prior[field]?.[i] ?? null])));
-    }
-
-    let current = null;
-    if (intradayHistory?.dataQuality?.valid !== false && intradayHistory?.timestamps?.some(finite)) {
-        const start = intradayHistory.timestamps.find(finite);
-        const startDate = sessionDate(start);
-        const dates = allHistory.sessionDates ?? allHistory.pointMeta?.map(point => point?.sessionDate);
-        const bases = {};
-        let terminal = intradayHistory.timestamps.length - 1;
-        while (terminal >= 0 && (!finite(intradayHistory.timestamps[terminal])
-            || !(intradayHistory.twr?.[terminal] > 0) || !finite(intradayHistory.values?.[terminal]))) terminal--;
+    // V1 had no provenance and recursively reused mutable terminal indices.
+    // It cannot safely certify a peak; rebuild from real histories instead.
+    const records = previousHistory?.athIntradayVersion === 2
+        ? athRecords(previousHistory.athIntraday).filter(record =>
+            athFinite(record.timestamps) && athFinite(record.values) && athPositive(record.twr)) : [];
+    const dailyBases = new Map((allHistory.sessionDates ?? []).map((date, i) => [date, i]));
+    for (const record of records) {
+        const i = dailyBases.get(record.anchorDate);
+        if (i == null) continue;
         for (const field of ['twr', 'twrWithDividends']) {
-            const ratios = field === 'twrWithDividends' && !Array.isArray(allHistory[field])
-                ? allHistory.twr : allHistory[field];
-            for (let i = 0; i < (ratios?.length ?? 0); i++) {
-                const beforeStart = dates?.[i] ? dates[i] < startDate
-                    : finite(allHistory.timestamps?.[i]) && allHistory.timestamps[i] < start;
-                if (beforeStart && finite(ratios[i]) && ratios[i] > 0) bases[field] = ratios[i];
-            }
-            // The same observed terminal point has one canonical index, even
-            // when a 1D/2D return chains trades at different candle intervals.
-            // Preserve that shared coordinate when switching the visible range.
-            const observedRatio = intradayHistory[field]?.[terminal]
-                ?? (field === 'twrWithDividends' ? intradayHistory.twr?.[terminal] : null);
-            if (previousHistory?.athCurrent?.timestamp === intradayHistory.timestamps[terminal]
-                && previousHistory.athCurrent[field] > 0 && observedRatio > 0) {
-                bases[field] = previousHistory.athCurrent[field] / observedRatio;
-            }
-        }
-        if (bases.twr > 0) {
-            for (let i = 0; i < intradayHistory.timestamps.length; i++) {
-                if (!finite(intradayHistory.timestamps[i]) || !(intradayHistory.twr?.[i] > 0)
-                    || !finite(intradayHistory.values?.[i])) continue;
-                const record = Object.fromEntries(fields.map(field => [field, intradayHistory[field]?.[i] ?? null]));
-                record.twr *= bases.twr;
-                const dividendRatio = intradayHistory.twrWithDividends?.[i] ?? intradayHistory.twr[i];
-                record.twrWithDividends = bases.twrWithDividends > 0 && finite(dividendRatio)
-                    ? bases.twrWithDividends * dividendRatio : null;
-                records.push(record);
-                current = record;
+            const anchorField = field === 'twr' ? 'anchorTwr' : 'anchorTwrWithDividends';
+            const settled = allHistory[field]?.[i] ?? (field === 'twrWithDividends' ? allHistory.twr?.[i] : null);
+            if (athPositive(record[anchorField]) && athPositive(settled) && athPositive(record[field])) {
+                record[field] *= settled / record[anchorField];
+                record[anchorField] = settled;
             }
         }
     }
-    if (!records.length) return allHistory;
-    records.sort((a, b) => a.timestamps - b.timestamps);
+    let current = null;
+    let merged = records;
+    if (intradayHistory?.dataQuality?.valid !== false && !intradayHistory?.dataQuality?.estimated
+        && intradayHistory?.timestamps?.some(athFinite)) {
+        const bases = athWindowBases(allHistory, intradayHistory, records, sessionDate);
+        if (athPositive(bases.twr)) {
+            const revision = { observedAt: intradayHistory.calculatedAt ?? 0,
+                observationSequence: intradayHistory.calculationSequence ?? 0 };
+            const times = intradayHistory.timestamps.filter(athFinite);
+            const start = Math.min(...times), end = Math.max(...times);
+            // A newer complete window supersedes old bars in its coverage,
+            // including bars removed by the provider. Out-of-window peaks stay.
+            const byTime = new Map(records.filter(record => record.timestamps < start || record.timestamps > end
+                || !athIsNewer(revision, record)).map(record => [record.timestamps, record]));
+            for (let i = 0; i < intradayHistory.timestamps.length; i++) {
+                if (!athFinite(intradayHistory.timestamps[i]) || !athPositive(intradayHistory.twr?.[i])
+                    || !athFinite(intradayHistory.values?.[i])) continue;
+                const record = Object.fromEntries(athFields.map(field => [field, intradayHistory[field]?.[i] ?? null]));
+                Object.assign(record, revision);
+                record.twr = Number(record.twr) * bases.twr;
+                const dividendRatio = intradayHistory.twrWithDividends?.[i] ?? intradayHistory.twr[i];
+                record.twrWithDividends = athPositive(bases.twrWithDividends) && athPositive(dividendRatio)
+                    ? bases.twrWithDividends * dividendRatio : null;
+                record.anchorDate = bases.anchorDate;
+                record.anchorTwr = bases.anchorTwr ?? bases.twr;
+                record.anchorTwrWithDividends = bases.anchorTwrWithDividends ?? bases.twrWithDividends;
+                const existing = byTime.get(record.timestamps);
+                if (!existing || athIsNewer(record, existing)) byTime.set(record.timestamps, record);
+            }
+            merged = [...byTime.values()];
+            current = merged.reduce((last, record) => !last || record.timestamps > last.timestamps ? record : last, null);
+        }
+    }
+    if (!merged.length) return { ...allHistory, athIntradayVersion: 2, athIntraday: null, athCurrent: null };
+    merged.sort((a, b) => a.timestamps - b.timestamps);
+    // Keep alternatives in the recent window: a revised peak must expose the
+    // next real high, not lose it because only the old maximum was persisted.
+    const cutoff = merged[merged.length - 1].timestamps - 3 * 86400000;
     const retained = new Set();
     for (const field of ['twr', 'twrWithDividends']) {
         let peak = null;
-        for (const record of records) {
-            if (finite(record[field]) && record[field] > (peak?.[field] ?? -Infinity)) peak = record;
+        for (const record of merged) {
+            if (record.timestamps >= cutoff) retained.add(record);
+            else if (athPositive(record[field]) && record[field] > (peak?.[field] ?? -Infinity)) peak = record;
         }
         if (peak) retained.add(peak);
     }
@@ -2269,17 +2322,16 @@ export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHis
     const points = [...retained].sort((a, b) => a.timestamps - b.timestamps);
     return {
         ...allHistory,
-        athIntraday: Object.fromEntries(fields.map(field => [field, points.map(point => point[field])])),
-        athCurrent: current ? ((previousHistory?.athCurrent?.timestamp ?? -Infinity) > current.timestamps
-            ? previousHistory.athCurrent
-            : { timestamp: current.timestamps, twr: current.twr,
-                twrWithDividends: current.twrWithDividends }) : null
+        athIntradayVersion: 2,
+        athIntraday: Object.fromEntries(athFields.map(field => [field, points.map(point => point[field])])),
+        athCurrent: current ? { timestamp: current.timestamps, twr: current.twr,
+            twrWithDividends: current.twrWithDividends } : null
     };
 }
 
 export function computeAthReference({
     kind, allHistory, visibleHistory, firstIndex = 0, lastIndex = null,
-    includeDividends = false
+    includeDividends = false, intraday = false, sessionDate = null
 }) {
     if (!allHistory || !visibleHistory) return null;
     if (allHistory.dataQuality?.valid === false || visibleHistory.dataQuality?.valid === false) return null;
@@ -2330,19 +2382,25 @@ export function computeAthReference({
     // The shared intraday extension owns peaks missed by daily closes. It is
     // independent of the selected period, so Friday's high is still the ATH
     // when Sunday's 1D curve contains only the weekend crypto return.
-    const intraday = scan(pickTwr(allHistory.athIntraday ?? {}));
-    const peakFromIntraday = intraday.max > all.max;
+    const intradayPeak = scan(pickTwr(allHistory.athIntraday ?? {}));
+    const peakFromIntraday = intradayPeak.max > all.max;
     let canonicalCurrent = includeDividends ? allHistory.athCurrent?.twrWithDividends : allHistory.athCurrent?.twr;
     if (!(canonicalCurrent > 0)) canonicalCurrent = all.last;
-    const athSource = peakFromIntraday ? { source: 'intraday', index: intraday.maxIndex }
+    if (intraday && sessionDate && allHistory.athIntradayVersion === 2) {
+        // The line/gap describe the curve actually displayed, not a later
+        // background snapshot. Never equate two different terminal timestamps.
+        const bases = athWindowBases(allHistory, visibleHistory, athRecords(allHistory.athIntraday), sessionDate);
+        const base = includeDividends ? bases.twrWithDividends : bases.twr;
+        if (!athPositive(base)) return null;
+        canonicalCurrent = visible.last * base;
+    }
+    const athSource = peakFromIntraday ? { source: 'intraday', index: intradayPeak.maxIndex }
         : { source: 'all', index: all.maxIndex };
-    const canonicalAth = Math.max(all.max, intraday.max);
+    const canonicalAth = Math.max(all.max, intradayPeak.max);
 
-    // Rebase at the two series' terminal observations.  The all-time series
-    // uses daily candles while 1M uses intraday candles, so their chained TWR
-    // can drift slightly inside the window and an older shared timestamp is
-    // not a safe conversion anchor.  Anchoring at the end guarantees that the
-    // line and the canonical all-time gap describe the same current state:
+    // Intraday views use the stable join above. Longer views retain terminal
+    // rebasing because daily and 1M candles may chain flows differently.
+    // In either case the line and the gap describe the same displayed state:
     // visibleLast / rebasedAth === canonicalCurrent / canonicalAth.
     const scale = visible.last / canonicalCurrent;
     const rebasedAthPct = (canonicalAth * scale - 1) * 100;

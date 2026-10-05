@@ -55,6 +55,7 @@ import {
 } from './MarketUtils.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+let historyCalculationSequence = 0;
 
 function isClosedExchangeDay(ticker, date) {
     return marketCalendarEngine.getTradingModel(ticker) !== 'crypto_24_7'
@@ -122,6 +123,8 @@ export class HistoryCalculator {
     // qu'une relecture tardive, mais sans la garantie forte que seul l'appelant
     // (avec son propre fetchBatchPrices juste avant) peut offrir.
     async calculateGenericHistory(purchases, days, isSingleAsset = false, historicalFxMap = null, dynamicRateOverride = null, debugCapture = null, livePriceSnapshotOverride = null) {
+        const calculatedAt = Date.now();
+        const calculationSequence = ++historyCalculationSequence;
         const ledger = this._buildLedger(purchases, isSingleAsset);
         if (!ledger.firstPurchaseDate) return emptyResult();
 
@@ -308,6 +311,7 @@ export class HistoryCalculator {
         const gateOnValidity = (arr) => dataQuality.valid ? arr : nullSeries(arr);
 
         return {
+            calculatedAt, calculationSequence, historyPeriod: days,
             labels: series.labels,
             invested: series.invested,
             investedAssetOnly: series.investedAssetOnly,
