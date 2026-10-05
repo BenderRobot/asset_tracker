@@ -112,7 +112,11 @@ function appendGroundingSources(text, groundingMetadata) {
 }
 
 function shouldEnableWebSearch(message) {
-    return /\b(actualit[eé]s?|news|march[eé]s?|cours|prix|cotation|valorisation|secteur|concurrents?|r[eé]sultats?|perspectives?|pr[eé]visions?|analystes?|macro|inflation|bce|fed|taux|aujourd['’]hui|r[eé]cent)\b/i.test(message || '');
+    return /\b(actualit[eé]s?|news|march[eé]s?|cours|prix|cotation|valorisation|secteur|concurrents?|r[eé]sultats?|perspectives?|pr[eé]visions?|analystes?|macro|inflation|bce|fed|taux|aujourd['’]hui|today|intraday|s[eé]ance|hausse|baisse|perte|chute|mouvement|r[eé]cent)\b/i.test(message || '');
+}
+
+export function messageNeedsFreshMarketData(message) {
+    return /\b(aujourd['’]hui|today|intraday|s[eé]ance|cours|cotation|hausse|baisse|perte|chute|mouvement)\b/i.test(message || '');
 }
 
 export class AssistantApp {
@@ -626,9 +630,14 @@ Titre:`;
 
     // ─── Portfolio context ────────────────────────────────────────────────
 
-    async preparePortfolioContext() {
-        if (this._portfolioRefreshPromise) return this._portfolioRefreshPromise;
-        this._portfolioRefreshPromise = this._preparePortfolioContext();
+    async preparePortfolioContext({ forceRefresh = false } = {}) {
+        // Une question intraday doit attendre un vrai rafraîchissement. Si une
+        // préparation normale est déjà en cours, elle finit avant la relance.
+        if (this._portfolioRefreshPromise) {
+            if (!forceRefresh) return this._portfolioRefreshPromise;
+            await this._portfolioRefreshPromise.catch(() => false);
+        }
+        this._portfolioRefreshPromise = this._preparePortfolioContext({ forceRefresh });
         try {
             return await this._portfolioRefreshPromise;
         } finally {
@@ -636,7 +645,7 @@ Titre:`;
         }
     }
 
-    async _preparePortfolioContext() {
+    async _preparePortfolioContext({ forceRefresh = false } = {}) {
         try {
             const purchases = this.storage.getPurchases();
             const {
@@ -649,7 +658,7 @@ Titre:`;
 
             // SINGLE SOURCE OF TRUTH pour la clôture de la veille (même moteur que
             // Dashboard/Investments), au lieu du fallback storage.previousClose brut.
-            const marketResult = await this.dataManager.getCanonicalMarketSnapshot(purchases);
+            const marketResult = await this.dataManager.getCanonicalMarketSnapshot(purchases, { forceRefresh });
             // Taux USD/EUR figé à la date de chaque transaction (invariant 9).
             const marketEngine = marketResult.snapshot._engine;
             // Étend la couverture historique à TOUS les mouvements : ventes,
@@ -781,12 +790,16 @@ Titre:`;
                         quantity: h.quantity,
                         avgPrice: roundMaybe(h.avgPrice, 2),
                         currentPrice: roundMaybe(h.currentPrice, 2),
+                        previousClose: roundMaybe(h.previousClose, 2),
                         currentValue: roundMaybe(h.currentValue),
                         invested: roundMaybe(h.invested),
                         gainEUR: roundMaybe(h.gainEUR),
                         gainPct: roundMaybe(h.gainPct, 1),
                         dayChange: roundMaybe(h.dayChange),
-                        dayPct: roundMaybe(h.dayPct, 1),
+                        dayPct: roundMaybe(h.dayPct, 2),
+                        dayDataStatus: h.dayPct === null || h.dayPct === undefined
+                            ? 'unavailable'
+                            : 'available',
                         weight: roundMaybe(currentWeightByTicker.get(h.ticker), 1),
                         transactionsCount: assetTransactions.length,
                         firstPurchase: firstPurchaseDate,
@@ -1018,7 +1031,10 @@ Titre:`;
             // Les deux contextes sont reconstruits à chaque message. Les achats,
             // prix, ventes ou recatégorisations peuvent avoir changé dans un
             // autre onglet depuis le chargement de la page.
-            await Promise.all([this.preparePortfolioContext(), this.prepareExpensesContext()]);
+            await Promise.all([
+                this.preparePortfolioContext({ forceRefresh: messageNeedsFreshMarketData(userMessage) }),
+                this.prepareExpensesContext()
+            ]);
             this.displayPortfolioSummary();
 
             let systemPrompt;
@@ -1109,8 +1125,17 @@ ${budgetText}
             : 'indisponible';
 
         const holdingsText = ctx.holdings.map(h =>
-            `- ${h.ticker} (${h.name}): ${h.quantity} unités, PRU=${valueOrUnavailable(h.avgPrice, '€')}, valeur=${valueOrUnavailable(h.currentValue, '€')}, gain=${valueOrUnavailable(h.gainEUR, '€')} (${valueOrUnavailable(h.gainPct, '%')}), poids valeur actuelle cash inclus=${valueOrUnavailable(h.weight, '%')}, brokers=${h.brokers}, 1er achat=${h.firstPurchase}, dernier achat=${h.lastPurchase}`
+            `- ${h.ticker} (${h.name}): ${h.quantity} unités, PRU=${valueOrUnavailable(h.avgPrice, '€')}, cours actuel=${valueOrUnavailable(h.currentPrice, '€')}, clôture de référence=${valueOrUnavailable(h.previousClose, '€')}, valeur=${valueOrUnavailable(h.currentValue, '€')}, performance intraday=${valueOrUnavailable(h.dayChange, '€')} (${valueOrUnavailable(h.dayPct, '%')}), statut intraday=${h.dayDataStatus || (h.dayPct == null ? 'unavailable' : 'available')}, gain total depuis achat=${valueOrUnavailable(h.gainEUR, '€')} (${valueOrUnavailable(h.gainPct, '%')}), poids valeur actuelle cash inclus=${valueOrUnavailable(h.weight, '%')}, brokers=${h.brokers}, 1er achat=${h.firstPurchase}, dernier achat=${h.lastPurchase}`
         ).join('\n');
+
+        const intradayText = [...ctx.holdings]
+            .sort((a, b) => {
+                const aPct = Number.isFinite(Number(a.dayPct)) ? Number(a.dayPct) : -Infinity;
+                const bPct = Number.isFinite(Number(b.dayPct)) ? Number(b.dayPct) : -Infinity;
+                return bPct - aPct;
+            })
+            .map(h => `- ${h.ticker} (${h.name}): ${valueOrUnavailable(h.dayPct, '%')} / ${valueOrUnavailable(h.dayChange, '€')} — ${h.dayDataStatus || (h.dayPct == null ? 'unavailable' : 'available')}`)
+            .join('\n') || 'Aucune position active.';
 
         const typesText = ctx.byType.map(t =>
             `- ${t.label || t.type}: ${t.type === 'Cash' ? 'poche de liquidités' : `${t.count} actifs`}, ${valueOrUnavailable(t.totalValue, '€')} (${valueOrUnavailable(t.weight, '%')})`
@@ -1291,7 +1316,10 @@ ${continuityNote}
 10. Le produit d'une vente n'est pas une plus-value. Utilise uniquement la section POSITIONS CLÔTURÉES pour parler de résultat réalisé.
 11. Le patrimoine net est limité aux données enregistrées dans l'application. Si son statut est partiel, ne présente jamais le sous-total connu comme le patrimoine total.
 12. Respecte le statut de fraîcheur de chaque source. Une donnée ancienne, partielle ou indisponible doit être signalée comme telle et ne doit pas être présentée comme temps réel.
-${partialBudgetRule ? `13. ${partialBudgetRule}` : ''}
+13. Pour expliquer une hausse ou baisse du jour, commence par la performance intraday canonique de la position, puis cherche des causes publiques récentes. Si la watchlist affiche une variation différente pour un actif détenu, la position canonique prévaut et la watchlist doit être signalée comme ancienne. Présente toute cause comme une hypothèse si aucune source ne relie explicitement l'événement au mouvement observé. Ne confonds jamais gain total depuis achat et performance intraday.
+${partialBudgetRule ? `14. ${partialBudgetRule}` : ''}
+
+Date d'exécution de l'analyse: ${new Date().toISOString()}
 
 === PORTEFEUILLE DU CLIENT ===
 Valeur totale: ${valueOrUnavailable(s.totalValue, '€')}
@@ -1307,6 +1335,10 @@ Date des cotations: ${s.pricesTimestamp ? new Date(s.pricesTimestamp).toISOStrin
 
 === POSITIONS ===
 ${holdingsText}
+
+=== PERFORMANCE INTRADAY PAR ACTIF ===
+Référence: variation depuis la clôture de référence du marché; les flux intrajournaliers sont neutralisés par le moteur canonique quand les données le permettent.
+${intradayText}
 
 === ALLOCATION ACTUELLE PAR TYPE (CASH INCLUS) ===
 Statut: ${ctx.allocation?.status || 'indisponible'}

@@ -6,7 +6,7 @@
 // transformations markdown, SANS jamais l'échapper au préalable. Un contenu
 // contenant du HTML/JS littéral s'exécutait tel quel dans le DOM du chat.
 import { describe, it, expect } from 'vitest';
-import { AssistantApp } from '../src/assistantApp.js';
+import { AssistantApp, messageNeedsFreshMarketData } from '../src/assistantApp.js';
 
 // formatMessage()/escapeHtml() ne dépendent d'aucun autre état d'instance —
 // appelées directement sur le prototype, sans construire un AssistantApp
@@ -107,6 +107,24 @@ describe('AssistantApp.buildSystemPrompt — contrat de données Gemini', () => 
         expect(prompt).toContain('Cash: poche de liquidités, 1200€ (82.8%)');
         expect(prompt).toContain('poids valeur actuelle cash inclus=2%');
         expect(prompt).toContain('Périmètre du score: positions uniquement, hors cash');
+    });
+
+    it('transmet la performance intraday de chaque position sans la confondre avec le gain total', () => {
+        const prompt = buildPrompt({
+            holdings: [{
+                ticker: 'SU.PA', name: 'Schneider Electric', quantity: 5,
+                avgPrice: 239.85, currentPrice: 275.2, previousClose: 302.42,
+                currentValue: 1376, dayChange: -136.1, dayPct: -9,
+                dayDataStatus: 'available', gainEUR: 176.75, gainPct: 14.74,
+                weight: 11, brokers: 'BB-PEA', firstPurchase: '2025-01-01', lastPurchase: '2025-01-01'
+            }]
+        });
+
+        expect(prompt).toContain('cours actuel=275.2€');
+        expect(prompt).toContain('clôture de référence=302.42€');
+        expect(prompt).toContain('performance intraday=-136.1€ (-9%)');
+        expect(prompt).toContain('gain total depuis achat=176.75€ (14.74%)');
+        expect(prompt).toContain('=== PERFORMANCE INTRADAY PAR ACTIF ===');
     });
 
     it('ne transforme jamais une cotation absente en zéro', () => {
@@ -266,5 +284,13 @@ describe('AssistantApp.buildSystemPrompt — contrat de données Gemini', () => 
         expect(prompt).toContain('Équité nette: 190000€');
         expect(prompt).toContain('Mensualités actuelles: 1000€/mois');
         expect(prompt).toContain('capital initial=120000€, capital restant=60000€');
+    });
+});
+
+describe('AssistantApp intraday refresh routing', () => {
+    it('force un rafraîchissement pour les demandes du jour en français ou avec today', () => {
+        expect(messageNeedsFreshMarketData('Pourquoi Schneider est en perte de 9% today ?')).toBe(true);
+        expect(messageNeedsFreshMarketData("Pourquoi Schneider baisse aujourd'hui ?")).toBe(true);
+        expect(messageNeedsFreshMarketData('Analyse ma diversification long terme')).toBe(false);
     });
 });
