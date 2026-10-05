@@ -43,6 +43,34 @@ function truncateTitle(text, max = 42) {
     return clean.length <= max ? clean : `${clean.slice(0, max)}…`;
 }
 
+function isSafeHttpUrl(value) {
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:' || url.protocol === 'http:';
+    } catch {
+        return false;
+    }
+}
+
+function escapeHtmlAttribute(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+export function toSpeechText(text) {
+    return String(text || '')
+        .replace(/\[([^\]]+)]\(https?:\/\/[^)]+\)/gi, '$1')
+        .replace(/https?:\/\/\S+/gi, ' lien source ')
+        .replace(/[*_`#]/g, '')
+        .replace(/^\s*[-•]\s+/gm, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 const GREETING_ONLY = /^(hello|bonjour|salut|hey|coucou|hi|bonsoir|cc|ça va|ca va|merci|ok|oui|non)[\s!.?]*$/i;
 
 /** Titres trop génériques → à remplacer par un libellé lié au sujet. */
@@ -128,6 +156,11 @@ export class AssistantApp {
         this.expensesContext = null;
         this._portfolioRefreshPromise = null;
         this._dataRefreshTimer = null;
+        this._speechRecognition = null;
+        this._isListening = false;
+        this._voiceInputPrefix = '';
+        this._speechUtterance = null;
+        this._activeSpeechButton = null;
         this.isProcessing = false;
         this.store = this.loadStore();
         this.activeConversationId = this.store.activeId;
@@ -426,6 +459,7 @@ export class AssistantApp {
     }
 
     createConversation() {
+        this.stopSpeech();
         this.saveCurrentConversation();
 
         const id = generateId();
@@ -447,6 +481,7 @@ export class AssistantApp {
 
     switchConversation(id) {
         if (id === this.activeConversationId) return;
+        this.stopSpeech();
         this.saveCurrentConversation();
         this.activeConversationId = id;
         this.store.activeId = id;
@@ -1475,6 +1510,20 @@ ${budgetText}
         contentDiv.className = 'message-content';
         contentDiv.innerHTML = this.formatMessage(content);
 
+        if (role === 'assistant' && this.isSpeechSynthesisSupported()) {
+            const actions = document.createElement('div');
+            actions.className = 'message-actions';
+            const speakButton = document.createElement('button');
+            speakButton.type = 'button';
+            speakButton.className = 'speak-message-btn';
+            speakButton.title = 'Lire cette réponse à voix haute';
+            speakButton.setAttribute('aria-label', 'Lire cette réponse à voix haute');
+            speakButton.innerHTML = '<i class="fas fa-volume-high" aria-hidden="true"></i><span>Lire</span>';
+            speakButton.addEventListener('click', () => this.toggleSpeech(speakButton, content));
+            actions.appendChild(speakButton);
+            contentDiv.appendChild(actions);
+        }
+
         messageDiv.appendChild(avatar);
         messageDiv.appendChild(contentDiv);
         messagesContainer.appendChild(messageDiv);
@@ -1496,11 +1545,101 @@ ${budgetText}
     // (ce sont de simples caractères ASCII), donc le rendu markdown reste
     // inchangé pour un contenu légitime.
     formatMessage(text) {
-        return this.escapeHtml(text)
+        const links = [];
+        const stashLink = (label, url) => {
+            if (!isSafeHttpUrl(url)) return null;
+            const index = links.push({ label, url }) - 1;
+            return `\uE000ASSETLINK${index}\uE001`;
+        };
+        let source = String(text || '');
+
+        // Les liens Markdown sont retirés avant la détection des URL brutes
+        // afin que l'adresse contenue dans (...) ne soit pas traitée deux fois.
+        source = source.replace(/\[([^\]\n]+)]\((https?:\/\/[^\s<>"']+)\)/gi, (match, label, url) =>
+            stashLink(label, url) || match
+        );
+        source = source.replace(/https?:\/\/[^\s<>"']+/gi, match => {
+            let url = match;
+            let trailing = '';
+            while (/[.,;!?]$/.test(url)) {
+                trailing = url.slice(-1) + trailing;
+                url = url.slice(0, -1);
+            }
+            return `${stashLink(url, url) || match}${trailing}`;
+        });
+
+        let html = this.escapeHtml(source)
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
             .replace(/`(.*?)`/g, '<code>$1</code>')
             .replace(/\n/g, '<br>');
+
+        links.forEach(({ label, url }, index) => {
+            const token = `\uE000ASSETLINK${index}\uE001`;
+            const anchor = `<a href="${escapeHtmlAttribute(url)}" target="_blank" rel="noopener noreferrer">${this.escapeHtml(label)}</a>`;
+            html = html.split(token).join(anchor);
+        });
+        return html;
+    }
+
+    isSpeechSynthesisSupported() {
+        return typeof window !== 'undefined'
+            && 'speechSynthesis' in window
+            && typeof globalThis.SpeechSynthesisUtterance === 'function';
+    }
+
+    resetSpeechButton(button) {
+        if (!button) return;
+        button.classList.remove('is-speaking');
+        button.setAttribute('aria-label', 'Lire cette réponse à voix haute');
+        button.title = 'Lire cette réponse à voix haute';
+        const label = button.querySelector('span');
+        const icon = button.querySelector('i');
+        if (label) label.textContent = 'Lire';
+        if (icon) icon.className = 'fas fa-volume-high';
+    }
+
+    stopSpeech() {
+        if (this.isSpeechSynthesisSupported()) window.speechSynthesis.cancel();
+        this.resetSpeechButton(this._activeSpeechButton);
+        this._activeSpeechButton = null;
+        this._speechUtterance = null;
+    }
+
+    toggleSpeech(button, text) {
+        if (!this.isSpeechSynthesisSupported()) return;
+        if (this._activeSpeechButton === button) {
+            this.stopSpeech();
+            return;
+        }
+
+        this.stopSpeech();
+        const spokenText = toSpeechText(text);
+        if (!spokenText) return;
+        const utterance = new globalThis.SpeechSynthesisUtterance(spokenText);
+        utterance.lang = 'fr-FR';
+        utterance.rate = 1;
+        const frenchVoice = window.speechSynthesis.getVoices()
+            .find(voice => String(voice.lang || '').toLowerCase().startsWith('fr'));
+        if (frenchVoice) utterance.voice = frenchVoice;
+
+        this._speechUtterance = utterance;
+        this._activeSpeechButton = button;
+        button.classList.add('is-speaking');
+        button.setAttribute('aria-label', 'Arrêter la lecture');
+        button.title = 'Arrêter la lecture';
+        button.querySelector('span').textContent = 'Arrêter';
+        button.querySelector('i').className = 'fas fa-stop';
+
+        const finish = () => {
+            if (this._speechUtterance !== utterance) return;
+            this.resetSpeechButton(button);
+            this._activeSpeechButton = null;
+            this._speechUtterance = null;
+        };
+        utterance.onend = finish;
+        utterance.onerror = finish;
+        window.speechSynthesis.speak(utterance);
     }
 
     showTypingIndicator() {
@@ -1530,8 +1669,89 @@ ${budgetText}
     setSendDisabled(disabled) {
         const btn = document.getElementById('send-btn');
         const input = document.getElementById('user-input');
+        const voiceBtn = document.getElementById('voice-input-btn');
         if (btn) btn.disabled = disabled;
         if (input) input.disabled = disabled;
+        if (voiceBtn) voiceBtn.disabled = disabled;
+        if (disabled) this.stopVoiceInput();
+    }
+
+    setVoiceInputState(listening) {
+        this._isListening = listening;
+        const button = document.getElementById('voice-input-btn');
+        if (!button) return;
+        button.classList.toggle('is-listening', listening);
+        button.setAttribute('aria-pressed', String(listening));
+        button.title = listening ? 'Arrêter la dictée' : 'Dicter une question';
+        button.setAttribute('aria-label', button.title);
+        const icon = button.querySelector('i');
+        if (icon) icon.className = listening ? 'fas fa-stop' : 'fas fa-microphone';
+    }
+
+    stopVoiceInput() {
+        if (!this._isListening || !this._speechRecognition) return;
+        try {
+            this._speechRecognition.stop();
+        } catch {
+            this.setVoiceInputState(false);
+        }
+    }
+
+    setupVoiceInput() {
+        const button = document.getElementById('voice-input-btn');
+        const input = document.getElementById('user-input');
+        if (!button || !input) return;
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (typeof Recognition !== 'function') {
+            button.hidden = true;
+            return;
+        }
+
+        try {
+            const recognition = new Recognition();
+            recognition.lang = 'fr-FR';
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            recognition.maxAlternatives = 1;
+            this._speechRecognition = recognition;
+
+            recognition.onstart = () => this.setVoiceInputState(true);
+            recognition.onresult = event => {
+                let transcript = '';
+                for (let index = 0; index < event.results.length; index++) {
+                    transcript += event.results[index]?.[0]?.transcript || '';
+                }
+                const separator = this._voiceInputPrefix && transcript ? ' ' : '';
+                input.value = `${this._voiceInputPrefix}${separator}${transcript}`.trim();
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            };
+            recognition.onerror = event => {
+                this.setVoiceInputState(false);
+                button.title = event.error === 'not-allowed'
+                    ? 'Autorisation du microphone refusée'
+                    : 'Dictée vocale indisponible';
+                button.setAttribute('aria-label', button.title);
+            };
+            recognition.onend = () => {
+                this.setVoiceInputState(false);
+                if (input.value.trim()) input.focus();
+            };
+
+            button.addEventListener('click', () => {
+                if (this._isListening) {
+                    this.stopVoiceInput();
+                    return;
+                }
+                this._voiceInputPrefix = input.value.trim();
+                try {
+                    recognition.start();
+                } catch {
+                    this.setVoiceInputState(false);
+                }
+            });
+        } catch {
+            button.hidden = true;
+        }
     }
 
     closePanel() {
@@ -1548,7 +1768,10 @@ ${budgetText}
         const sendBtn = document.getElementById('send-btn');
         const input = document.getElementById('user-input');
 
+        this.setupVoiceInput();
+
         sendBtn?.addEventListener('click', () => {
+            this.stopVoiceInput();
             this.sendMessage(input.value);
             input.value = '';
             input.style.height = 'auto';
@@ -1557,6 +1780,7 @@ ${budgetText}
         input?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
+                this.stopVoiceInput();
                 this.sendMessage(input.value);
                 input.value = '';
                 input.style.height = 'auto';

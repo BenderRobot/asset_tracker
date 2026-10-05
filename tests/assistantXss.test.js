@@ -6,7 +6,7 @@
 // transformations markdown, SANS jamais l'échapper au préalable. Un contenu
 // contenant du HTML/JS littéral s'exécutait tel quel dans le DOM du chat.
 import { describe, it, expect } from 'vitest';
-import { AssistantApp, messageNeedsFreshMarketData } from '../src/assistantApp.js';
+import { AssistantApp, messageNeedsFreshMarketData, toSpeechText } from '../src/assistantApp.js';
 
 // formatMessage()/escapeHtml() ne dépendent d'aucun autre état d'instance —
 // appelées directement sur le prototype, sans construire un AssistantApp
@@ -40,6 +40,30 @@ describe('AssistantApp.formatMessage — échappement XSS (P1)', () => {
         const html = formatMessage('**Alerte** <script>alert(1)</script> important');
         expect(html).toContain('<strong>Alerte</strong>');
         expect(html).not.toContain('<script>');
+    });
+
+    it('rend les sources brutes et Markdown cliquables dans un nouvel onglet', () => {
+        const html = formatMessage('Source brute: https://example.com/news?id=42.\n[Rapport officiel](https://issuer.example/report)');
+        expect(html).toContain('href="https://example.com/news?id=42"');
+        expect(html).toContain('>Rapport officiel</a>');
+        expect(html).toContain('target="_blank"');
+        expect(html).toContain('rel="noopener noreferrer"');
+    });
+
+    it('ne transforme jamais un protocole dangereux en lien', () => {
+        const html = formatMessage('[ouvrir](javascript:alert(1))');
+        expect(html).not.toContain('<a ');
+        expect(html).toContain('javascript:alert(1)');
+    });
+});
+
+describe('AssistantApp speech text', () => {
+    it('lit le contenu utile sans épeler les URL ni les marqueurs Markdown', () => {
+        const speech = toSpeechText('**Baisse confirmée** — [Source officielle](https://example.com/a) https://example.com/b');
+        expect(speech).toContain('Baisse confirmée');
+        expect(speech).toContain('Source officielle');
+        expect(speech).not.toContain('https://');
+        expect(speech).not.toContain('**');
     });
 });
 
