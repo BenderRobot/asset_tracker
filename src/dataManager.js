@@ -2188,8 +2188,8 @@ export class DataManager {
 //                        exprimé dans le repère de la courbe % affichée
 //                        (qui vaut 0 % au début de la fenêtre visible).
 //
-// Jamais sur une valeur € de portefeuille/position : ce total intègre les
-// apports, chaque versement y créerait un faux « plus haut ».
+// En mode portefeuille, `portfolioValue` sélectionne le maximum en euros,
+// identique à « Haut ». Les apports sont alors inclus dans la valorisation.
 //
 // Retourne { kind, value, at, fromAthPct } ou null (données absentes/
 // invalides : fail-closed).
@@ -2197,7 +2197,7 @@ export class DataManager {
 //                atteint, pour que la vue y LISE date/Total Value/Total Return
 //                (sélecteur pur, aucun recalcul).
 //   fromAthPct : écart du dernier point visible par rapport à l'ATH (≤ 0),
-//                en % de prix (price) ou de performance TWR (performance).
+//                en % de prix, de TWR ou de valeur selon le mode.
 // ============================================================
 // Daily closes miss intraday peaks. Keep a revision-aware recent window plus
 // older peaks, rather than freezing the maximum of every provisional candle.
@@ -2255,7 +2255,7 @@ export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHis
     if (!allHistory || allHistory.dataQuality?.valid === false) return allHistory;
     // V1 had no provenance and recursively reused mutable terminal indices.
     // It cannot safely certify a peak; rebuild from real histories instead.
-    const records = previousHistory?.athIntradayVersion === 2
+    const records = previousHistory?.athIntradayVersion >= 2
         ? athRecords(previousHistory.athIntraday).filter(record =>
             athFinite(record.timestamps) && athFinite(record.values) && athPositive(record.twr)) : [];
     const dailyBases = new Map((allHistory.sessionDates ?? []).map((date, i) => [date, i]));
@@ -2304,13 +2304,13 @@ export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHis
             current = merged.reduce((last, record) => !last || record.timestamps > last.timestamps ? record : last, null);
         }
     }
-    if (!merged.length) return { ...allHistory, athIntradayVersion: 2, athIntraday: null, athCurrent: null };
+    if (!merged.length) return { ...allHistory, athIntradayVersion: 3, athIntraday: null, athCurrent: null };
     merged.sort((a, b) => a.timestamps - b.timestamps);
     // Keep alternatives in the recent window: a revised peak must expose the
     // next real high, not lose it because only the old maximum was persisted.
     const cutoff = merged[merged.length - 1].timestamps - 3 * 86400000;
     const retained = new Set();
-    for (const field of ['twr', 'twrWithDividends']) {
+    for (const field of ['twr', 'twrWithDividends', 'values']) {
         let peak = null;
         for (const record of merged) {
             if (record.timestamps >= cutoff) retained.add(record);
@@ -2322,7 +2322,7 @@ export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHis
     const points = [...retained].sort((a, b) => a.timestamps - b.timestamps);
     return {
         ...allHistory,
-        athIntradayVersion: 2,
+        athIntradayVersion: 3,
         athIntraday: Object.fromEntries(athFields.map(field => [field, points.map(point => point[field])])),
         athCurrent: current ? { timestamp: current.timestamps, twr: current.twr,
             twrWithDividends: current.twrWithDividends } : null
@@ -2331,7 +2331,8 @@ export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHis
 
 export function computeAthReference({
     kind, allHistory, visibleHistory, firstIndex = 0, lastIndex = null,
-    includeDividends = false, intraday = false, sessionDate = null
+    includeDividends = false, intraday = false, sessionDate = null,
+    portfolioValue = false
 }) {
     if (!allHistory || !visibleHistory) return null;
     if (allHistory.dataQuality?.valid === false || visibleHistory.dataQuality?.valid === false) return null;
@@ -2373,6 +2374,50 @@ export function computeAthReference({
     const visibleTwr = pickTwr(visibleHistory);
     if (!Array.isArray(allTwr) || !Array.isArray(visibleTwr)) return null;
 
+    if (portfolioValue) {
+        // « Total Value ATH » and « Haut » must select the same quantity.
+        // Current-session daily bars are provisional: the visible 1D/2D
+        // series and its revision-aware intraday cache own those dates.
+        const visibleDates = intraday && sessionDate && Array.isArray(visibleHistory.timestamps)
+            ? new Set(visibleHistory.timestamps.slice(firstIndex, (lastIndex ?? visibleHistory.timestamps.length - 1) + 1)
+                .filter(athFinite).map(sessionDate)) : null;
+        const allDates = allHistory.sessionDates ?? allHistory.pointMeta?.map(point => point?.sessionDate);
+        const allValues = visibleDates && Array.isArray(allHistory.values)
+            ? allHistory.values.map((amount, i) => {
+                const date = allDates?.[i] ?? (athFinite(allHistory.timestamps?.[i])
+                    ? sessionDate(allHistory.timestamps[i]) : null);
+                return visibleDates.has(date) ? null : amount;
+            })
+            : allHistory.values;
+        const candidates = [
+            { source: 'all', result: scan(allValues) },
+            { source: 'intraday', result: scan(allHistory.athIntraday?.values) },
+            { source: 'visible', result: scan(visibleHistory.values, firstIndex, visibleEnd) }
+        ];
+        // On equality use the point actually drawn on the screen.
+        const peak = candidates.reduce((best, candidate) => candidate.result.max >= (best?.result.max ?? -Infinity)
+            ? candidate : best, null);
+        const lastValue = scan(visibleHistory.values, firstIndex, visibleEnd).last;
+        if (!(peak?.result.max > 0) || !(lastValue > 0)) return null;
+        const at = { source: peak.source, index: peak.result.maxIndex };
+        let value;
+        if (peak.source === 'visible') {
+            // Exactly the percentage plotted by performanceSeries(graphData).
+            if (!athPositive(visibleTwr[at.index])) return null;
+            value = (visibleTwr[at.index] - 1) * 100;
+        } else {
+            // Equivalent value threshold in the current percentage frame.
+            // Capital flows can separate this threshold from market return.
+            const lastRatio = scan(visibleTwr, firstIndex, visibleEnd).last;
+            if (!athPositive(lastRatio)) return null;
+            value = (lastRatio * peak.result.max / lastValue - 1) * 100;
+        }
+        if (!Number.isFinite(value)) return null;
+        return { kind, value, at,
+            fromAthPct: (lastValue / peak.result.max - 1) * 100,
+            atAth: lastValue >= peak.result.max - 0.005 };
+    }
+
     const all = scan(allTwr);
     if (!(all.max > 0)) return null;
 
@@ -2386,7 +2431,7 @@ export function computeAthReference({
     const peakFromIntraday = intradayPeak.max > all.max;
     let canonicalCurrent = includeDividends ? allHistory.athCurrent?.twrWithDividends : allHistory.athCurrent?.twr;
     if (!(canonicalCurrent > 0)) canonicalCurrent = all.last;
-    if (intraday && sessionDate && allHistory.athIntradayVersion === 2) {
+    if (intraday && sessionDate && allHistory.athIntradayVersion >= 2) {
         // The line/gap describe the curve actually displayed, not a later
         // background snapshot. Never equate two different terminal timestamps.
         const bases = athWindowBases(allHistory, visibleHistory, athRecords(allHistory.athIntraday), sessionDate);

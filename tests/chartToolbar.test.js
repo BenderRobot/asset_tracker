@@ -118,6 +118,14 @@ describe('ATH stats group', () => {
         expect(text('ath-gap')).toBe('Au plus haut');
     });
 
+    it('shows a small monetary shortfall instead of calling it a new high', () => {
+        manager().updateAthStats({ kind: 'performance', timestamp: 0,
+            totalValue: 37715.93, totalReturn: 8786.87, totalReturnPct: 30.79,
+            fromAthPct: (37714.86 / 37715.93 - 1) * 100, atAth: false });
+        expect(text('ath-gap')).toBe('-0,003 %');
+        expect(document.getElementById('ath-gap').classList.contains('negative')).toBe(true);
+    });
+
     it('hides the group when there is no ATH to show', () => {
         const kpi = manager();
         kpi.updateAthStats({ kind: 'price', timestamp: 0, price: 1, fromAthPct: 0 });

@@ -5,6 +5,36 @@ import { DataManager, computeAthReference, mergeAthIntradayHistory } from '../sr
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 
 describe('computeAthReference (engine)', () => {
+    it('portfolio: the ATH is the visible Total Value high, with its exact plotted percentage', () => {
+        const allHistory = {
+            timestamps: [Date.parse('2026-10-04T20:00:00Z'), Date.parse('2026-10-05T08:15:00Z')],
+            sessionDates: ['2026-10-04', '2026-10-05'],
+            values: [37580.49, 37709.73], twr: [1.3, 1.304], twrWithDividends: [1.3, 1.304]
+        };
+        const visibleHistory = {
+            timestamps: [Date.parse('2026-10-05T00:00:00+02:00'),
+                Date.parse('2026-10-05T10:15:00+02:00'), Date.parse('2026-10-05T10:29:00+02:00')],
+            values: [37603.26, 37715.93, 37714.86],
+            twr: [1, 1.003, 1.00297], twrWithDividends: [1, 1.003, 1.00297]
+        };
+        const reference = computeAthReference({ kind: 'performance', allHistory, visibleHistory,
+            includeDividends: true, intraday: true, sessionDate,
+            portfolioValue: true });
+        expect(reference.at).toEqual({ source: 'visible', index: 1 });
+        expect(reference.value).toBeCloseTo(0.3, 8);
+        expect(reference.fromAthPct).toBeCloseTo((37714.86 / 37715.93 - 1) * 100, 8);
+        expect(reference.atAth).toBe(false);
+    });
+
+    it('portfolio: a cash contribution may raise value without creating a return peak', () => {
+        const history = { timestamps: [1, 2, 3], values: [100, 150, 200], twr: [1, 1.2, 1.1] };
+        const reference = computeAthReference({ kind: 'performance', allHistory: history,
+            visibleHistory: history, portfolioValue: true });
+        expect(reference.at).toEqual({ source: 'visible', index: 2 });
+        expect(reference.value).toBeCloseTo(10, 8);
+        expect(reference.atAth).toBe(true);
+    });
+
     it('price: all-time maximum of the unit price', () => {
         const ath = computeAthReference({
             kind: 'price',
@@ -537,7 +567,7 @@ describe('ATH revisions and stable anchors', () => {
         }, athCurrent: { timestamp: times[3], twr: 999 } };
         const visible = make([opening, 37695.08, 37685, 37620.07]);
         const rebuilt = merge(visible, old);
-        expect(rebuilt.athIntradayVersion).toBe(2);
+        expect(rebuilt.athIntradayVersion).toBe(3);
         expect(rebuilt.athIntraday.values[reference(rebuilt, visible).at.index]).toBe(37695.08);
     });
 
@@ -560,6 +590,22 @@ describe('ATH revisions and stable anchors', () => {
         expect(repeated.athIntraday.twr).toEqual(rebuilt.athIntraday.twr);
         expect(reference(repeated, visible).value).toBeCloseTo((37695.08 / opening - 1) * 100, 10);
     });
+
+    it('retains an older value record even when a different point had the highest TWR', () => {
+        const all = { timestamps: [at('2026-10-01T20:00:00Z')],
+            sessionDates: ['2026-10-01'], values: [100], twr: [1.1] };
+        const old = { timestamps: ['2026-10-02T00:00:00Z', '2026-10-02T14:00:00Z',
+            '2026-10-02T15:00:00Z'].map(at), values: [100, 300, 200], twr: [1, 1.1, 1.2] };
+        const recent = { timestamps: ['2026-10-06T00:00:00Z', '2026-10-06T10:00:00Z'].map(at),
+            values: [150, 180], twr: [1, 1.02] };
+        const saved = mergeAthIntradayHistory(all, old, null, sessionDate);
+        const rebuilt = mergeAthIntradayHistory(all, recent, saved, sessionDate);
+        expect(rebuilt.athIntraday.values).toContain(300);
+        expect(rebuilt.athIntraday.values).toContain(200);
+        const reference = computeAthReference({ kind: 'performance', allHistory: rebuilt,
+            visibleHistory: recent, portfolioValue: true });
+        expect(rebuilt.athIntraday.values[reference.at.index]).toBe(300);
+    });
 });
 
 describe('HistoricalChart ATH line', () => {
@@ -574,6 +620,31 @@ describe('HistoricalChart ATH line', () => {
             </div>`;
     });
     afterEach(() => vi.restoreAllMocks());
+
+    it('the reported 1J chart aligns its ATH amount, date and line with Haut', () => {
+        const chart = makeChart();
+        chart.currentPeriod = 1;
+        chart.includeDividends = true;
+        const timestamps = ['2026-10-05T00:00:00+02:00', '2026-10-05T10:15:00+02:00',
+            '2026-10-05T10:29:00+02:00'].map(at);
+        const graphData = { labels: ['00:00', '10:15', '10:29'], timestamps,
+            values: [37603.26, 37715.93, 37714.86],
+            twr: [1, 1.003, 1.00297], twrWithDividends: [1, 1.003, 1.00297],
+            totalReturn: [8674.2, 8786.87, 8785.8],
+            totalReturnPctWithDividends: [30.5, 31.9, 31.89] };
+        const all = { labels: ['yesterday', 'provisional'],
+            timestamps: [timestamps[0] - 86400000, timestamps[1]],
+            sessionDates: ['2026-10-04', '2026-10-05'], values: [37580.49, 37709.73],
+            twr: [1.3, 1.304], twrWithDividends: [1.3, 1.304] };
+        const source = { scope: 'portfolio', purchases: [purchase({ ticker: 'BTC-EUR' })], producer: vi.fn() };
+        const key = chart._historyKey(source.scope, source.purchases, 'all');
+        expect(chart._commitHistory(key, all, 'all')).toBe(true);
+        render(chart, graphData, source);
+        expect(athArg(chart)).toMatchObject({ value: expect.closeTo(0.3, 8),
+            details: { totalValue: 37715.93, timestamp: timestamps[1], atAth: false,
+                fromAthPct: expect.closeTo((37714.86 / 37715.93 - 1) * 100, 8) } });
+        chart.destroy();
+    });
 
     it('reconciles the line, date and amount after the reported peak is revised and reloaded', () => {
         const chart = makeChart();
@@ -693,8 +764,8 @@ describe('HistoricalChart ATH line', () => {
         await vi.waitFor(() => expect(chart.update).toHaveBeenCalledWith(false, false));
 
         render(chart, graph(), source);
-        // All-time peak 2.0 seen from a window where ts=3 is 1.2 → 2 / 1.2 * 1.2 - 1 = +100 %.
-        expect(athArg(chart).value).toBeCloseTo(100, 8);
+        // The visible 150 € high beats the 120 € all-time close, at +50%.
+        expect(athArg(chart).value).toBeCloseTo(50, 8);
         expect(producer).toHaveBeenCalledTimes(1);
     });
 
@@ -771,7 +842,7 @@ describe('HistoricalChart ATH line', () => {
         await vi.waitFor(() => expect(chart._athPending.size).toBe(0));
 
         render(chart, graph(), source);
-        expect(athArg(chart).value).toBeCloseTo(100, 8);
+        expect(athArg(chart).value).toBeCloseTo(50, 8);
         expect(chart.update).not.toHaveBeenCalled();
         expect(producer).toHaveBeenCalledTimes(1);
     });

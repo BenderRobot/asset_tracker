@@ -801,7 +801,7 @@ export class HistoricalChart {
         const cached = this._peekCachedHistory(key, 'all', producer);
         if (cached) {
             // Older daily-only entries do not contain Friday's intraday high.
-            if (source.intradayProducer && cached.athIntradayVersion !== 2) this._refreshCachedHistory(key, 'all', producer);
+            if (source.intradayProducer && cached.athIntradayVersion !== 3) this._refreshCachedHistory(key, 'all', producer);
             return cached;
         }
         if (this._athPending.has(key)) {
@@ -1334,7 +1334,9 @@ export class HistoricalChart {
             athBtn.style.display = showAth ? '' : 'none';
             athBtn.title = athKind === 'price'
                 ? 'Plus haut prix unitaire depuis le premier achat'
-                : 'Plus haut historique de la performance (TWR), dans le repère de la période affichée';
+                : (isSingleAssetMode
+                    ? 'Plus haut historique de la performance (TWR), dans le repère de la période affichée'
+                    : 'Plus haute valeur totale du portefeuille depuis le premier achat');
         }
         container.style.display = (showClose || showPru || showAth) ? '' : 'none';
     }
@@ -1569,7 +1571,8 @@ export class HistoricalChart {
             kind: athKind, allHistory, visibleHistory: graphData,
             firstIndex, lastIndex, includeDividends: this.includeDividends,
             intraday: this.currentPeriod === 1 || this.currentPeriod === 2,
-            sessionDate: athSessionDate
+            sessionDate: athSessionDate,
+            portfolioValue: athKind === 'performance' && athSource?.scope === 'portfolio'
         });
         if (!ath) return null;
         const label = ath.kind === 'price'
@@ -1593,7 +1596,8 @@ export class HistoricalChart {
             totalValue: ath.kind === 'performance' ? read(series.values) : null,
             totalReturn: ath.kind === 'performance' ? read(this._getPortfolioReturnSeries(series)) : null,
             totalReturnPct: ath.kind === 'performance' ? read(returnPct) : null,
-            fromAthPct: ath.fromAthPct
+            fromAthPct: ath.fromAthPct,
+            atAth: ath.atAth
         };
         return { value: ath.value, label, details };
     }

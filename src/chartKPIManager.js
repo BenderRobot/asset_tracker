@@ -595,10 +595,16 @@ export class ChartKPIManager {
         }
         setText('ath-date', dateText);
 
-        // At the ATH (within rounding) the gap reads "Au plus haut" rather than "-0.00%".
+        // A monetary ATH is reached within half a cent. On a large portfolio,
+        // a €1 difference may round to 0.00% even though it is below the peak.
         const gap = details.fromAthPct;
-        const atAth = gap !== null && gap > -0.005;
-        setText('ath-gap', gap === null ? '—' : (atAth ? 'Au plus haut' : pct(gap)), gap === null ? null : (atAth ? 'positive' : 'negative'));
+        const atAth = details.atAth ?? (gap !== null && gap > -0.005);
+        const gapDigits = gap !== null && Math.abs(gap) < 0.0005 ? 5 : 3;
+        const gapText = gap !== null && gap < 0 && gap > -0.005
+            ? `${gap.toLocaleString('fr-FR', { minimumFractionDigits: gapDigits,
+                maximumFractionDigits: gapDigits })} %`
+            : pct(gap);
+        setText('ath-gap', gap === null ? '—' : (atAth ? 'Au plus haut' : gapText), gap === null ? null : (atAth ? 'positive' : 'negative'));
 
         showGroup(true);
     }
