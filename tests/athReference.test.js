@@ -192,7 +192,7 @@ const render = (chart, graphData, athSource) => chart.renderChart(
 const athArg = (chart) => chart._renderChartJs.mock.calls.at(-1)[15];
 const athButton = () => document.querySelector('[data-refline="ath"]');
 
-describe('ATH line visibility near the top of the chart', () => {
+describe('ATH line visibility when enabled', () => {
     let chart, canvas, context;
     beforeEach(() => {
         document.body.innerHTML = '<div class="chart-wrapper"><canvas></canvas></div>';
@@ -237,9 +237,11 @@ describe('ATH line visibility near the top of the chart', () => {
     }
 
     it.each([
+        ['1J with a quiet intraday range', 1, [0, 0.245, 0.14], 0.28, 0.25],
+        ['1J at a new ATH', 1, [0, 0.245, 0.28], 0.28, 0.3],
         ['3M', 90, [0, -7.06, 3.76], 4.08, 4],
         ['6M', 180, [0, 8, 19.98], 20.34, 20]
-    ])('%s includes the nearby ATH and draws its horizontal line', (_label, period, values, athValue, defaultMax) => {
+    ])('%s includes the ATH and draws its horizontal line', (_label, period, values, athValue, defaultMax) => {
         chart.currentPeriod = period;
         const config = draw(values, athValue, defaultMax);
         expect(config.options.scales.y.suggestedMax).toBeGreaterThan(athValue);
@@ -249,11 +251,20 @@ describe('ATH line visibility near the top of the chart', () => {
         expect(context.fillText.mock.calls[0][0]).not.toContain('▲');
     });
 
-    it('keeps a distant ATH as an off-scale badge', () => {
+    it('also draws a distant ATH when the reference is enabled', () => {
         const config = draw([0, -0.01, 0.03], 2.5, 0.04);
-        expect(config.options.scales.y.suggestedMax).toBeUndefined();
-        expect(context.moveTo).not.toHaveBeenCalled();
-        expect(context.fillText.mock.calls[0][0]).toContain('▲');
+        expect(config.options.scales.y.suggestedMax).toBeGreaterThan(2.5);
+        expect(context.setLineDash).toHaveBeenCalledWith([4, 5]);
+        expect(context.moveTo).toHaveBeenCalled();
+        expect(context.fillText.mock.calls[0][0]).not.toContain('▲');
+    });
+
+    it('includes the ATH even when all visible observations are identical', () => {
+        const config = draw([0, 0, 0], 0.28, 0.25);
+        expect(config.options.scales.y.suggestedMax).toBeGreaterThan(0.28);
+        expect(context.setLineDash).toHaveBeenCalledWith([4, 5]);
+        expect(context.moveTo).toHaveBeenCalled();
+        expect(context.fillText.mock.calls[0][0]).not.toContain('▲');
     });
 
     it('keeps the normal scale and draws no ATH when the reference is disabled', () => {

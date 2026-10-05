@@ -2106,9 +2106,9 @@ export class HistoricalChart {
             }
         };
 
-        // Include a nearby ATH in the scale with a little headroom. Otherwise
-        // the tick rounding can cap 3M at 4% for an ATH of 4.08%, or 6M at 20%
-        // for an ATH of 20.34%, leaving only the off-scale badge visible.
+        // An enabled ATH must remain inside the scale, with some headroom.
+        // A proximity cutoff based on the curve's span hid the line on quiet
+        // 1D sessions: a +0.28% ATH was above a curve peaking at +0.245%.
         let visibleMin = Infinity, visibleMax = -Infinity;
         for (const dataset of datasets) {
             if (dataset.hidden) continue;
@@ -2119,13 +2119,18 @@ export class HistoricalChart {
             }
         }
         const visibleSpan = visibleMax - visibleMin;
-        const athSuggestedMax = Number.isFinite(athReference?.value) && visibleSpan > 0
-            && athReference.value >= visibleMax && athReference.value - visibleMax <= visibleSpan * 0.1
-            ? athReference.value + visibleSpan * 0.05 : undefined;
+        let athSuggestedMax;
+        if (Number.isFinite(athReference?.value) && Number.isFinite(visibleMax)
+            && athReference.value >= visibleMax) {
+            const spanIncludingAth = Math.max(visibleSpan, athReference.value - visibleMin);
+            const padding = spanIncludingAth > 0 ? spanIncludingAth * 0.05
+                : Math.max(Math.abs(athReference.value), isPerformanceMode ? 0.01 : 1) * 0.05;
+            athSuggestedMax = athReference.value + padding;
+        }
 
-        // The plugin draws the line independently of the portfolio data. An
-        // ATH far above the visible range keeps its badge at the top edge.
-        // The badge is on the left so it never hides the latest point.
+        // The plugin draws the line independently of the portfolio data.
+        // Its off-scale badge is a fallback if an explicit scale override is
+        // applied. The badge stays on the left, away from the latest point.
         const athPlugin = {
             id: 'athReference',
             afterDatasetsDraw: (chart) => {
