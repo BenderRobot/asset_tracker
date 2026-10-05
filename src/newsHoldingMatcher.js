@@ -29,3 +29,41 @@ export function findHoldingForNews(newsItem, holdings = []) {
         return containsTicker(title, holding.ticker);
     }) || null;
 }
+
+function finiteNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Construit l'exposition portefeuille utilisée par Gemini depuis un snapshot
+ * canonique déjà résolu. Une valeur absente reste `null` : aucun cours ou cash
+ * manquant ne doit être assimilé à zéro dans une analyse d'actualité.
+ */
+export function buildNewsHoldingDetails(newsItem, holdings = [], portfolioSnapshot = null) {
+    const foundHolding = findHoldingForNews(newsItem, holdings);
+    if (!foundHolding) return null;
+
+    const currentValue = finiteNumber(foundHolding.currentValue);
+    const totalValue = finiteNumber(portfolioSnapshot?.totalValue);
+    const cashReserve = finiteNumber(portfolioSnapshot?.cash);
+
+    return {
+        ...foundHolding,
+        currentValue,
+        weight: currentValue !== null && totalValue !== null && totalValue > 0
+            ? (currentValue / totalValue) * 100
+            : null,
+        portfolioTotalValue: totalValue,
+        cashReserve,
+        portfolioStatus: portfolioSnapshot?.status || 'unavailable',
+        portfolioInvalidReason: portfolioSnapshot?.invalidReason || null,
+        snapshotId: portfolioSnapshot?.snapshotId || null,
+        snapshotGeneratedAt: portfolioSnapshot?.generatedAt || null,
+        pricesTimestamp: portfolioSnapshot?.pricesTimestamp || null,
+        sourceStale: !!portfolioSnapshot?.sourceStale,
+        staleInstruments: [...(portfolioSnapshot?.staleInstruments || [])],
+        refreshError: portfolioSnapshot?.refreshError || null
+    };
+}

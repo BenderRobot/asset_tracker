@@ -44,7 +44,7 @@ describe('AssistantApp.formatMessage — échappement XSS (P1)', () => {
 });
 
 describe('AssistantApp.buildSystemPrompt — contrat de données Gemini', () => {
-    function buildPrompt(overrides = {}) {
+    function buildPrompt(overrides = {}, expensesContext = null) {
         const portfolioContext = {
             summary: {
                 totalValue: 12500,
@@ -64,10 +64,25 @@ describe('AssistantApp.buildSystemPrompt — contrat de données Gemini', () => 
                 currentValue: 250, gainEUR: 50, gainPct: 25, weight: 2,
                 brokers: 'Broker', firstPurchase: '2026-01-01', lastPurchase: '2026-02-01'
             }],
-            byType: [{ type: 'Stock', count: 1, totalValue: 250, weight: 2 }],
+            allocation: { status: 'available', basis: 'current_market_value_including_cash', total: 1450, unavailable: [] },
+            byType: [
+                { type: 'Stock', label: 'Actions', count: 1, totalValue: 250, weight: 17.2 },
+                { type: 'Cash', label: 'Cash', count: null, totalValue: 1200, weight: 82.8 }
+            ],
             byBroker: [{ broker: 'Broker', assetsCount: 1, totalInvested: 200 }],
             performance: { topPerformers: [{ ticker: 'TEST', gainPct: 25 }], worstPerformers: [], avgGain: 25, winRate: 100 },
-            diversification: { diversityScore: 100, effectiveAssets: 1, recommendation: 'Concentré' },
+            diversification: {
+                status: 'available', scope: 'positions_excluding_cash', diversityScore: 100,
+                herfindahl: 1, effectiveAssets: 1, totalAssets: 1, recommendation: 'Concentré'
+            },
+            risk: {
+                status: 'available', reason: null, periodDays: 365, observations: 252,
+                volatility: 12.34, maxDrawdown: -8.5, annualizedReturn: 9.1,
+                sharpeRatio: 0.74, riskLevel: 'Modéré', includesDividends: true,
+                cashIncluded: true, excludedRealEstate: 1, failedInstruments: [],
+                recommendation: 'Risque calculé sur l’historique.',
+                assets: [{ ticker: 'TEST', volatility: 15.2, maxDrawdown: -10, observations: 250 }]
+            },
             dividends: { count: 1, total: 12.5 },
             transactions: [{ date: '2026-01-01', type: 'buy', ticker: 'TEST', quantity: 2, price: 100, currency: 'EUR', broker: 'Broker' }],
             watchlist: [{ ticker: 'WATCH', name: 'Watch Asset', targetPrice: 42 }],
@@ -77,7 +92,7 @@ describe('AssistantApp.buildSystemPrompt — contrat de données Gemini', () => 
         };
         return AssistantApp.prototype.buildSystemPrompt.call({
             portfolioContext,
-            expensesContext: null,
+            expensesContext,
             getActiveConversation: () => ({ messages: [] }),
         });
     }
@@ -88,6 +103,10 @@ describe('AssistantApp.buildSystemPrompt — contrat de données Gemini', () => 
         expect(prompt).toContain('1 versement(s), total enregistré=12.5€');
         expect(prompt).toContain('2026-01-01 | buy | TEST');
         expect(prompt).toContain('WATCH (Watch Asset), objectif=42');
+        expect(prompt).toContain('ALLOCATION ACTUELLE PAR TYPE (CASH INCLUS)');
+        expect(prompt).toContain('Cash: poche de liquidités, 1200€ (82.8%)');
+        expect(prompt).toContain('poids valeur actuelle cash inclus=2%');
+        expect(prompt).toContain('Périmètre du score: positions uniquement, hors cash');
     });
 
     it('ne transforme jamais une cotation absente en zéro', () => {
@@ -101,5 +120,151 @@ describe('AssistantApp.buildSystemPrompt — contrat de données Gemini', () => 
         expect(prompt).toContain('PRU=indisponible');
         expect(prompt).toContain('valeur=indisponible');
         expect(prompt).not.toContain('PRU=0€');
+    });
+
+    it('décrit un total de dividendes multidevise incomplet sans inventer un total EUR', () => {
+        const prompt = buildPrompt({
+            dividends: {
+                count: 2,
+                totalEUR: null,
+                knownTotalEUR: 25,
+                unavailableCount: 1,
+                conversionStatus: 'partial',
+                byCurrency: [
+                    { currency: 'EUR', amount: 25, count: 1, invalidCount: 0 },
+                    { currency: 'USD', amount: 100, count: 1, invalidCount: 0 }
+                ]
+            }
+        });
+
+        expect(prompt).toContain('Total reçu en EUR (conversion historique): indisponible');
+        expect(prompt).toContain('Montant EUR connu seulement: 25€');
+        expect(prompt).toContain('100 USD');
+        expect(prompt).toContain('ne pas présenter le montant EUR connu comme le total');
+    });
+
+    it('ne transforme pas en zéro un investi par courtier dont la conversion historique manque', () => {
+        const prompt = buildPrompt({
+            byBroker: [{
+                broker: 'Broker USD',
+                assetsCount: 2,
+                totalInvested: null,
+                knownTotalInvested: 100,
+                fxUnavailable: true,
+                unavailableAssets: ['AAPL']
+            }]
+        });
+
+        expect(prompt).toContain('investi total=indisponible');
+        expect(prompt).toContain('sous-total EUR connu=100€');
+        expect(prompt).toContain('conversion historique manquante pour AAPL');
+        expect(prompt).toContain('Ne pas présenter le sous-total connu comme le total');
+        expect(prompt).not.toContain('0€ investi');
+    });
+
+    it('transmet la vue complète par courtier, les transactions EUR et les positions clôturées', () => {
+        const prompt = buildPrompt({
+            byBroker: [{
+                broker: 'Broker A', status: 'complete', assetsCount: 1,
+                invested: 100, knownInvested: 100, currentValue: 150,
+                knownCurrentValue: 150, unrealizedPnl: 50, cash: 20,
+                knownCash: 20, totalValue: 170, knownTotalValue: 170,
+                weight: 100, unavailable: []
+            }],
+            transactions: [{
+                date: '2026-01-01', action: 'sell', ticker: 'TEST', quantity: -2,
+                unitPrice: 120, currency: 'USD', nativeAmount: 240,
+                historicalFxRate: 0.9, amountEUR: 216,
+                conversionStatus: 'complete', broker: 'Broker A'
+            }],
+            closedPositions: [{
+                ticker: 'OLD', name: 'Ancienne ligne', status: 'complete',
+                brokers: ['Broker A'], firstPurchase: '2024-01-01', lastSale: '2025-01-01',
+                costBasisEUR: 100, proceedsEUR: 140, realizedPnlEUR: 40,
+                realizedPnlPct: 40, knownCostBasisEUR: 100, knownProceedsEUR: 140
+            }]
+        });
+
+        expect(prompt).toContain('valeur actuelle=150€');
+        expect(prompt).toContain('plus-value latente=50€');
+        expect(prompt).toContain('valeur totale cash inclus=170€');
+        expect(prompt).toContain('contre-valeur historique=216€');
+        expect(prompt).toContain('Le produit d’une vente n’est pas une plus-value'.replaceAll('’', "'"));
+        expect(prompt).toContain('résultat réalisé avant frais/fiscalité=40€');
+    });
+
+    it('calcule le patrimoine enregistré sans recompter le cash courtier ni la dette immobilière', () => {
+        const prompt = buildPrompt({
+            summary: {
+                totalValue: 1000, totalInvested: 800, totalGain: 200,
+                gainPercentage: 25, dayChange: 0, dayChangePercentage: 0,
+                cash: 200, assetsCount: 1, status: 'valid', sourceStale: false,
+                staleInstruments: []
+            },
+            primaryResidence: {
+                name: 'Maison', equity: 100000, totalDebt: 50000,
+                debtStatus: 'complete', credits: []
+            }
+        }, {
+            generatedAt: Date.now(), bankAccounts: [
+                { name: 'Compte courant', currency: 'EUR', balance: 500 }
+            ], totalBankBalanceEUR: 500, fixedCharges: [], fixedIncome: [],
+            categoryBreakdown: [], nonEuroTransactions: [], usesPartialCurrentMonth: false
+        });
+
+        expect(prompt).toContain('Patrimoine net total enregistré: 101500€');
+        expect(prompt).toContain('Cash chez les courtiers: 200€');
+        expect(prompt).toContain('Dette immobilière déjà déduite de cette équité: 50000€');
+        expect(prompt).toContain('n’est ajouté qu’une fois');
+    });
+
+    it('transmet les vraies métriques historiques de risque et leur méthode à Gemini', () => {
+        const prompt = buildPrompt();
+
+        expect(prompt).toContain('=== RISQUE HISTORIQUE ===');
+        expect(prompt).toContain('Volatilité annualisée: 12.34%');
+        expect(prompt).toContain('Drawdown maximal: -8.50%');
+        expect(prompt).toContain('Ratio de Sharpe (taux sans risque 0%): 0.74');
+        expect(prompt).toContain('dividendes inclus; cash inclus comme poche sans risque; immobilier exclu=1 actif(s)');
+        expect(prompt).toContain('TEST: volatilité annualisée=15.20%');
+    });
+
+    it('explique pourquoi le risque est indisponible sans convertir les métriques absentes en zéro', () => {
+        const prompt = buildPrompt({
+            risk: {
+                status: 'unavailable', reason: 'INSUFFICIENT_OBSERVATIONS',
+                periodDays: 365, observations: 4, minimumObservations: 20,
+                volatility: null, maxDrawdown: null, annualizedReturn: null,
+                sharpeRatio: null, riskLevel: 'Indisponible', includesDividends: true,
+                cashIncluded: true, excludedRealEstate: 0, failedInstruments: [],
+                recommendation: 'Historique insuffisant.', assets: []
+            }
+        });
+
+        expect(prompt).toContain('Motif d’indisponibilité: INSUFFICIENT_OBSERVATIONS'.replace('’', "'"));
+        expect(prompt).toContain('Rendements observés: 4 (minimum requis: 20)');
+        expect(prompt).toContain('Volatilité annualisée: indisponible');
+        expect(prompt).not.toContain('Volatilité annualisée: 0.00%');
+    });
+
+    it('transmet à Gemini la dette immobilière restante et les mensualités actuelles', () => {
+        const prompt = buildPrompt({
+            primaryResidence: {
+                name: 'Maison', purchasePrice: 200000, currentValue: 250000,
+                purchaseDate: '2020-01-01', debtAsOf: '2025-01-01', creditsCount: 1,
+                totalDebt: 60000, equity: 190000, totalMonthlyPayment: 1000,
+                weightedRate: 0, debtStatus: 'complete',
+                credits: [{
+                    name: 'PTZ', status: 'active', initialAmount: 120000,
+                    remainingCapital: 60000, rate: 0, monthlyPayment: 1000,
+                    currentMonthlyPayment: 1000, startDate: '2020-01-01', endDate: '2030-01-01'
+                }]
+            }
+        });
+
+        expect(prompt).toContain('Capital restant dû au 2025-01-01: 60000€');
+        expect(prompt).toContain('Équité nette: 190000€');
+        expect(prompt).toContain('Mensualités actuelles: 1000€/mois');
+        expect(prompt).toContain('capital initial=120000€, capital restant=60000€');
     });
 });

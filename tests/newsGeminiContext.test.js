@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildGeminiNewsContextPrompt } from '../src/geminiService.js';
-import { findHoldingForNews } from '../src/newsHoldingMatcher.js';
+import { buildNewsHoldingDetails, findHoldingForNews } from '../src/newsHoldingMatcher.js';
 
 describe('News holding matching', () => {
     const holdings = [
@@ -21,6 +21,24 @@ describe('News holding matching', () => {
 });
 
 describe('Gemini news portfolio context', () => {
+    it('construit l’exposition depuis le snapshot canonique sans convertir les absences en zéro', () => {
+        const holding = { ticker: 'AAPL', name: 'Apple', quantity: 2, currentValue: null };
+        const details = buildNewsHoldingDetails(
+            { title: 'AAPL publie ses résultats' },
+            [holding],
+            {
+                totalValue: null, cash: null, status: 'invalid', invalidReason: 'PRICE_DATA_UNAVAILABLE',
+                snapshotId: 'snap-1', sourceStale: true, staleInstruments: ['AAPL']
+            }
+        );
+
+        expect(details).toMatchObject({
+            currentValue: null, weight: null, portfolioTotalValue: null, cashReserve: null,
+            portfolioStatus: 'invalid', portfolioInvalidReason: 'PRICE_DATA_UNAVAILABLE',
+            snapshotId: 'snap-1', sourceStale: true, staleInstruments: ['AAPL']
+        });
+    });
+
     it('includes canonical exposure, performance, cash and freshness metadata', () => {
         const prompt = buildGeminiNewsContextPrompt('Apple publie', 'Résultats supérieurs', {
             ticker: 'AAPL', name: 'Apple', assetType: 'Stock', quantity: 2,
@@ -37,6 +55,21 @@ describe('Gemini news portfolio context', () => {
         expect(prompt).toContain('Cash: 300.00 €');
         expect(prompt).toContain('Courtiers: Trade Republic');
         expect(prompt).toContain('Prix potentiellement périmés: non');
+    });
+
+    it('affiche explicitement les valeurs et métadonnées indisponibles', () => {
+        const details = buildNewsHoldingDetails(
+            { title: 'AAPL publie' },
+            [{ ticker: 'AAPL', name: 'Apple', quantity: 1, currentValue: null, purchases: [] }],
+            { totalValue: null, cash: null, status: 'invalid', invalidReason: 'PRICE_DATA_UNAVAILABLE' }
+        );
+        const prompt = buildGeminiNewsContextPrompt('Apple publie', 'Résumé', details);
+
+        expect(prompt).toContain('Valeur actuelle: indisponible €');
+        expect(prompt).toContain('Poids dans le portefeuille, cash inclus: indisponible%');
+        expect(prompt).toContain('Cash: indisponible €');
+        expect(prompt).toContain("Motif d'indisponibilité: PRICE_DATA_UNAVAILABLE");
+        expect(prompt).not.toContain('Cash: 0.00 €');
     });
 
     it('states explicitly when no matching position exists and sanitizes data fields', () => {

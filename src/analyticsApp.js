@@ -12,6 +12,9 @@ import { DividendManager } from './dividendManager.js'; // NEW: Import Dividend 
 // AJOUT : Importer MarketStatus (avec le cache buster)
 import { MarketStatus } from './marketStatus.js';
 import { fetchGeminiDiversificationAdvice, fetchGeminiRiskAdvice } from './geminiService.js'; // Import Gemini AI
+import { buildDiversificationContext } from './diversificationContext.js';
+import { LatestRequestController } from './latestRequestController.js';
+import { buildRiskContext } from './riskContext.js';
 import { escapeGeminiHtml } from './safeGeminiHtml.js';
 import { getBrokersSync, populateSelect } from './brokerService.js';
 import { mountPerformerTable } from './performerTable.js';
@@ -28,6 +31,8 @@ class AnalyticsApp {
         this.dividendManager = new DividendManager(this.storage, this.dataManager);
 
         this.allocationChart = null;
+        this.diversificationGeminiRequest = new LatestRequestController();
+        this.riskGeminiRequest = new LatestRequestController();
     }
 
     async init() {
@@ -1223,28 +1228,13 @@ class AnalyticsApp {
         }
 
         // Fetch Gemini Advice (async, non-blocking)
-        this.loadGeminiDiversificationAdvice({
-            score: score,
-            hhi: diversification.herfindahl,
-            effectiveAssets: parseFloat(diversification.effectiveAssets),
-            totalAssets: diversification.totalAssets,
-            top3Weight: top3Weight,
-            assetTypeBreakdown: byType,
-            heavyCount: heavy.length,
-            largestPosition: { name: largest.name, weight: largest.weight },
-            positions: sorted.map(asset => ({
-                ticker: asset.ticker,
-                name: asset.name,
-                weight: asset.weight,
-                currentValue: asset.currentValue,
-                gainPct: asset.gainPct
-            })),
-            cashReserve: report.portfolioSnapshot?.cash ?? report.summary?.cashReserve ?? null
-        });
+        this.loadGeminiDiversificationAdvice(buildDiversificationContext(report));
     }
 
     async loadGeminiDiversificationAdvice(portfolioData) {
         const contentDiv = document.getElementById('gemini-advice-content');
+        if (!contentDiv) return;
+        const request = this.diversificationGeminiRequest.begin();
 
         // Show loading state
         contentDiv.innerHTML = `
@@ -1255,9 +1245,11 @@ class AnalyticsApp {
         `;
 
         try {
-            const advice = await fetchGeminiDiversificationAdvice(portfolioData);
+            const advice = await fetchGeminiDiversificationAdvice(portfolioData, { signal: request.signal });
+            if (!request.isCurrent()) return;
             contentDiv.innerHTML = advice;
         } catch (error) {
+            if (error?.name === 'AbortError' || !request.isCurrent()) return;
             console.error('Error fetching Gemini advice:', error);
             contentDiv.innerHTML = `
                 <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
@@ -1270,6 +1262,8 @@ class AnalyticsApp {
             document.getElementById('retry-gemini')?.addEventListener('click', () => {
                 this.loadGeminiDiversificationAdvice(portfolioData);
             });
+        } finally {
+            this.diversificationGeminiRequest.finish(request.sequence);
         }
     }
 
@@ -1419,19 +1413,22 @@ class AnalyticsApp {
     async loadGeminiRiskAdvice(report = this.lastReport) {
         const adviceContent = document.getElementById('risk-advice-content');
         if (!adviceContent || !report?.risk) return;
+        const request = this.riskGeminiRequest.begin();
         adviceContent.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary);"><div>Analyse Gemini en cours...</div></div>';
-        const positions = (report.assets || []).map(asset => ({
-            ticker: asset.ticker,
-            name: asset.name,
-            weight: asset.weight,
-            currentValue: asset.currentValue,
-            gainPct: asset.gainPct
-        }));
-        adviceContent.innerHTML = await fetchGeminiRiskAdvice({
-            risk: report.risk,
-            positions,
-            totalValue: report.portfolioSnapshot?.totalValue ?? report.summary?.totalValue ?? null
-        });
+        try {
+            const advice = await fetchGeminiRiskAdvice(
+                buildRiskContext(report),
+                { signal: request.signal }
+            );
+            if (!request.isCurrent()) return;
+            adviceContent.innerHTML = advice;
+        } catch (error) {
+            if (error?.name === 'AbortError' || !request.isCurrent()) return;
+            console.error('Error fetching Gemini risk advice:', error);
+            adviceContent.textContent = 'Analyse Gemini du risque temporairement indisponible.';
+        } finally {
+            this.riskGeminiRequest.finish(request.sequence);
+        }
     }
 
     setupEventListeners() {
@@ -1593,6 +1590,7 @@ class AnalyticsApp {
             if (e.target.id === 'close-diversification-modal' || e.target.id === 'diversification-modal') {
                 const modal = document.getElementById('diversification-modal');
                 if (modal) modal.style.display = 'none';
+                self.diversificationGeminiRequest.cancel();
             }
         });
 
@@ -1635,6 +1633,7 @@ class AnalyticsApp {
             if (e.target.id === 'close-risk-modal' || e.target.id === 'risk-modal') {
                 const modal = document.getElementById('risk-modal');
                 if (modal) modal.style.display = 'none';
+                self.riskGeminiRequest.cancel();
             }
         });
 
@@ -1666,39 +1665,7 @@ class AnalyticsApp {
                 // Get the portfolio data from the modal (reconstruct from DOM or store it)
                 const report = self.lastReport;
                 if (report) {
-                    const assets = report.assets;
-                    const diversification = report.diversification;
-                    const sorted = [...assets].sort((a, b) => b.weight - a.weight);
-                    const top3Weight = sorted.slice(0, 3).reduce((sum, a) => sum + a.weight, 0);
-                    const byType = {};
-                    assets.forEach(a => {
-                        const type = a.assetType || 'Other';
-                        if (!byType[type]) byType[type] = { count: 0, value: 0, weight: 0 };
-                        byType[type].count++;
-                        byType[type].value += a.currentValue || 0;
-                        byType[type].weight += a.weight;
-                    });
-                    const heavy = assets.filter(a => a.weight > 10);
-                    const largest = sorted[0];
-
-                    self.loadGeminiDiversificationAdvice({
-                        score: parseFloat(diversification.diversityScore),
-                        hhi: diversification.herfindahl,
-                        effectiveAssets: parseFloat(diversification.effectiveAssets),
-                        totalAssets: diversification.totalAssets,
-                        top3Weight: top3Weight,
-                        assetTypeBreakdown: byType,
-                        heavyCount: heavy.length,
-                        largestPosition: { name: largest.name, weight: largest.weight },
-                        positions: sorted.map(asset => ({
-                            ticker: asset.ticker,
-                            name: asset.name,
-                            weight: asset.weight,
-                            currentValue: asset.currentValue,
-                            gainPct: asset.gainPct
-                        })),
-                        cashReserve: report.portfolioSnapshot?.cash ?? report.summary?.cashReserve ?? null
-                    });
+                    self.loadGeminiDiversificationAdvice(buildDiversificationContext(report));
                 }
             }
         });

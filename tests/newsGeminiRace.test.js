@@ -89,6 +89,28 @@ describe('Gemini news modal request ordering', () => {
         });
     });
 
+    it('Dashboard réutilise le dernier snapshot canonique sans recalcul local partiel', () => {
+        const app = Object.create(DashboardApp.prototype);
+        app.lastHoldings = [{
+            ticker: 'AAPL', name: 'Apple', assetType: 'Stock', quantity: 2,
+            currentValue: null, purchases: []
+        }];
+        app.lastCashTotal = 999; // ne doit plus servir de repli
+        app.lastPortfolioSnapshot = {
+            snapshotId: 'dashboard-snapshot', totalValue: null, cash: null,
+            status: 'invalid', invalidReason: 'PRICE_DATA_UNAVAILABLE',
+            sourceStale: true, staleInstruments: ['AAPL'], pricesTimestamp: 1234
+        };
+
+        const details = app.getHoldingDetailsForNews({ title: 'AAPL publie ses résultats' });
+
+        expect(details).toMatchObject({
+            currentValue: null, weight: null, portfolioTotalValue: null, cashReserve: null,
+            portfolioStatus: 'invalid', portfolioInvalidReason: 'PRICE_DATA_UNAVAILABLE',
+            snapshotId: 'dashboard-snapshot', sourceStale: true
+        });
+    });
+
     it('Dashboard ignores a summary from an older article that finishes last', async () => {
         const first = deferred();
         const second = deferred();

@@ -6,7 +6,7 @@ import { PriceAPI } from './api.js';
 import { DataManager } from './dataManager.js';
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 import { getAuthHeader } from './authFetchHeaders.js';
-import { findHoldingForNews } from './newsHoldingMatcher.js';
+import { buildNewsHoldingDetails } from './newsHoldingMatcher.js';
 
 // Même proxy que dashboardApp.js — fonctionne avec timeout 30s
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url=';
@@ -243,21 +243,18 @@ export class NewsApp {
         const purchases = this.storage.getPurchases();
         const marketResult = await this.dataManager.getCanonicalMarketSnapshot(purchases);
         const analyticsSnapshot = await this.dataManager.buildAnalyticsSnapshot(purchases, marketResult);
-        const foundHolding = findHoldingForNews(newsItem, analyticsSnapshot.holdings);
-        if (!foundHolding) return null;
         const portfolio = analyticsSnapshot.portfolioSnapshot;
-        return {
-            ...foundHolding,
-            weight: portfolio.totalValue > 0
-                ? (Number(foundHolding.currentValue || 0) / portfolio.totalValue) * 100
-                : null,
-            portfolioTotalValue: portfolio.totalValue,
-            cashReserve: portfolio.cash,
-            portfolioStatus: portfolio.status,
-            pricesTimestamp: portfolio.pricesTimestamp,
-            sourceStale: portfolio.sourceStale,
-            staleInstruments: [...(portfolio.staleInstruments || [])]
-        };
+        return buildNewsHoldingDetails(newsItem, analyticsSnapshot.holdings, {
+            ...portfolio,
+            snapshotId: marketResult.snapshot?.snapshotId || portfolio.snapshotId,
+            pricesTimestamp: marketResult.pricesAsOf ?? portfolio.pricesTimestamp,
+            sourceStale: !!(portfolio.sourceStale || marketResult.stale || marketResult.degraded),
+            staleInstruments: [...new Set([
+                ...(portfolio.staleInstruments || []),
+                ...(marketResult.staleInstruments || [])
+            ])],
+            refreshError: marketResult.lastRefreshFailure || null
+        });
     }
 
     async openNewsModal(newsItem) {

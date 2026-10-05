@@ -23,7 +23,7 @@ import { marketDataMetrics } from './marketDataMetrics.js';
 import { mountPerformerTable } from './performerTable.js';
 import { FUTURE_ACCENT_COLOR, selectIndexDisplayInstrument } from './indexFutures.js';
 import { ALLOCATION_TYPES, buildAllocationTimeline, calculateCurrentAllocation } from './allocation.js';
-import { findHoldingForNews } from './newsHoldingMatcher.js';
+import { buildNewsHoldingDetails } from './newsHoldingMatcher.js';
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -92,6 +92,7 @@ export class DashboardApp {
         this.portfolioNews = [];
         this.globalNews = [];
         this.lastHoldings = [];
+        this.lastPortfolioSnapshot = null;
 
         // ANTI-RACE : refreshDataInBackground() et loadPortfolioData() sont toutes
         // les deux lancées sans attente au démarrage (voir init()) et calculent
@@ -297,6 +298,19 @@ export class DashboardApp {
         this._latestPortfolioSnapshotId = snapshot.snapshotId;
         this.lastHoldings = holdings;
         this.lastCashTotal = cashReserve.total;
+        // Copie décorée pour les consommateurs secondaires (notamment Gemini
+        // Actualités). Ne jamais muter le snapshot partagé du repository.
+        this.lastPortfolioSnapshot = {
+            ...snapshot.portfolioSnapshot,
+            snapshotId: snapshot.snapshotId,
+            pricesTimestamp: result.pricesAsOf ?? snapshot.portfolioSnapshot.pricesTimestamp,
+            sourceStale: !!(snapshot.portfolioSnapshot.sourceStale || stale || degraded),
+            staleInstruments: [...new Set([
+                ...(snapshot.portfolioSnapshot.staleInstruments || []),
+                ...(result.staleInstruments || [])
+            ])],
+            refreshError: result.lastRefreshFailure || null
+        };
         this.lastCashTransactions = this.dataManager.splitCanonicalPurchases(this.storage.getPurchases?.() || []).cash;
         // Le sélecteur d'actualités représente lui aussi le portefeuille
         // courant : le reconstruire depuis les positions canoniques empêche un
@@ -976,16 +990,11 @@ export class DashboardApp {
     }
 
     getHoldingDetailsForNews(newsItem) {
-        const foundHolding = findHoldingForNews(newsItem, this.lastHoldings || []);
-        if (!foundHolding) return null;
-        const totalValue = (this.lastHoldings || []).reduce((sum, holding) =>
-            sum + (Number(holding.currentValue) || 0), 0) + (Number(this.lastCashTotal) || 0);
-        return {
-            ...foundHolding,
-            weight: totalValue > 0 ? (Number(foundHolding.currentValue || 0) / totalValue) * 100 : null,
-            portfolioTotalValue: totalValue || null,
-            cashReserve: Number(this.lastCashTotal) || 0
-        };
+        return buildNewsHoldingDetails(
+            newsItem,
+            this.lastHoldings || [],
+            this.lastPortfolioSnapshot
+        );
     }
 
 

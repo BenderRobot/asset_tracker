@@ -343,6 +343,79 @@ export class DataManager {
         return { total: fxUnavailable ? null : total, byBroker, byCurrency, byBrokerCurrency, fxUnavailable };
     }
 
+    /**
+     * Résume les dividendes dans leur devise enregistrée et, lorsque c'est
+     * possible, dans la devise de référence EUR. Un dividende USD historique
+     * est converti au taux de sa date de versement ; le taux courant n'est
+     * volontairement jamais utilisé comme approximation.
+     *
+     * `totalEUR` n'est renseigné que si toutes les lignes sont valides et
+     * convertibles. `knownTotalEUR` reste disponible pour diagnostiquer une
+     * couverture partielle sans faire passer ce sous-total pour le total réel.
+     */
+    calculateDividendSummary(dividendTransactions, historicalFxMap = null) {
+        const rows = Array.isArray(dividendTransactions) ? dividendTransactions : [];
+        const byCurrencyMap = new Map();
+        let knownTotalEUR = 0;
+        let convertedCount = 0;
+        let unavailableCount = 0;
+
+        rows.forEach(dividend => {
+            const currency = String(dividend?.currency || 'EUR').trim().toUpperCase() || 'EUR';
+            const rawPrice = dividend?.price ?? dividend?.amount;
+            const price = Number(rawPrice);
+            const quantity = Number(dividend?.quantity ?? 1);
+            const amount = price * quantity;
+
+            const currencyBucket = byCurrencyMap.get(currency) || { currency, count: 0, amount: 0, invalidCount: 0 };
+            currencyBucket.count += 1;
+
+            if (!Number.isFinite(amount)) {
+                currencyBucket.invalidCount += 1;
+                unavailableCount += 1;
+                byCurrencyMap.set(currency, currencyBucket);
+                return;
+            }
+
+            currencyBucket.amount += amount;
+            byCurrencyMap.set(currency, currencyBucket);
+
+            let rate = null;
+            if (currency === 'EUR') {
+                rate = 1;
+            } else if (currency === 'USD') {
+                rate = this._resolveHistoricalUsdToEurRate(
+                    dividend.date,
+                    historicalFxMap,
+                    null,
+                    { ticker: dividend.ticker, broker: dividend.broker }
+                );
+            }
+
+            if (!Number.isFinite(rate) || rate <= 0) {
+                unavailableCount += 1;
+                return;
+            }
+
+            knownTotalEUR += amount * rate;
+            convertedCount += 1;
+        });
+
+        const conversionStatus = unavailableCount === 0
+            ? 'complete'
+            : (convertedCount > 0 ? 'partial' : 'unavailable');
+
+        return {
+            count: rows.length,
+            totalEUR: unavailableCount === 0 ? knownTotalEUR : null,
+            knownTotalEUR,
+            convertedCount,
+            unavailableCount,
+            conversionStatus,
+            byCurrency: [...byCurrencyMap.values()]
+        };
+    }
+
     // SINGLE SOURCE OF TRUTH pour un taux de change HISTORIQUE (date -> taux),
     // par opposition à getConversionRate() qui ne donne que le taux courant.
     // Ne pas fusionner les deux : un dividende versé il y a 6 mois doit être
@@ -793,14 +866,317 @@ export class DataManager {
         const byBroker = new Map();
         positions.forEach(pos => {
             if (!byBroker.has(pos.broker)) {
-                byBroker.set(pos.broker, { broker: pos.broker, invested: 0, transactionsCount: 0, assets: new Set() });
+                byBroker.set(pos.broker, {
+                    broker: pos.broker,
+                    invested: 0,
+                    knownInvested: 0,
+                    fxUnavailable: false,
+                    unavailableAssets: new Set(),
+                    transactionsCount: 0,
+                    assets: new Set()
+                });
             }
             const entry = byBroker.get(pos.broker);
-            entry.invested += pos.invested;
+            entry.knownInvested += Number(pos.invested) || 0;
+            if (pos.fxUnavailable) {
+                entry.fxUnavailable = true;
+                entry.unavailableAssets.add(pos.ticker);
+            }
             entry.transactionsCount += pos.purchases.length;
             entry.assets.add(pos.ticker);
         });
-        return [...byBroker.values()];
+        return [...byBroker.values()].map(entry => ({
+            ...entry,
+            // Un sous-total connu n'est jamais présenté comme un total lorsque
+            // le coût EUR d'au moins une position est impossible à convertir.
+            invested: entry.fxUnavailable ? null : entry.knownInvested
+        }));
+    }
+
+    /**
+     * Ventilation complète utilisée par Gemini. Elle réutilise les positions
+     * (courtier,ticker), les prix résolus et le cash canonique du moteur. Toute
+     * composante manquante invalide son total sans effacer le sous-total connu.
+     */
+    getPortfolioByBroker(assetPurchases, cashTransactions = [], historicalFxMap = null, priceSnapshot = null, invalidTickers = null) {
+        const dynamicRate = priceSnapshot?.dynamicRate ?? this.storage.getConversionRate('USD_TO_EUR');
+        const positions = this._buildPositionsByBrokerTicker(assetPurchases || [], dynamicRate, historicalFxMap)
+            .filter(position => Number(position.quantity) > 0.0001);
+        const cashReserve = this.calculateCashReserve(cashTransactions || [], dynamicRate);
+        const byBroker = new Map();
+        const ensure = broker => {
+            if (!byBroker.has(broker)) {
+                byBroker.set(broker, {
+                    broker,
+                    assets: new Set(),
+                    assetTransactionsCount: 0,
+                    cashTransactionsCount: 0,
+                    knownInvested: 0,
+                    knownCurrentValue: 0,
+                    investedUnavailableAssets: new Set(),
+                    currentValueUnavailableAssets: new Set(),
+                    currencies: { ...(cashReserve.byBrokerCurrency?.[broker] || {}) }
+                });
+            }
+            return byBroker.get(broker);
+        };
+
+        positions.forEach(position => {
+            const entry = ensure(position.broker);
+            const enriched = this._enrichAggregatedPosition(
+                position.ticker,
+                position,
+                dynamicRate,
+                null,
+                priceSnapshot?.prices,
+                invalidTickers
+            );
+            entry.assets.add(position.ticker);
+            entry.assetTransactionsCount += position.purchases.length;
+            entry.knownInvested += Number(position.invested) || 0;
+            if (position.fxUnavailable) entry.investedUnavailableAssets.add(position.ticker);
+            if (enriched.currentValue === null || !Number.isFinite(Number(enriched.currentValue))) {
+                entry.currentValueUnavailableAssets.add(position.ticker);
+            } else {
+                entry.knownCurrentValue += Number(enriched.currentValue);
+            }
+        });
+
+        Object.keys(cashReserve.byBrokerCurrency || {}).forEach(ensure);
+        (cashTransactions || []).forEach(transaction => {
+            const broker = transaction.broker || 'RV-CT';
+            ensure(broker).cashTransactionsCount += 1;
+        });
+
+        const rows = [...byBroker.values()].map(entry => {
+            const investedComplete = entry.investedUnavailableAssets.size === 0;
+            const currentValueComplete = entry.currentValueUnavailableAssets.size === 0;
+            const hasCashLedger = Object.prototype.hasOwnProperty.call(cashReserve.byBroker || {}, entry.broker);
+            const cash = hasCashLedger ? cashReserve.byBroker[entry.broker] : 0;
+            let knownCash = 0;
+            let cashComplete = true;
+            Object.entries(entry.currencies).forEach(([currency, amount]) => {
+                if (Number(amount) === 0) return;
+                const normalizedCurrency = String(currency).toUpperCase();
+                const rate = normalizedCurrency === 'EUR' ? 1 : (normalizedCurrency === 'USD' ? dynamicRate : null);
+                if (!Number.isFinite(rate) || rate <= 0) cashComplete = false;
+                else knownCash += Number(amount) * rate;
+            });
+            const invested = investedComplete ? entry.knownInvested : null;
+            const currentValue = currentValueComplete ? entry.knownCurrentValue : null;
+            const resolvedCash = cashComplete && Number.isFinite(Number(cash)) ? Number(cash) : null;
+            const unrealizedPnl = invested !== null && currentValue !== null ? currentValue - invested : null;
+            const totalValue = currentValue !== null && resolvedCash !== null ? currentValue + resolvedCash : null;
+            const unavailable = [
+                ...[...entry.investedUnavailableAssets].map(ticker => `Coût historique ${ticker}`),
+                ...[...entry.currentValueUnavailableAssets].map(ticker => `Valeur actuelle ${ticker}`),
+                ...(cashComplete ? [] : ['Conversion du cash'])
+            ];
+            return {
+                broker: entry.broker,
+                status: unavailable.length === 0 ? 'complete' : 'partial',
+                assetsCount: entry.assets.size,
+                transactionsCount: entry.assetTransactionsCount + entry.cashTransactionsCount,
+                assetTransactionsCount: entry.assetTransactionsCount,
+                cashTransactionsCount: entry.cashTransactionsCount,
+                invested,
+                knownInvested: entry.knownInvested,
+                currentValue,
+                knownCurrentValue: entry.knownCurrentValue,
+                unrealizedPnl,
+                cash: resolvedCash,
+                knownCash,
+                totalValue,
+                knownTotalValue: entry.knownCurrentValue + knownCash,
+                weight: null,
+                assets: [...entry.assets],
+                cashByCurrency: entry.currencies,
+                unavailable
+            };
+        });
+        const completeTotal = rows.every(row => row.totalValue !== null)
+            ? rows.reduce((sum, row) => sum + row.totalValue, 0)
+            : null;
+        rows.forEach(row => {
+            row.weight = completeTotal !== null && completeTotal > 0
+                ? (row.totalValue / completeTotal) * 100
+                : null;
+        });
+        return rows.sort((a, b) => (b.totalValue ?? b.knownTotalValue) - (a.totalValue ?? a.knownTotalValue));
+    }
+
+    /** Convertit chaque mouvement à son taux historique sans confondre produit
+     * de vente et plus-value. Les montants sont absolus ; `action` porte le sens. */
+    normalizeTransactionHistory(transactions, historicalFxMap = null) {
+        return (transactions || []).map(transaction => {
+            const kind = transactionKind(transaction);
+            const quantity = Number(transaction.quantity ?? 1);
+            const price = Number(transaction.price ?? transaction.amount);
+            const currency = String(transaction.currency || 'EUR').trim().toUpperCase() || 'EUR';
+            const rawAmount = Math.abs(price * quantity);
+            let action = kind;
+            if (kind === 'asset' || kind === 'realEstate') action = quantity < 0 ? 'sell' : 'buy';
+            else if (kind === 'cash') action = price * quantity < 0 ? 'withdrawal' : 'deposit';
+            else if (kind === 'dividend') action = 'dividend';
+            const rate = currency === 'EUR'
+                ? 1
+                : (currency === 'USD'
+                    ? this._resolveHistoricalUsdToEurRate(transaction.date, historicalFxMap, null, {
+                        ticker: transaction.ticker,
+                        broker: transaction.broker
+                    })
+                    : null);
+            const validAmount = Number.isFinite(rawAmount);
+            const conversionAvailable = validAmount && Number.isFinite(rate) && rate > 0;
+            return {
+                date: transaction.date || null,
+                ticker: transaction.ticker || null,
+                name: transaction.name || null,
+                assetType: transaction.assetType || null,
+                kind,
+                action,
+                quantity: Number.isFinite(quantity) ? quantity : null,
+                unitPrice: Number.isFinite(price) ? price : null,
+                currency,
+                nativeAmount: validAmount ? rawAmount : null,
+                historicalFxRate: conversionAvailable ? rate : null,
+                amountEUR: conversionAvailable ? rawAmount * rate : null,
+                conversionStatus: conversionAvailable ? 'complete' : 'unavailable',
+                broker: transaction.broker || 'RV-CT'
+            };
+        }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    }
+
+    /**
+     * Résume les actifs qui ne sont plus détenus, au coût moyen par
+     * (courtier,ticker). Le résultat réalisé est avant frais et fiscalité, qui
+     * ne sont pas enregistrés dans le ledger actuel.
+     */
+    calculateClosedPositions(assetPurchases, historicalFxMap = null) {
+        const rows = (assetPurchases || [])
+            .filter(transaction => ['asset', 'realEstate'].includes(transactionKind(transaction)))
+            .filter(transaction => Number(transaction.quantity) !== 0)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+        const states = new Map();
+        const completedCycles = [];
+        const createState = transaction => ({
+            ticker: String(transaction.ticker || '').toUpperCase(),
+            name: transaction.name || transaction.ticker,
+            assetType: transaction.assetType || 'Stock',
+            broker: transaction.broker || 'RV-CT',
+            quantity: 0,
+            totalBoughtQuantity: 0,
+            knownCostBasisEUR: 0,
+            knownProceedsEUR: 0,
+            conversionComplete: true,
+            unavailableTransactions: [],
+            openedAt: null,
+            closedAt: null,
+            transactionsCount: 0,
+            invalidLedger: false
+        });
+        const resetCycle = (state, transaction) => Object.assign(state, createState(transaction));
+
+        rows.forEach(transaction => {
+            const ticker = String(transaction.ticker || '').toUpperCase();
+            const broker = transaction.broker || 'RV-CT';
+            const key = `${broker}::${ticker}`;
+            const state = states.get(key) || createState(transaction);
+            states.set(key, state);
+            const quantity = Number(transaction.quantity);
+            const price = Number(transaction.price);
+            const currency = String(transaction.currency || 'EUR').toUpperCase();
+            const rate = currency === 'EUR' ? 1 : (currency === 'USD'
+                ? this._resolveHistoricalUsdToEurRate(transaction.date, historicalFxMap, null, { ticker, broker })
+                : null);
+            const conversionAvailable = Number.isFinite(price) && Number.isFinite(rate) && rate > 0;
+
+            if (quantity > 0) {
+                if (state.quantity <= 0.0001 && state.transactionsCount === 0) state.openedAt = transaction.date || null;
+                state.quantity += quantity;
+                state.totalBoughtQuantity += quantity;
+                state.transactionsCount += 1;
+                if (conversionAvailable) state.knownCostBasisEUR += price * quantity * rate;
+                else {
+                    state.conversionComplete = false;
+                    state.unavailableTransactions.push(transaction.date || 'date inconnue');
+                }
+                return;
+            }
+
+            const requested = Math.abs(quantity);
+            if (!(state.quantity > 0.0001) || requested - state.quantity > 0.0001) {
+                state.invalidLedger = true;
+                state.conversionComplete = false;
+                state.unavailableTransactions.push(transaction.date || 'vente sans quantité suffisante');
+            }
+            const sold = Math.min(requested, Math.max(0, state.quantity));
+            state.transactionsCount += 1;
+            if (conversionAvailable) state.knownProceedsEUR += price * sold * rate;
+            else {
+                state.conversionComplete = false;
+                state.unavailableTransactions.push(transaction.date || 'date inconnue');
+            }
+            state.quantity -= sold;
+            if (state.quantity <= 0.0001 && state.totalBoughtQuantity > 0) {
+                state.quantity = 0;
+                state.closedAt = transaction.date || null;
+                completedCycles.push({ ...state, unavailableTransactions: [...state.unavailableTransactions] });
+                resetCycle(state, transaction);
+            }
+        });
+
+        const activeTickers = new Set([...states.values()]
+            .filter(state => state.quantity > 0.0001 || state.invalidLedger)
+            .map(state => state.ticker));
+        const byTicker = new Map();
+        completedCycles
+            .filter(cycle => !activeTickers.has(cycle.ticker))
+            .forEach(cycle => {
+                const entry = byTicker.get(cycle.ticker) || {
+                    ticker: cycle.ticker,
+                    name: cycle.name,
+                    assetType: cycle.assetType,
+                    brokers: new Set(),
+                    firstPurchase: cycle.openedAt,
+                    lastSale: cycle.closedAt,
+                    transactionsCount: 0,
+                    totalBoughtQuantity: 0,
+                    knownCostBasisEUR: 0,
+                    knownProceedsEUR: 0,
+                    conversionComplete: true,
+                    unavailableTransactions: []
+                };
+                entry.brokers.add(cycle.broker);
+                if (new Date(cycle.openedAt) < new Date(entry.firstPurchase)) entry.firstPurchase = cycle.openedAt;
+                if (new Date(cycle.closedAt) > new Date(entry.lastSale)) entry.lastSale = cycle.closedAt;
+                entry.transactionsCount += cycle.transactionsCount;
+                entry.totalBoughtQuantity += cycle.totalBoughtQuantity;
+                entry.knownCostBasisEUR += cycle.knownCostBasisEUR;
+                entry.knownProceedsEUR += cycle.knownProceedsEUR;
+                entry.conversionComplete &&= cycle.conversionComplete && !cycle.invalidLedger;
+                entry.unavailableTransactions.push(...cycle.unavailableTransactions);
+                byTicker.set(cycle.ticker, entry);
+            });
+
+        return [...byTicker.values()].map(entry => {
+            const costBasisEUR = entry.conversionComplete ? entry.knownCostBasisEUR : null;
+            const proceedsEUR = entry.conversionComplete ? entry.knownProceedsEUR : null;
+            const realizedPnlEUR = costBasisEUR !== null && proceedsEUR !== null
+                ? proceedsEUR - costBasisEUR
+                : null;
+            return {
+                ...entry,
+                brokers: [...entry.brokers],
+                status: entry.conversionComplete ? 'complete' : 'unavailable',
+                costBasisEUR,
+                proceedsEUR,
+                realizedPnlEUR,
+                realizedPnlPct: realizedPnlEUR !== null && costBasisEUR > 0
+                    ? (realizedPnlEUR / costBasisEUR) * 100
+                    : null
+            };
+        }).sort((a, b) => new Date(b.lastSale || 0) - new Date(a.lastSale || 0));
     }
 
     // `priceSnapshot` (optionnel) : { dynamicRate, prices } déjà résolu par
