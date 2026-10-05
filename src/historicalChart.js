@@ -1949,6 +1949,9 @@ export class HistoricalChart {
         const ctx = canvas.getContext('2d');
         const datasets = [];
 
+        const positiveColor = '#2ecc71';
+        const negativeColor = '#e74c3c';
+
         const makeGradient = (chart) => {
             const ca = chart.chartArea;
             if (!ca) return 'transparent';
@@ -1958,6 +1961,46 @@ export class HistoricalChart {
             g.addColorStop(1, `rgba(${rgb},0.05)`);
             return g;
         };
+
+        // Performance curves have a semantic threshold at 0%: green means a
+        // gain and red a loss. A canvas gradient, split exactly at the y pixel
+        // of zero, also colours the middle of a segment that crosses 0; a
+        // Chart.js `segment.borderColor` callback could only colour that whole
+        // segment on one side or the other.
+        const makePerformanceGradient = (chart, { aboveTop, aboveZero, belowZero, belowBottom }) => {
+            const ca = chart.chartArea;
+            const yScale = chart.scales?.y;
+            if (!ca || !yScale) return null;
+
+            const zeroY = yScale.getPixelForValue(0);
+            if (!Number.isFinite(zeroY) || ca.bottom <= ca.top) return null;
+            // Zero is outside the visible scale: every visible point has the
+            // same sign, so a solid semantic colour is sufficient.
+            if (zeroY <= ca.top) return belowBottom;
+            if (zeroY >= ca.bottom) return aboveTop;
+
+            const zeroStop = (zeroY - ca.top) / (ca.bottom - ca.top);
+            const gradient = chart.ctx.createLinearGradient(0, ca.top, 0, ca.bottom);
+            gradient.addColorStop(0, aboveTop);
+            gradient.addColorStop(zeroStop, aboveZero);
+            gradient.addColorStop(zeroStop, belowZero);
+            gradient.addColorStop(1, belowBottom);
+            return gradient;
+        };
+
+        const makePerformanceLineColor = (chart) => makePerformanceGradient(chart, {
+            aboveTop: positiveColor,
+            aboveZero: positiveColor,
+            belowZero: negativeColor,
+            belowBottom: negativeColor
+        }) || mainColor;
+
+        const makePerformanceFillColor = (chart) => makePerformanceGradient(chart, {
+            aboveTop: 'rgba(46,204,113,0.30)',
+            aboveZero: 'rgba(46,204,113,0.06)',
+            belowZero: 'rgba(231,76,60,0.06)',
+            belowBottom: 'rgba(231,76,60,0.30)'
+        }) || 'transparent';
 
         // Computed unconditionally (not just in performance mode) so the
         // tooltip can always show €+% together on the main line, whichever
@@ -1976,8 +2019,10 @@ export class HistoricalChart {
             const perfData = pctSeries;
 
             datasets.push({
-                label: 'Total Value (%)', data: perfData, borderColor: mainColor,
-                backgroundColor: (c) => makeGradient(c.chart), borderWidth: 2, fill: true,
+                label: 'Total Value (%)', data: perfData,
+                borderColor: (c) => makePerformanceLineColor(c.chart),
+                backgroundColor: (c) => makePerformanceFillColor(c.chart),
+                borderWidth: 2, fill: true,
                 // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
                 // 2026-09-24, Phase 4) : tension=0 (jamais de spline qui inventerait
                 // une trajectoire visuelle entre deux observations réelles) et
@@ -2104,7 +2149,9 @@ export class HistoricalChart {
                         if (v == null || isNaN(v)) return;
                         const y = yScale.getPixelForValue(v);
                         c.save();
-                        c.fillStyle = mainColor;
+                        c.fillStyle = isPerformanceMode
+                            ? (Number(v) >= 0 ? positiveColor : negativeColor)
+                            : mainColor;
                         c.beginPath(); c.arc(x, y, 4, 0, Math.PI * 2); c.fill();
                         c.strokeStyle = '#0b1220'; c.lineWidth = 2; c.stroke();
                         c.restore();
