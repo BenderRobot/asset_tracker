@@ -24,6 +24,8 @@ import { mountPerformerTable } from './performerTable.js';
 import { FUTURE_ACCENT_COLOR, selectIndexDisplayInstrument } from './indexFutures.js';
 import { ALLOCATION_TYPES, buildAllocationTimeline, calculateCurrentAllocation } from './allocation.js';
 import { buildNewsHoldingDetails } from './newsHoldingMatcher.js';
+import { buildWatchlistContext } from './watchlistContext.js';
+import { DEFAULT_DASHBOARD_INDICES } from './appDataContext.js';
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -993,7 +995,11 @@ export class DashboardApp {
         return buildNewsHoldingDetails(
             newsItem,
             this.lastHoldings || [],
-            this.lastPortfolioSnapshot
+            this.lastPortfolioSnapshot,
+            buildWatchlistContext(
+                this.storage?.getWatchlist?.() || [],
+                this.storage?.getWatchlistGroups?.() || []
+            )
         );
     }
 
@@ -1455,21 +1461,11 @@ export class DashboardApp {
     // =============================================
 
     getCustomIndices() {
-        const cdn = 'https://cdn.jsdelivr.net/npm/openmoji@14.0.0/color/svg/';
-        const defaults = [
-            { ticker: '^GSPC',     name: 'S&P 500',       icon: `${cdn}1F1FA-1F1F8.svg`, format: 'index' },
-            { ticker: '^IXIC',     name: 'NASDAQ 100',    icon: `${cdn}1F4BB.svg`,        format: 'index' },
-            { ticker: '^FCHI',     name: 'CAC 40',        icon: `${cdn}1F1EB-1F1F7.svg`, format: 'index' },
-            { ticker: '^STOXX50E', name: 'EURO STOXX 50', icon: `${cdn}1F1EA-1F1FA.svg`, format: 'index' },
-            { ticker: 'BTC-EUR',   name: 'BITCOIN',       icon: '₿',                      format: 'crypto' },
-            { ticker: 'GC=F',      name: 'OR (GOLD)',     icon: `${cdn}1FA99.svg`,        format: 'commodity' },
-            { ticker: 'EURUSD=X',  name: 'EUR / USD',     icon: `${cdn}1F4B1.svg`,        format: 'forex' },
-        ];
         try {
             const saved = localStorage.getItem('dashboard_indices_v1');
             if (saved) return JSON.parse(saved);
         } catch (e) {}
-        return defaults;
+        return DEFAULT_DASHBOARD_INDICES.map(index => ({ ...index }));
     }
 
     saveCustomIndices(indices) {

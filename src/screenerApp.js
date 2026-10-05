@@ -588,6 +588,10 @@ class ScreenerApp {
             };
             this._chartCurrencyRates = null;
             this.render();
+            // Rend le dernier actif sélectionné disponible à l'assistant dès le
+            // premier affichage ; les fondamentaux optionnels enrichiront ce
+            // même snapshot quelques instants plus tard.
+            this.persistAssistantScreenerContext();
             this.showState('panel');
 
             const url = new URL(window.location);
@@ -628,6 +632,7 @@ class ScreenerApp {
                 this._chartCurrencyRates = null;
             }
             this.render({ resetTab: false });
+            this.persistAssistantScreenerContext();
             const activeTab = document.querySelector('.screener-tab.active')?.dataset.tab;
             if (activeTab && activeTab !== 'resume') await this.renderTabContent(activeTab);
 
@@ -1110,6 +1115,44 @@ class ScreenerApp {
         this.updateTabAvailability();
         this.resetCalculatorInputs();
         this.updateWatchlistButtonState();
+    }
+
+    persistAssistantScreenerContext() {
+        try {
+            const qs = this.currentData?.quoteSummary;
+            if (!qs || !this.currentSymbol) return;
+            const price = qs.price || {};
+            const detail = qs.summaryDetail || {};
+            const stats = qs.defaultKeyStatistics || {};
+            const financial = qs.financialData || {};
+            const profile = qs.assetProfile || {};
+            const quant = this.currentData.hasFundamentals ? quantProfile(financial, detail) : null;
+            localStorage.setItem('assistant_screener_context_v1', JSON.stringify({
+                ticker: this.currentSymbol,
+                name: price.longName || price.shortName || this.currentSymbol,
+                quoteType: price.quoteType || null,
+                exchange: price.exchangeName || null,
+                currency: price.currency || detail.currency || null,
+                currentPrice: price.regularMarketPrice?.raw ?? null,
+                dailyChangePct: price.regularMarketChangePercent?.raw != null
+                    ? price.regularMarketChangePercent.raw * 100
+                    : null,
+                marketCap: price.marketCap?.raw ?? null,
+                trailingPE: detail.trailingPE?.raw ?? stats.trailingPE?.raw ?? null,
+                forwardPE: stats.forwardPE?.raw ?? null,
+                dividendYieldPct: detail.dividendYield?.raw != null ? detail.dividendYield.raw * 100 : null,
+                sector: profile.sector || null,
+                industry: profile.industry || null,
+                selectedPeriod: this.currentPeriod,
+                hasFundamentals: !!this.currentData.hasFundamentals,
+                hasStatements: !!this.currentData.hasStatements,
+                quantScore: quant ? quantScore(quant) : null,
+                quoteAsOf: price.regularMarketTime?.raw ? price.regularMarketTime.raw * 1000 : null,
+                updatedAt: Date.now()
+            }));
+        } catch (error) {
+            logger.warn?.('[Screener] Assistant context persistence failed:', error);
+        }
     }
 
     // Annual statements come from a dedicated endpoint and may exist even

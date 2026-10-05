@@ -1,5 +1,6 @@
 import { db, auth } from './firebaseConfig.js';
 import { getCompanyLogo } from './logoUtils.js';
+import { persistNotificationContext } from './appDataContext.js';
 
 export class NotificationManager {
     constructor(dataManager) {
@@ -79,6 +80,7 @@ export class NotificationManager {
                 snapshot.forEach(doc => {
                     this.rules.push({ id: doc.id, ...doc.data() });
                 });
+                persistNotificationContext(uid, this.rules, this.settings);
             });
     }
 
@@ -88,6 +90,7 @@ export class NotificationManager {
                 if (doc.exists) {
                     this.settings = { ...this.settings, ...doc.data() };
                 }
+                persistNotificationContext(uid, this.rules, this.settings);
             });
     }
 
@@ -96,6 +99,7 @@ export class NotificationManager {
         if (!user) return;
 
         this.settings = { ...this.settings, ...newSettings };
+        persistNotificationContext(user.uid, this.rules, this.settings);
         await db.collection('users').doc(user.uid).collection('settings').doc('notifications').set(this.settings, { merge: true });
     }
 

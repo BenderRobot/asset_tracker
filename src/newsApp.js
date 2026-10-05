@@ -7,6 +7,7 @@ import { DataManager } from './dataManager.js';
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 import { getAuthHeader } from './authFetchHeaders.js';
 import { buildNewsHoldingDetails } from './newsHoldingMatcher.js';
+import { buildWatchlistContext } from './watchlistContext.js';
 
 // Même proxy que dashboardApp.js — fonctionne avec timeout 30s
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url=';
@@ -254,7 +255,10 @@ export class NewsApp {
                 ...(marketResult.staleInstruments || [])
             ])],
             refreshError: marketResult.lastRefreshFailure || null
-        });
+        }, buildWatchlistContext(
+            this.storage.getWatchlist?.() || [],
+            this.storage.getWatchlistGroups?.() || []
+        ));
     }
 
     async openNewsModal(newsItem) {

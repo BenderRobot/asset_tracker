@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildGeminiNewsContextPrompt } from '../src/geminiService.js';
-import { buildNewsHoldingDetails, findHoldingForNews } from '../src/newsHoldingMatcher.js';
+import { buildNewsHoldingDetails, findHoldingForNews, findHoldingsForNews } from '../src/newsHoldingMatcher.js';
 
 describe('News holding matching', () => {
     const holdings = [
@@ -17,6 +17,17 @@ describe('News holding matching', () => {
     it('matches normalized company names and excludes fully sold positions', () => {
         expect(findHoldingForNews({ title: 'LVMH dévoile sa nouvelle stratégie' }, holdings)?.ticker).toBe('MC.PA');
         expect(findHoldingForNews({ title: 'Ancienne position annonce ses résultats' }, holdings)).toBeNull();
+    });
+
+    it('returns every directly related active holding', () => {
+        const multiple = findHoldingsForNews(
+            { title: 'AAPL et MSFT publient', relatedTickers: ['AAPL', 'MSFT'] },
+            [
+                { ticker: 'AAPL', name: 'Apple', quantity: 1 },
+                { ticker: 'MSFT', name: 'Microsoft', quantity: 2 }
+            ]
+        );
+        expect(multiple.map(row => row.ticker)).toEqual(['AAPL', 'MSFT']);
     });
 });
 
@@ -82,5 +93,30 @@ describe('Gemini news portfolio context', () => {
         expect(injected).not.toContain('<script>');
         expect(injected).toContain('instruction Apple');
         expect(injected).toContain('indisponible');
+    });
+
+    it('adds only sourced and dated indirect ETF exposure', () => {
+        const holding = { ticker: 'ETF1', name: 'Global ETF', assetType: 'ETF', quantity: 10, currentValue: 500 };
+        const catalog = [{
+            ticker: 'ETF1', verifiedComposition: {
+                source: 'Issuer factsheet', asOf: '2026-10-01T00:00:00.000Z',
+                holdings: [{ ticker: 'AAPL', name: 'Apple', weightPct: 8 }]
+            }
+        }];
+        const details = buildNewsHoldingDetails(
+            { title: 'AAPL publie ses résultats' }, [holding], { totalValue: 2000, cash: 100 }, catalog
+        );
+        expect(details.matches).toEqual([]);
+        expect(details.indirectMatches[0]).toMatchObject({
+            throughTicker: 'ETF1', constituentTicker: 'AAPL', estimatedValue: 40, portfolioWeight: 2
+        });
+        expect(buildGeminiNewsContextPrompt('AAPL publie', 'Résumé', details))
+            .toContain('Composition: source=Issuer factsheet');
+
+        const unreliable = buildNewsHoldingDetails(
+            { title: 'AAPL publie' }, [holding], { totalValue: 2000 },
+            [{ ticker: 'ETF1', verifiedComposition: { holdings: catalog[0].verifiedComposition.holdings } }]
+        );
+        expect(unreliable).toBeNull();
     });
 });

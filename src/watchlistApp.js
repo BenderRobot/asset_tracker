@@ -690,6 +690,8 @@ class WatchlistApp {
                             financial,
                             detail,
                             website,
+                            sector: assetProfile.sector || null,
+                            industry: assetProfile.industry || null,
                             score: totalScore,
                             lastFetched: Date.now()
                         };
