@@ -1,6 +1,9 @@
 {
   "type": "module",
   "scripts": {
+    "version:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-versioning.ps1",
+    "version:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/sync-version.ps1",
+    "version:check": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-live-version.ps1",
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --project demo-asset-tracker-rules-test --only firestore \"vitest run tests/firestoreRules.test.js --config vitest.rules.config.js\"",
     "test:all": "npm run test && npm run test:rules"

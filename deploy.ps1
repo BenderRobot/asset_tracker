@@ -69,6 +69,16 @@ if ($currentBranch -ne "main") {
     if ($LASTEXITCODE -ne 0) { Write-Err "git checkout main failed."; exit 1 }
 }
 
+# Prepare le numero du prochain commit (ou resynchronise le build courant si
+# aucun fichier n'a change). Le hook Git le verifiera de nouveau au commit.
+$pendingChanges = git status --porcelain --untracked-files=all
+if ($pendingChanges) {
+    & (Join-Path $PSScriptRoot 'scripts\sync-version.ps1') -NextCommit | Out-Null
+} else {
+    & (Join-Path $PSScriptRoot 'scripts\sync-version.ps1') | Out-Null
+}
+if ($LASTEXITCODE -ne 0) { Write-Err "Mise a jour de version.json impossible."; exit 1 }
+
 # Apres la bascule sur main : on teste le code qui sera reellement deploye
 # (arbre de travail inclus, il est commite plus bas), avant toute ecriture.
 Invoke-TestGate "code a deployer"

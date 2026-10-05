@@ -71,6 +71,37 @@ Multi-devises : **EUR** et **USD** avec conversion automatique.
 
 ## Déploiement
 
+### Version de l'application
+
+La version fonctionnelle suit le format `majeure.mineure.correctif`. La
+production reconstituée depuis l'historique Git est `v1.17.0` (`build 331`) :
+le build permet de retrouver le commit, mais ne constitue plus la version.
+
+- `feat: ...` ou `feature: ...` augmente la mineure (`1.17.0` → `1.18.0`).
+- `fix: ...` et les autres changements augmentent le correctif
+  (`1.17.0` → `1.17.1`).
+- `feat!: ...` ou `BREAKING CHANGE:` augmente la majeure
+  (`1.17.0` → `2.0.0`).
+
+Le hook inclus met `version.json` à jour avant chaque commit. Il est activé
+dans ce clone ; après un nouveau clonage, exécuter une fois :
+
+```powershell
+npm run version:setup
+```
+
+Le hook lit le message du commit, met `version.json` à jour et l'ajoute au
+commit. Les scripts `deploy.ps1` et `deploy-beta.ps1` synchronisent aussi le
+numéro de build. Le numéro visible en bas de la barre latérale permet de savoir
+immédiatement quelle version est servie par Firebase. La reconstruction des
+17 versions fonctionnelles figure dans `RELEASES.md`.
+
+Pour comparer le dépôt local à la production depuis le terminal :
+
+```powershell
+npm run version:check
+```
+
 L'application est déployée sur Firebase Hosting :
 
 ```bash

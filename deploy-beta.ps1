@@ -18,6 +18,15 @@ if ($currentBranch -ne "main") {
     if ($LASTEXITCODE -ne 0) { Write-Err "git checkout main failed."; exit 1 }
 }
 
+# Le prochain commit porte automatiquement le prochain numero de build.
+$pendingChanges = git status --porcelain --untracked-files=all
+if ($pendingChanges) {
+    & (Join-Path $PSScriptRoot 'scripts\sync-version.ps1') -NextCommit | Out-Null
+} else {
+    & (Join-Path $PSScriptRoot 'scripts\sync-version.ps1') | Out-Null
+}
+if ($LASTEXITCODE -ne 0) { Write-Err "Mise a jour de version.json impossible."; exit 1 }
+
 # --- COMMIT MESSAGE ---
 $defaultMsg = "beta: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 $userInput = Read-Host "Commit message [Enter = '$defaultMsg']"

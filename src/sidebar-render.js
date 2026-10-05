@@ -51,8 +51,26 @@
               '</a>' +
             '</div>' +
             '<div class="sidebar-footer">' +
+              '<span class="app-version" id="app-version" title="Version de l\'application"></span>' +
               '<button id="sidebar-toggle" title="Toggle Menu"><i class="fas fa-chevron-left"></i></button>' +
             '</div>';
+
+        var versionElement = document.getElementById('app-version');
+        if (versionElement && window.fetch) {
+            fetch('/version.json', { cache: 'no-store' })
+                .then(function (response) {
+                    if (!response.ok) throw new Error('Version indisponible');
+                    return response.json();
+                })
+                .then(function (release) {
+                    if (!release || !release.version) return;
+                    versionElement.textContent = 'v' + release.version;
+                    versionElement.title = 'Version ' + release.version + ' · build Git ' + release.build;
+                })
+                .catch(function () {
+                    // La navigation ne doit jamais dependre du fichier de version.
+                });
+        }
     }
 
     var header = document.getElementById('mobile-header');
