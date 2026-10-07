@@ -257,17 +257,13 @@ class AnalyticsApp {
 
         const reProjects = purchases.filter(p => p.assetType === 'Real Estate');
         reProjects.forEach(p => {
-            const invested = p.price * p.quantity;
             const yieldPct = p.yield || 0;
+            // Gain Latent (Acquis) — plafonné à l'échéance (SINGLE SOURCE OF TRUTH)
+            const { invested, accrued, matured } = this.dataManager.calculateRealEstateAccrual(p);
 
-            // Revenu annuel théorique = Investi * Yield
-            estRealEstateInterests += (invested * (yieldPct / 100));
+            // Revenu annuel théorique = Investi * Yield (un projet échu ne rapporte plus)
+            if (!matured) estRealEstateInterests += (invested * (yieldPct / 100));
 
-            // Gain Latent (Acquis)
-            const startDate = new Date(p.date);
-            const today = new Date();
-            const daysHeld = Math.max(0, (today - startDate) / (1000 * 60 * 60 * 24));
-            const accrued = invested * (yieldPct / 100) * (daysHeld / 365);
             accruedRealEstateInterests += accrued;
         });
 
@@ -851,15 +847,10 @@ class AnalyticsApp {
         let totalAccrued = 0;
 
         reProjects.forEach(p => {
-            const invested = p.price * p.quantity;
             const yieldPct = p.yield || 0;
-            const annual = invested * (yieldPct / 100);
-
-            // Accrued calculation
-            const startDate = new Date(p.date);
-            const today = new Date();
-            const daysHeld = Math.max(0, (today - startDate) / (1000 * 60 * 60 * 24));
-            const accrued = invested * (yieldPct / 100) * (daysHeld / 365);
+            // Accrued calculation — plafonné à l'échéance (SINGLE SOURCE OF TRUTH)
+            const { invested, accrued, matured } = this.dataManager.calculateRealEstateAccrual(p);
+            const annual = matured ? 0 : invested * (yieldPct / 100);
 
             totalInvested += invested;
             totalAnnual += annual;

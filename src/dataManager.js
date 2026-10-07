@@ -510,15 +510,22 @@ export class DataManager {
     }
 
     // SINGLE SOURCE OF TRUTH pour l'accroissement immobilier (intérêts simples),
-    // utilisé par calculateHoldings, calculateEnrichedPurchases et realEstateApp.js.
-    // Formule : Investi * (Taux/100) * (Jours détenus / 365).
+    // utilisé par calculateHoldings, calculateEnrichedPurchases, analyticsApp.js
+    // et realEstateApp.js.
+    // Formule : Investi * (Taux/100) * (Jours détenus / 365), où les jours
+    // détenus s'arrêtent le jour de l'échéance (maturityDate) : un projet échu
+    // ne produit plus d'intérêts, sa valeur reste figée au remboursement attendu.
     calculateRealEstateAccrual(purchase, asOfDate = new Date()) {
         const yieldPct = purchase.yield || 0;
         const startDate = new Date(purchase.date);
-        const daysHeld = Math.max(0, (asOfDate - startDate) / (1000 * 60 * 60 * 24));
+        const maturityDate = purchase.maturityDate ? new Date(purchase.maturityDate) : null;
+        const hasMaturity = maturityDate !== null && Number.isFinite(maturityDate.getTime());
+        const endDate = hasMaturity && maturityDate < asOfDate ? maturityDate : asOfDate;
+        const daysHeld = Math.max(0, (endDate - startDate) / (1000 * 60 * 60 * 24));
         const invested = purchase.price * purchase.quantity;
         const accrued = invested * (yieldPct / 100) * (daysHeld / 365);
-        return { invested, accrued, currentValue: invested + accrued, daysHeld };
+        const matured = hasMaturity && maturityDate <= asOfDate;
+        return { invested, accrued, currentValue: invested + accrued, daysHeld, matured };
     }
 
     // SINGLE SOURCE OF TRUTH pour le ledger de positions : construit des

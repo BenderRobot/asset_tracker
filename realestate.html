@@ -43,62 +43,353 @@
         }
     </script>
     <style>
-        /* Specific Styles for Real Estate Cards */
+        /* ===== Page Immobilier ===== */
+        .re-page {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            --re-green: #10b981;
+            --re-red: #f87171;
+            --re-amber: #f59e0b;
+        }
+
+        .re-section { margin-bottom: 40px; }
+
+        .re-section-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 20px;
+        }
+
+        .re-section-icon {
+            display: inline-flex;
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 22px;
+        }
+
+        .re-section-icon--blue { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+        .re-section-icon--green { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+
+        .re-divider { border-top: 1px solid var(--border-color); margin: 0 0 32px; }
+
+        .is-positive { color: var(--re-green) !important; }
+        .is-negative { color: var(--re-red) !important; }
+        .is-warning { color: var(--re-amber) !important; }
+        .is-right { text-align: right; }
+
+        /* --- KPI tiles --- */
+        .re-kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .re-kpi {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 18px 20px;
+            min-width: 0;
+        }
+
+        .re-kpi--accent {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.22) 0%, rgba(37, 99, 235, 0.08) 100%);
+            border-color: rgba(59, 130, 246, 0.45);
+        }
+
+        .re-kpi-label {
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .re-kpi-value {
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            line-height: 1.15;
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .re-kpi-value small {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-left: 2px;
+        }
+
+        .re-kpi-meta {
+            margin-top: 8px;
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            line-height: 1.45;
+        }
+
+        .re-kpi-meta strong { color: var(--text-primary); font-weight: 600; }
+
+        .re-ownership {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .re-ownership-bar {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+
+        .re-ownership-bar span {
+            display: block;
+            height: 100%;
+            border-radius: 3px;
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+        }
+
+        .re-alert {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            color: #fbbf24;
+            font-size: 13px;
+        }
+
+        /* --- Résidence --- */
+        .residence-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .residence-name { font-size: 18px; font-weight: 600; color: var(--text-primary); }
+        .residence-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+
+        .residence-dashboard {
+            display: grid;
+            grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+            gap: 16px;
+        }
+
+        .residence-side { display: flex; flex-direction: column; gap: 16px; }
+
+        .re-subtitle {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .re-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px 18px;
+        }
+
+        .re-list > div {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 7px 0;
+            font-size: 13px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .re-list > div:last-child { border-bottom: 0; }
+        .re-list strong { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+        .re-chart-small { position: relative; height: 230px; }
+        .re-chart-note { margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+
+        /* --- Cartes crédit --- */
+        .credits-container { display: flex; flex-direction: column; gap: 12px; }
+
+        .credit-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--credit-color);
+            border-radius: 12px;
+            padding: 16px 18px;
+        }
+
+        .credit-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .credit-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+        .credit-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+
+        .credit-rate {
+            font-size: 12px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 999px;
+            color: var(--credit-color);
+            background: color-mix(in srgb, var(--credit-color) 15%, transparent);
+        }
+
+        .credit-monthly {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .credit-monthly small, .credit-metrics small {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .credit-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px 20px;
+        }
+
+        .credit-metrics > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .credit-metrics span { font-size: 12px; color: var(--text-muted); }
+        .credit-metrics strong { font-size: 14px; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+        .credit-card .re-progress-bar {
+            background: linear-gradient(90deg, var(--credit-color), color-mix(in srgb, var(--credit-color) 60%, white));
+        }
+
+        /* --- Badges & progress --- */
+        .re-badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+
+        .re-badge--muted { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; }
+        .re-badge--success { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+        .re-badge--warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+
+        .re-progress {
+            width: 100%;
+            height: 6px;
+            margin-top: 14px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+        }
+
+        .re-progress-bar {
+            height: 100%;
+            min-width: 2px;
+            border-radius: 3px;
+            background: linear-gradient(90deg, #10b981, #34d399);
+            transition: width 0.3s ease;
+        }
+
+        .re-progress-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 6px;
+            font-size: 11.5px;
+            color: var(--text-muted);
+        }
+
+        /* --- Crowdfunding --- */
+        .re-chart-section { margin-bottom: 32px; }
+
+        .re-projects-title {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin: 0 0 16px;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .re-projects-title span { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+
         .project-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-            margin-top: 24px;
+            gap: 16px;
         }
 
         .project-card {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
             border-radius: 12px;
-            padding: 16px;
-            transition: transform 0.2s;
+            padding: 16px 18px;
+            transition: transform 0.2s, border-color 0.2s;
         }
 
-        .project-card:hover {
-            transform: translateY(-2px);
-            border-color: var(--primary-color);
-        }
+        .project-card:hover { transform: translateY(-2px); border-color: rgba(16, 185, 129, 0.5); }
+        .project-card.is-matured { border-color: rgba(245, 158, 11, 0.45); }
 
         .project-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 14px;
         }
 
-        .project-title {
-            font-weight: 600;
-            font-size: 16px;
-            color: var(--text-primary);
+        .project-title-block { min-width: 0; }
+        .project-title { font-weight: 600; font-size: 15px; color: var(--text-primary); }
+
+        .project-subtitle {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-top: 2px;
         }
+
+        .project-tags { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
         .project-tag {
-            background: rgba(16, 185, 129, 0.1);
-            color: #10b981;
-            padding: 4px 8px;
-            border-radius: 4px;
+            background: rgba(16, 185, 129, 0.12);
+            color: #34d399;
+            padding: 3px 8px;
+            border-radius: 6px;
             font-size: 12px;
-            font-weight: 500;
-        }
-
-        .progress-bar-container {
-            width: 100%;
-            height: 6px;
-            background: var(--bg-secondary);
-            border-radius: 3px;
-            margin: 12px 0;
-            overflow: hidden;
-        }
-
-        .progress-bar {
-            height: 100%;
-            background: var(--primary-color);
-            border-radius: 3px;
+            font-weight: 600;
+            white-space: nowrap;
         }
 
         .project-stats {
@@ -108,14 +399,78 @@
             font-size: 13px;
         }
 
-        .stat-label {
-            color: var(--text-secondary);
-            margin-bottom: 4px;
+        .project-dates {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 12.5px;
+            color: var(--text-primary);
         }
 
-        .stat-val {
-            color: var(--text-primary);
-            font-weight: 600;
+        .stat-label {
+            font-size: 11.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--text-muted);
+            margin-bottom: 3px;
+        }
+
+        .stat-val { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+        .re-empty {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+
+        .re-empty i { font-size: 44px; opacity: 0.5; display: block; margin-bottom: 12px; }
+        .re-empty h3 { margin: 0 0 8px; color: var(--text-primary); }
+        .re-empty p { margin-bottom: 20px; }
+
+        .re-empty--boxed {
+            background: var(--bg-secondary);
+            border: 2px dashed var(--border-color);
+            border-radius: 12px;
+            padding: 56px 20px;
+        }
+
+        /* --- Modale : lignes de crédit --- */
+        .credit-row-item {
+            display: grid;
+            grid-template-columns: 2fr 1.5fr 0.8fr 0.8fr 1.2fr 1.2fr 40px;
+            gap: 10px;
+            align-items: end;
+            background: var(--bg-secondary);
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .credit-field { min-width: 0; }
+        .credit-field label { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+        .credit-field input { width: 100%; }
+        .credit-row-item .btn-icon-danger { height: 42px; }
+
+        /* --- Responsive --- */
+        @media (max-width: 1100px) {
+            .re-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 900px) {
+            .residence-dashboard { grid-template-columns: 1fr; }
+            .credit-row-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .credit-field--name { grid-column: 1 / -1; }
+            .credit-row-item .btn-icon-danger { grid-column: 1 / -1; width: 100%; }
+        }
+
+        @media (max-width: 560px) {
+            .re-kpi-grid { grid-template-columns: 1fr; }
+            .re-kpi-value { font-size: 24px; }
+            .project-grid { grid-template-columns: 1fr; }
+            .residence-header { align-items: flex-start; }
         }
     </style>
     <script>
@@ -132,91 +487,51 @@
     <main class="main-content">
         <div class="container">
 
-            <div class="dashboard-top-section" style="display: flex; flex-direction: column; align-items: center;">
-                <!-- LEFT: Summary Cards + Charts -->
-                <div class="dashboard-left-column" style="width: 100%; max-width: 1200px;">
+            <div class="re-page">
 
-                    <!-- SECTION 1: RÉSIDENCE PRINCIPALE -->
-                    <div style="margin-bottom: 24px;">
-                        <h2
-                            style="font-size: 20px; font-weight: 600; color: var(--text-primary); margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
-                            <span
-                                style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 8px; border-radius: 8px; font-size: 24px; display: inline-flex;"><i class="ph ph-house-line" aria-hidden="true"></i></span>
-                            Ma Résidence Principale
-                        </h2>
-                        <div id="primary-residence-section">
-                            <!-- Rendered by JS -->
+                <!-- SECTION 1: RÉSIDENCE PRINCIPALE -->
+                <section class="re-section">
+                    <h2 class="re-section-title">
+                        <span class="re-section-icon re-section-icon--blue"><i class="ph ph-house-line" aria-hidden="true"></i></span>
+                        Ma Résidence Principale
+                    </h2>
+                    <div id="primary-residence-section">
+                        <!-- Rendered by JS -->
+                    </div>
+                </section>
+
+                <div class="re-divider"></div>
+
+                <!-- SECTION 2: CROWDFUNDING -->
+                <section class="re-section">
+                    <h2 class="re-section-title">
+                        <span class="re-section-icon re-section-icon--green"><i class="ph ph-crane" aria-hidden="true"></i></span>
+                        Crowdfunding Immobilier
+                    </h2>
+
+                    <!-- HERO KPIs (rendus par JS) -->
+                    <div id="crowdfunding-kpis" class="re-kpi-grid"></div>
+
+                    <!-- PROJECTION CHART -->
+                    <div id="projection-section" class="dashboard-chart-section re-chart-section">
+                        <div class="chart-header-mini">
+                            <div class="title-mini">
+                                <h3 class="chart-title"><span class="title-icon"><i class="ph ph-chart-line-up" aria-hidden="true"></i></span>Projection de valeur jusqu'à l'échéance</h3>
+                            </div>
+                        </div>
+                        <div class="chart-wrapper tall">
+                            <canvas id="projection-chart"></canvas>
                         </div>
                     </div>
 
-                    <!-- DIVIDER -->
-                    <div style="border-top: 1px solid var(--border-color); margin-bottom: 24px;"></div>
-
-                    <!-- SECTION 2: CROWDFUNDING -->
-                    <div>
-                        <h2
-                            style="font-size: 20px; font-weight: 600; color: var(--text-primary); margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
-                            <span
-                                style="background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 8px; border-radius: 8px; font-size: 24px; display: inline-flex;"><i class="ph ph-crane" aria-hidden="true"></i></span>
-                            Crowdfunding Immobilier
-                        </h2>
-
-                        <!-- HERO KPIs -->
-                        <div class="dashboard-hero-row summary-grid" style="margin-bottom: 32px;">
-                            <div class="summary-card summary-card-primary">
-                                <div class="summary-card-label">Valeur Simulée</div>
-                                <div id="total-simulated-value" class="summary-card-value">€0.00</div>
-                                <div class="summary-card-meta">
-                                    <span id="total-invested" class="meta-info"
-                                        style="font-size: 14px; opacity: 0.9; color: var(--text-secondary);">Investi:
-                                        €0.00</span>
-                                </div>
-                            </div>
-
-                            <div class="summary-card">
-                                <div class="summary-card-label">Rendement Moyen</div>
-                                <div id="avg-yield" class="summary-card-value">0.00%</div>
-                                <div class="summary-card-meta">
-                                    <span class="meta-info">Objectif Annuel</span>
-                                </div>
-                            </div>
-
-                            <div class="summary-card">
-                                <div class="summary-card-label">Gain Latent (Intérêts)</div>
-                                <div id="accrued-interest" class="summary-card-value">€0.00</div>
-                                <div class="summary-card-meta">
-                                    <span class="meta-info" style="color: #10b981;">+ Intérêts courus</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- PROJECTION CHART -->
-                        <div class="dashboard-chart-section" style="margin-bottom: 32px;">
-                            <div class="chart-header-mini">
-                                <div class="title-mini">
-                                    <h3 class="chart-title"><span class="title-icon"><i class="ph ph-calendar-blank" aria-hidden="true"></i></span>Projection de Valeur
-                                        (Jusqu'à
-                                        Maturité)</h3>
-                                </div>
-                            </div>
-                            <div class="chart-wrapper tall">
-                                <canvas id="projection-chart"></canvas>
-                            </div>
-                        </div>
-
-                        <!-- PROJECTS GRID -->
-                        <h3 style="margin-bottom: 24px; font-size: 18px; color: var(--text-primary);">Projets en cours
-                        </h3>
-                        <div id="projects-container" class="project-grid">
-                            <!-- Project Cards generated by JS -->
-                            <div
-                                style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-muted);">
-                                Chargement des projets...
-                            </div>
-                        </div>
+                    <!-- PROJECTS GRID -->
+                    <h3 class="re-projects-title">Projets en cours <span id="projects-count"></span></h3>
+                    <div id="projects-container" class="project-grid">
+                        <!-- Project Cards generated by JS -->
+                        <div class="re-empty">Chargement des projets...</div>
                     </div>
+                </section>
 
-                </div>
             </div>
 
         </div>
