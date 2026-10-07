@@ -835,58 +835,7 @@ class AnalyticsApp {
             return;
         }
 
-        // 1. Populate Table
-        const tbody = document.getElementById('real-estate-table-body');
-        tbody.innerHTML = ''; // Clear previous
-
-        const purchases = this.storage.getPurchases();
-        const reProjects = purchases.filter(p => p.assetType === 'Real Estate');
-
-        let totalInvested = 0;
-        let totalAnnual = 0;
-        let totalAccrued = 0;
-
-        reProjects.forEach(p => {
-            const yieldPct = p.yield || 0;
-            // Accrued calculation — plafonné à l'échéance (SINGLE SOURCE OF TRUTH)
-            const { invested, accrued, matured } = this.dataManager.calculateRealEstateAccrual(p);
-            const annual = matured ? 0 : invested * (yieldPct / 100);
-
-            totalInvested += invested;
-            totalAnnual += annual;
-            totalAccrued += accrued;
-
-            const row = document.createElement('tr');
-            row.style.borderBottom = '1px solid var(--border-color)';
-            row.innerHTML = `
-                <td style="padding: 12px 8px;">
-                    <div style="font-weight: 600; color: var(--text-primary);">${p.symbol}</div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">${new Date(p.date).toLocaleDateString()}</div>
-                </td>
-                <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace;">${this.formatEUR(invested)}</td>
-                <td style="padding: 12px 8px; text-align: right;">
-                    <span style="background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 500; font-size: 12px;">
-                        ${yieldPct.toFixed(2)}%
-                    </span>
-                </td>
-                <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace;">${this.formatEUR(annual)}</td>
-                <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace; color: #10b981; font-weight: 600;">+${this.formatEUR(accrued)}</td>
-            `;
-            tbody.appendChild(row);
-        });
-
-        // Add Total Row
-        const totalRow = document.createElement('tr');
-        totalRow.style.backgroundColor = 'var(--bg-secondary)';
-        totalRow.innerHTML = `
-            <td style="padding: 12px 8px; font-weight: 700;">TOTAL</td>
-            <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace; font-weight: 700;">${this.formatEUR(totalInvested)}</td>
-            <td style="padding: 12px 8px; text-align: right;">-</td>
-            <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace; font-weight: 700;">${this.formatEUR(totalAnnual)}</td>
-            <td style="padding: 12px 8px; text-align: right; font-family: 'Roboto Mono', monospace; font-weight: 700; color: #10b981;">+${this.formatEUR(totalAccrued)}</td>
-        `;
-        tbody.appendChild(totalRow);
-
+        this.renderRealEstateModal();
 
         // 2. FORCE VISIBILITY
         modal.style.display = 'flex';
@@ -909,6 +858,154 @@ class AnalyticsApp {
             content.style.zIndex = '10000000';
             content.style.backgroundColor = '#1e293b';
         }
+    }
+
+    renderRealEstateModal() {
+        const kpisEl = document.getElementById('re-modal-kpis');
+        const listEl = document.getElementById('re-modal-list');
+        const countEl = document.getElementById('re-modal-count');
+        if (!kpisEl || !listEl) return;
+
+        const DAY_MS = 1000 * 60 * 60 * 24;
+        const today = new Date();
+        const esc = value => escapeGeminiHtml(String(value ?? ''));
+        const eur = value => `${this.formatEUR(value)} €`;
+        const pct = (value, decimals = 2) => `${value.toLocaleString('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} %`;
+        const date = d => d.toLocaleDateString('fr-FR');
+        const months = days => {
+            const m = Math.max(0, Math.round(days / 30.44));
+            const y = Math.floor(m / 12);
+            const r = m % 12;
+            if (y === 0) return `${r} mois`;
+            return `${y} an${y > 1 ? 's' : ''}${r ? ` ${r} mois` : ''}`;
+        };
+
+        const projects = this.storage.getPurchases()
+            .filter(p => p.assetType === 'Real Estate')
+            .map(p => {
+                const yieldPct = Number(p.yield) || 0;
+                // Plafonné à l'échéance (SINGLE SOURCE OF TRUTH)
+                const { invested, accrued, currentValue, matured } = this.dataManager.calculateRealEstateAccrual(p, today);
+                const startDate = new Date(p.date);
+                const maturityDate = p.maturityDate ? new Date(p.maturityDate) : null;
+                const hasMaturity = maturityDate !== null && Number.isFinite(maturityDate.getTime());
+                const totalDays = hasMaturity ? Math.max(1, (maturityDate - startDate) / DAY_MS) : null;
+                const expectedInterest = totalDays ? invested * (yieldPct / 100) * (totalDays / 365) : null;
+                const progress = totalDays
+                    ? Math.min(100, Math.max(0, ((today - startDate) / DAY_MS / totalDays) * 100))
+                    : null;
+                return {
+                    name: p.name || p.ticker || 'Projet',
+                    // Le "ticker" d'un projet immo porte la référence/plateforme saisie
+                    platform: p.name && p.ticker && p.ticker !== p.name ? p.ticker : '',
+                    yieldPct,
+                    invested,
+                    accrued,
+                    currentValue,
+                    matured,
+                    upcoming: startDate > today,
+                    annual: matured ? 0 : invested * (yieldPct / 100),
+                    startDate,
+                    maturityDate: hasMaturity ? maturityDate : null,
+                    expectedInterest,
+                    maturityValue: expectedInterest !== null ? invested + expectedInterest : null,
+                    progress
+                };
+            })
+            .sort((a, b) => (a.maturityDate || Infinity) - (b.maturityDate || Infinity));
+
+        if (projects.length === 0) {
+            kpisEl.innerHTML = '';
+            if (countEl) countEl.textContent = 'Projets';
+            listEl.innerHTML = `
+                <div class="re-modal-empty">
+                    <i class="ph ph-buildings" style="font-size: 36px; opacity: 0.5;" aria-hidden="true"></i>
+                    <div>Aucun projet de crowdfunding immobilier.</div>
+                </div>`;
+            return;
+        }
+
+        const sum = key => projects.reduce((s, p) => s + (p[key] || 0), 0);
+        const totalInvested = sum('invested');
+        const totalAccrued = sum('accrued');
+        const totalCurrent = sum('currentValue');
+        const totalAnnual = sum('annual');
+        // Intérêts encore à percevoir : uniquement les projets avec une échéance connue
+        const remainingInterest = projects.reduce((s, p) =>
+            s + (p.expectedInterest !== null ? Math.max(0, p.expectedInterest - p.accrued) : 0), 0);
+        const avgYield = totalInvested > 0
+            ? projects.reduce((s, p) => s + p.yieldPct * p.invested, 0) / totalInvested
+            : 0;
+        const accruedPct = totalInvested > 0 ? (totalAccrued / totalInvested) * 100 : 0;
+        const next = projects.find(p => p.maturityDate && p.maturityDate >= today);
+
+        kpisEl.innerHTML = `
+            <div class="re-modal-kpi is-accent">
+                <div class="re-modal-kpi-label">Valeur actuelle</div>
+                <div class="re-modal-kpi-value">${eur(totalCurrent)}</div>
+                <div class="re-modal-kpi-meta">Investi ${eur(totalInvested)}</div>
+            </div>
+            <div class="re-modal-kpi">
+                <div class="re-modal-kpi-label">Intérêts acquis</div>
+                <div class="re-modal-kpi-value re-modal-pos">+${eur(totalAccrued)}</div>
+                <div class="re-modal-kpi-meta">+${pct(accruedPct, 1)} depuis l'investissement</div>
+            </div>
+            <div class="re-modal-kpi">
+                <div class="re-modal-kpi-label">Rendement moyen</div>
+                <div class="re-modal-kpi-value">${pct(avgYield)}</div>
+                <div class="re-modal-kpi-meta">≈ ${eur(totalAnnual)} / an</div>
+            </div>
+            <div class="re-modal-kpi">
+                <div class="re-modal-kpi-label">Intérêts restants</div>
+                <div class="re-modal-kpi-value">+${eur(remainingInterest)}</div>
+                <div class="re-modal-kpi-meta">${next ? `Prochaine échéance ${date(next.maturityDate)}` : 'Aucune échéance à venir'}</div>
+            </div>
+        `;
+
+        if (countEl) countEl.textContent = `${projects.length} projet${projects.length > 1 ? 's' : ''}`;
+
+        listEl.innerHTML = projects.map(p => {
+            let tag = '';
+            let timeLeft = 'Échéance non renseignée';
+            if (p.matured) {
+                tag = '<span class="re-modal-tag is-warning">Échu</span>';
+                timeLeft = 'Remboursement attendu';
+            } else if (p.upcoming) {
+                tag = '<span class="re-modal-tag is-muted">À venir</span>';
+                timeLeft = `Démarre le ${date(p.startDate)}`;
+            } else if (p.maturityDate) {
+                timeLeft = `Échéance dans ${months((p.maturityDate - today) / DAY_MS)}`;
+            }
+
+            return `
+                <div class="re-modal-project${p.matured ? ' is-matured' : ''}">
+                    <div class="re-modal-project-top">
+                        <div>
+                            <div class="re-modal-project-name">${esc(p.name)}</div>
+                            ${p.platform ? `<div class="re-modal-project-sub">${esc(p.platform)}</div>` : ''}
+                        </div>
+                        <div class="re-modal-tags">
+                            ${tag}
+                            <span class="re-modal-tag">${pct(p.yieldPct)}</span>
+                        </div>
+                    </div>
+                    <div class="re-modal-metrics">
+                        <div><span>Investi</span><strong>${eur(p.invested)}</strong></div>
+                        <div><span>Intérêts / an</span><strong>${eur(p.annual)}</strong></div>
+                        <div><span>Acquis</span><strong class="re-modal-pos">+${eur(p.accrued)}</strong></div>
+                        <div><span>À l'échéance</span><strong>${p.maturityValue !== null ? eur(p.maturityValue) : '-'}</strong></div>
+                    </div>
+                    ${p.progress !== null ? `
+                    <div class="re-modal-progress" title="Avancement : ${p.progress.toFixed(1)} %">
+                        <div style="width: ${p.progress}%"></div>
+                    </div>` : ''}
+                    <div class="re-modal-progress-meta">
+                        <span>${date(p.startDate)} → ${p.maturityDate ? date(p.maturityDate) : '?'}${p.progress !== null ? ` · ${p.progress.toFixed(0)} %` : ''}</span>
+                        <span>${timeLeft}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
     }
 
     openTopPerformersModal() {
@@ -1445,12 +1542,17 @@ class AnalyticsApp {
             }
         });
 
-        // Close RE Modal
+        // Close RE Modal (bouton, clic sur le fond ou touche Échap)
         document.body.addEventListener('click', (e) => {
-            if (e.target.id === 'close-re-modal' || e.target.id === 'real-estate-detail-modal') {
+            if (e.target.closest('#close-re-modal') || e.target.id === 'real-estate-detail-modal') {
                 const modal = document.getElementById('real-estate-detail-modal');
                 if (modal) modal.style.display = 'none';
             }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const modal = document.getElementById('real-estate-detail-modal');
+            if (modal && modal.style.display !== 'none') modal.style.display = 'none';
         });
 
         // =============================================

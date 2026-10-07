@@ -379,6 +379,94 @@
             .div-modal-content { width: 100% !important; padding: 16px; max-height: 100vh; border-radius: 0 !important; }
             .div-modal-content .modal-header { flex-wrap: wrap; gap: 10px; }
         }
+        /* ===== Modal Crowdfunding Immobilier ===== */
+        .re-modal .modal-body { padding-top: 8px; }
+        .re-modal-kpis {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .re-modal-kpi {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 12px 14px;
+            min-width: 0;
+        }
+        .re-modal-kpi.is-accent {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(16, 185, 129, 0.04));
+            border-color: rgba(16, 185, 129, 0.4);
+        }
+        .re-modal-kpi-label {
+            font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+            text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px;
+        }
+        .re-modal-kpi-value {
+            font-size: 20px; font-weight: 700; color: var(--text-primary);
+            font-variant-numeric: tabular-nums; white-space: nowrap;
+        }
+        .re-modal-kpi-meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+        .re-modal-pos { color: #10b981 !important; }
+        .re-modal-list-head {
+            display: flex; justify-content: space-between; margin-bottom: 10px;
+            font-size: 12px; font-weight: 600; letter-spacing: 0.4px;
+            text-transform: uppercase; color: var(--text-secondary);
+        }
+        .re-modal-list-head span:last-child { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-muted); }
+        .re-modal-list { display: flex; flex-direction: column; gap: 10px; }
+        .re-modal-project {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 14px 16px;
+        }
+        .re-modal-project.is-matured { border-color: rgba(245, 158, 11, 0.45); }
+        .re-modal-project-top {
+            display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px;
+        }
+        .re-modal-project-name { font-weight: 600; font-size: 15px; color: var(--text-primary); }
+        .re-modal-project-sub { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 2px; }
+        .re-modal-tags { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+        .re-modal-tag {
+            font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px;
+            background: rgba(16, 185, 129, 0.12); color: #34d399; white-space: nowrap;
+        }
+        .re-modal-tag.is-warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+        .re-modal-tag.is-muted { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; }
+        .re-modal-metrics {
+            display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+        }
+        .re-modal-metrics span { display: block; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
+        .re-modal-metrics strong { font-size: 14px; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .re-modal-progress {
+            height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.08);
+            overflow: hidden; margin-top: 12px;
+        }
+        .re-modal-progress > div {
+            height: 100%; min-width: 2px; border-radius: 3px;
+            background: linear-gradient(90deg, #10b981, #34d399);
+        }
+        .re-modal-project.is-matured .re-modal-progress > div { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .re-modal-progress-meta {
+            display: flex; justify-content: space-between; gap: 8px; margin-top: 6px;
+            font-size: 11.5px; color: var(--text-muted);
+        }
+        .re-modal-empty { text-align: center; padding: 32px 16px; color: var(--text-muted); }
+        .re-modal-footer {
+            display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+            margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-color);
+        }
+        .re-modal-note { font-size: 11.5px; color: var(--text-muted); }
+        .re-modal-link {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 13px; font-weight: 600; color: #60a5fa; text-decoration: none;
+        }
+        .re-modal-link:hover { color: #93c5fd; }
+        @media (max-width: 720px) {
+            .re-modal-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .re-modal-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
     </style>
     <script>
         // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
@@ -662,37 +750,23 @@
 
                 <!-- MODAL DETAIL IMMOBILIER -->
                 <div class="modal-overlay" id="real-estate-detail-modal" style="display: none;">
-                    <div class="modal-content" style="max-width: 800px; width: 90%;">
+                    <div class="modal-content re-modal" style="max-width: 860px; width: 92%;">
                         <div class="modal-header">
-                            <h3><i class="ph ph-crane" aria-hidden="true"></i> Détail Immobilier (Crowdfunding)</h3>
-                            <button class="modal-close" id="close-re-modal">×</button>
+                            <h3><i class="ph ph-crane" aria-hidden="true"></i> Crowdfunding Immobilier</h3>
+                            <button class="modal-close" id="close-re-modal" aria-label="Fermer">×</button>
                         </div>
                         <div class="modal-body">
-                            <div style="overflow-x: auto;">
-                                <table
-                                    style="width: 100%; border-collapse: collapse; font-size: 14px; color: var(--text-primary);">
-                                    <thead>
-                                        <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
-                                            <th style="padding: 12px 8px; font-weight: 600; color: var(--text-muted);">
-                                                Projet</th>
-                                            <th
-                                                style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
-                                                Investi</th>
-                                            <th
-                                                style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
-                                                Rendement</th>
-                                            <th
-                                                style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
-                                                Intérêts (An)</th>
-                                            <th
-                                                style="padding: 12px 8px; font-weight: 600; color: var(--text-muted); text-align: right;">
-                                                Acquis (Latent)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="real-estate-table-body">
-                                        <!-- Populated by JS -->
-                                    </tbody>
-                                </table>
+                            <div id="re-modal-kpis" class="re-modal-kpis"></div>
+                            <div class="re-modal-list-head">
+                                <span id="re-modal-count">Projets</span>
+                                <span>Triés par échéance</span>
+                            </div>
+                            <div id="re-modal-list" class="re-modal-list">
+                                <!-- Populated by JS -->
+                            </div>
+                            <div class="re-modal-footer">
+                                <span class="re-modal-note">Intérêts simples, calculés au jour près et arrêtés à l'échéance.</span>
+                                <a href="realestate.html" class="re-modal-link">Voir la page Immobilier <i class="ph ph-arrow-right" aria-hidden="true"></i></a>
                             </div>
                         </div>
                     </div>
