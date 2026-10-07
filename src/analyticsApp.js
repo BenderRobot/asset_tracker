@@ -18,6 +18,8 @@ import { buildRiskContext } from './riskContext.js';
 import { escapeGeminiHtml } from './safeGeminiHtml.js';
 import { getBrokersSync, populateSelect } from './brokerService.js';
 import { mountPerformerTable } from './performerTable.js';
+import { resolveHistoricalUsdToEurRate } from './MarketUtils.js';
+import { DividendModal } from './dividendModal.js';
 
 class AnalyticsApp {
     constructor() {
@@ -794,92 +796,39 @@ class AnalyticsApp {
 
         console.log('✅ Modal Forced Display', modal);
 
-        // Default View: Monthly
-        this.updateDividendChart('monthly');
+        this.renderDividendModal();
     }
 
-    updateDividendChart(viewMode) {
-        console.log('📊 Update Dividend Chart:', viewMode);
-        const purchases = this.storage.getPurchases();
-        const dividends = purchases.filter(p => p.type === 'dividend');
-
-        // Aggregate
-        const aggregated = {};
-
-        dividends.forEach(d => {
-            const date = new Date(d.date);
-            const amount = parseFloat(d.price) || parseFloat(d.quantity) || 0;
-
-            let key;
-            if (viewMode === 'monthly') {
-                key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
-            } else {
-                key = `${date.getFullYear()}`; // YYYY
-            }
-
-            if (!aggregated[key]) aggregated[key] = 0;
-            aggregated[key] += amount;
-        });
-
-        // Sort keys
-        const sortedKeys = Object.keys(aggregated).sort();
-        const data = sortedKeys.map(k => aggregated[k]);
-
-        // Render Chart
-        const ctxEl = document.getElementById('dividend-evolution-chart');
-        if (!ctxEl) {
-            console.error('❌ Chart context #dividend-evolution-chart NOT FOUND');
-            return;
+    async renderDividendModal() {
+        const dividends = this.storage.getPurchases().filter(p => p.type === 'dividend');
+        // Même règle que DataManager.calculateDividendSummary : un dividende USD
+        // est converti au taux de SA date de versement, jamais au taux courant.
+        let historicalFxMap = new Map();
+        try {
+            historicalFxMap = await this.dataManager.getHistoricalFxMap(dividends);
+        } catch (error) {
+            console.warn('[Dividendes] Taux historiques indisponibles', error);
         }
-        const ctx = ctxEl.getContext('2d');
+        const toEUR = (d) => {
+            const amount = Number(d?.price ?? d?.amount) * Number(d?.quantity ?? 1);
+            if (!Number.isFinite(amount)) return null;
+            const currency = String(d?.currency || 'EUR').trim().toUpperCase() || 'EUR';
+            if (currency === 'EUR') return amount;
+            if (currency !== 'USD') return null;
+            const rate = resolveHistoricalUsdToEurRate(d.date, historicalFxMap, null, { ticker: d.ticker, broker: d.broker });
+            return Number.isFinite(rate) && rate > 0 ? amount * rate : null;
+        };
+        const brokerMap = {};
+        getBrokersSync().forEach(b => { brokerMap[b.value] = b.label; });
 
-        if (this.dividendChartInstance) {
-            this.dividendChartInstance.destroy();
-        }
-
-        this.dividendChartInstance = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: sortedKeys,
-                datasets: [{
-                    label: 'Dividendes Reçus (€)',
-                    data: data,
-                    backgroundColor: '#10b981',
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            label: (ctx) => `${ctx.parsed.y.toFixed(2)} €`
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        ticks: { color: '#94a3b8' },
-                        grid: { display: false }
-                    },
-                    y: {
-                        ticks: { color: '#94a3b8' },
-                        grid: { color: '#1e293b' },
-                        beginAtZero: true
-                    }
-                }
-            }
+        this.dividendModal ||= new DividendModal();
+        this.dividendModal.open({
+            dividends,
+            toEUR,
+            holdings: this.lastReport?.assets || [],
+            portfolioValue: this.lastReport?.summary?.totalValue ?? null,
+            brokerLabel: code => brokerMap[code] || code
         });
-
-        // Update active buttons
-        const btnMonthly = document.getElementById('view-monthly-btn');
-        const btnYearly = document.getElementById('view-yearly-btn');
-        if (btnMonthly) btnMonthly.className = viewMode === 'monthly' ? 'btn-primary' : 'btn-secondary';
-        if (btnYearly) btnYearly.className = viewMode === 'yearly' ? 'btn-primary' : 'btn-secondary';
     }
 
     openRealEstateModal() {
@@ -1667,18 +1616,6 @@ class AnalyticsApp {
                 if (report) {
                     self.loadGeminiDiversificationAdvice(buildDiversificationContext(report));
                 }
-            }
-        });
-
-        // Boutons Vue Modal
-        document.body.addEventListener('click', (e) => {
-            if (e.target.id === 'view-monthly-btn') {
-                console.log('🖱️ Switch Monthly');
-                self.updateDividendChart('monthly');
-            }
-            if (e.target.id === 'view-yearly-btn') {
-                console.log('🖱️ Switch Yearly');
-                self.updateDividendChart('yearly');
             }
         });
 

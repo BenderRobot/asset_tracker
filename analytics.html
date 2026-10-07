@@ -319,6 +319,66 @@
             background: var(--bg-hover);
             color: var(--text-primary);
         }
+
+        /* ===== MODAL DIVIDENDES ===== */
+        .div-modal-content { max-width: 1100px !important; width: 94% !important; max-height: 92vh; overflow-y: auto !important; padding: 24px; }
+        .div-modal-content .modal-body { padding: 0; }
+        .div-header-actions { display: flex; align-items: center; gap: 10px; }
+        .div-select { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
+        .div-warning { background: rgba(250, 178, 25, 0.1); border: 1px solid rgba(250, 178, 25, 0.35); color: #fab219; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 16px; }
+        .div-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .div-kpi { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 10px; padding: 14px; min-width: 0; }
+        .div-kpi-label { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+        .div-kpi-value { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-top: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .div-kpi-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+        .div-up { color: var(--accent-green); }
+        .div-down { color: var(--accent-red); }
+        .div-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-color); margin-bottom: 16px; overflow-x: auto; }
+        .div-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); padding: 10px 14px; font-size: 14px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap; font-family: inherit; }
+        .div-tab:hover { color: var(--text-primary); }
+        .div-tab.active { color: var(--text-primary); border-bottom-color: var(--accent-blue); }
+        .div-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+        .div-segmented { display: inline-flex; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 3px; }
+        .div-segmented button { background: none; border: none; color: var(--text-secondary); padding: 6px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: inherit; }
+        .div-segmented button.active { background: var(--accent-blue); color: #fff; }
+        .div-chart-box { position: relative; width: 100%; }
+        .div-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 12px; color: var(--text-secondary); }
+        .div-legend span { display: inline-flex; align-items: center; gap: 6px; }
+        .div-legend i.sw, .div-asset-cell i.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+        .div-subgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+        .div-block { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 10px; padding: 16px; margin-top: 16px; min-width: 0; }
+        .div-subgrid .div-block { margin-top: 0; }
+        .div-block h4 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0 0 12px; }
+        .div-hint { font-size: 12px; font-weight: 400; color: var(--text-muted); }
+        .div-table-wrap { overflow: auto; }
+        .div-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+        .div-table th { text-align: left; color: var(--text-secondary); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; position: sticky; top: 0; background: var(--bg-secondary); }
+        .div-table th[data-sort] { cursor: pointer; user-select: none; }
+        .div-table th[data-sort]:hover { color: var(--text-primary); }
+        .div-table td { padding: 8px 10px; border-bottom: 1px solid rgba(45, 53, 72, 0.6); color: var(--text-primary); white-space: nowrap; }
+        .div-table td.num, .div-table th.num { text-align: right; }
+        .div-table tbody tr.clickable { cursor: pointer; }
+        .div-table tbody tr.clickable:hover, .div-table tbody tr.selected { background: var(--bg-hover); }
+        .div-asset-cell { display: flex; align-items: center; gap: 8px; }
+        .div-asset-name { color: var(--text-muted); font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; display: block; }
+        .div-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--bg-hover); color: var(--text-secondary); }
+        .div-badge.held { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+        .div-bar-row { display: grid; grid-template-columns: minmax(80px, 1fr) 2fr auto; align-items: center; gap: 10px; font-size: 13px; margin-bottom: 8px; }
+        .div-bar-track { height: 8px; background: var(--bg-hover); border-radius: 4px; overflow: hidden; }
+        .div-bar-fill { height: 100%; background: var(--accent-green); border-radius: 4px; }
+        .div-heat td.cell { text-align: center; min-width: 54px; font-size: 12px; }
+        .div-detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+        .div-detail-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .div-detail-stats div { background: var(--bg-card); border-radius: 8px; padding: 10px; }
+        .div-detail-stats small { display: block; color: var(--text-secondary); font-size: 11px; }
+        .div-detail-stats strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+        .div-empty { color: var(--text-muted); text-align: center; padding: 24px; font-size: 13px; }
+        @media (max-width: 860px) {
+            .div-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .div-subgrid { grid-template-columns: 1fr; }
+            .div-modal-content { width: 100% !important; padding: 16px; max-height: 100vh; border-radius: 0 !important; }
+            .div-modal-content .modal-header { flex-wrap: wrap; gap: 10px; }
+        }
     </style>
     <script>
         // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
@@ -794,25 +854,113 @@
 
     <!-- MODAL DETAIL DIVIDENDES -->
     <div class="modal-overlay" id="dividend-detail-modal" style="display: none;">
-        <div class="modal-content" style="max-width: 800px; width: 90%;">
+        <div class="modal-content div-modal-content">
             <div class="modal-header">
                 <h3><i class="ph ph-coins" aria-hidden="true"></i> Détail des Dividendes</h3>
-                <button class="modal-close" id="close-dividend-modal">×</button>
+                <div class="div-header-actions">
+                    <select id="div-broker-filter" class="div-select" aria-label="Filtrer par courtier">
+                        <option value="">Tous les courtiers</option>
+                    </select>
+                    <button class="modal-close" id="close-dividend-modal" aria-label="Fermer">×</button>
+                </div>
             </div>
             <div class="modal-body">
+                <div id="div-warning" class="div-warning" style="display:none;"></div>
 
-                <div style="margin-bottom: 24px;">
-                    <h4 style="color: var(--text-primary); margin-bottom: 12px;">Évolution Mensuelle</h4>
-                    <div class="chart-container" style="height: 300px;">
-                        <canvas id="dividend-evolution-chart"></canvas>
+                <!-- KPI -->
+                <div class="div-kpi-grid" id="div-kpi-grid"></div>
+
+                <!-- Onglets -->
+                <div class="div-tabs" role="tablist">
+                    <button class="div-tab active" data-div-tab="evolution" role="tab"><i class="ph ph-chart-bar" aria-hidden="true"></i> Évolution</button>
+                    <button class="div-tab" data-div-tab="assets" role="tab"><i class="ph ph-list-bullets" aria-hidden="true"></i> Par actif</button>
+                    <button class="div-tab" data-div-tab="seasonality" role="tab"><i class="ph ph-calendar" aria-hidden="true"></i> Saisonnalité</button>
+                    <button class="div-tab" data-div-tab="forecast" role="tab"><i class="ph ph-crystal-ball" aria-hidden="true"></i> Prévisionnel</button>
+                    <button class="div-tab" data-div-tab="history" role="tab"><i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i> Historique</button>
+                </div>
+
+                <!-- Évolution -->
+                <section class="div-panel" data-div-panel="evolution">
+                    <div class="div-toolbar">
+                        <div class="div-segmented" id="div-granularity">
+                            <button data-granularity="month" class="active">Mensuel</button>
+                            <button data-granularity="quarter">Trimestriel</button>
+                            <button data-granularity="year">Annuel</button>
+                        </div>
+                        <div class="div-segmented" id="div-evo-mode">
+                            <button data-mode="total" class="active">Total</button>
+                            <button data-mode="stacked">Par actif</button>
+                            <button data-mode="cumulative">Cumulé</button>
+                        </div>
                     </div>
-                </div>
+                    <div class="div-chart-box" style="height: 320px;"><canvas id="dividend-evolution-chart"></canvas></div>
+                    <div class="div-legend" id="div-evo-legend"></div>
+                    <div class="div-subgrid">
+                        <div class="div-block">
+                            <h4>Par année</h4>
+                            <div class="div-table-wrap"><table class="div-table" id="div-yearly-table"></table></div>
+                        </div>
+                        <div class="div-block">
+                            <h4>Par courtier</h4>
+                            <div id="div-broker-breakdown"></div>
+                        </div>
+                    </div>
+                </section>
 
-                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                    <button class="btn-primary" id="view-monthly-btn">Vue Mensuelle</button>
-                    <button class="btn-secondary" id="view-yearly-btn">Vue Annuelle</button>
-                </div>
+                <!-- Par actif -->
+                <section class="div-panel" data-div-panel="assets" hidden>
+                    <div class="div-subgrid">
+                        <div class="div-block">
+                            <h4>Répartition des dividendes perçus</h4>
+                            <div class="div-chart-box" style="height: 260px;"><canvas id="div-asset-share-chart"></canvas></div>
+                        </div>
+                        <div class="div-block">
+                            <h4>12 derniers mois vs 12 mois précédents</h4>
+                            <div class="div-chart-box" style="height: 260px;"><canvas id="div-asset-growth-chart"></canvas></div>
+                        </div>
+                    </div>
+                    <div class="div-block div-asset-detail" id="div-asset-detail" hidden></div>
+                    <div class="div-block">
+                        <h4>Actifs versant un dividende <span class="div-hint">— cliquez sur une ligne pour le détail</span></h4>
+                        <div class="div-table-wrap">
+                            <table class="div-table" id="div-asset-table"></table>
+                        </div>
+                    </div>
+                </section>
 
+                <!-- Saisonnalité -->
+                <section class="div-panel" data-div-panel="seasonality" hidden>
+                    <div class="div-block" style="margin-top:0;">
+                        <h4>Comparaison mois par mois, par année</h4>
+                        <div class="div-chart-box" style="height: 300px;"><canvas id="div-season-chart"></canvas></div>
+                    </div>
+                    <div class="div-block">
+                        <h4>Calendrier de versement par actif <span class="div-hint">— total perçu par mois de l'année</span></h4>
+                        <div class="div-table-wrap" id="div-heatmap"></div>
+                    </div>
+                </section>
+
+                <!-- Prévisionnel -->
+                <section class="div-panel" data-div-panel="forecast" hidden>
+                    <p class="div-hint" style="margin: 0 0 12px;">Estimation à partir de la fréquence observée de chaque actif encore détenu et de ses derniers versements. Indicatif : ne tient pas compte des changements de quantité ni des hausses/baisses de dividende annoncées.</p>
+                    <div class="div-block" style="margin-top:0;">
+                        <h4>Revenus attendus — 12 prochains mois</h4>
+                        <div class="div-chart-box" style="height: 260px;"><canvas id="div-forecast-chart"></canvas></div>
+                    </div>
+                    <div class="div-block">
+                        <h4>Prochains versements estimés</h4>
+                        <div class="div-table-wrap" style="max-height: 360px;"><table class="div-table" id="div-upcoming-table"></table></div>
+                    </div>
+                </section>
+
+                <!-- Historique -->
+                <section class="div-panel" data-div-panel="history" hidden>
+                    <div class="div-toolbar">
+                        <input type="search" id="div-history-search" class="div-select" placeholder="Rechercher un actif…" aria-label="Rechercher un actif">
+                        <button class="div-select" id="div-history-export" type="button"><i class="ph ph-download-simple" aria-hidden="true"></i> Export CSV</button>
+                    </div>
+                    <div class="div-table-wrap" style="max-height: 440px;"><table class="div-table" id="div-history-table"></table></div>
+                </section>
             </div>
         </div>
     </div>
