@@ -687,13 +687,13 @@ export class HistoricalChart {
             if (this._isZoomed) {
                 b.classList.add('active');
                 b.title = 'Réinitialiser le zoom';
-                b.innerHTML = '<i class="fa-solid fa-magnifying-glass-minus" aria-hidden="true"></i>';
+                b.innerHTML = '<i class="ph ph-magnifying-glass-minus" aria-hidden="true"></i>';
             } else {
                 b.classList.toggle('active', !!this.zoomModeEnabled);
                 b.title = this.zoomModeEnabled
                     ? 'Zoom activé : glissez sur le graphique pour zoomer'
                     : 'Activer le zoom par glisser-déposer';
-                b.innerHTML = '<i class="fa-solid fa-magnifying-glass-plus" aria-hidden="true"></i>';
+                b.innerHTML = '<i class="ph ph-magnifying-glass-plus" aria-hidden="true"></i>';
             }
             b.setAttribute('aria-label', b.title);
             b.setAttribute('aria-pressed', String(this._isZoomed || !!this.zoomModeEnabled));
@@ -1334,9 +1334,7 @@ export class HistoricalChart {
             athBtn.style.display = showAth ? '' : 'none';
             athBtn.title = athKind === 'price'
                 ? 'Plus haut prix unitaire depuis le premier achat'
-                : (isSingleAssetMode
-                    ? 'Plus haut historique de la performance (TWR), dans le repère de la période affichée'
-                    : 'Plus haute valeur totale du portefeuille depuis le premier achat');
+                : 'Plus haut historique de la performance (TWR), dans le repère de la période affichée';
         }
         container.style.display = (showClose || showPru || showAth) ? '' : 'none';
     }
@@ -1379,7 +1377,7 @@ export class HistoricalChart {
             btn.type = 'button';
             btn.className = 'chart-chip';
             btn.dataset.option = 'dividends';
-            btn.innerHTML = '<i class="fa-solid fa-coins" aria-hidden="true"></i><span>Dividendes</span>';
+            btn.innerHTML = '<i class="ph ph-coins" aria-hidden="true"></i><span>Dividendes</span>';
             btn.title = 'Inclure les dividendes dans la performance';
             btn.addEventListener('click', () => {
                 this.includeDividends = !this.includeDividends;
@@ -1571,8 +1569,9 @@ export class HistoricalChart {
             kind: athKind, allHistory, visibleHistory: graphData,
             firstIndex, lastIndex, includeDividends: this.includeDividends,
             intraday: this.currentPeriod === 1 || this.currentPeriod === 2,
-            sessionDate: athSessionDate,
-            portfolioValue: athKind === 'performance' && athSource?.scope === 'portfolio'
+            // Always the TWR peak: a value high would sit above later return
+            // peaks after a sale or a revaluation (issue #16).
+            sessionDate: athSessionDate
         });
         if (!ath) return null;
         const label = ath.kind === 'price'
@@ -1644,7 +1643,7 @@ export class HistoricalChart {
             btn.type = 'button';
             btn.className = 'chart-back-btn';
             btn.title = 'Revenir au portefeuille';
-            btn.innerHTML = '<i class="fas fa-xmark"></i>';
+            btn.innerHTML = '<i class="ph ph-x"></i>';
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.showPortfolioChart();
@@ -2160,9 +2159,11 @@ export class HistoricalChart {
             }
         };
 
-        // An enabled ATH must remain inside the scale, with some headroom.
-        // A proximity cutoff based on the curve's span hid the line on quiet
-        // 1D sessions: a +0.28% ATH was above a curve peaking at +0.245%.
+        // The ATH joins the scale only when the curve comes close to it
+        // (within a quarter of the visible span), so a distant ATH no longer
+        // flattens the curve: the plugin then shows the "▲ ATH" badge instead
+        // of the line. On quiet 1D sessions a +0.28% ATH above a curve
+        // peaking at +0.245% is still close enough to be drawn.
         let visibleMin = Infinity, visibleMax = -Infinity;
         for (const dataset of datasets) {
             if (dataset.hidden) continue;
@@ -2174,8 +2175,11 @@ export class HistoricalChart {
         }
         const visibleSpan = visibleMax - visibleMin;
         let athSuggestedMax;
-        if (Number.isFinite(athReference?.value) && Number.isFinite(visibleMax)
-            && athReference.value >= visibleMax) {
+        const ATH_PROXIMITY_RATIO = 0.25;
+        const athIsNear = Number.isFinite(athReference?.value) && Number.isFinite(visibleMax)
+            && athReference.value >= visibleMax
+            && (visibleSpan <= 0 || athReference.value - visibleMax <= visibleSpan * ATH_PROXIMITY_RATIO);
+        if (athIsNear) {
             const spanIncludingAth = Math.max(visibleSpan, athReference.value - visibleMin);
             const padding = spanIncludingAth > 0 ? spanIncludingAth * 0.05
                 : Math.max(Math.abs(athReference.value), isPerformanceMode ? 0.01 : 1) * 0.05;

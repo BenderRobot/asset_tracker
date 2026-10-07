@@ -11,7 +11,8 @@
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
     <link rel="stylesheet" href="css/news.css">
     <link rel="stylesheet" href="css/news-mobile.css">
     <script>
@@ -42,15 +43,15 @@
             <div class="news-header">
                 <h2>📰 News Feeds</h2>
                 <div class="news-actions">
-                    <button id="refresh-news-btn" class="btn-primary"><i class="fas fa-sync"></i> Rafraîchir</button>
+                    <button id="refresh-news-btn" class="btn-primary"><i class="ph ph-arrows-clockwise"></i> Rafraîchir</button>
                     <button id="filter-my-assets-btn" class="btn-secondary" style="min-width: 150px;"><i
-                            class="fas fa-wallet"></i> Mes Actifs</button>
+                            class="ph ph-wallet"></i> Mes Actifs</button>
                     <select id="filter-feed-select"></select>
                 </div>
             </div>
 
             <div id="news-feed-container" class="news-grid">
-                <div class="loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement des actualités...</div>
+                <div class="loading"><i class="ph ph-circle-notch ph-spin"></i> Chargement des actualités...</div>
             </div>
         </div>
     </main>
@@ -68,10 +69,10 @@
                 <h3 id="modal-news-title" style="margin-bottom: 16px; line-height: 1.4;">Titre</h3>
 
                 <div class="ai-summary-header">
-                    <div class="news-ai-badge"><i class="fas fa-robot"></i> Résumé Gemini AI</div>
+                    <div class="news-ai-badge"><i class="ph ph-robot"></i> Résumé Gemini AI</div>
                     <button class="ai-context-btn" id="analyze-context-btn"
                         title="Pourquoi cette news est-elle importante ?">
-                        <i class="fas fa-question-circle"></i>
+                        <i class="ph ph-question"></i>
                     </button>
                 </div>
 
@@ -79,7 +80,7 @@
 
                 <div id="modal-news-context" class="news-context-box" style="display:none;">
                     <div class="context-header">
-                        <i class="fas fa-lightbulb context-icon"></i>
+                        <i class="ph ph-lightbulb context-icon"></i>
                         <span class="context-title">Pourquoi est-ce important pour mon portefeuille ?</span>
                     </div>
                     <div id="modal-context-content" class="context-content">

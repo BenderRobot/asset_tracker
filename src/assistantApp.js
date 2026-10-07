@@ -643,7 +643,7 @@ Titre:`;
                         <span class="conv-item-date">${formatConvDate(conv.updatedAt)} · ${preview}</span>
                     </button>
                     <button type="button" class="conv-item-delete" data-id="${conv.id}" title="Supprimer" aria-label="Supprimer">
-                        <i class="fas fa-trash-alt"></i>
+                        <i class="ph ph-trash"></i>
                     </button>
                 </li>
             `;
@@ -1518,7 +1518,7 @@ ${budgetText}
             speakButton.className = 'speak-message-btn';
             speakButton.title = 'Lire cette réponse à voix haute';
             speakButton.setAttribute('aria-label', 'Lire cette réponse à voix haute');
-            speakButton.innerHTML = '<i class="fas fa-volume-high" aria-hidden="true"></i><span>Lire</span>';
+            speakButton.innerHTML = '<i class="ph ph-speaker-high" aria-hidden="true"></i><span>Lire</span>';
             speakButton.addEventListener('click', () => this.toggleSpeech(speakButton, content));
             actions.appendChild(speakButton);
             contentDiv.appendChild(actions);
@@ -1596,7 +1596,7 @@ ${budgetText}
         const label = button.querySelector('span');
         const icon = button.querySelector('i');
         if (label) label.textContent = 'Lire';
-        if (icon) icon.className = 'fas fa-volume-high';
+        if (icon) icon.className = 'ph ph-speaker-high';
     }
 
     stopSpeech() {
@@ -1629,7 +1629,7 @@ ${budgetText}
         button.setAttribute('aria-label', 'Arrêter la lecture');
         button.title = 'Arrêter la lecture';
         button.querySelector('span').textContent = 'Arrêter';
-        button.querySelector('i').className = 'fas fa-stop';
+        button.querySelector('i').className = 'ph ph-stop';
 
         const finish = () => {
             if (this._speechUtterance !== utterance) return;
@@ -1685,7 +1685,7 @@ ${budgetText}
         button.title = listening ? 'Arrêter la dictée' : 'Dicter une question';
         button.setAttribute('aria-label', button.title);
         const icon = button.querySelector('i');
-        if (icon) icon.className = listening ? 'fas fa-stop' : 'fas fa-microphone';
+        if (icon) icon.className = listening ? 'ph ph-stop' : 'ph ph-microphone';
     }
 
     stopVoiceInput() {

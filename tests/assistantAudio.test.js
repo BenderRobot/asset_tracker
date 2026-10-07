@@ -21,7 +21,7 @@ describe('Assistant voice input', () => {
         window.webkitSpeechRecognition = RecognitionMock;
         document.body.innerHTML = `
             <textarea id="user-input"></textarea>
-            <button id="voice-input-btn"><i class="fas fa-microphone"></i></button>`;
+            <button id="voice-input-btn"><i class="ph ph-microphone"></i></button>`;
         const app = Object.create(AssistantApp.prototype);
         app._isListening = false;
         app._speechRecognition = null;

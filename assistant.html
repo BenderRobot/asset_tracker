@@ -20,7 +20,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 
     <script>
         // Anti-flash scripts
@@ -79,9 +80,9 @@
                 <div class="chat-toolbar">
                     <div class="conv-trigger-wrap" id="conv-trigger-wrap">
                         <button type="button" id="toggle-conv-panel" class="conv-trigger-btn">
-                            <i class="fas fa-comments"></i>
+                            <i class="ph ph-chats"></i>
                             <span class="conv-trigger-label">Conversations</span>
-                            <i class="fas fa-chevron-down conv-chevron"></i>
+                            <i class="ph ph-caret-down conv-chevron"></i>
                         </button>
 
                         <!-- Dropdown panel -->
@@ -89,7 +90,7 @@
                             <div class="conv-panel-header">
                                 <h2 class="conv-panel-title">Conversations</h2>
                                 <button type="button" id="new-conversation-btn" class="conv-btn-new">
-                                    <i class="fas fa-plus"></i> Nouvelle
+                                    <i class="ph ph-plus"></i> Nouvelle
                                 </button>
                             </div>
                             <ul id="conversations-list" class="conversations-list"></ul>
@@ -123,10 +124,10 @@
                             rows="1"></textarea>
                         <button type="button" id="voice-input-btn" class="voice-input-btn"
                             title="Dicter une question" aria-label="Dicter une question" aria-pressed="false">
-                            <i class="fas fa-microphone"></i>
+                            <i class="ph ph-microphone"></i>
                         </button>
                         <button id="send-btn" class="send-btn" title="Envoyer (Enter)">
-                            <i class="fas fa-paper-plane"></i>
+                            <i class="ph ph-paper-plane-tilt"></i>
                         </button>
                     </div>
                 </div>

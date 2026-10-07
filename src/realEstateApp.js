@@ -32,7 +32,7 @@ export class RealEstateApp {
         if (projects.length === 0) {
             document.getElementById('projects-container').innerHTML = `
                 <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-muted);">
-                    <i class="fas fa-building" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></i><br>
+                    <i class="ph ph-buildings" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></i><br>
                     Aucun projet immobilier trouvé.<br>
                     Ajoutez une transaction "Immobilier" pour commencer.
                 </div>`;
@@ -307,11 +307,11 @@ export class RealEstateApp {
         if (!residence) {
             container.innerHTML = `
                 <div style="text-align: center; padding: 60px 20px; background: var(--bg-secondary); border-radius: 12px; border: 2px dashed var(--border-color);">
-                    <i class="fas fa-home" style="font-size: 48px; color: var(--text-muted); margin-bottom: 16px;"></i>
+                    <i class="ph ph-house" style="font-size: 48px; color: var(--text-muted); margin-bottom: 16px;"></i>
                     <h3 style="margin: 0 0 8px 0; color: var(--text-primary);">Aucune résidence principale</h3>
                     <p style="color: var(--text-muted); margin-bottom: 24px;">Ajoutez votre résidence pour suivre votre patrimoine immobilier.</p>
                     <button class="btn-primary" onclick="window.realEstateApp.openPrimaryResidenceModal()">
-                        <i class="fas fa-plus"></i> Ajouter ma résidence
+                        <i class="ph ph-plus"></i> Ajouter ma résidence
                     </button>
                 </div>`;
             return;
@@ -337,7 +337,7 @@ export class RealEstateApp {
                         </div>
                     </div>
                     <button class="btn-secondary btn-sm" onclick="window.realEstateApp.openPrimaryResidenceModal()" style="padding: 6px 12px; font-size: 12px;">
-                        <i class="fas fa-edit"></i> Modifier
+                        <i class="ph ph-pencil-simple"></i> Modifier
                     </button>
                 </div>
                 
@@ -560,7 +560,7 @@ export class RealEstateApp {
                 <input type="date" class="form-input credit-start" value="${startDateVal}" required style="width: 100%;">
             </div>
             <button type="button" class="btn-icon-danger" onclick="document.getElementById('${rowId}').remove()" title="Supprimer" style="height: 42px; margin-top: auto;">
-                <i class="fas fa-trash"></i>
+                <i class="ph ph-trash"></i>
             </button>
         `;
 

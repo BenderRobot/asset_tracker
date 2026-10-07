@@ -24,7 +24,7 @@ describe('Dashboard Asset Allocation UI', () => {
         app.renderAllocation(holdings, 500);
 
         const text = document.getElementById('dashboard-allocation-container').textContent;
-        expect(text).toContain('Valeur actuelle · cash inclus');
+        expect(text).not.toContain('Valeur actuelle · cash inclus');
         expect(text).toContain('50.0%');
         expect(text).toContain('25.0%');
         expect(text).toContain('Cash');

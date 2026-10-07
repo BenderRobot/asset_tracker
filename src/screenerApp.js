@@ -79,7 +79,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'tech',
         label: 'Tech & IA',
-        icon: 'fa-microchip',
+        icon: 'ph-cpu',
         color: '#6366f1',
         assets: [
             { ticker: 'AAPL', name: 'Apple', domain: 'apple.com', emoji: '🍎', type: 'Action' },
@@ -101,7 +101,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'finance',
         label: 'Finance & Banques',
-        icon: 'fa-landmark',
+        icon: 'ph-bank',
         color: '#10b981',
         assets: [
             { ticker: 'BRK-B', name: 'Berkshire H.', domain: 'berkshirehathaway.com', emoji: '🏰', type: 'Action' },
@@ -119,7 +119,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'sante',
         label: 'Santé & Pharma',
-        icon: 'fa-heart-pulse',
+        icon: 'ph-heartbeat',
         color: '#ec4899',
         assets: [
             { ticker: 'LLY', name: 'Eli Lilly', domain: 'lilly.com', emoji: '💉', type: 'Action' },
@@ -136,7 +136,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'conso',
         label: 'Consommation & Retail',
-        icon: 'fa-bag-shopping',
+        icon: 'ph-shopping-bag',
         color: '#f59e0b',
         assets: [
             { ticker: 'WMT', name: 'Walmart', domain: 'walmart.com', emoji: '🛒', type: 'Action' },
@@ -154,7 +154,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'media',
         label: 'Médias & Divertissement',
-        icon: 'fa-film',
+        icon: 'ph-film-strip',
         color: '#8b5cf6',
         assets: [
             { ticker: 'NFLX', name: 'Netflix', domain: 'netflix.com', emoji: '📺', type: 'Action' },
@@ -168,7 +168,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'energie',
         label: 'Énergie & Matières premières',
-        icon: 'fa-bolt',
+        icon: 'ph-lightning',
         color: '#f97316',
         assets: [
             { ticker: 'XOM', name: 'ExxonMobil', domain: 'exxonmobil.com', emoji: '⛽', type: 'Action' },
@@ -184,7 +184,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'cac40',
         label: 'CAC 40 — France',
-        icon: 'fa-flag',
+        icon: 'ph-flag',
         color: '#3b82f6',
         assets: [
             { ticker: 'MC.PA', name: 'LVMH', domain: 'lvmh.com', emoji: '💎', type: 'Action' },
@@ -204,7 +204,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'europe',
         label: 'Europe hors France',
-        icon: 'fa-earth-europe',
+        icon: 'ph-globe-hemisphere-west',
         color: '#06b6d4',
         assets: [
             { ticker: 'NESN.SW', name: 'Nestlé', domain: 'nestle.com', emoji: '🍫', type: 'Action' },
@@ -221,7 +221,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'asie',
         label: 'Asie & Marchés émergents',
-        icon: 'fa-earth-asia',
+        icon: 'ph-globe-hemisphere-east',
         color: '#ef4444',
         assets: [
             { ticker: 'TM', name: 'Toyota', domain: 'toyota.com', emoji: '🚗', type: 'Action' },
@@ -237,7 +237,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'etf',
         label: 'ETF & Indices',
-        icon: 'fa-chart-pie',
+        icon: 'ph-chart-pie-slice',
         color: '#a855f7',
         assets: [
             { ticker: 'SPY', name: 'S&P 500 ETF', domain: 'ssga.com', emoji: '🇺🇸', type: 'ETF' },
@@ -255,7 +255,7 @@ const POPULAR_ASSET_GROUPS = [
     {
         id: 'crypto',
         label: 'Crypto-monnaies',
-        icon: 'fa-bitcoin-sign',
+        icon: 'ph-currency-btc',
         color: '#f59e0b',
         assets: [
             { ticker: 'BTC-USD', name: 'Bitcoin', domain: 'bitcoin.org', emoji: '₿', type: 'Crypto' },
@@ -531,7 +531,7 @@ class ScreenerApp {
                 <div class="popular-group">
                     <div class="popular-group-header">
                         <span class="popular-group-icon" style="color:${group.color}">
-                            <i class="fas ${group.icon}"></i>
+                            <i class="ph ${group.icon}"></i>
                         </span>
                         <span class="popular-group-label">${group.label}</span>
                         <span class="popular-group-count">${group.assets.length}</span>
@@ -892,13 +892,13 @@ class ScreenerApp {
 
         const inWatchlist = this.storage.isInWatchlist(this.currentSymbol);
         if (inWatchlist) {
-            btn.innerHTML = `<i class="fas fa-check"></i> Dans la watchlist`;
+            btn.innerHTML = `<i class="ph ph-check"></i> Dans la watchlist`;
             btn.classList.add('active-watchlist');
             btn.style.background = 'var(--bg-card)';
             btn.style.color = '#10b981';
             btn.style.border = '1px solid #10b981';
         } else {
-            btn.innerHTML = `<i class="fas fa-eye"></i> Ajouter à la Watchlist`;
+            btn.innerHTML = `<i class="ph ph-eye"></i> Ajouter à la Watchlist`;
             btn.classList.remove('active-watchlist');
             btn.style.background = '';
             btn.style.color = '';
@@ -1352,10 +1352,10 @@ class ScreenerApp {
         const divBadge = document.getElementById('info-div-badge');
         if (hasDiv) {
             divBadge.className = 'info-badge badge-green';
-            divBadge.innerHTML = '<i class="fas fa-check-circle"></i> Dividende : Oui';
+            divBadge.innerHTML = '<i class="ph ph-check-circle"></i> Dividende : Oui';
         } else {
             divBadge.className = 'info-badge badge-red';
-            divBadge.innerHTML = '<i class="fas fa-times-circle"></i> Dividende : Non';
+            divBadge.innerHTML = '<i class="ph ph-x-circle"></i> Dividende : Non';
         }
     }
 
@@ -2317,7 +2317,7 @@ class ScreenerApp {
         const changeEl = document.getElementById('kpi-modal-change');
         const up = (changePct ?? 0) >= 0;
         changeEl.innerHTML = changePct != null
-            ? `<i class="fas fa-arrow-${up ? 'up' : 'down'}"></i> ${up ? '+' : ''}${(changePct * 100).toFixed(2)}%`
+            ? `<i class="ph ph-arrow-${up ? 'up' : 'down'}"></i> ${up ? '+' : ''}${(changePct * 100).toFixed(2)}%`
             : '—';
         changeEl.className = 'kpi-modal-change ' + (up ? 'positive' : 'negative');
         document.getElementById('kpi-modal-ticker').textContent = price.exchangeName

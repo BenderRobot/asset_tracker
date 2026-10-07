@@ -21,7 +21,7 @@ async function analyze() {
 
   btn.disabled = true;
   outputEl.style.display = 'block';
-  outputEl.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Analyse de tes dépenses en cours…</div>';
+  outputEl.innerHTML = '<div class="empty-state"><i class="ph ph-spinner-gap ph-spin"></i> Analyse de tes dépenses en cours…</div>';
 
   try {
     const ctx = await buildExpensesContext(user.uid);

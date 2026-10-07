@@ -43,7 +43,7 @@ const html = document.documentElement;
 
 if (sidebar && toggleBtn) {
     function updateUI(isCollapsed) {
-        if (icon) icon.className = isCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left';
+        if (icon) icon.className = isCollapsed ? 'ph ph-caret-right' : 'ph ph-caret-left';
     }
 
     function toggleSidebar() {
@@ -132,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Bouton déconnexion
             authBtn.innerHTML = `
-                <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
+                <div class="nav-icon"><i class="ph ph-sign-out"></i></div>
                 <span class="nav-text">Déconnexion</span>
             `;
             const newBtn = authBtn.cloneNode(true);
@@ -166,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.removeItem('userModules');
             localStorage.removeItem('userBrokers');
             authBtn.innerHTML = `
-                <div class="nav-icon"><i class="fas fa-sign-in-alt"></i></div>
+                <div class="nav-icon"><i class="ph ph-sign-in"></i></div>
                 <span class="nav-text">Connexion</span>
             `;
             authBtn.href = 'login.html';

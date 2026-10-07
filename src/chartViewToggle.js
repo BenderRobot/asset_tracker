@@ -19,7 +19,7 @@ const VIEW_TOGGLE_OPTIONS = {
     ],
     asset: [
         { view: 'global', label: '€', title: 'Valeur de la position (€)' },
-        { view: 'unit', icon: 'fa-tag', title: 'Prix unitaire' }
+        { view: 'unit', icon: 'ph-tag', title: 'Prix unitaire' }
     ]
 };
 
@@ -30,7 +30,7 @@ export function mountViewToggle(container, mode, onChange) {
 
     container.dataset.mode = mode;
     container.innerHTML = `<div class="toggle-group view-switch" role="group" aria-label="Mode d'affichage">${options.map(o => `
-        <button type="button" class="toggle-btn" data-view="${o.view}" title="${o.title}" aria-label="${o.title}">${o.icon ? `<i class="fa-solid ${o.icon}" aria-hidden="true"></i>` : o.label}</button>`).join('')}
+        <button type="button" class="toggle-btn" data-view="${o.view}" title="${o.title}" aria-label="${o.title}">${o.icon ? `<i class="ph ${o.icon}" aria-hidden="true"></i>` : o.label}</button>`).join('')}
     </div>`;
 
     const group = container.firstElementChild;

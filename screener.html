@@ -20,7 +20,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 
     <script>
         if (localStorage.getItem('sidebarState') === 'true') {
@@ -50,12 +51,12 @@
             <!-- SEARCH BAR -->
             <div class="screener-search-section">
                 <div class="screener-search-bar">
-                    <i class="fas fa-search screener-search-icon"></i>
+                    <i class="ph ph-magnifying-glass screener-search-icon"></i>
                     <input type="text" id="screener-search-input"
                         placeholder="Rechercher une action… ex: AAPL, NVIDIA, TotalEnergies" autocomplete="off"
                         spellcheck="false" role="combobox" aria-label="Rechercher un actif" aria-autocomplete="list" aria-controls="screener-suggestions" aria-expanded="false">
                     <button id="screener-search-clear" class="screener-clear-btn" style="display:none" aria-label="Effacer la recherche" title="Effacer la recherche"><i
-                            class="fas fa-times"></i></button>
+                            class="ph ph-x"></i></button>
                 </div>
                 <div id="screener-suggestions" class="screener-suggestions" role="listbox" aria-label="Suggestions d’actifs"></div>
                 <div id="screener-search-status" class="sr-only" role="status" aria-live="polite"></div>
@@ -71,7 +72,7 @@
                 <!-- Popular Assets Grid -->
                 <div class="popular-assets-section">
                     <div class="popular-assets-header">
-                        <span class="popular-assets-label"><i class="fas fa-fire"></i> Actifs populaires</span>
+                        <span class="popular-assets-label"><i class="ph ph-fire"></i> Actifs populaires</span>
                     </div>
                     <div class="popular-assets-grid" id="popular-assets-grid">
                         <!-- Populated by JS -->
@@ -87,7 +88,7 @@
 
             <!-- ERROR STATE -->
             <div id="screener-error" class="screener-error" style="display:none">
-                <i class="fas fa-exclamation-triangle"></i>
+                <i class="ph ph-warning"></i>
                 <p id="screener-error-msg">Impossible de charger les données.</p>
             </div>
 
@@ -124,7 +125,7 @@
                         </div>
                         <button id="screener-watchlist-btn" class="btn-add-portfolio"
                             style="cursor:pointer;border:none;font-family:inherit;">
-                            <i class="fas fa-eye"></i> Ajouter à la Watchlist
+                            <i class="ph ph-eye"></i> Ajouter à la Watchlist
                         </button>
                     </div>
                 </div>
@@ -162,7 +163,7 @@
                                     <button class="period-btn" data-period="5y">5A</button>
                                 </div>
                                 <button class="kpi-expand-btn" data-kpi="price" title="Voir les détails">
-                                    <i class="fas fa-expand-alt"></i>
+                                    <i class="ph ph-arrows-out-simple"></i>
                                 </button>
                             </div>
                             <div class="chart-container">
@@ -187,7 +188,7 @@
                             <div class="screener-card-header">
                                 <span id="regression-card-title" class="card-title">Tendance semi-log</span>
                                 <button class="kpi-expand-btn" data-kpi="regression" title="Voir les détails">
-                                    <i class="fas fa-expand-alt"></i>
+                                    <i class="ph ph-arrows-out-simple"></i>
                                 </button>
                             </div>
                             <div class="chart-container">
@@ -212,7 +213,7 @@
                             <div class="screener-card-header">
                                 <span class="card-title">Comparaison S&P 500</span>
                                 <button class="kpi-expand-btn" data-kpi="sp500" title="Voir les détails">
-                                    <i class="fas fa-expand-alt"></i>
+                                    <i class="ph ph-arrows-out-simple"></i>
                                 </button>
                             </div>
                             <div class="chart-container">
@@ -273,7 +274,7 @@
                                 <span class="card-title">Score quantitatif interne</span>
                                 <div id="radar-score-badge" class="score-mini-badge">—/20</div>
                                 <button class="kpi-expand-btn" data-kpi="radar" title="Voir la méthode du score interne" aria-label="Voir la méthode du score interne">
-                                    <i class="fas fa-expand-alt"></i>
+                                    <i class="ph ph-arrows-out-simple"></i>
                                 </button>
                             </div>
                             <div class="radar-container">
@@ -289,7 +290,7 @@
                                 <span class="card-title">Valorisation</span>
                                 <span id="valuation-diff" class="valuation-diff">—</span>
                                 <button class="kpi-expand-btn" data-kpi="valuation" title="Voir les détails">
-                                    <i class="fas fa-expand-alt"></i>
+                                    <i class="ph ph-arrows-out-simple"></i>
                                 </button>
                             </div>
                             <div class="valuation-list" id="valuation-list">
@@ -516,7 +517,7 @@
                                     <button type="button" class="fin-view-btn" data-fin-view="change" aria-pressed="false">Variation annuelle</button>
                                     <button type="button" class="fin-view-btn" data-fin-view="common" aria-pressed="false">Structure (%)</button>
                                 </div>
-                                <button type="button" id="finances-export-csv" class="fin-export-btn"><i class="fas fa-download" aria-hidden="true"></i> Exporter CSV</button>
+                                <button type="button" id="finances-export-csv" class="fin-export-btn"><i class="ph ph-download-simple" aria-hidden="true"></i> Exporter CSV</button>
                             </div>
                         </div>
                         <p id="finances-meta" class="finances-meta"></p>
@@ -560,7 +561,7 @@
                                     <div class="custom-select" id="val-tab-metric-wrapper">
                                         <button type="button" class="custom-select-trigger" id="val-tab-metric-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="val-tab-metric-options">
                                             <span id="val-tab-metric-label">FCF/Actions</span>
-                                            <i class="fas fa-chevron-down custom-select-arrow"></i>
+                                            <i class="ph ph-caret-down custom-select-arrow"></i>
                                         </button>
                                         <div class="custom-select-options" id="val-tab-metric-options">
                                             <div class="custom-select-option selected" data-value="fcf">FCF/Actions
@@ -594,10 +595,10 @@
                                 </div>
                                 <div class="kpi-val-actions">
                                     <button class="kpi-val-btn kpi-val-btn-primary" id="val-tab-recalc">
-                                        <i class="fas fa-chart-line"></i> Recalculer
+                                        <i class="ph ph-chart-line"></i> Recalculer
                                     </button>
                                     <button class="kpi-val-btn kpi-val-btn-ghost" id="val-tab-reset">
-                                        <i class="fas fa-undo"></i> Réinitialiser
+                                        <i class="ph ph-arrow-counter-clockwise"></i> Réinitialiser
                                     </button>
                                 </div>
                             </div>
@@ -747,7 +748,7 @@
                 <div class="kpi-modal-sidebar-header">
                     <h3 id="kpi-modal-title">Paramètres</h3>
                     <button class="kpi-modal-close" id="kpi-modal-close" aria-label="Fermer la fenêtre d’analyse" title="Fermer">
-                        <i class="fas fa-times"></i>
+                        <i class="ph ph-x"></i>
                     </button>
                 </div>
 
@@ -767,7 +768,7 @@
                             <input type="checkbox" id="kpi-show-fair-price">
                             <span class="checkbox-custom"></span>
                             <span>Afficher la tendance long terme</span>
-                            <i class="fas fa-circle-info info-icon"
+                            <i class="ph ph-info info-icon"
                                 title="Valeur actuelle de la régression semi-log sur tout l'historique mensuel du cours"></i>
                         </label>
                     </div>
@@ -777,7 +778,7 @@
                         <div class="custom-select" id="kpi-currency-select-wrapper">
                             <button type="button" class="custom-select-trigger" id="kpi-currency-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="kpi-currency-options">
                                 <span id="kpi-currency-label">—</span>
-                                <i class="fas fa-chevron-down custom-select-arrow"></i>
+                                <i class="ph ph-caret-down custom-select-arrow"></i>
                             </button>
                             <div class="custom-select-options" id="kpi-currency-options">
                                 <div class="custom-select-option selected" data-value="NATIVE">Devise de cotation</div>
@@ -796,7 +797,7 @@
                             <div class="custom-select" id="kpi-reg-model-wrapper">
                                 <button type="button" class="custom-select-trigger" id="kpi-reg-model-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="kpi-reg-model-options">
                                     <span id="kpi-reg-model-label">Semi-Log (exponentiel)</span>
-                                    <i class="fas fa-chevron-down custom-select-arrow"></i>
+                                    <i class="ph ph-caret-down custom-select-arrow"></i>
                                 </button>
                                 <div class="custom-select-options" id="kpi-reg-model-options" style="display:none;">
                                     <div class="custom-select-option selected" data-value="semilog">Semi-Log
@@ -835,7 +836,7 @@
                             <div class="custom-select" id="kpi-comp-benchmark-wrapper">
                                 <button type="button" class="custom-select-trigger" id="kpi-comp-benchmark-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="kpi-comp-benchmark-options">
                                     <span id="kpi-comp-benchmark-label">S&P 500</span>
-                                    <i class="fas fa-chevron-down custom-select-arrow"></i>
+                                    <i class="ph ph-caret-down custom-select-arrow"></i>
                                 </button>
                                 <div class="custom-select-options" id="kpi-comp-benchmark-options"
                                     style="display:none;">
@@ -860,7 +861,7 @@
                             <div class="custom-select" id="kpi-val-metric-wrapper">
                                 <button type="button" class="custom-select-trigger" id="kpi-val-metric-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="kpi-val-metric-options">
                                     <span id="kpi-val-metric-label">FCF/Actions</span>
-                                    <i class="fas fa-chevron-down custom-select-arrow"></i>
+                                    <i class="ph ph-caret-down custom-select-arrow"></i>
                                 </button>
                                 <div class="custom-select-options" id="kpi-val-metric-options">
                                     <div class="custom-select-option selected" data-value="fcf">FCF/Actions</div>
@@ -894,10 +895,10 @@
                         </div>
                         <div class="kpi-val-actions">
                             <button class="kpi-val-btn kpi-val-btn-primary" id="kpi-val-recalc">
-                                <i class="fas fa-chart-line"></i> Recalculer
+                                <i class="ph ph-chart-line"></i> Recalculer
                             </button>
                             <button class="kpi-val-btn kpi-val-btn-ghost" id="kpi-val-reset">
-                                <i class="fas fa-undo"></i> Réinitialiser
+                                <i class="ph ph-arrow-counter-clockwise"></i> Réinitialiser
                             </button>
                         </div>
                     </div>

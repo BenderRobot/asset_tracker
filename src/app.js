@@ -254,7 +254,7 @@ class App {
     const wrapper = document.getElementById('add-transaction-wrapper');
     if (!toggleBtn || !wrapper) return;
 
-    toggleBtn.innerHTML = '<i class="fas fa-plus"></i> Add';
+    toggleBtn.innerHTML = '<i class="ph ph-plus"></i> Add';
 
     toggleBtn.addEventListener('click', () => {
       const isExpanded = wrapper.classList.toggle('expanded');
@@ -267,11 +267,11 @@ class App {
       if (isExpanded) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
         toggleBtn.textContent = ' Close';
-        icon.className = 'fas fa-times';
+        icon.className = 'ph ph-x';
         toggleBtn.prepend(icon);
       } else {
         toggleBtn.textContent = ' Add';
-        icon.className = 'fas fa-plus';
+        icon.className = 'ph ph-plus';
         toggleBtn.prepend(icon);
       }
     });
@@ -839,7 +839,7 @@ class App {
     try {
       if (importBtn) {
         importBtn.disabled = true;
-        importBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Import...';
+        importBtn.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> Import...';
       }
 
       const text = await file.text();

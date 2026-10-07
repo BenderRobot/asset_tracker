@@ -146,10 +146,10 @@ export class AchatsPage {
             <td>-</td> 
             <td>-</td> 
             <td class="action-cell">
-              <div class="action-trigger" data-key="${key}"><i class="fas fa-ellipsis-v"></i></div>
+              <div class="action-trigger" data-key="${key}"><i class="ph ph-dots-three-vertical"></i></div>
               <div class="action-bubble" id="bubble-${key}">
-                  <button class="bubble-btn edit-btn" data-action="edit" data-key="${key}" title="Modifier"><i class="fas fa-edit"></i></button>
-                  <button class="bubble-btn delete-btn" data-action="delete" data-key="${key}" title="Supprimer"><i class="fas fa-trash-alt"></i></button>
+                  <button class="bubble-btn edit-btn" data-action="edit" data-key="${key}" title="Modifier"><i class="ph ph-pencil-simple"></i></button>
+                  <button class="bubble-btn delete-btn" data-action="delete" data-key="${key}" title="Supprimer"><i class="ph ph-trash"></i></button>
               </div>
             </td>
           </tr>
@@ -179,14 +179,14 @@ export class AchatsPage {
           <td>${formatCurrency(p.currentValueEUR, 'EUR')}</td>
           <td class="action-cell">
             <div class="action-trigger" data-key="${key}">
-              <i class="fas fa-ellipsis-v"></i>
+              <i class="ph ph-dots-three-vertical"></i>
             </div>
             <div class="action-bubble" id="bubble-${key}">
               <button class="bubble-btn edit-btn" data-action="edit" data-key="${key}" title="Modifier">
-                <i class="fas fa-edit"></i>
+                <i class="ph ph-pencil-simple"></i>
               </button>
               <button class="bubble-btn delete-btn" data-action="delete" data-key="${key}" title="Supprimer">
-                <i class="fas fa-trash-alt"></i>
+                <i class="ph ph-trash"></i>
               </button>
             </div>
           </td>
@@ -755,10 +755,10 @@ export class AchatsPage {
                         </div>
                         <div class="detail-actions">
                              <button class="mobile-action-btn edit" data-key="${key}">
-                                <i class="fas fa-edit"></i> Modifier
+                                <i class="ph ph-pencil-simple"></i> Modifier
                              </button>
                              <button class="mobile-action-btn delete" data-key="${key}">
-                                <i class="fas fa-trash-alt"></i> Supprimer
+                                <i class="ph ph-trash"></i> Supprimer
                              </button>
                         </div>
                     </div>

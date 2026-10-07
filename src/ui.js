@@ -124,7 +124,7 @@ export class UIComponents {
             <div class="kpi-modal-box" style="max-width:460px;">
                 <div class="kpi-modal-header">
                     <div style="display:flex;align-items:center;gap:10px;">
-                        <i class="fas fa-wallet" style="font-size:15px;color:#3b82f6;"></i>
+                        <i class="ph ph-wallet" style="font-size:15px;color:#3b82f6;"></i>
                         <h3>Détail — Total Value</h3>
                     </div>
                     <button class="kpi-modal-close" id="close-total-value-modal">&times;</button>

@@ -281,12 +281,18 @@ describe('ATH line visibility when enabled', () => {
         expect(context.fillText.mock.calls[0][0]).not.toContain('▲');
     });
 
-    it('also draws a distant ATH when the reference is enabled', () => {
+    it('a distant ATH keeps the curve scale and only shows the ▲ badge (issue #16)', () => {
         const config = draw([0, -0.01, 0.03], 2.5, 0.04);
-        expect(config.options.scales.y.suggestedMax).toBeGreaterThan(2.5);
-        expect(context.setLineDash).toHaveBeenCalledWith([4, 5]);
-        expect(context.moveTo).toHaveBeenCalled();
-        expect(context.fillText.mock.calls[0][0]).not.toContain('▲');
+        expect(config.options.scales.y.suggestedMax).toBeUndefined();
+        expect(context.moveTo).not.toHaveBeenCalled();
+        expect(context.fillText.mock.calls[0][0]).toBe('▲ ATH +2.5%');
+    });
+
+    it('the reported 1D view: +0.26% ATH over a 0 → -0.16% curve is not drawn as a line', () => {
+        const config = draw([0, 0.01, -0.16, -0.10], 0.26, 0.05);
+        expect(config.options.scales.y.suggestedMax).toBeUndefined();
+        expect(context.moveTo).not.toHaveBeenCalled();
+        expect(context.fillText.mock.calls[0][0]).toContain('▲');
     });
 
     it('includes the ATH even when all visible observations are identical', () => {
@@ -621,7 +627,7 @@ describe('HistoricalChart ATH line', () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
-    it('the reported 1J chart aligns its ATH amount, date and line with Haut', () => {
+    it('the portfolio 1J ATH follows the TWR peak, not the Total Value high', () => {
         const chart = makeChart();
         chart.currentPeriod = 1;
         chart.includeDividends = true;
@@ -640,9 +646,10 @@ describe('HistoricalChart ATH line', () => {
         const key = chart._historyKey(source.scope, source.purchases, 'all');
         expect(chart._commitHistory(key, all, 'all')).toBe(true);
         render(chart, graphData, source);
-        expect(athArg(chart)).toMatchObject({ value: expect.closeTo(0.3, 8),
-            details: { totalValue: 37715.93, timestamp: timestamps[1], atAth: false,
-                fromAthPct: expect.closeTo((37714.86 / 37715.93 - 1) * 100, 8) } });
+        // The provisional daily point (TWR 1.304) beats the visible 1.003 peak.
+        expect(athArg(chart)).toMatchObject({ value: expect.closeTo((1.304 / 1.3 - 1) * 100, 8),
+            details: { totalValue: 37709.73, timestamp: timestamps[1] } });
+        expect(athArg(chart).details.fromAthPct).toBeLessThan(0);
         chart.destroy();
     });
 
@@ -764,8 +771,9 @@ describe('HistoricalChart ATH line', () => {
         await vi.waitFor(() => expect(chart.update).toHaveBeenCalledWith(false, false));
 
         render(chart, graph(), source);
-        // The visible 150 € high beats the 120 € all-time close, at +50%.
-        expect(athArg(chart).value).toBeCloseTo(50, 8);
+        // The all-time TWR peak (2.0) is the ATH, not the visible 150 € high
+        // reached with contributions: +100% in the rebased frame.
+        expect(athArg(chart).value).toBeCloseTo(100, 8);
         expect(producer).toHaveBeenCalledTimes(1);
     });
 
@@ -842,7 +850,7 @@ describe('HistoricalChart ATH line', () => {
         await vi.waitFor(() => expect(chart._athPending.size).toBe(0));
 
         render(chart, graph(), source);
-        expect(athArg(chart).value).toBeCloseTo(50, 8);
+        expect(athArg(chart).value).toBeCloseTo(100, 8);
         expect(chart.update).not.toHaveBeenCalled();
         expect(producer).toHaveBeenCalledTimes(1);
     });

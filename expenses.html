@@ -21,7 +21,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -271,7 +272,7 @@
 
             <div class="expenses-header-row">
                 <h1 style="margin: 0;">
-                    <i class="fas fa-wallet" style="color: var(--accent-blue);"></i> Dépenses
+                    <i class="ph ph-wallet" style="color: var(--accent-blue);"></i> Dépenses
                 </h1>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <select id="expenses-bank-select" class="expenses-select">
@@ -297,7 +298,7 @@
                     Connecte une banque pour voir tes revenus et dépenses ici.
                 </p>
                 <a href="settings.html#banks" class="btn btn-primary" style="text-decoration:none;">
-                    <i class="fas fa-university"></i> Connecter ma banque
+                    <i class="ph ph-bank"></i> Connecter ma banque
                 </a>
             </div>
 
@@ -320,12 +321,12 @@
 
                 <div class="expenses-two-col" style="margin-bottom: 20px; align-items: start; grid-template-columns: 1fr 1fr;">
                     <div class="settings-section" style="margin-bottom: 0;">
-                        <h3><i class="fas fa-arrow-trend-down" style="color: var(--accent-red);"></i> Charges fixes</h3>
+                        <h3><i class="ph ph-trend-down" style="color: var(--accent-red);"></i> Charges fixes</h3>
                         <div id="expenses-kpi-fixed-charges" class="summary-card-value" style="color: var(--accent-red); font-size: 22px; margin-bottom: 14px;">€0.00 / €0.00</div>
                         <div id="expenses-recurring-list-charges"></div>
                     </div>
                     <div class="settings-section" style="margin-bottom: 0;">
-                        <h3><i class="fas fa-arrow-trend-up" style="color: var(--accent-green);"></i> Revenus fixes</h3>
+                        <h3><i class="ph ph-trend-up" style="color: var(--accent-green);"></i> Revenus fixes</h3>
                         <div id="expenses-kpi-fixed-income" class="summary-card-value" style="color: var(--accent-green); font-size: 22px; margin-bottom: 14px;">€0.00 / €0.00</div>
                         <div id="expenses-recurring-list-income"></div>
                     </div>
@@ -344,13 +345,13 @@
                     </div>
 
                     <div class="kpi-card" style="height: 320px; overflow-y: auto;">
-                        <div class="kpi-header"><span class="kpi-label">Répartition des dépenses</span><i class="fas fa-chart-pie kpi-icon"></i></div>
+                        <div class="kpi-header"><span class="kpi-label">Répartition des dépenses</span><i class="ph ph-chart-pie-slice kpi-icon"></i></div>
                         <div id="expenses-category-breakdown"></div>
                     </div>
                 </div>
 
                 <div class="settings-section">
-                    <h3><i class="fas fa-list" style="color: var(--accent-blue);"></i> Transactions</h3>
+                    <h3><i class="ph ph-list-bullets" style="color: var(--accent-blue);"></i> Transactions</h3>
                     <div class="expenses-filter-row">
                         <input type="text" id="expenses-search" class="expenses-search-input" placeholder="🔍 Rechercher un commerçant...">
                         <select id="expenses-category-select" class="expenses-select">
@@ -361,13 +362,13 @@
                 </div>
 
                 <div class="settings-section">
-                    <h3><i class="fas fa-robot" style="color: var(--accent-blue);"></i> Optimiser mon cashflow</h3>
+                    <h3><i class="ph ph-robot" style="color: var(--accent-blue);"></i> Optimiser mon cashflow</h3>
                     <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 14px;">
                         Analyse par IA de tes revenus, charges fixes et dépenses par catégorie pour estimer
                         combien tu pourrais dégager chaque mois à investir en bourse.
                     </p>
                     <button id="expenses-ai-analyze-btn" class="btn btn-primary" style="margin-bottom: 14px;">
-                        <i class="fas fa-wand-magic-sparkles"></i> Analyser mes dépenses
+                        <i class="ph ph-magic-wand"></i> Analyser mes dépenses
                     </button>
                     <div id="expenses-ai-report" style="display:none; line-height: 1.7; font-size: 14px;"></div>
                 </div>

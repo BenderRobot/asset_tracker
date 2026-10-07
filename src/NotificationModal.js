@@ -174,7 +174,7 @@ export class NotificationModal {
                     <strong>${rule.asset}</strong>: ${metricText} ${conditionSymbol} ${valueText}
                 </div>
                 <button class="delete-rule-btn" data-id="${rule.id}" style="background: none; border: none; color: var(--danger-color); cursor: pointer;">
-                    <i class="fas fa-trash"></i>
+                    <i class="ph ph-trash"></i>
                 </button>
             `;
 

@@ -6,7 +6,7 @@ import { PriceAPI } from './api.js';
 import { DataManager } from './dataManager.js';
 import { fetchGeminiSummary, fetchGeminiContext } from './geminiService.js';
 import { getAuthHeader } from './authFetchHeaders.js';
-import { buildNewsHoldingDetails } from './newsHoldingMatcher.js';
+import { buildNewsHoldingDetails, getHeldAssetNames } from './newsHoldingMatcher.js';
 import { buildWatchlistContext } from './watchlistContext.js';
 
 // Même proxy que dashboardApp.js — fonctionne avec timeout 30s
@@ -125,7 +125,7 @@ export class NewsApp {
         const total = this.feeds.length;
         let loaded = 0;
 
-        container.innerHTML = `<div class="loading"><i class="fas fa-circle-notch fa-spin"></i><br>Chargement... <span id="feed-progress">0/${total}</span> flux</div>`;
+        container.innerHTML = `<div class="loading"><i class="ph ph-circle-notch ph-spin"></i><br>Chargement... <span id="feed-progress">0/${total}</span> flux</div>`;
 
         const updateProgress = () => {
             loaded++;
@@ -159,9 +159,7 @@ export class NewsApp {
     }
 
     getUniqueAssetNames() {
-        const purchases = this.storage.getPurchases();
-        const uniqueNames = [...new Set(purchases.filter(p => p.assetType !== 'Cash').map(p => p.name))];
-        return uniqueNames.filter(name => name.trim().length > 0);
+        return getHeldAssetNames(this.storage.getPurchases());
     }
 
     getColorForSource(sourceName) {
@@ -210,8 +208,8 @@ export class NewsApp {
                 </div>
                 <h3 class="news-card-title">${this.escapeHtml(n.title)}</h3>
                 <div class="news-card-footer">
-                    <span><i class="fas fa-clock"></i> ${n.formattedDate}</span>
-                    <i class="fas fa-external-link-alt"></i>
+                    <span><i class="ph ph-clock"></i> ${n.formattedDate}</span>
+                    <i class="ph ph-arrow-square-out"></i>
                 </div>
             </a>`;
         }).join('');

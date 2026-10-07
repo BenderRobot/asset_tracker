@@ -21,7 +21,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
   <script>
     // Script Anti-Flash : Applique l'état réduit avant le rendu visuel
     if (localStorage.getItem('sidebarState') === 'true') {
@@ -55,16 +56,16 @@
         <div class="add-transaction-card">
           <div class="tabs-header">
             <button class="tab-btn active" data-tab="asset">
-              <i class="fas fa-chart-line tab-icon"></i> Actif
+              <i class="ph ph-chart-line tab-icon"></i> Actif
             </button>
             <button class="tab-btn" data-tab="cash">
-              <i class="fas fa-wallet tab-icon"></i> Cash
+              <i class="ph ph-wallet tab-icon"></i> Cash
             </button>
             <button class="tab-btn" data-tab="dividend">
-              <i class="fas fa-coins tab-icon"></i> Dividende
+              <i class="ph ph-coins tab-icon"></i> Dividende
             </button>
             <button class="tab-btn" data-tab="data">
-              <i class="fas fa-database tab-icon"></i> Données
+              <i class="ph ph-database tab-icon"></i> Données
             </button>
           </div>
 
@@ -179,17 +180,17 @@
               <div class="file-input-group">
                 <input type="file" id="csv-file" accept=".csv" hidden>
                 <button type="button" id="choose-file-btn" class="btn-secondary">
-                  <i class="fas fa-folder-open"></i> Choisir CSV
+                  <i class="ph ph-folder-open"></i> Choisir CSV
                 </button>
                 <span id="file-name" class="file-name">Aucun fichier choisi</span>
               </div>
 
               <button id="import-csv" class="btn-primary btn-import">
-                <i class="fas fa-upload"></i> Importer
+                <i class="ph ph-upload-simple"></i> Importer
               </button>
 
               <button id="export-csv" class="btn-secondary btn-export">
-                <i class="fas fa-download"></i> Exporter CSV
+                <i class="ph ph-download-simple"></i> Exporter CSV
               </button>
             </div>
           </div>
@@ -201,10 +202,10 @@
         <h2>📋 All Transactions</h2>
         <div class="header-buttons" style="position: relative;">
           <button id="scan-dividends-btn" class="btn-secondary" style="margin-right: 8px;">
-            <i class="fas fa-search-dollar"></i> Scan Dividends
+            <i class="ph ph-magnifying-glass-plus"></i> Scan Dividends
           </button>
           <button id="toggle-add-btn" class="btn-primary">
-            <i class="fas fa-plus"></i> Add
+            <i class="ph ph-plus"></i> Add
           </button>
           <!-- Bulle onboarding — pointe vers le bouton Add -->
           <div id="add-hint-bubble" style="
@@ -249,7 +250,7 @@
       <div class="modal-overlay" id="scan-loading-modal" style="display:none;">
         <div class="modal-content" style="max-width:380px;text-align:center;padding:44px 32px;">
           <div style="margin-bottom:20px;">
-            <i class="fas fa-search-dollar fa-spin" style="font-size:42px;color:var(--accent-blue);"></i>
+            <i class="ph ph-magnifying-glass-plus ph-spin" style="font-size:42px;color:var(--accent-blue);"></i>
           </div>
           <h3 style="margin:0 0 10px;font-size:17px;font-weight:600;">Scan en cours...</h3>
           <p style="color:var(--text-muted);font-size:13px;margin:0;line-height:1.6;">
@@ -314,7 +315,7 @@
           </select>
 
           <button id="clear-filters" class="btn-secondary" title="Clear Filters" style="margin-left: auto;">
-            <i class="fas fa-times"></i>
+            <i class="ph ph-x"></i>
           </button>
         </div>
       </div>
@@ -376,33 +377,33 @@
         <form id="edit-form">
           <div class="form-row">
             <div class="form-group">
-              <label><i class="fas fa-tag"></i> Ticker</label>
+              <label><i class="ph ph-tag"></i> Ticker</label>
               <input type="text" id="edit-ticker" required placeholder="Ex: AAPL" style="text-transform: uppercase;">
             </div>
             <div class="form-group">
-              <label><i class="fas fa-building"></i> Nom</label>
+              <label><i class="ph ph-buildings"></i> Nom</label>
               <input type="text" id="edit-name" required placeholder="Ex: Apple Inc.">
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group">
-              <label><i class="fas fa-euro-sign"></i> Prix d'achat</label>
+              <label><i class="ph ph-currency-eur"></i> Prix d'achat</label>
               <input type="number" id="edit-price" step="any" min="0" required>
             </div>
             <div class="form-group">
-              <label><i class="fas fa-boxes"></i> Quantité</label>
+              <label><i class="ph ph-package"></i> Quantité</label>
               <input type="number" id="edit-quantity" step="any" required>
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group">
-              <label><i class="fas fa-calendar"></i> Date</label>
+              <label><i class="ph ph-calendar-blank"></i> Date</label>
               <input type="date" id="edit-date" required>
             </div>
             <div class="form-group">
-              <label><i class="fas fa-dollar-sign"></i> Devise</label>
+              <label><i class="ph ph-currency-dollar"></i> Devise</label>
               <select id="edit-currency" required>
                 <option value="EUR">Euro (€)</option>
                 <option value="USD">Dollar ($)</option>
@@ -412,7 +413,7 @@
 
           <div class="form-row">
             <div class="form-group">
-              <label><i class="fas fa-chart-line"></i> Type d'actif</label>
+              <label><i class="ph ph-chart-line"></i> Type d'actif</label>
               <select id="edit-asset-type" required>
                 <option value="Stock">Stock</option>
                 <option value="ETF">ETF</option>
@@ -421,7 +422,7 @@
               </select>
             </div>
             <div class="form-group">
-              <label><i class="fas fa-university"></i> Broker</label>
+              <label><i class="ph ph-bank"></i> Broker</label>
               <select id="edit-broker" required>
               </select>
             </div>
@@ -429,10 +430,10 @@
 
           <div class="form-actions" style="margin-top: 24px;">
             <button type="button" class="btn-cancel" id="cancel-edit">
-              <i class="fas fa-times"></i> Annuler
+              <i class="ph ph-x"></i> Annuler
             </button>
             <button type="submit" class="btn-save">
-              <i class="fas fa-check"></i> Sauvegarder
+              <i class="ph ph-check"></i> Sauvegarder
             </button>
           </div>
         </form>

@@ -632,3 +632,22 @@ tbody tr:hover {
     }
 }
 
+
+/* ---------------------------------------------------------------
+   Icônes Phosphor (MIT) — jeu unique pour toute l'application.
+   ph = trait fin (regular), ph-fill = plein (élément actif).
+   --------------------------------------------------------------- */
+.ph,
+.ph-fill {
+    display: inline-block;
+    line-height: 1;
+    vertical-align: -0.125em;
+}
+
+.ph-spin {
+    animation: ph-spin 0.9s linear infinite;
+}
+
+@keyframes ph-spin {
+    to { transform: rotate(360deg); }
+}

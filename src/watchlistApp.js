@@ -596,10 +596,10 @@ class WatchlistApp {
                     <td style="padding:15px 10px; text-align:center;">
                         <div style="display:flex; justify-content:center; gap:8px;">
                             <a href="screener.html?ticker=${item.ticker}" style="color:#3b82f6; text-decoration:none; padding:8px 12px; border-radius:6px; background:rgba(59,130,246,0.1); display:inline-flex; align-items:center; justify-content:center; transition:0.2s;" title="Voir l'analyse">
-                                <i class="fas fa-chart-line"></i>
+                                <i class="ph ph-chart-line"></i>
                             </a>
                             <button class="delete-btn" data-ticker="${item.ticker}" style="color:#ef4444; border:none; padding:8px 12px; border-radius:6px; background:rgba(239,68,68,0.1); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:0.2s;" title="Retirer">
-                                <i class="fas fa-trash"></i>
+                                <i class="ph ph-trash"></i>
                             </button>
                         </div>
                     </td>

@@ -240,7 +240,7 @@ class NotificationsPage {
                     ${metricText} <strong style="color: var(--accent-color);">${conditionSymbol} ${valueText}</strong>
                 </div>
                 <button class="delete-rule-btn" data-id="${rule.id}" style="background: rgba(220, 53, 69, 0.1); border: none; color: var(--danger-color); cursor: pointer; padding: 8px; border-radius: 6px; transition: background 0.2s;">
-                    <i class="fas fa-trash"></i>
+                    <i class="ph ph-trash"></i>
                 </button>
             `;
 

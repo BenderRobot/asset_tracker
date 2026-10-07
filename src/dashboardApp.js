@@ -23,7 +23,7 @@ import { marketDataMetrics } from './marketDataMetrics.js';
 import { mountPerformerTable } from './performerTable.js';
 import { FUTURE_ACCENT_COLOR, selectIndexDisplayInstrument } from './indexFutures.js';
 import { ALLOCATION_TYPES, buildAllocationTimeline, calculateCurrentAllocation } from './allocation.js';
-import { buildNewsHoldingDetails } from './newsHoldingMatcher.js';
+import { buildNewsHoldingDetails, getHeldAssetNames } from './newsHoldingMatcher.js';
 import { buildWatchlistContext } from './watchlistContext.js';
 import { DEFAULT_DASHBOARD_INDICES } from './appDataContext.js';
 
@@ -361,7 +361,7 @@ export class DashboardApp {
             font-weight: 500;
         `;
         badge.innerHTML = `
-            <i class="fas fa-sync fa-spin"></i>
+            <i class="ph ph-arrows-clockwise ph-spin"></i>
             Mise à jour en cours...
         `;
         document.body.appendChild(badge);
@@ -694,7 +694,7 @@ export class DashboardApp {
         barHTML += '</div>'; listHTML += '</div>';
 
         // CORRECTION: Ajout de style="display: flex; flex-direction: column; height: 100%;" au wrapper pour forcer l'empilement vertical.
-        container.innerHTML = `<div class="allocation-wrapper" style="display:flex;flex-direction:column;height:100%;"><div class="allocation-basis-label">Valeur actuelle · cash inclus</div>${barHTML}${listHTML}</div>`;
+        container.innerHTML = `<div class="allocation-wrapper" style="display:flex;flex-direction:column;height:100%;">${barHTML}${listHTML}</div>`;
     }
 
     renderKPIs(data, cashTotal = 0, holdings = []) {
@@ -765,14 +765,13 @@ export class DashboardApp {
     async loadPortfolioNews(forceRefresh = false) {
         const container = document.getElementById('news-portfolio-container');
         if (!container) return;
-        container.innerHTML = '<div style="padding:20px; text-align:center; color:#666"><i class="fas fa-circle-notch fa-spin"></i></div>';
+        container.innerHTML = '<div style="padding:20px; text-align:center; color:#666"><i class="ph ph-circle-notch ph-spin"></i></div>';
 
         let uniqueNames = [];
         if (this.selectedAssetFilter) {
             uniqueNames = [this.selectedAssetFilter];
         } else {
-            const purchases = this.storage.getPurchases();
-            uniqueNames = [...new Set(purchases.filter(p => p.assetType !== 'Cash').map(p => p.name))];
+            uniqueNames = getHeldAssetNames(this.storage.getPurchases());
         }
 
         if (uniqueNames.length === 0) { container.innerHTML = '<div style="padding:20px; text-align:center; color:#666">Aucun actif</div>'; return; }
@@ -809,7 +808,7 @@ export class DashboardApp {
     async loadGlobalNews(forceRefresh = false) {
         const container = document.getElementById('news-global-container');
         if (!container) return;
-        container.innerHTML = '<div style="padding:20px; text-align:center; color:#666"><i class="fas fa-circle-notch fa-spin"></i></div>';
+        container.innerHTML = '<div style="padding:20px; text-align:center; color:#666"><i class="ph ph-circle-notch ph-spin"></i></div>';
 
         const topics = [
             { query: "Marchés Bourse Paris", label: "Macro FR" },
@@ -1347,7 +1346,7 @@ export class DashboardApp {
             const iconHTML = `<div style="width:26px; height:26px; display:flex; align-items:center; justify-content:center;">${iconContent}</div>`;
 
             const innerHTMLStructure = `
-				<button class="market-card-delete" title="Supprimer"><i class="fas fa-trash-alt"></i></button>
+				<button class="market-card-delete" title="Supprimer"><i class="ph ph-trash"></i></button>
 				${sparklineBg}
 				<div style="position:relative; z-index:2; display:flex; justify-content:space-between; align-items:flex-start;">
 					<div class="market-card-title"><span>${escHtml(idx.name)}</span>${futureBadge}</div>
@@ -1658,20 +1657,20 @@ export class DashboardApp {
 
         if (type === 'gainer') {
             titleText = 'Top Performers — Détails';
-            iconClass = 'fa-arrow-trend-up'; iconColor = '#10b981';
+            iconClass = 'ph-trend-up'; iconColor = '#10b981';
         } else if (type === 'loser') {
             titleText = 'Worst Performers — Détails';
-            iconClass = 'fa-arrow-trend-down'; iconColor = '#ef4444';
+            iconClass = 'ph-trend-down'; iconColor = '#ef4444';
         } else {
             titleText = 'Top Holdings — Valeur du portefeuille';
-            iconClass = 'fa-layer-group'; iconColor = '#3b82f6';
+            iconClass = 'ph-stack'; iconColor = '#3b82f6';
             sortedItems = [...holdings]
                 .filter(h => h.currentValue != null && h.currentValue > 0)
                 .sort((a, b) => (b.currentValue ?? 0) - (a.currentValue ?? 0));
         }
 
         titleEl.textContent = titleText;
-        iconEl.className = `fas ${iconClass}`;
+        iconEl.className = `ph ${iconClass}`;
         iconEl.style.color = iconColor;
 
         const fmt = v => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(v);

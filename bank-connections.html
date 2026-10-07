@@ -18,7 +18,8 @@
     <link rel="stylesheet" href="css/dashboard.css?v=99">
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 
     <script>
         if (localStorage.getItem('sidebarState') === 'true') {
@@ -164,33 +165,33 @@
         <div class="container" style="max-width: 900px; margin: 0 auto; padding-top: 20px;">
 
             <div class="settings-section">
-                <h3><i class="fas fa-university" style="color: var(--accent-blue);"></i> Banques connectées</h3>
+                <h3><i class="ph ph-bank" style="color: var(--accent-blue);"></i> Banques connectées</h3>
                 <div id="bank-connections-list">
                     <div class="empty-state">Chargement…</div>
                 </div>
             </div>
 
             <div class="settings-section">
-                <h3><i class="fas fa-plus" style="color: var(--accent-blue);"></i> Connecter une nouvelle banque
+                <h3><i class="ph ph-plus" style="color: var(--accent-blue);"></i> Connecter une nouvelle banque
                 </h3>
                 <div class="bank-form-row">
                     <select id="connect-country-select" class="bank-select"></select>
                     <select id="connect-bank-select" class="bank-select" style="min-width: 180px;"></select>
                     <button id="connect-bank-btn" class="bank-connect-btn">
-                        <i class="fas fa-university"></i> Connecter ma banque
+                        <i class="ph ph-bank"></i> Connecter ma banque
                     </button>
                 </div>
             </div>
 
             <div class="settings-section">
-                <h3><i class="fas fa-broom" style="color: var(--accent-red);"></i> Réinitialiser l'historique</h3>
+                <h3><i class="ph ph-broom" style="color: var(--accent-red);"></i> Réinitialiser l'historique</h3>
                 <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 14px;">
                     Si tu vois des transactions en double (par exemple après plusieurs reconnexions), tu peux
                     vider tout l'historique importé puis reconnecter tes banques pour resynchroniser proprement.
                     Les connexions bancaires elles-mêmes ne sont pas touchées.
                 </p>
                 <button id="reset-transactions-btn" class="bank-disconnect-btn" style="padding: 10px 18px;">
-                    <i class="fas fa-trash"></i> Vider tout l'historique de transactions
+                    <i class="ph ph-trash"></i> Vider tout l'historique de transactions
                 </button>
             </div>
 
@@ -282,13 +283,13 @@
                     <div class="bank-connection-card">
                         <div class="bank-connection-header">
                             <div class="bank-connection-title">
-                                <i class="fas fa-building-columns"></i>
+                                <i class="ph ph-bank"></i>
                                 ${conn.aspspName || 'Banque connectée'}
                             </div>
                             <div style="display:flex; align-items:center; gap: 12px;">
                                 <span class="bank-connection-date">Connectée le ${formatDate(conn.connectedAt)}</span>
                                 <button class="bank-disconnect-btn" data-session="${conn.id}">
-                                    <i class="fas fa-unlink"></i> Déconnecter
+                                    <i class="ph ph-link-break"></i> Déconnecter
                                 </button>
                             </div>
                         </div>
@@ -343,7 +344,7 @@
             let deletedCount = 0;
             // Supprime par lots de 450 (limite batch Firestore = 500) jusqu'à vider la collection.
             while (true) {
-                resetBtn.innerHTML = `<i class="fas fa-trash"></i> Suppression… (${deletedCount})`;
+                resetBtn.innerHTML = `<i class="ph ph-trash"></i> Suppression… (${deletedCount})`;
                 const snap = await db.collection(`users/${uid}/transactions`).limit(450).get();
                 if (snap.empty) break;
                 const batch = db.batch();

@@ -18,7 +18,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
@@ -377,7 +378,7 @@
 
                 <!-- 1. DIVIDENDES -->
                 <div class="analytics-card" id="dividend-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>💰 Dividendes Perçus <i class="fas fa-external-link-alt"
+                    <h3>💰 Dividendes Perçus <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Total Perçu</span>
@@ -395,7 +396,7 @@
 
                 <!-- 2. IMMO -->
                 <div class="analytics-card" id="real-estate-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>🏗️ Rendement Immo <i class="fas fa-external-link-alt"
+                    <h3>🏗️ Rendement Immo <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Projetés (An)</span>
@@ -414,7 +415,7 @@
                 <!-- 3. TOP PERF -->
                 <div class="analytics-card" id="top-performers-card"
                     style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>🏆 Top Performers <i class="fas fa-external-link-alt"
+                    <h3>🏆 Top Performers <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div id="top-performers" class="performer-list" style="font-size: 13px;"></div>
                 </div>
@@ -422,7 +423,7 @@
                 <!-- 4. WORST PERF -->
                 <div class="analytics-card" id="worst-performers-card"
                     style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>📉 Worst Performers <i class="fas fa-external-link-alt"
+                    <h3>📉 Worst Performers <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div id="worst-performers" class="performer-list" style="font-size: 13px;"></div>
                 </div>
@@ -434,7 +435,7 @@
 
                 <!-- 1. PERFORMANCE -->
                 <div class="analytics-card" id="performance-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>📈 Performance Globale <i class="fas fa-external-link-alt"
+                    <h3>📈 Performance Globale <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Moyenne gains</span>
@@ -454,7 +455,7 @@
                 <!-- 2. DIVERSIFICATION -->
                 <div class="analytics-card" id="diversification-card"
                     style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>🎯 Diversification <i class="fas fa-external-link-alt"
+                    <h3>🎯 Diversification <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Score</span>
@@ -472,7 +473,7 @@
 
                 <!-- 3. RISQUE -->
                 <div class="analytics-card" id="risk-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>⚠️ Risque <i class="fas fa-external-link-alt"
+                    <h3>⚠️ Risque <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Volatilité ann. (1 an)</span>
@@ -490,7 +491,7 @@
 
                 <!-- 4. HISTORIQUE DES VERSEMENTS -->
                 <div class="analytics-card" id="investment-timeline-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>📅 Versements <i class="fas fa-external-link-alt"
+                    <h3>📅 Versements <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
                         <div>
@@ -646,11 +647,11 @@
                     <div style="display: flex; gap: 8px;">
                         <button id="btn-treemap-view" class="viz-toggle-btn active"
                             style="padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--accent-blue); color: white; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s;">
-                            <i class="fas fa-th"></i> Treemap
+                            <i class="ph ph-squares-four"></i> Treemap
                         </button>
                         <button id="btn-allocation-view" class="viz-toggle-btn"
                             style="padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s;">
-                            <i class="fas fa-chart-pie"></i> Allocation
+                            <i class="ph ph-chart-pie-slice"></i> Allocation
                         </button>
                     </div>
                 </div>
@@ -711,7 +712,7 @@
 
                         <button id="clear-allocation-filters" class="btn-secondary"
                             style="padding: 8px 16px; font-size: 13px;">
-                            <i class="fas fa-times"></i> Réinitialiser
+                            <i class="ph ph-x"></i> Réinitialiser
                         </button>
                     </div>
 

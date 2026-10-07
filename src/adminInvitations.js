@@ -226,7 +226,7 @@ async function loadCodes() {
     try {
         const snap = await db.collection('invitationCodes').orderBy('createdAt', 'desc').get();
         if (snap.empty) {
-            container.innerHTML = '<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>Aucun code d\'invitation.</p></div>';
+            container.innerHTML = '<div class="empty-state"><i class="ph ph-ticket"></i><p>Aucun code d\'invitation.</p></div>';
             return;
         }
         container.replaceChildren(...snap.docs.map(doc => {
@@ -250,9 +250,9 @@ async function loadCodes() {
                     ]),
                 ]),
                 el('span', { className: `status-badge ${badgeClass}`, text: statusLabel }),
-                statusKey === 'available' && iconButton('fas fa-envelope', 'Envoyer par email', () => openEmailModal(code)),
-                iconButton('fas fa-copy', 'Copier', () => copyCode(code)),
-                iconButton('fas fa-trash', 'Supprimer', () => deleteCode(doc.id), true),
+                statusKey === 'available' && iconButton('ph ph-envelope-simple', 'Envoyer par email', () => openEmailModal(code)),
+                iconButton('ph ph-copy', 'Copier', () => copyCode(code)),
+                iconButton('ph ph-trash', 'Supprimer', () => deleteCode(doc.id), true),
             ]);
         }));
     } catch (err) {
@@ -333,7 +333,7 @@ function setupEmailModal() {
 
         const btn = document.getElementById('email-modal-confirm');
         btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Envoi…';
+        btn.innerHTML = '<i class="ph ph-circle-notch ph-spin"></i> Envoi…';
 
         try {
             await sendViaWebhook(email, code);
@@ -343,7 +343,7 @@ function setupEmailModal() {
             showToast('Erreur : ' + err.message, true);
         } finally {
             btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-paper-plane"></i> Envoyer';
+            btn.innerHTML = '<i class="ph ph-paper-plane-tilt"></i> Envoyer';
         }
     });
 }
@@ -352,11 +352,11 @@ function setupEmailModal() {
 
 async function loadUsers() {
     const container = document.getElementById('users-list');
-    container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Chargement...</p></div>';
+    container.innerHTML = '<div class="empty-state"><i class="ph ph-spinner-gap ph-spin"></i><p>Chargement...</p></div>';
     try {
         const snap = await db.collection('users').get();
         if (snap.empty) {
-            container.innerHTML = '<div class="empty-state"><i class="fas fa-users"></i><p>Aucun utilisateur.</p></div>';
+            container.innerHTML = '<div class="empty-state"><i class="ph ph-users"></i><p>Aucun utilisateur.</p></div>';
             return;
         }
         // Sort in JS to avoid requiring a Firestore index
@@ -379,7 +379,7 @@ function buildUserCard(doc) {
     const effectiveModules = isAdmin ? defaultModules() : { ...defaultModules(), ...(d.modules || {}) };
 
     const indicator = el('span', { className: 'saving-indicator' }, [
-        el('i', { className: 'fas fa-circle-notch fa-spin' }), ' Sauvegarde…',
+        el('i', { className: 'ph ph-circle-notch ph-spin' }), ' Sauvegarde…',
     ]);
 
     const chips = MODULES.map(mod => {
@@ -402,9 +402,9 @@ function buildUserCard(doc) {
                 el('div', { className: 'user-meta', text: meta }),
             ]),
             el('div', { className: 'user-badges' }, [
-                isAdmin && el('span', { className: 'badge-admin' }, [el('i', { className: 'fas fa-star' }), ' Admin']),
+                isAdmin && el('span', { className: 'badge-admin' }, [el('i', { className: 'ph ph-star' }), ' Admin']),
                 indicator,
-                !isAdmin && iconButton('fas fa-trash', "Supprimer l'utilisateur", () => deleteUser(uid, email, card), true),
+                !isAdmin && iconButton('ph ph-trash', "Supprimer l'utilisateur", () => deleteUser(uid, email, card), true),
             ]),
         ]),
         el('div', { className: 'modules-label', text: 'Modules accessibles' }),
@@ -495,7 +495,7 @@ function renderClaimsReport(report) {
         const row = el('div', { className: 'code-item' }, [
             el('div', { style: 'flex:1;min-width:0;', text: label }),
         ]);
-        row.append(iconButton('fas fa-key', "Accorder l'accès aux API", async () => {
+        row.append(iconButton('ph ph-key', "Accorder l'accès aux API", async () => {
             if (!confirm(`Accorder l'accès aux API à ${label} ?`)) return;
             try {
                 await callAdminFunction('setUserInvited', { uid: u.uid, invited: true });

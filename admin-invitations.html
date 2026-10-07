@@ -13,7 +13,8 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 
     <script>
         if (localStorage.getItem('sidebarState') === 'true') {
@@ -483,11 +484,11 @@
 
                 <div class="admin-header">
                     <div class="admin-title">
-                        <i class="fas fa-shield-alt" style="color: var(--accent-purple);"></i>
+                        <i class="ph ph-shield-check" style="color: var(--accent-purple);"></i>
                         Administration
                     </div>
                     <button id="generate-code-btn" class="btn-primary" style="display:flex;align-items:center;gap:8px;">
-                        <i class="fas fa-plus"></i> Générer un code
+                        <i class="ph ph-plus"></i> Générer un code
                     </button>
                 </div>
 
@@ -510,17 +511,17 @@
                 <!-- Tabs -->
                 <div class="admin-tabs">
                     <button class="admin-tab active" data-tab="codes">
-                        <i class="fas fa-ticket-alt"></i> Codes d'invitation
+                        <i class="ph ph-ticket"></i> Codes d'invitation
                     </button>
                     <button class="admin-tab" data-tab="users">
-                        <i class="fas fa-users"></i> Utilisateurs &amp; Modules
+                        <i class="ph ph-users"></i> Utilisateurs &amp; Modules
                     </button>
                 </div>
 
                 <!-- Codes tab -->
                 <div id="tab-codes" class="tab-panel active">
                     <div id="codes-list">
-                        <div class="empty-state"><i class="fas fa-ticket-alt"></i><p>Aucun code généré.</p></div>
+                        <div class="empty-state"><i class="ph ph-ticket"></i><p>Aucun code généré.</p></div>
                     </div>
                 </div>
 
@@ -529,12 +530,12 @@
                     <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
                         <button id="sync-claims-btn" class="btn-secondary" style="display:flex;align-items:center;gap:8px;"
                                 title="Attribue le claim « invited » aux comptes existants dont l'invitation est vérifiable">
-                            <i class="fas fa-key"></i> Synchroniser les accès API
+                            <i class="ph ph-key"></i> Synchroniser les accès API
                         </button>
                     </div>
                     <div id="claims-report"></div>
                     <div id="users-list">
-                        <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Chargement...</p></div>
+                        <div class="empty-state"><i class="ph ph-spinner-gap ph-spin"></i><p>Chargement...</p></div>
                     </div>
                 </div>
 
@@ -546,7 +547,7 @@
     <div class="modal-overlay" id="email-modal-overlay" style="display:none;">
         <div class="modal-box">
             <div class="modal-title">
-                <i class="fas fa-paper-plane" style="color:#667eea;"></i> Envoyer par email
+                <i class="ph ph-paper-plane-tilt" style="color:#667eea;"></i> Envoyer par email
             </div>
 
             <div style="margin-bottom:20px;">
@@ -562,7 +563,7 @@
             <div class="modal-footer">
                 <button class="btn-cancel" id="email-modal-cancel">Annuler</button>
                 <button class="btn-primary" id="email-modal-confirm" style="display:flex;align-items:center;gap:8px;">
-                    <i class="fas fa-paper-plane"></i> Envoyer
+                    <i class="ph ph-paper-plane-tilt"></i> Envoyer
                 </button>
             </div>
         </div>
@@ -571,7 +572,7 @@
     <!-- Code generation modal -->
     <div class="modal-overlay" id="gen-modal-overlay">
         <div class="modal-box">
-            <div class="modal-title"><i class="fas fa-ticket-alt" style="color:#667eea;"></i> Générer un code d'invitation</div>
+            <div class="modal-title"><i class="ph ph-ticket" style="color:#667eea;"></i> Générer un code d'invitation</div>
 
             <div class="modal-section-label">Accès par défaut</div>
             <div class="preset-row">
@@ -586,7 +587,7 @@
             <div class="modal-footer">
                 <button class="btn-cancel" id="gen-modal-cancel">Annuler</button>
                 <button class="btn-primary" id="gen-modal-confirm" style="display:flex;align-items:center;gap:8px;">
-                    <i class="fas fa-plus"></i> Générer
+                    <i class="ph ph-plus"></i> Générer
                 </button>
             </div>
         </div>

@@ -148,13 +148,13 @@ class MigrationApp {
                     ${isSelected ? `
                         <div class="platform-selector">
                             <div class="platform-label">
-                                <i class="fas fa-cog"></i>
+                                <i class="ph ph-gear-six"></i>
                                 Configuration de migration
                             </div>
                             <div class="platform-inputs">
                                 <div class="platform-input-group">
                                     <label>
-                                        <i class="fas fa-building"></i>
+                                        <i class="ph ph-buildings"></i>
                                         Broker
                                     </label>
                                     <select class="config-broker" data-ticker="${asset.ticker}">
@@ -167,7 +167,7 @@ class MigrationApp {
                                 </div>
                                 <div class="platform-input-group">
                                     <label>
-                                        <i class="fas fa-chart-line"></i>
+                                        <i class="ph ph-chart-line"></i>
                                         Type
                                     </label>
                                     <select class="config-assettype" data-ticker="${asset.ticker}">
@@ -180,7 +180,7 @@ class MigrationApp {
                                 </div>
                                 <div class="platform-input-group">
                                     <label>
-                                        <i class="fas fa-dollar-sign"></i>
+                                        <i class="ph ph-currency-dollar"></i>
                                         Devise
                                     </label>
                                     <select class="config-currency" data-ticker="${asset.ticker}">

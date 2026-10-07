@@ -327,10 +327,10 @@ export class InvestmentsPage {
               </table>
               <div class="detail-action-buttons">
                 <button class="detail-btn detail-btn-chart" data-ticker="${p.ticker}">
-                  <i class="fas fa-chart-line"></i> Graphique
+                  <i class="ph ph-chart-line"></i> Graphique
                 </button>
                 <button class="detail-btn detail-btn-screener" data-ticker="${p.ticker}">
-                  <i class="fas fa-search"></i> Screener
+                  <i class="ph ph-magnifying-glass"></i> Screener
                 </button>
               </div>
             </div>

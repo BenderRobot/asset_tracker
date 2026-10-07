@@ -268,13 +268,13 @@ class ExpensesApp {
       const paidThisMonth = item.monthsSet.has(currentMonthKey);
       let statusHtml;
       if (paidThisMonth) {
-        statusHtml = '<span class="recurring-status recurring-status-paid"><i class="fas fa-check-circle"></i> Payé</span>';
+        statusHtml = '<span class="recurring-status recurring-status-paid"><i class="ph ph-check-circle"></i> Payé</span>';
       } else if (!item.dueThisCycle) {
-        statusHtml = '<span class="recurring-status recurring-status-upcoming"><i class="fas fa-hourglass-half"></i> Pas dû ce mois</span>';
+        statusHtml = '<span class="recurring-status recurring-status-upcoming"><i class="ph ph-hourglass-medium"></i> Pas dû ce mois</span>';
       } else if (today <= item.typicalDay + 5) {
-        statusHtml = `<span class="recurring-status recurring-status-pending"><i class="fas fa-clock"></i> Prévu vers le ${item.typicalDay}</span>`;
+        statusHtml = `<span class="recurring-status recurring-status-pending"><i class="ph ph-clock"></i> Prévu vers le ${item.typicalDay}</span>`;
       } else {
-        statusHtml = '<span class="recurring-status recurring-status-late"><i class="fas fa-triangle-exclamation"></i> En retard</span>';
+        statusHtml = '<span class="recurring-status recurring-status-late"><i class="ph ph-warning"></i> En retard</span>';
       }
 
       const amountColor = item.direction === 'CRDT' ? 'var(--accent-green)' : 'var(--text-primary)';
@@ -295,10 +295,10 @@ class ExpensesApp {
             <div class="recurring-row-amount" style="color:${amountColor};">${sign}${fmtEUR(item.amount)}</div>
             <div class="recurring-row-status">${statusHtml}</div>
             <button class="recurring-rename-btn" data-key="${item.key}" data-label="${item.label.replace(/"/g, '&quot;')}" data-frequency="${item.frequencyMonths}" title="Renommer / changer la fréquence">
-                <i class="fas fa-pen"></i>
+                <i class="ph ph-pen"></i>
             </button>
             <button class="recurring-dismiss-btn" data-key="${item.key}" title="Ne plus afficher dans les fixes">
-                <i class="fas fa-times"></i>
+                <i class="ph ph-x"></i>
             </button>
         </div>`;
     }).join('');
@@ -554,7 +554,7 @@ class ExpensesApp {
             <select class="expense-row-category-select" data-tx-id="${tx.id}" title="Changer la catégorie">${categoryOptions}</select>
             <div class="expense-row-amount" style="color:${amountColor};">${sign}${fmtEUR(Math.abs(tx.amount || 0))}</div>
             <button class="expense-row-fixed-btn" data-tx-id="${tx.id}" title="Marquer comme dépense/revenu fixe">
-                <i class="fas fa-thumbtack"></i>
+                <i class="ph ph-push-pin"></i>
             </button>
         </div>`;
     }).join('');

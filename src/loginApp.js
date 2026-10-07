@@ -51,7 +51,7 @@ function submitLabel() {
 function setLoading(loading) {
     submitBtn.disabled = loading;
     submitBtn.innerHTML = loading
-        ? '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>' + (isLoginMode ? 'Connexion...' : 'Inscription...')
+        ? '<i class="ph ph-spinner-gap ph-spin" style="margin-right:6px;"></i>' + (isLoginMode ? 'Connexion...' : 'Inscription...')
         : submitLabel();
 }
 

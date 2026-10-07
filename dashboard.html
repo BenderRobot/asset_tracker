@@ -22,7 +22,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script
@@ -89,7 +90,7 @@
                         white-space: nowrap;
                         transition: opacity 0.2s;
                     " onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-                        <i class="fas fa-plus"></i> Ajouter des transactions
+                        <i class="ph ph-plus"></i> Ajouter des transactions
                     </a>
                 </div>
             </div>
@@ -145,7 +146,7 @@
                     <div class="dashboard-kpi-grid-v2">
                         <div class="kpi-card">
                             <div class="kpi-header"><span class="kpi-label">Top Gainer</span><i
-                                    class="fas fa-arrow-trend-up kpi-icon"></i>
+                                    class="ph ph-trend-up kpi-icon"></i>
                             </div>
                             <div class="kpi-name-large" id="dashboard-top-gainer-name">-</div>
                             <div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span>
@@ -153,7 +154,7 @@
                         </div>
                         <div class="kpi-card">
                             <div class="kpi-header"><span class="kpi-label">Top Loser</span><i
-                                    class="fas fa-arrow-trend-down kpi-icon"></i>
+                                    class="ph ph-trend-down kpi-icon"></i>
                             </div>
                             <div class="kpi-name-large" id="dashboard-top-loser-name">-</div>
                             <div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span>
@@ -161,12 +162,12 @@
                         </div>
                         <div class="kpi-card">
                             <div class="kpi-header"><span class="kpi-label">Top Asset</span><i
-                                    class="fas fa-industry kpi-icon"></i></div>
+                                    class="ph ph-factory kpi-icon"></i></div>
                             <div class="kpi-name-large" id="dashboard-top-sector">-</div>
                         </div>
                         <div class="kpi-card">
                             <div class="kpi-header"><span class="kpi-label">Asset Allocation</span><i
-                                    class="fas fa-chart-pie kpi-icon"></i>
+                                    class="ph ph-chart-pie-slice kpi-icon"></i>
                             </div>
                             <div id="dashboard-allocation-container"></div>
                         </div>
@@ -189,7 +190,7 @@
                             <div class="header-controls chart-toolbar" role="toolbar" aria-label="Options du graphique">
                                 <div id="view-toggle" style="display:none;"></div>
                                 <div id="benchmark-wrapper" class="benchmark-wrapper chart-benchmark">
-                                    <i class="fa-solid fa-code-compare" aria-hidden="true"></i>
+                                    <i class="ph ph-arrows-left-right" aria-hidden="true"></i>
                                     <select id="benchmark-select" aria-label="Comparer à un indice"
                                         title="Comparer la performance à un indice">
                                         <option value="">Comparer</option>
@@ -300,12 +301,12 @@
                 <div class="dashboard-feeds-grid">
                     <div class="feed-card">
                         <div class="feed-header">
-                            <h3><i class="fas fa-bullseye" style="color:#3b82f6"></i> Mes Actifs</h3>
+                            <h3><i class="ph ph-target" style="color:#3b82f6"></i> Mes Actifs</h3>
                             <div style="display: flex; gap: 8px;">
                                 <select id="portfolio-asset-select"
                                     style="padding: 6px 12px; border-radius: 8px; font-size: 12px; min-width: 140px;"></select>
                                 <button id="refresh-portfolio-news" class="btn-icon-small"
-                                    title="Rafraîchir les actifs"><i class="fas fa-sync"></i></button>
+                                    title="Rafraîchir les actifs"><i class="ph ph-arrows-clockwise"></i></button>
                             </div>
                         </div>
                         <div id="news-portfolio-container" class="feed-content">
@@ -316,9 +317,9 @@
 
                     <div class="feed-card">
                         <div class="feed-header">
-                            <h3><i class="fas fa-globe" style="color:#10b981"></i> Macro Éco</h3>
+                            <h3><i class="ph ph-globe" style="color:#10b981"></i> Macro Éco</h3>
                             <button id="refresh-global-news-btn" class="btn-icon-small" title="Rafraîchir la macro"><i
-                                    class="fas fa-sync"></i></button>
+                                    class="ph ph-arrows-clockwise"></i></button>
                         </div>
                         <div id="news-global-container" class="feed-content">
                             <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...
@@ -349,10 +350,10 @@
                 <h3 id="modal-news-title" style="margin-bottom: 16px; line-height: 1.4;">Titre</h3>
 
                 <div class="ai-summary-header">
-                    <div class="news-ai-badge"><i class="fas fa-robot"></i> Résumé Gemini AI</div>
+                    <div class="news-ai-badge"><i class="ph ph-robot"></i> Résumé Gemini AI</div>
                     <button class="ai-context-btn" id="analyze-context-btn"
                         title="Pourquoi cette news est-elle importante ?">
-                        <i class="fas fa-question-circle"></i>
+                        <i class="ph ph-question"></i>
                     </button>
                 </div>
 
@@ -360,7 +361,7 @@
 
                 <div id="modal-news-context" class="news-context-box" style="display:none;">
                     <div class="context-header">
-                        <i class="fas fa-lightbulb context-icon"></i>
+                        <i class="ph ph-lightbulb context-icon"></i>
                         <span class="context-title">Pourquoi est-ce important pour mon portefeuille ?</span>
                     </div>
                     <div id="modal-context-content" class="context-content">
@@ -400,7 +401,7 @@
         <div class="kpi-modal-box" style="max-width:820px;">
             <div class="kpi-modal-header">
                 <div style="display:flex;align-items:center;gap:10px;">
-                    <i id="kpi-modal-icon" class="fas fa-arrow-trend-up" style="font-size:15px;"></i>
+                    <i id="kpi-modal-icon" class="ph ph-trend-up" style="font-size:15px;"></i>
                     <h3 id="kpi-modal-title"></h3>
                 </div>
                 <button id="close-kpi-modal" class="kpi-modal-close">×</button>
@@ -414,7 +415,7 @@
         <div class="kpi-modal-box" style="max-width:820px;">
             <div class="kpi-modal-header">
                 <div style="display:flex;align-items:center;gap:10px;">
-                    <i class="fas fa-chart-area" style="font-size:15px;color:#8b5cf6;"></i>
+                    <i class="ph ph-chart-line-up" style="font-size:15px;color:#8b5cf6;"></i>
                     <h3>Évolution de l'Allocation</h3>
                 </div>
                 <button id="close-allocation-modal" class="kpi-modal-close">×</button>

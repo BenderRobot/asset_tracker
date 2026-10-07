@@ -160,3 +160,24 @@ export function buildNewsHoldingDetails(newsItem, holdings = [], portfolioSnapsh
                 : 'verified_indirect_only'
     };
 }
+
+/**
+ * Noms des actifs encore détenus (quantité nette > 0), pour les fils d'actus.
+ * Les ventes étant stockées en quantité négative, un actif vendu en totalité
+ * disparaît au lieu de continuer à remonter dans « Mes Actifs ».
+ */
+export function getHeldAssetNames(purchases = []) {
+    const positions = new Map();
+    for (const p of purchases) {
+        if (p?.assetType === 'Cash') continue;
+        const key = String(p?.ticker || p?.name || '').trim().toUpperCase();
+        if (!key) continue;
+        const position = positions.get(key) || { name: '', quantity: 0 };
+        if (!position.name && String(p.name || '').trim()) position.name = p.name.trim();
+        position.quantity += Number(p.quantity) || 0;
+        positions.set(key, position);
+    }
+    return [...new Set([...positions.values()]
+        .filter(position => position.quantity > 0.0001 && position.name)
+        .map(position => position.name))];
+}
