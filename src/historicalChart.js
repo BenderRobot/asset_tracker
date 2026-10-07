@@ -1102,7 +1102,7 @@ export class HistoricalChart {
                 const snapshot = repoResult.snapshot._engine;
                 if (repoResult.previousSession) {
                     this.investmentsPage.renderData?.(snapshot.holdings,
-                        { ...snapshot.summary, totalDayChangeEUR: null, dayChangePct: null }, snapshot.cashReserve.total);
+                        { ...snapshot.summary, totalDayChangeEUR: null, dayChangePct: null }, snapshot.cashReserve.total, { dividendsOnly: isSingleAsset });
                     this.showMessage(`Dernier portefeuille connu : ${new Date(repoResult.snapshot.generatedAt).toLocaleString()}. Actualisation en cours.`);
                     return;
                 }
@@ -1183,7 +1183,9 @@ export class HistoricalChart {
                     // le graphique avaient déjà terminé leur calcul.
                     // SSOT : renderData reçoit toujours les positions/résumé/cash
                     // canoniques, jamais une valeur recalculée depuis la courbe.
-                    this.investmentsPage.renderData(targetHoldings, targetSummary, targetCashReserve.total);
+                    // Sur un actif seul, ce "cash" n'est que ses dividendes perçus
+                    // (déjà réinvestis ailleurs) — libellé adapté par renderData.
+                    this.investmentsPage.renderData(targetHoldings, targetSummary, targetCashReserve.total, { dividendsOnly: isSingleAsset });
                 }
             }
 
@@ -2070,9 +2072,8 @@ export class HistoricalChart {
             // price curve — plotting it against the total-value curve (Valeur €)
             // would compare a per-share average against a price×quantity total.
             // Shown on every period (not just 1D), unlike Clôture Hier above.
-            if (isUnitView && avgPrice > 0 && this.refLineVisibility.pru) {
-                datasets.push({ label: 'PRU', data: Array(graphData.labels.length).fill(avgPrice), borderColor: '#FF9F43', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
-            }
+            // Drawn by the reference-line plugin below (like the ATH), not as a
+            // dataset: a distant PRU would otherwise flatten the curve.
             if (isUnitView && graphData.purchasePoints?.length) {
                 // Buys ▲ blue (green would vanish on the green curve), sells ▼ red. `x` is the point index (see
                 // HistoryCalculator._buildPurchasePoints).
@@ -2195,62 +2196,97 @@ export class HistoricalChart {
             athSuggestedMax = athReference.value + padding;
         }
 
-        // The plugin draws the line independently of the portfolio data.
-        // Its off-scale badge is a fallback if an explicit scale override is
-        // applied. The badge stays on the left, away from the latest point.
-        const athPlugin = {
-            id: 'athReference',
+        // PRU: same rule as the ATH, but on both sides of the curve — it joins
+        // the scale only when it lies within a quarter of the visible span of
+        // the curve; further away only the "▲/▼ PRU" badge is drawn.
+        const pruReference = (isUnitView && avgPrice > 0 && this.refLineVisibility.pru)
+            ? { value: avgPrice, label: `PRU ${avgPrice.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} €` }
+            : null;
+        let pruSuggestedMin, pruSuggestedMax;
+        if (pruReference && Number.isFinite(visibleMin)) {
+            const pru = pruReference.value;
+            const gap = pru < visibleMin ? visibleMin - pru : (pru > visibleMax ? pru - visibleMax : 0);
+            if (gap > 0 && (visibleSpan <= 0 || gap <= visibleSpan * ATH_PROXIMITY_RATIO)) {
+                const span = Math.max(visibleMax, pru) - Math.min(visibleMin, pru);
+                const padding = span > 0 ? span * 0.05 : Math.max(Math.abs(pru), 1) * 0.05;
+                if (pru < visibleMin) pruSuggestedMin = pru - padding;
+                else pruSuggestedMax = pru + padding;
+            }
+        }
+        const suggestedMax = [athSuggestedMax, pruSuggestedMax].filter(v => v !== undefined)
+            .reduce((max, v) => (max === undefined ? v : Math.max(max, v)), undefined);
+
+        // The plugin draws the lines independently of the portfolio data.
+        // An off-scale reference shows only its badge (top or bottom edge).
+        // Badges stay on the left, away from the latest point.
+        const referenceStyles = {
+            ath: { line: 'rgba(250, 204, 21, 0.92)', fill: 'rgba(45, 37, 8, 0.92)', border: 'rgba(250, 204, 21, 0.38)', text: '#fde047' },
+            pru: { line: 'rgba(255, 159, 67, 0.92)', fill: 'rgba(48, 28, 8, 0.92)', border: 'rgba(255, 159, 67, 0.38)', text: '#FF9F43' }
+        };
+        const references = [
+            athReference && Number.isFinite(athReference.value) ? { ...athReference, style: referenceStyles.ath } : null,
+            pruReference ? { ...pruReference, style: referenceStyles.pru } : null
+        ].filter(Boolean);
+        const referencePlugin = {
+            id: 'referenceLines',
             afterDatasetsDraw: (chart) => {
-                if (!athReference || !Number.isFinite(athReference.value)) return;
                 const area = chart.chartArea, yScale = chart.scales.y;
-                if (!area || !yScale || athReference.value < yScale.min) return;
-                const aboveScale = athReference.value > yScale.max;
-                const y = aboveScale ? area.top : yScale.getPixelForValue(athReference.value);
-                if (!Number.isFinite(y)) return;
-
+                if (!area || !yScale) return;
                 const c = chart.ctx;
-                c.save();
-                if (!aboveScale) {
-                    c.beginPath();
-                    c.setLineDash([4, 5]);
-                    c.strokeStyle = 'rgba(250, 204, 21, 0.92)';
-                    c.lineWidth = 1.5;
-                    c.moveTo(area.left, y);
-                    c.lineTo(area.right, y);
-                    c.stroke();
-                    c.setLineDash([]);
-                }
-
-                const label = aboveScale ? `▲ ${athReference.label}` : athReference.label;
-                c.font = "600 10px Inter, sans-serif";
-                const paddingX = 7;
-                const width = c.measureText(label).width + paddingX * 2;
                 const height = 20;
-                const x = area.left + 6;
-                // Above the line when there is room, otherwise just below it.
-                const top = aboveScale
-                    ? area.top + 4
-                    : Math.min(y - height - 4 >= area.top ? y - height - 4 : y + 4, area.bottom - height - 4);
+                const paddingX = 7;
+                const edgeSlots = { top: 0, bottom: 0 };
+                for (const ref of references) {
+                    const aboveScale = ref.value > yScale.max;
+                    const belowScale = ref.value < yScale.min;
+                    // The ATH sits above every price: below the scale it has nothing to signal.
+                    if (belowScale && ref.style === referenceStyles.ath) continue;
+                    const y = aboveScale ? area.top : (belowScale ? area.bottom : yScale.getPixelForValue(ref.value));
+                    if (!Number.isFinite(y)) continue;
 
-                c.beginPath();
-                if (typeof c.roundRect === 'function') c.roundRect(x, top, width, height, 5);
-                else c.rect(x, top, width, height);
-                c.fillStyle = 'rgba(45, 37, 8, 0.92)';
-                c.fill();
-                c.strokeStyle = 'rgba(250, 204, 21, 0.38)';
-                c.lineWidth = 1;
-                c.stroke();
-                c.fillStyle = '#fde047';
-                c.textBaseline = 'middle';
-                c.fillText(label, x + paddingX, top + height / 2 + 0.5);
-                c.restore();
+                    c.save();
+                    if (!aboveScale && !belowScale) {
+                        c.beginPath();
+                        c.setLineDash([4, 5]);
+                        c.strokeStyle = ref.style.line;
+                        c.lineWidth = 1.5;
+                        c.moveTo(area.left, y);
+                        c.lineTo(area.right, y);
+                        c.stroke();
+                        c.setLineDash([]);
+                    }
+
+                    const label = aboveScale ? `▲ ${ref.label}` : (belowScale ? `▼ ${ref.label}` : ref.label);
+                    c.font = "600 10px Inter, sans-serif";
+                    const width = c.measureText(label).width + paddingX * 2;
+                    const x = area.left + 6;
+                    // Off-scale badges stack along their edge; an on-scale badge
+                    // sits above its line when there is room, otherwise below it.
+                    let top;
+                    if (aboveScale) top = area.top + 4 + (edgeSlots.top++) * (height + 4);
+                    else if (belowScale) top = area.bottom - height - 4 - (edgeSlots.bottom++) * (height + 4);
+                    else top = Math.min(y - height - 4 >= area.top ? y - height - 4 : y + 4, area.bottom - height - 4);
+
+                    c.beginPath();
+                    if (typeof c.roundRect === 'function') c.roundRect(x, top, width, height, 5);
+                    else c.rect(x, top, width, height);
+                    c.fillStyle = ref.style.fill;
+                    c.fill();
+                    c.strokeStyle = ref.style.border;
+                    c.lineWidth = 1;
+                    c.stroke();
+                    c.fillStyle = ref.style.text;
+                    c.textBaseline = 'middle';
+                    c.fillText(label, x + paddingX, top + height / 2 + 0.5);
+                    c.restore();
+                }
             }
         };
 
         this.chart = new Chart(ctx, {
             type: 'line',
             data: { labels: graphData.labels, datasets },
-            plugins: [selectionPlugin, athPlugin],
+            plugins: [selectionPlugin, referencePlugin],
             options: {
                 responsive: true, maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
@@ -2273,7 +2309,8 @@ export class HistoricalChart {
                     // Tick values are raw floats (53.400000000000006): format them
                     // with just enough decimals for the tick step, never more.
                     y: {
-                        ...(athSuggestedMax !== undefined ? { suggestedMax: athSuggestedMax } : {}),
+                        ...(suggestedMax !== undefined ? { suggestedMax } : {}),
+                        ...(pruSuggestedMin !== undefined ? { suggestedMin: pruSuggestedMin } : {}),
                         ticks: {
                             callback: (v, _i, ticks) => {
                                 const step = ticks?.length > 1 ? Math.abs(ticks[1].value - ticks[0].value) : 0;

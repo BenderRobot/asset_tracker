@@ -206,8 +206,10 @@ export class InvestmentsPage {
   // via historicalChart.js::update()) — cette méthode ne lit/n'agrège plus
   // aucune donnée issue du graphique (voir suppression du paramètre chartStats
   // et de la logique d'écrasement qui l'utilisait, ci-dessous).
-  renderData(holdings, summary, cashReserveTotal) {
+  renderData(holdings, summary, cashReserveTotal, { dividendsOnly = false } = {}) {
     this.currentHoldings = holdings;
+    const cashLabel = document.getElementById('cash-reserve-label');
+    if (cashLabel) cashLabel.textContent = dividendsOnly ? 'Dividendes' : 'Cash Reserve';
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
 
@@ -389,7 +391,7 @@ export class InvestmentsPage {
 
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
-      this.renderData(this.currentHoldings, summary, cashReserveTotal);
+      this.renderData(this.currentHoldings, summary, cashReserveTotal, { dividendsOnly });
     });
 
     this.ui.populateTickerSelect(this.storage.getPurchases());

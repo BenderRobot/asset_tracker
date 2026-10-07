@@ -259,12 +259,52 @@ describe('ATH line visibility when enabled', () => {
         const config = chart.chart.config;
         const min = Math.min(...values, 0);
         const max = Math.max(defaultMax, config.options.scales.y.suggestedMax ?? defaultMax);
-        config.plugins.find(plugin => plugin.id === 'athReference').afterDatasetsDraw({
+        config.plugins.find(plugin => plugin.id === 'referenceLines').afterDatasetsDraw({
             ctx: context, chartArea: { left: 50, right: 600, top: 10, bottom: 400 },
             scales: { y: { min, max, getPixelForValue: value => 400 - (value - min) / (max - min) * 390 } }
         });
         return config;
     }
+
+    // Unit-price view (single asset) with a PRU and no ATH.
+    function drawPru(prices, pru) {
+        chart.refLineVisibility.pru = true;
+        const graphData = { labels: prices.map(String), timestamps: prices.map((_, i) => i + 1), values: prices, unitPrices: prices };
+        HistoricalChart.prototype._renderChartJs.call(chart,
+            canvas, graphData, prices, false, null, true, false, 'EUEA',
+            '#2ecc71', 0, 0, prices.length - 1, { mode: 'asset' }, null, pru, null
+        );
+        const config = chart.chart.config;
+        const min = config.options.scales.y.suggestedMin ?? Math.min(...prices);
+        const max = config.options.scales.y.suggestedMax ?? Math.max(...prices);
+        config.plugins.find(plugin => plugin.id === 'referenceLines').afterDatasetsDraw({
+            ctx: context, chartArea: { left: 50, right: 600, top: 10, bottom: 400 },
+            scales: { y: { min, max, getPixelForValue: value => 400 - (value - min) / (max - min) * 390 } }
+        });
+        return config;
+    }
+
+    it('a distant PRU below the curve keeps the scale and only shows the ▼ badge', () => {
+        const config = drawPru([63.97, 63.5, 62.76], 53.21);
+        expect(config.data.datasets.some(d => d.label === 'PRU')).toBe(false);
+        expect(config.options.scales.y.suggestedMin).toBeUndefined();
+        expect(context.moveTo).not.toHaveBeenCalled();
+        expect(context.fillText.mock.calls[0][0]).toBe('▼ PRU 53,21 €');
+    });
+
+    it('a PRU close below the curve joins the scale and draws its line', () => {
+        const config = drawPru([63.97, 63.5, 62.76], 62.6);
+        expect(config.options.scales.y.suggestedMin).toBeLessThan(62.6);
+        expect(context.moveTo).toHaveBeenCalled();
+        expect(context.fillText.mock.calls[0][0]).toBe('PRU 62,60 €');
+    });
+
+    it('a PRU inside the curve range draws its line without changing the scale', () => {
+        const config = drawPru([50, 60, 70], 53.21);
+        expect(config.options.scales.y.suggestedMin).toBeUndefined();
+        expect(config.options.scales.y.suggestedMax).toBeUndefined();
+        expect(context.moveTo).toHaveBeenCalled();
+    });
 
     it.each([
         ['1J with a quiet intraday range', 1, [0, 0.245, 0.14], 0.28, 0.25],

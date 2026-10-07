@@ -114,11 +114,12 @@ describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/
         await chart.showAssetChart('SOI');
 
         expect(investmentsPage.renderData).toHaveBeenCalledTimes(1);
-        const [holdings, summary, cash] = investmentsPage.renderData.mock.calls[0];
+        const [holdings, summary, cash, options] = investmentsPage.renderData.mock.calls[0];
         expect(holdings).toHaveLength(1);
         expect(holdings[0]).toMatchObject({ ticker: 'SOI', quantity: 5 });
         expect(summary.totalCurrentEUR).toBeCloseTo(760.25, 2);
         expect(cash).toBe(0);
+        expect(options).toEqual({ dividendsOnly: true });
     });
 
     it('TEST 3 — changement portefeuille → actif : les KPI changent réellement de contexte', async () => {
