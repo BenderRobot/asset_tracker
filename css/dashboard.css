@@ -1894,3 +1894,32 @@
     color: var(--text-muted);
     margin-top: 2px;
 }
+
+/* Indicateur de statut de marché (badge LIVE / CLOSED / DELAYED / 24/7) :
+   pastille ronde qui hérite de la couleur du badge, pulsée quand le marché est live. */
+.market-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+.market-status-dot.is-live {
+    animation: market-status-pulse 2s ease-out infinite;
+}
+
+.market-status-glyph {
+    font-size: 10px;
+    line-height: 1;
+}
+
+@keyframes market-status-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+    70% { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .market-status-dot.is-live { animation: none; }
+}

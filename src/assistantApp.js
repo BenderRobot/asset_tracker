@@ -71,6 +71,9 @@ export function toSpeechText(text) {
         .trim();
 }
 
+/** Préfixe marquant un message d'erreur persisté (masqué à l'affichage). */
+const ERROR_MESSAGE_MARKER = '❌';
+
 const GREETING_ONLY = /^(hello|bonjour|salut|hey|coucou|hi|bonsoir|cc|ça va|ca va|merci|ok|oui|non)[\s!.?]*$/i;
 
 /** Titres trop génériques → à remplacer par un libellé lié au sujet. */
@@ -539,7 +542,7 @@ export class AssistantApp {
         }
 
         const hasValidAssistant = conv.messages.some(
-            m => m.role === 'assistant' && m.content && !m.content.startsWith('❌')
+            m => m.role === 'assistant' && m.content && !m.content.startsWith(ERROR_MESSAGE_MARKER)
         );
         const userCount = conv.messages.filter(m => m.role === 'user').length;
 
@@ -1125,8 +1128,8 @@ Titre:`;
             console.error('Error calling Gemini proxy:', error);
             this.hideTypingIndicator(typingId);
             const hint = error?.message?.includes('Proxy') ? `\n\n_Détail : ${error.message}_` : '';
-            this.persistMessage('assistant', `❌ Une erreur s'est produite. Peux-tu réessayer ?${hint}`);
-            this.appendMessageUI('assistant', `❌ Une erreur s'est produite. Peux-tu réessayer ?${hint}`, true);
+            this.persistMessage('assistant', `${ERROR_MESSAGE_MARKER} Une erreur s'est produite. Peux-tu réessayer ?${hint}`);
+            this.appendMessageUI('assistant', `${ERROR_MESSAGE_MARKER} Une erreur s'est produite. Peux-tu réessayer ?${hint}`, true);
             this.saveStore();
         } finally {
             this.isProcessing = false;
@@ -1468,7 +1471,7 @@ ${budgetText}
         if (!container) return;
         container.innerHTML = `
             <div class="welcome-message">
-                <h2>👋 Bonjour ! Je suis ton assistant portfolio</h2>
+                <h2><i class="ph ph-hand-waving" aria-hidden="true"></i> Bonjour ! Je suis ton assistant portfolio</h2>
                 <p>J'ai accès à toutes tes données d'investissement et je peux t'aider à :</p>
                 <div class="suggestions">
                     <button type="button" class="suggestion-btn">Analyser ma diversification</button>
@@ -1478,7 +1481,7 @@ ${budgetText}
                     <button type="button" class="suggestion-btn">Évaluer mon risque</button>
                 </div>
                 <p style="margin-top: 20px; font-size: 14px; color: var(--text-muted);">
-                    💡 <strong>Astuce :</strong> Utilise « Nouvelle » pour démarrer un sujet, ou reprends une conversation dans le menu à gauche.
+                    <i class="ph ph-lightbulb" aria-hidden="true"></i> <strong>Astuce :</strong> Utilise « Nouvelle » pour démarrer un sujet, ou reprends une conversation dans le menu à gauche.
                 </p>
             </div>
         `;
@@ -1500,15 +1503,23 @@ ${budgetText}
         if (welcome) welcome.remove();
 
         const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${role}-message${content.startsWith('❌') ? ' error-message' : ''}`;
+        // Le préfixe ❌ reste le marqueur d'erreur des messages persistés
+        // (compatibilité des conversations stockées) mais n'est plus affiché :
+        // il est retiré au rendu et remplacé par une icône.
+        const isError = content.startsWith(ERROR_MESSAGE_MARKER);
+        const displayContent = isError ? content.slice(ERROR_MESSAGE_MARKER.length).trimStart() : content;
+        messageDiv.className = `message ${role}-message${isError ? ' error-message' : ''}`;
 
         const avatar = document.createElement('div');
         avatar.className = 'message-avatar';
-        avatar.innerHTML = role === 'user' ? '👤' : '🤖';
+        avatar.innerHTML = role === 'user'
+            ? '<i class="ph-fill ph-user" aria-hidden="true"></i>'
+            : '<i class="ph-fill ph-sparkle" aria-hidden="true"></i>';
 
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
-        contentDiv.innerHTML = this.formatMessage(content);
+        contentDiv.innerHTML = (isError ? '<i class="ph ph-x-circle" aria-hidden="true"></i> ' : '')
+            + this.formatMessage(displayContent);
 
         if (role === 'assistant' && this.isSpeechSynthesisSupported()) {
             const actions = document.createElement('div');
@@ -1519,7 +1530,7 @@ ${budgetText}
             speakButton.title = 'Lire cette réponse à voix haute';
             speakButton.setAttribute('aria-label', 'Lire cette réponse à voix haute');
             speakButton.innerHTML = '<i class="ph ph-speaker-high" aria-hidden="true"></i><span>Lire</span>';
-            speakButton.addEventListener('click', () => this.toggleSpeech(speakButton, content));
+            speakButton.addEventListener('click', () => this.toggleSpeech(speakButton, displayContent));
             actions.appendChild(speakButton);
             contentDiv.appendChild(actions);
         }
@@ -1649,7 +1660,7 @@ ${budgetText}
         typingDiv.id = id;
         typingDiv.className = 'message assistant-message typing-indicator';
         typingDiv.innerHTML = `
-            <div class="message-avatar">🤖</div>
+            <div class="message-avatar"><i class="ph-fill ph-sparkle" aria-hidden="true"></i></div>
             <div class="message-content">
                 <div class="typing-dot"></div>
                 <div class="typing-dot"></div>

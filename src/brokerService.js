@@ -179,6 +179,14 @@ function showBrokerToast(msg, isError = false) {
 }
 
 // Input inline qui remplace le prompt() natif
+// Icône Phosphor décorative (le bouton porte son propre aria-label).
+function phIcon(name) {
+    const i = document.createElement('i');
+    i.className = `ph ph-${name}`;
+    i.setAttribute('aria-hidden', 'true');
+    return i;
+}
+
 function showInlineInput(select, onConfirm) {
     // Supprimer un éventuel ancien widget
     document.getElementById('broker-inline-input')?.remove();
@@ -200,14 +208,16 @@ function showInlineInput(select, onConfirm) {
         color:var(--text-primary);font-size:13px;width:160px;`;
 
     const btnOk = document.createElement('button');
-    btnOk.textContent = '✓';
+    btnOk.appendChild(phIcon('check'));
+    btnOk.setAttribute('aria-label', 'Valider');
     btnOk.type = 'button';
     btnOk.style.cssText = `
         background:var(--accent-blue, #3b82f6);color:#fff;border:none;
         border-radius:6px;padding:3px 8px;cursor:pointer;font-size:13px;`;
 
     const btnCancel = document.createElement('button');
-    btnCancel.textContent = '✕';
+    btnCancel.appendChild(phIcon('x'));
+    btnCancel.setAttribute('aria-label', 'Annuler');
     btnCancel.type = 'button';
     btnCancel.style.cssText = `
         background:transparent;color:var(--text-muted);border:none;

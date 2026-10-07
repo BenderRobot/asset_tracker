@@ -161,13 +161,13 @@ class NotificationsPage {
         if (testBtn) {
             testBtn.addEventListener('click', async () => {
                 // ULTRA SIMPLE TEST: Does the button even work?
-                alert("✅ Bouton cliqué ! Le code fonctionne.");
+                alert("Bouton cliqué ! Le code fonctionne.");
 
                 // Now try notification
                 try {
                     await this.nm.trigger('Test', 'Notification de test depuis Asset Tracker');
                 } catch (e) {
-                    alert("❌ Erreur: " + e.message);
+                    alert("Erreur: " + e.message);
                 }
             });
         } else {

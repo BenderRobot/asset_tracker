@@ -195,6 +195,8 @@
 
 .screener-welcome-icon {
     font-size: 64px;
+    line-height: 1;
+    color: var(--text-muted);
     margin-bottom: 20px;
 }
 
@@ -1143,6 +1145,15 @@
     width: 26px;
     height: 26px;
     object-fit: contain;
+}
+
+/* Phosphor fallback shown only when the favicon fails to load */
+.popular-asset-logo-wrap .ph {
+    color: var(--text-muted);
+}
+
+.popular-asset-logo-wrap .ph[hidden] {
+    display: none;
 }
 
 .popular-asset-ticker {

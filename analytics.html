@@ -378,7 +378,7 @@
 
                 <!-- 1. DIVIDENDES -->
                 <div class="analytics-card" id="dividend-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>💰 Dividendes Perçus <i class="ph ph-arrow-square-out"
+                    <h3><i class="ph ph-coins" aria-hidden="true"></i> Dividendes Perçus <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Total Perçu</span>
@@ -396,7 +396,7 @@
 
                 <!-- 2. IMMO -->
                 <div class="analytics-card" id="real-estate-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>🏗️ Rendement Immo <i class="ph ph-arrow-square-out"
+                    <h3><i class="ph ph-crane" aria-hidden="true"></i> Rendement Immo <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Projetés (An)</span>
@@ -415,7 +415,7 @@
                 <!-- 3. TOP PERF -->
                 <div class="analytics-card" id="top-performers-card"
                     style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>🏆 Top Performers <i class="ph ph-arrow-square-out"
+                    <h3><i class="ph ph-trophy" aria-hidden="true"></i> Top Performers <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div id="top-performers" class="performer-list" style="font-size: 13px;"></div>
                 </div>
@@ -423,7 +423,7 @@
                 <!-- 4. WORST PERF -->
                 <div class="analytics-card" id="worst-performers-card"
                     style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>📉 Worst Performers <i class="ph ph-arrow-square-out"
+                    <h3><i class="ph ph-chart-line-down" aria-hidden="true"></i> Worst Performers <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div id="worst-performers" class="performer-list" style="font-size: 13px;"></div>
                 </div>
@@ -435,7 +435,7 @@
 
                 <!-- 1. PERFORMANCE -->
                 <div class="analytics-card" id="performance-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>📈 Performance Globale <i class="ph ph-arrow-square-out"
+                    <h3><i class="ph ph-chart-line-up" aria-hidden="true"></i> Performance Globale <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Moyenne gains</span>
@@ -455,7 +455,7 @@
                 <!-- 2. DIVERSIFICATION -->
                 <div class="analytics-card" id="diversification-card"
                     style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>🎯 Diversification <i class="ph ph-arrow-square-out"
+                    <h3><i class="ph ph-target" aria-hidden="true"></i> Diversification <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Score</span>
@@ -473,7 +473,7 @@
 
                 <!-- 3. RISQUE -->
                 <div class="analytics-card" id="risk-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>⚠️ Risque <i class="ph ph-arrow-square-out"
+                    <h3><i class="ph ph-warning" aria-hidden="true"></i> Risque <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div class="metric-row">
                         <span class="metric-label">Volatilité ann. (1 an)</span>
@@ -491,7 +491,7 @@
 
                 <!-- 4. HISTORIQUE DES VERSEMENTS -->
                 <div class="analytics-card" id="investment-timeline-card" style="cursor: pointer; transition: transform 0.2s;">
-                    <h3>📅 Versements <i class="ph ph-arrow-square-out"
+                    <h3><i class="ph ph-calendar-blank" aria-hidden="true"></i> Versements <i class="ph ph-arrow-square-out"
                             style="font-size: 12px; margin-left: auto; opacity: 0.5;"></i></h3>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
                         <div>
@@ -525,7 +525,7 @@
                 <div class="modal-overlay" id="timeline-detail-modal" style="display: none;">
                     <div class="modal-content" style="max-width: 800px; width: 90%;">
                         <div class="modal-header">
-                            <h3>📅 Détail des Versements</h3>
+                            <h3><i class="ph ph-calendar-blank" aria-hidden="true"></i> Détail des Versements</h3>
                             <button class="modal-close" id="close-timeline-modal">×</button>
                         </div>
                         <div class="modal-body">
@@ -555,7 +555,7 @@
                                 <div style="display: flex; flex-direction: column; gap: 24px;">
                                     <!-- Doughnut Chart -->
                                     <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px;">
-                                        <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 14px;">📊 Répartition par Classe d'Actifs</h4>
+                                        <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 14px;"><i class="ph ph-chart-pie-slice" aria-hidden="true"></i> Répartition par Classe d'Actifs</h4>
                                         <div style="position: relative; height: 260px;">
                                             <canvas id="timeline-doughnut-chart"></canvas>
                                         </div>
@@ -564,7 +564,7 @@
                                     <!-- Bar Chart (Timeline) -->
                                     <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px;">
                                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                                            <h4 style="color: var(--text-primary); margin: 0; font-size: 14px;">📈 Historique des Versements</h4>
+                                            <h4 style="color: var(--text-primary); margin: 0; font-size: 14px;"><i class="ph ph-chart-line-up" aria-hidden="true"></i> Historique des Versements</h4>
                                             <div style="display: flex; gap: 6px;">
                                                 <button class="btn-primary" id="modal-timeline-btn-monthly" style="padding: 4px 12px; font-size: 11px; border-radius: 6px;">Mensuel</button>
                                                 <button class="btn-secondary" id="modal-timeline-btn-yearly" style="padding: 4px 12px; font-size: 11px; border-radius: 6px;">Annuel</button>
@@ -578,7 +578,7 @@
 
                                 <!-- Top 10 Table -->
                                 <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px;">
-                                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 14px;">🏆 Top 10 des Versements Récents</h4>
+                                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 14px;"><i class="ph ph-trophy" aria-hidden="true"></i> Top 10 des Versements Récents</h4>
                                     <div style="overflow-x: auto;">
                                         <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: var(--text-primary);">
                                             <thead>
@@ -604,7 +604,7 @@
                 <div class="modal-overlay" id="real-estate-detail-modal" style="display: none;">
                     <div class="modal-content" style="max-width: 800px; width: 90%;">
                         <div class="modal-header">
-                            <h3>🏗️ Détail Immobilier (Crowdfunding)</h3>
+                            <h3><i class="ph ph-crane" aria-hidden="true"></i> Détail Immobilier (Crowdfunding)</h3>
                             <button class="modal-close" id="close-re-modal">×</button>
                         </div>
                         <div class="modal-body">
@@ -643,7 +643,7 @@
             <div class="analytics-card" id="unified-visualization-card" style="margin-bottom: 24px;">
                 <!-- Header with View Toggle Buttons -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <h3 id="viz-title">📊 Vos Investissements</h3>
+                    <h3 id="viz-title"><i class="ph ph-chart-bar" aria-hidden="true"></i> Vos Investissements</h3>
                     <div style="display: flex; gap: 8px;">
                         <button id="btn-treemap-view" class="viz-toggle-btn active"
                             style="padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--accent-blue); color: white; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s;">
@@ -736,7 +736,7 @@
     <div class="modal-overlay" id="top-performers-modal" style="display: none;">
         <div class="modal-content" style="max-width: 800px; width: 90%;">
             <div class="modal-header">
-                <h3>🏆 Top Performers - Détails</h3>
+                <h3><i class="ph ph-trophy" aria-hidden="true"></i> Top Performers - Détails</h3>
                 <button class="modal-close" id="close-top-modal">×</button>
             </div>
             <div class="modal-body">
@@ -766,7 +766,7 @@
     <div class="modal-overlay" id="worst-performers-modal" style="display: none;">
         <div class="modal-content" style="max-width: 800px; width: 90%;">
             <div class="modal-header">
-                <h3>📉 Worst Performers - Détails</h3>
+                <h3><i class="ph ph-chart-line-down" aria-hidden="true"></i> Worst Performers - Détails</h3>
                 <button class="modal-close" id="close-worst-modal">×</button>
             </div>
             <div class="modal-body">
@@ -796,7 +796,7 @@
     <div class="modal-overlay" id="dividend-detail-modal" style="display: none;">
         <div class="modal-content" style="max-width: 800px; width: 90%;">
             <div class="modal-header">
-                <h3>💰 Détail des Dividendes</h3>
+                <h3><i class="ph ph-coins" aria-hidden="true"></i> Détail des Dividendes</h3>
                 <button class="modal-close" id="close-dividend-modal">×</button>
             </div>
             <div class="modal-body">
@@ -821,13 +821,13 @@
     <div class="modal-overlay" id="performance-modal" style="display: none;">
         <div class="modal-content" style="max-width: 650px; width: 90%;">
             <div class="modal-header">
-                <h3>📈 Performance Globale - Analyse Détaillée</h3>
+                <h3><i class="ph ph-chart-line-up" aria-hidden="true"></i> Performance Globale - Analyse Détaillée</h3>
                 <button class="modal-close" id="close-performance-modal">×</button>
             </div>
             <div class="modal-body">
                 <!-- Overview Section -->
                 <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
-                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;">📊 Vue d'Ensemble</h4>
+                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;"><i class="ph ph-chart-bar" aria-hidden="true"></i> Vue d'Ensemble</h4>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
                         <div>
                             <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Moyenne des
@@ -859,13 +859,13 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;">
                     <!-- Top Performers -->
                     <div>
-                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">🏆 Top 5
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;"><i class="ph ph-trophy" aria-hidden="true"></i> Top 5
                             Performers</h4>
                         <div id="perf-top-5" style="font-size: 13px;"></div>
                     </div>
                     <!-- Worst Performers -->
                     <div>
-                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">📉 Worst 5
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;"><i class="ph ph-chart-line-down" aria-hidden="true"></i> Worst 5
                             Performers</h4>
                         <div id="perf-worst-5" style="font-size: 13px;"></div>
                     </div>
@@ -873,7 +873,7 @@
 
                 <!-- Distribution & Stats Section -->
                 <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px;">
-                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;">📈 Statistiques
+                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;"><i class="ph ph-chart-line-up" aria-hidden="true"></i> Statistiques
                         Avancées</h4>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
                         <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
@@ -928,13 +928,13 @@
     <div class="modal-overlay" id="diversification-modal" style="display: none;">
         <div class="modal-content" style="max-width: 700px; width: 90%;">
             <div class="modal-header">
-                <h3>🎯 Diversification - Analyse Détaillée</h3>
+                <h3><i class="ph ph-target" aria-hidden="true"></i> Diversification - Analyse Détaillée</h3>
                 <button class="modal-close" id="close-diversification-modal">×</button>
             </div>
             <div class="modal-body">
                 <!-- Overview Section -->
                 <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
-                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;">📊 Vue d'Ensemble</h4>
+                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;"><i class="ph ph-chart-bar" aria-hidden="true"></i> Vue d'Ensemble</h4>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
                         <div>
                             <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Score</div>
@@ -963,14 +963,14 @@
 
                 <!-- Asset Type Breakdown -->
                 <div style="margin-bottom: 24px;">
-                    <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">📈 Répartition par
+                    <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;"><i class="ph ph-chart-line-up" aria-hidden="true"></i> Répartition par
                         Type</h4>
                     <div id="div-asset-types" style="font-size: 13px;"></div>
                 </div>
 
                 <!-- Concentration Analysis -->
                 <div style="background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
-                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 14px;">⚖️ Analyse de
+                    <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 14px;"><i class="ph ph-scales" aria-hidden="true"></i> Analyse de
                         Concentration</h4>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
                         <div style="padding: 12px; background: var(--bg-card); border-radius: 6px;">
@@ -1007,11 +1007,11 @@
                             style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
                             <h4
                                 style="color: var(--text-primary); font-size: 14px; margin: 0; display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 18px;">🤖</span> Conseils Gemini AI
+                                <span style="font-size: 18px; display: inline-flex;"><i class="ph ph-sparkle" aria-hidden="true"></i></span> Conseils Gemini AI
                             </h4>
                             <button id="refresh-gemini-advice"
                                 style="background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(139, 92, 246, 0.4); color: #a78bfa; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;">
-                                <span>↻</span> Actualiser
+                                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i> Actualiser
                             </button>
                         </div>
                         <div id="gemini-advice-content"
@@ -1032,14 +1032,14 @@
         <div class="modal-overlay" id="risk-modal" style="display: none;">
             <div class="modal-content" style="max-width: 700px; width: 90%;">
                 <div class="modal-header">
-                    <h3>⚠️ Analyse de Risque - Détails</h3>
+                    <h3><i class="ph ph-warning" aria-hidden="true"></i> Analyse de Risque - Détails</h3>
                     <button class="modal-close" id="close-risk-modal">×</button>
                 </div>
                 <div class="modal-body">
                     <!-- Overview Section -->
                     <div
                         style="background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
-                        <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;">📊 Métriques
+                        <h4 style="color: var(--text-primary); margin-bottom: 16px; font-size: 16px;"><i class="ph ph-chart-bar" aria-hidden="true"></i> Métriques
                             Principales</h4>
                         <div
                             style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px;">
@@ -1094,7 +1094,7 @@
 
                     <!-- Risk Distribution -->
                     <div style="margin-bottom: 24px;">
-                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">📈 Répartition par
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;"><i class="ph ph-chart-line-up" aria-hidden="true"></i> Répartition par
                             volatilité annualisée historique</h4>
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
                             <div
@@ -1132,7 +1132,7 @@
 
                     <!-- Top Risky Assets -->
                     <div style="margin-bottom: 24px;">
-                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;">⚡ Top 5 actifs
+                        <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px;"><i class="ph ph-lightning" aria-hidden="true"></i> Top 5 actifs
                             les plus volatils (1 an)</h4>
                         <div id="risk-top-volatile" style="font-size: 13px;"></div>
                     </div>
@@ -1144,11 +1144,11 @@
                             style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
                             <h4
                                 style="color: var(--text-primary); font-size: 14px; margin: 0; display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 18px;">🤖</span> Conseils Gemini AI - Gestion du Risque
+                                <span style="font-size: 18px; display: inline-flex;"><i class="ph ph-sparkle" aria-hidden="true"></i></span> Conseils Gemini AI - Gestion du Risque
                             </h4>
                             <button id="refresh-risk-advice"
                                 style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;">
-                                <span>↻</span> Actualiser
+                                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i> Actualiser
                             </button>
                         </div>
                         <div id="risk-advice-content"
@@ -1308,7 +1308,7 @@
                     btnAllocation.style.color = 'var(--text-secondary)';
 
                     // Update title
-                    vizTitle.innerHTML = '📊 Vos Investissements';
+                    vizTitle.innerHTML = '<i class="ph ph-chart-bar" aria-hidden="true"></i> Vos Investissements';
                 }
 
                 function switchToAllocation() {
@@ -1323,7 +1323,7 @@
                     btnTreemap.style.color = 'var(--text-secondary)';
 
                     // Update title
-                    vizTitle.innerHTML = '📊 Asset Allocation';
+                    vizTitle.innerHTML = '<i class="ph ph-chart-pie-slice" aria-hidden="true"></i> Asset Allocation';
                 }
 
                 btnTreemap.addEventListener('click', switchToTreemap);

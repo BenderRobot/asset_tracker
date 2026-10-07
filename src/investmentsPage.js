@@ -414,21 +414,21 @@ export class InvestmentsPage {
     if (tickers.length === 1) {
       const ticker = tickers[0];
       const name = this.storage.getPurchases().find(p => p.ticker.toUpperCase() === ticker.toUpperCase())?.name || ticker;
-      const icon = this.dataManager.isCryptoTicker(ticker) ? '₿' : '📊';
+      const icon = this.dataManager.isCryptoTicker(ticker) ? 'currency-btc' : 'chart-bar';
       return { mode: 'asset', label: [...context, ticker, name].join(' • '), icon: icon };
     }
     if (tickers.length > 1) {
       const tickerLabel = tickers.length > 2 ? `${tickers.slice(0, 2).join(', ')}... (+${tickers.length - 2})` : tickers.join(', ');
       const assetTypes = tickers.map(t => this.dataManager.isCryptoTicker(t) ? 'Crypto' : 'Stock');
       const uniqueTypes = [...new Set(assetTypes)];
-      let icon = uniqueTypes.length === 1 && uniqueTypes[0] === 'Crypto' ? '₿' : '📈';
+      let icon = uniqueTypes.length === 1 && uniqueTypes[0] === 'Crypto' ? 'currency-btc' : 'chart-line-up';
       return { mode: 'filter', label: [...context, tickerLabel].join(' • '), icon: icon };
     }
     if (context.length > 0) {
-      const icon = this.currentAssetTypeFilter === 'Crypto' ? '₿' : (this.currentBrokerFilter ? '🏦' : '📊');
+      const icon = this.currentAssetTypeFilter === 'Crypto' ? 'currency-btc' : (this.currentBrokerFilter ? 'bank' : 'chart-bar');
       return { mode: 'filter', label: context.join(' • '), icon };
     }
-    return { mode: 'global', label: 'Portfolio Global', icon: '📈' };
+    return { mode: 'global', label: 'Portfolio Global', icon: 'chart-line-up' };
   }
 
   attachRowClickListeners() {

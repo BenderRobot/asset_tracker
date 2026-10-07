@@ -408,12 +408,12 @@ class MigrationApp {
 
         if (failures.length > 0) {
             // Pas de redirection : l'utilisateur doit voir quelles lignes restent à migrer
-            showToast(`⚠️ ${failures.length} transaction(s) non migrée(s) (${describeWriteError(failures[0].reason)}), ${updated} migrée(s). Les échecs ont été annulés, relancez la migration.`, 'error', { duration: 10000 });
+            showToast(`${failures.length} transaction(s) non migrée(s) (${describeWriteError(failures[0].reason)}), ${updated} migrée(s). Les échecs ont été annulés, relancez la migration.`, 'error', { duration: 10000 });
             this.render();
             return;
         }
 
-        this.showNotification(`✅ ${updated} transaction(s) migrée(s) avec succès`, 'success');
+        this.showNotification(`${updated} transaction(s) migrée(s) avec succès`, 'success');
 
         this.selectedAssets.clear();
         this.render();

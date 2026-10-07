@@ -81,7 +81,7 @@ export class AchatsPage {
       tbody.innerHTML = `
         <tr>
           <td colspan="15" style="padding: 48px 20px; text-align: center; color: var(--text-muted);">
-            <div style="font-size: 36px; margin-bottom: 12px; opacity: 0.5;">📋</div>
+            <div style="font-size: 36px; margin-bottom: 12px; opacity: 0.5;"><i class="ph ph-receipt" aria-hidden="true"></i></div>
             <div style="font-size: 15px; color: var(--text-secondary);">
               Aucune transaction — utilisez le bouton <strong style="color: var(--text-primary);">Add</strong> ci-dessus pour commencer.
             </div>
@@ -132,7 +132,7 @@ export class AchatsPage {
         return `
           <tr data-row-key="${key}" style="background: rgba(39, 174, 96, 0.1);">
             <td><input type="checkbox" class="row-select" data-key="${key}"></td>
-            <td><span class="asset-type-badge" style="background:#27ae60;">💰 Div</span></td>
+            <td><span class="asset-type-badge" style="background:#27ae60;"><i class="ph ph-coins" aria-hidden="true"></i> Div</span></td>
             <td>${brokerBadge}</td>
             <td>${formatDate(p.date)}</td>
             <td><strong>${escHtml(p.ticker)}</strong></td>

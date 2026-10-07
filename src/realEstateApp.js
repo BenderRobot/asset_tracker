@@ -328,7 +328,7 @@ export class RealEstateApp {
             <div class="primary-residence-card">
                 <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="font-size: 24px;">🏠</span>
+                        <span style="font-size: 24px; display: inline-flex;"><i class="ph ph-house" aria-hidden="true"></i></span>
                         <div>
                             <h2 style="margin: 0; font-size: 18px;">${residence.name || 'Ma Résidence Principale'}</h2>
                             <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">

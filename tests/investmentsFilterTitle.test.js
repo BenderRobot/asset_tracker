@@ -16,7 +16,7 @@ describe('titre du graphique Investments', () => {
         expect(page.getChartTitleConfig()).toEqual({
             mode: 'asset',
             label: 'Trade Republic • ETF • CSPX • iShares S&P 500',
-            icon: '📊'
+            icon: 'chart-bar'
         });
 
         // Le chemin direct showAssetChart(ticker) doit produire le même titre.

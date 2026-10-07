@@ -318,3 +318,30 @@ describe('AssistantApp intraday refresh routing', () => {
         expect(messageNeedsFreshMarketData('Analyse ma diversification long terme')).toBe(false);
     });
 });
+
+describe('AssistantApp.appendMessageUI — marqueur d’erreur et avatars', () => {
+    function render(role, content) {
+        document.body.innerHTML = '<div id="chat-messages"></div>';
+        const ctx = {
+            formatMessage: AssistantApp.prototype.formatMessage,
+            escapeHtml: AssistantApp.prototype.escapeHtml,
+            isSpeechSynthesisSupported: () => false,
+        };
+        AssistantApp.prototype.appendMessageUI.call(ctx, role, content, false);
+        return document.querySelector('#chat-messages .message');
+    }
+
+    it('un message persisté préfixé par le marqueur reste une erreur, sans afficher l’emoji', () => {
+        const msg = render('assistant', '❌ Une erreur s\'est produite.');
+        expect(msg.classList.contains('error-message')).toBe(true);
+        const content = msg.querySelector('.message-content');
+        expect(content.textContent).not.toContain('❌');
+        expect(content.querySelector('i.ph-x-circle')).not.toBeNull();
+    });
+
+    it('utilise des icônes Phosphor pour les avatars', () => {
+        expect(render('assistant', 'ok').querySelector('.message-avatar i.ph-sparkle')).not.toBeNull();
+        expect(render('user', 'salut').querySelector('.message-avatar i.ph-user')).not.toBeNull();
+        expect(render('user', 'salut').classList.contains('error-message')).toBe(false);
+    });
+});

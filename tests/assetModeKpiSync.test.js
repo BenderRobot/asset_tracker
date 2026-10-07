@@ -60,7 +60,7 @@ function buildScenario() {
 
     const investmentsPage = {
         filterManager: { getSelectedTickers: () => new Set() },
-        getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'x' }),
+        getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'chart-line-up' }),
         getFilteredPurchasesFromPage: () => purchases,
         renderData: vi.fn()
     };

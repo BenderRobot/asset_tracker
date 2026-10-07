@@ -957,7 +957,7 @@ export class HistoricalChart {
                     targetSummary = indexSnap.summary;
                     portfolioSnapshot = indexSnap.portfolioSnapshot;
                 }
-                titleConfig = { mode: 'index', label: this.customTitle ? this.customTitle.label : currentTicker, icon: '🌎' };
+                titleConfig = { mode: 'index', label: this.customTitle ? this.customTitle.label : currentTicker, icon: 'globe-hemisphere-west' };
 
             // === MODE ACTIF UNIQUE (drill-down depuis une ligne du tableau) ===
             } else if (this.currentMode === 'asset' && this.selectedAssets.length === 1) {
@@ -1026,7 +1026,7 @@ export class HistoricalChart {
                 const filteredTitle = this.investmentsPage.getChartTitleConfig?.(currentTicker);
                 titleConfig = filteredTitle?.mode === 'asset'
                     ? filteredTitle
-                    : { mode: 'asset', label: `${currentTicker} • ${name}`, icon: this.dataManager.isCryptoTicker(currentTicker) ? '₿' : '📊' };
+                    : { mode: 'asset', label: `${currentTicker} • ${name}`, icon: this.dataManager.isCryptoTicker(currentTicker) ? 'currency-btc' : 'chart-bar' };
 
             // === MODE PORTFOLIO GLOBAL / FILTRÉ ===
             } else {
@@ -1620,7 +1620,12 @@ export class HistoricalChart {
             const logoInfo = renderCompanyLogo(currentTicker, assetName);
             titleIcon.innerHTML = logoInfo.html;
         } else {
-            titleIcon.textContent = titleConfig.icon || '📈';
+            // titleConfig.icon = nom d'icône Phosphor (ex. 'chart-line-up') —
+            // rendu via un <i> créé en DOM, jamais injecté en HTML.
+            const iconEl = document.createElement('i');
+            iconEl.className = `ph ph-${titleConfig.icon || 'chart-line-up'}`;
+            iconEl.setAttribute('aria-hidden', 'true');
+            titleIcon.replaceChildren(iconEl);
         }
         this._updateBackButton(titleText);
     }
@@ -1751,8 +1756,8 @@ export class HistoricalChart {
             if (v == null || isNaN(v)) return [];
             const label = isUnitView ? 'Prix' : 'Cours';
             const rows = isPerformanceMode
-                ? [{ icon: '📊', label, eur: null, pct: pctFmt(v), positive: v >= 0 }]
-                : [{ icon: '📊', label, eur: eurFmt(v), pct: null, positive: true }];
+                ? [{ icon: 'chart-bar', label, eur: null, pct: pctFmt(v), positive: v >= 0 }]
+                : [{ icon: 'chart-bar', label, eur: eurFmt(v), pct: null, positive: true }];
             if (isUnitView && this.currentPeriod === 1) {
                 this._pushDayPnlRow(rows, idx, graphData, eurFmt, pctFmt);
             }
@@ -1777,14 +1782,14 @@ export class HistoricalChart {
         // tranchée EN AMONT, dans la donnée elle-même — ce code lit un index
         // de tableau, un point c'est tout, jamais deux sources différentes
         // combinées pour un même nombre.
-        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(val), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
+        const rows = [{ icon: 'chart-bar', label: 'Total Value', eur: eurFmt(val), pct: (pct != null && !isNaN(pct)) ? pctFmt(pct) : null, positive: (pct ?? 0) >= 0 }];
 
         const totalReturn = this._getPortfolioReturnSeries(graphData)?.[idx];
         const canonicalPct = this.includeDividends && Array.isArray(graphData.totalReturnPctWithDividends)
             ? graphData.totalReturnPctWithDividends[idx]
             : graphData.totalReturnPct?.[idx];
         if (totalReturn != null && !isNaN(totalReturn)) {
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(canonicalPct), positive: totalReturn >= 0 });
+            rows.push({ icon: 'coins', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(canonicalPct), positive: totalReturn >= 0 });
         }
         const period = periodPerformance(graphData, { includeDividends: this.includeDividends, lastIndex: idx });
         if (period.amount !== null || period.percent !== null) {
@@ -1821,7 +1826,7 @@ export class HistoricalChart {
         if (dp == null || isNaN(dp)) return;
         const dpPct = graphData.dayPnlPct?.[idx];
         rows.push({
-            icon: '📅', label: 'Var Today', eur: eurFmt(dp),
+            icon: 'calendar-blank', label: 'Var Today', eur: eurFmt(dp),
             pct: Number.isFinite(dpPct) ? pctFmt(dpPct) : null,
             positive: dp >= 0
         });
@@ -1835,9 +1840,9 @@ export class HistoricalChart {
         if (!benchPctSeries || portfolioPct == null || isNaN(portfolioPct)) return;
         const benchPct = benchPctSeries[idx];
         if (benchPct == null || isNaN(benchPct)) return;
-        rows.push({ icon: '🟣', label: benchmarkLabel || 'Benchmark', eur: null, pct: pctFmt(benchPct), positive: benchPct >= 0 });
+        rows.push({ icon: 'circle', label: benchmarkLabel || 'Benchmark', eur: null, pct: pctFmt(benchPct), positive: benchPct >= 0 });
         const delta = portfolioPct - benchPct;
-        rows.push({ icon: '⚖️', label: 'vs Benchmark', eur: null, pct: pctFmt(delta), positive: delta >= 0 });
+        rows.push({ icon: 'scales', label: 'vs Benchmark', eur: null, pct: pctFmt(delta), positive: delta >= 0 });
     }
 
     // The same 3-row shape, but for a dragged RANGE instead of one point:
@@ -1855,20 +1860,20 @@ export class HistoricalChart {
         // dataManager.alignLastPointToLiveSnapshot (appelé dans update()) —
         // rien à recalculer ni à distinguer ici.
         const pct1 = pctSeries?.[i1];
-        const rows = [{ icon: '📊', label: 'Total Value', eur: eurFmt(v1), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
+        const rows = [{ icon: 'chart-bar', label: 'Total Value', eur: eurFmt(v1), pct: (pct1 != null && !isNaN(pct1)) ? pctFmt(pct1) : null, positive: (pct1 ?? 0) >= 0 }];
 
         const totalReturn = this._getPortfolioReturnSeries(graphData)?.[i1];
         const canonicalPct = this.includeDividends && Array.isArray(graphData.totalReturnPctWithDividends)
             ? graphData.totalReturnPctWithDividends[i1]
             : graphData.totalReturnPct?.[i1];
         if (totalReturn != null && !isNaN(totalReturn)) {
-            rows.push({ icon: '💰', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(canonicalPct), positive: totalReturn >= 0 });
+            rows.push({ icon: 'coins', label: 'Total Return', eur: eurFmt(totalReturn), pct: pctFmt(canonicalPct), positive: totalReturn >= 0 });
         }
 
         if (v0 !== 0) {
             const deltaAbs = v1 - v0;
             const deltaPct = (deltaAbs / v0) * 100;
-            rows.push({ icon: '📅', label: 'Variation', eur: eurFmt(deltaAbs), pct: pctFmt(deltaPct), positive: deltaAbs >= 0 });
+            rows.push({ icon: 'calendar-blank', label: 'Variation', eur: eurFmt(deltaAbs), pct: pctFmt(deltaPct), positive: deltaAbs >= 0 });
         }
 
         this._pushBenchmarkRows(rows, i1, pct1, opts);

@@ -87,7 +87,7 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
 
         const investmentsPage = {
             filterManager: { getSelectedTickers: () => new Set() },
-            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'x' }),
+            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'chart-line-up' }),
             getFilteredPurchasesFromPage: () => purchases,
             renderData: () => {}
         };
@@ -182,7 +182,7 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
 
         const investmentsPage = {
             filterManager: { getSelectedTickers: () => new Set() },
-            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'x' }),
+            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'chart-line-up' }),
             getFilteredPurchasesFromPage: () => purchases,
             renderData: () => {}
         };
@@ -269,7 +269,7 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
 
         const investmentsPage = {
             filterManager: { getSelectedTickers: () => new Set() },
-            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'x' }),
+            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'chart-line-up' }),
             getFilteredPurchasesFromPage: () => purchases,
             renderData: () => {}
         };

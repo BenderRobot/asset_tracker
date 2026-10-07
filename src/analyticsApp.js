@@ -1253,7 +1253,7 @@ class AnalyticsApp {
             console.error('Error fetching Gemini advice:', error);
             contentDiv.innerHTML = `
                 <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
-                    ⚠️ Impossible de charger les conseils AI. 
+                    <i class="ph ph-warning" aria-hidden="true"></i> Impossible de charger les conseils AI. 
                     <button id="retry-gemini" style="margin-top: 12px; background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(139, 92, 246, 0.4); color: #a78bfa; padding: 6px 12px; border-radius: 6px; cursor: pointer;">Réessayer</button>
                 </div>
             `;
@@ -1439,17 +1439,17 @@ class AnalyticsApp {
         if (refreshBtn) {
             refreshBtn.addEventListener('click', async () => {
                 refreshBtn.disabled = true;
-                refreshBtn.textContent = '🔄 Rafraîchissement...';
+                refreshBtn.innerHTML = '<i class="ph ph-arrows-clockwise ph-spin" aria-hidden="true"></i> Rafraîchissement...';
 
                 try {
                     const purchases = this.storage.getPurchases();
                     const { assets, cash } = this.dataManager.splitCanonicalPurchases(purchases);
                     await this.dataManager.repository.refresh(assets, cash);
                     await this.render();
-                    this.showNotification('✅ Analytics mis à jour', 'success');
+                    this.showNotification('Analytics mis à jour', 'success');
                 } catch (error) {
                     console.error('Erreur refresh:', error);
-                    this.showNotification('❌ Erreur lors du rafraîchissement', 'error');
+                    this.showNotification('Erreur lors du rafraîchissement', 'error');
                 } finally {
                     refreshBtn.disabled = false;
                     refreshBtn.textContent = 'Refresh Analytics';
@@ -1740,7 +1740,11 @@ class AnalyticsApp {
     showNotification(message, type = 'info') {
         const notification = document.createElement('div');
         notification.className = `notification notification-${type}`;
-        notification.textContent = message;
+        const icon = document.createElement('i');
+        icon.className = `ph ${type === 'success' ? 'ph-check-circle' : type === 'error' ? 'ph-x-circle' : 'ph-info'}`;
+        icon.setAttribute('aria-hidden', 'true');
+        icon.style.marginRight = '8px';
+        notification.append(icon, document.createTextNode(message));
         notification.style.cssText = `
             position: fixed;
             top: 20px;

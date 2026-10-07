@@ -71,7 +71,7 @@ export class DashboardApp {
             currentSearchQuery: '',
             currentAssetTypeFilter: '',
             currentBrokerFilter: '',
-            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'Chart' }),
+            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'chart-line-up' }),
             // Dashboard n'a pas de filtres ticker/type/courtier (toujours portefeuille
             // global) — historicalChart.js délègue maintenant à getFilteredPurchasesFromPage
             // de la "page" pour éviter un doublon avec investmentsPage.js ; ce mock doit donc
@@ -440,8 +440,30 @@ export class DashboardApp {
     }
 
     /**
+     * Rend l'indicateur visuel d'un statut de marché (hérite de la couleur du badge).
+     * Pastille ronde pour fermé / différé / live (pulsée), icône Phosphor pour les
+     * marchés continus (24/7, 24/5) et les futures.
+     */
+    renderMarketStatusIcon(kind) {
+        switch (kind) {
+            case 'live':
+                return '<span class="market-status-dot is-live" aria-hidden="true"></span>';
+            case 'closed':
+            case 'delayed':
+                return '<span class="market-status-dot" aria-hidden="true"></span>';
+            case 'continuous':
+                return '<i class="ph ph-arrows-clockwise market-status-glyph" aria-hidden="true"></i>';
+            case 'future':
+                return '<i class="ph-fill ph-diamond market-status-glyph" aria-hidden="true"></i>';
+            default:
+                return '';
+        }
+    }
+
+    /**
      * Calcule la variation intelligente selon le statut du marché
      * @returns {Object} { variation, variationPct, referencePrice, label, statusIcon }
+     *   statusIcon ∈ 'closed' | 'delayed' | 'live' | 'continuous' | '' (rendu par renderMarketStatusIcon)
      */
     getSmartVariation(ticker, currentPrice, previousClose, lastTradingDayClose, lastQuoteTime = null) {
         const now = new Date();
@@ -459,7 +481,7 @@ export class DashboardApp {
                 priceToUse = currentPrice;
                 referencePrice = previousClose; // Clôture veille
                 label = 'CLOSED';
-                statusIcon = '🔴'; // Icône fermé
+                statusIcon = 'closed'; // Pastille rouge (fermé)
                 break;
 
             case 'MARKET_OPEN':
@@ -470,10 +492,10 @@ export class DashboardApp {
                 // Si la donnée a plus de 30 minutes de retard pendant l'ouverture des marchés
                 if (lastQuoteTime && (Date.now() - lastQuoteTime) > 1800000) {
                     label = 'DELAYED';
-                    statusIcon = '🟠'; 
+                    statusIcon = 'delayed';
                 } else {
                     label = 'LIVE';
-                    statusIcon = '🟢';
+                    statusIcon = 'live';
                 }
                 break;
 
@@ -484,7 +506,7 @@ export class DashboardApp {
                 priceToUse = currentPrice;
                 referencePrice = previousClose;
                 label = 'CLOSED';
-                statusIcon = '🔴';
+                statusIcon = 'closed';
                 break;
 
             case '24_7':
@@ -492,7 +514,7 @@ export class DashboardApp {
                 priceToUse = currentPrice;
                 referencePrice = previousClose;
                 label = '24/7';
-                statusIcon = '🔄';
+                statusIcon = 'continuous';
                 break;
 
             case '24_5':
@@ -500,7 +522,7 @@ export class DashboardApp {
                 priceToUse = currentPrice;
                 referencePrice = previousClose;
                 label = '24/5';
-                statusIcon = '🔄';
+                statusIcon = 'continuous';
                 break;
 
             default:
@@ -1246,7 +1268,7 @@ export class DashboardApp {
                     variationPct: referenceClose > 0 ? ((currentPrice - referenceClose) / referenceClose) * 100 : 0,
                     referencePrice: referenceClose,
                     label: 'FUTURE',
-                    statusIcon: '◆',
+                    statusIcon: 'future',
                     marketStatus: 'FUTURE'
                 }
                 : this.getSmartVariation(
@@ -1356,8 +1378,8 @@ export class DashboardApp {
 					<div style="font-size:16px; font-weight:700; color:#fff; margin:2px 0;">${priceStr}</div>
 					<div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
 						<span class="${changeClass}" style="font-size:11.5px; font-weight:600;">${changeStr}</span>
-						<span style="color:${statusColor}; border:1px solid ${statusColor}; padding:3px 8px; border-radius:6px; font-weight:700; font-size:9px; background:rgba(255,255,255,0.1); text-transform:uppercase; letter-spacing:0.4px;">
-							${statusIcon} ${statusLabel}
+						<span style="display:inline-flex; align-items:center; gap:5px; color:${statusColor}; border:1px solid ${statusColor}; padding:3px 8px; border-radius:6px; font-weight:700; font-size:9px; background:rgba(255,255,255,0.1); text-transform:uppercase; letter-spacing:0.4px;">
+							${this.renderMarketStatusIcon(statusIcon)}${statusLabel}
 						</span>
 					</div>
 					${kpiHTML}
@@ -1600,7 +1622,7 @@ export class DashboardApp {
                         <div class="add-index-item-name">${escHtml(item.name)}</div>
                         <div class="add-index-item-ticker">${escHtml(item.ticker)}</div>
                     </div>
-                    <span class="add-index-item-action" style="color:${isAdded ? '#10b981' : '#818cf8'};">${isAdded ? '✓' : '+'}</span>
+                    <span class="add-index-item-action" style="color:${isAdded ? '#10b981' : '#818cf8'};"><i class="ph ${isAdded ? 'ph-check' : 'ph-plus'}" aria-hidden="true"></i></span>
                 </div>`;
         }).join('');
 

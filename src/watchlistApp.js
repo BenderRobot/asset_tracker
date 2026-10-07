@@ -213,15 +213,15 @@ class WatchlistApp {
                         <button class="group-add-assets-btn" title="Ajouter des actifs" style="
                             background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;
                             padding:4px; border-radius:4px;
-                        ">➕</button>
+                        "><i class="ph ph-plus" aria-hidden="true"></i></button>
                         <button class="group-edit-btn" title="Éditer" style="
                             background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;
                             padding:4px; border-radius:4px;
-                        ">✏️</button>
+                        "><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
                         <button class="group-delete-btn" title="Supprimer" style="
                             background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px;
                             padding:4px; border-radius:4px;
-                        ">🗑️</button>
+                        "><i class="ph ph-trash" aria-hidden="true"></i></button>
                     </div>
                 </div>
             `;
@@ -358,7 +358,9 @@ class WatchlistApp {
         list.innerHTML = filtered.map(asset => {
             const isInGroup = currentGroup.tickers.includes(asset.ticker);
             const btnClass = isInGroup ? 'btn-secondary' : 'btn-primary';
-            const btnText = isInGroup ? '✓ Ajouté' : '+ Ajouter';
+            const btnText = isInGroup
+                ? '<i class="ph ph-check" aria-hidden="true"></i> Ajouté'
+                : '<i class="ph ph-plus" aria-hidden="true"></i> Ajouter';
 
             return `
                 <div class="asset-item" style="
@@ -643,11 +645,11 @@ class WatchlistApp {
         // Update sort icons
         document.querySelectorAll('.sortable-header').forEach(header => {
             const icon = header.querySelector('.sort-icon');
-            if (header.dataset.column === this.sortColumn) {
-                icon.textContent = this.sortDirection === 'asc' ? '▲' : '▼';
-            } else {
-                icon.textContent = '⇅';
-            }
+            if (!icon) return;
+            const glyph = header.dataset.column !== this.sortColumn
+                ? 'ph-caret-up-down'
+                : (this.sortDirection === 'asc' ? 'ph-caret-up' : 'ph-caret-down');
+            icon.innerHTML = `<i class="ph ${glyph}" aria-hidden="true"></i>`;
         });
     }
 

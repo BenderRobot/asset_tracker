@@ -6,6 +6,8 @@ import { auth, db } from './firebaseConfig.js';
 import { categorizeTransaction, isCredit, getCategoriesForDirection } from './expenseCategorizer.js';
 import { detectRecurring, computeRecurringKey, FREQUENCY_LABELS } from './recurringDetector.js';
 
+// Icône Phosphor d'une catégorie (noms fixes définis dans expenseCategorizer.js).
+const categoryIcon = (c) => `<i class="ph ph-${c.icon}" aria-hidden="true"></i>`;
 const fmtEUR = (v) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(v || 0);
 const fmtDate = (iso) => {
   if (!iso) return '';
@@ -123,7 +125,7 @@ class ExpensesApp {
     if (!this.bankSelect) return;
     const prevValue = this.bankSelect.value;
     const options = ['<option value="all">Toutes les banques</option>']
-      .concat(this.bankConnections.map((c) => `<option value="${c.id}">🏦 ${c.aspspName || 'Banque connectée'}</option>`));
+      .concat(this.bankConnections.map((c) => `<option value="${c.id}">${c.aspspName || 'Banque connectée'}</option>`));
     this.bankSelect.innerHTML = options.join('');
     if ([...this.bankSelect.options].some((o) => o.value === prevValue)) this.bankSelect.value = prevValue;
   }
@@ -287,7 +289,7 @@ class ExpensesApp {
 
       return `
         <div class="recurring-row">
-            <div class="expense-row-icon">${item.category.icon}</div>
+            <div class="expense-row-icon" style="color:${item.category.color};">${categoryIcon(item.category)}</div>
             <div class="expense-row-main">
                 <div class="expense-row-title">${item.label}${tag ? ` <span style="color:var(--text-muted); font-size:11px;">${tag}</span>` : ''}</div>
                 <div class="expense-row-meta">${meta}</div>
@@ -456,7 +458,7 @@ class ExpensesApp {
                 <div class="alloc-left">
                     <span class="alloc-dot" style="background-color: ${item.color};"></span>
                     <span class="alloc-pct">${item.pct.toFixed(1)}%</span>
-                    <span class="alloc-label">${item.icon} ${item.label}</span>
+                    <span class="alloc-label">${categoryIcon(item)} ${item.label}</span>
                 </div>
                 <div class="alloc-right"><span>${fmtEUR(item.value)}</span></div>
             </div>`;
@@ -469,7 +471,7 @@ class ExpensesApp {
     if (this.categorySelect) {
       const prevValue = this.categorySelect.value;
       const options = ['<option value="all">Toutes les catégories</option>']
-        .concat(data.map((c) => `<option value="${c.key}">${c.icon} ${c.label}</option>`));
+        .concat(data.map((c) => `<option value="${c.key}">${c.label}</option>`));
       this.categorySelect.innerHTML = options.join('');
       if ([...this.categorySelect.options].some((o) => o.value === prevValue)) this.categorySelect.value = prevValue;
     }
@@ -542,11 +544,11 @@ class ExpensesApp {
       const amountColor = isCredit(tx) ? 'var(--accent-green)' : 'var(--text-primary)';
       const sign = isCredit(tx) ? '+' : '-';
       const categoryOptions = getCategoriesForDirection(isCredit(tx))
-        .map((c) => `<option value="${c.key}" ${c.key === tx.category.key ? 'selected' : ''}>${c.icon} ${c.label}</option>`)
+        .map((c) => `<option value="${c.key}" ${c.key === tx.category.key ? 'selected' : ''}>${c.label}</option>`)
         .join('');
       return `
         <div class="expense-row">
-            <div class="expense-row-icon">${tx.category.icon}</div>
+            <div class="expense-row-icon" style="color:${tx.category.color};">${categoryIcon(tx.category)}</div>
             <div class="expense-row-main">
                 <div class="expense-row-title">${escHtml(tx.counterparty || tx.description || 'Transaction')}</div>
                 <div class="expense-row-meta">${escHtml(account?.name || 'Compte')} · ${fmtDate(tx.bookingDate)}</div>

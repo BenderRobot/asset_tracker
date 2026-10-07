@@ -124,7 +124,7 @@ export class NotificationManager {
         const threshold = this.settings.portfolio.threshold || 1.0;
 
         if (absPct >= threshold) {
-            const direction = pct >= 0 ? "Hausse 🚀" : "Baisse 📉";
+            const direction = pct >= 0 ? "Hausse" : "Baisse";
             this.triggerDebounced(
                 `global_portfolio`,
                 `Portefeuille Global: ${direction}`,

@@ -7,16 +7,17 @@ const N8N_WEBHOOK_URL = 'https://n8n.asset-tracker.fr/webhook/75994465-3031-4972
 // Secret partagé : même valeur dans n8n (Header Auth ou champ dans le body)
 const N8N_SECRET = 'CHANGE_ME';
 
+// `icon` = nom Phosphor, aligné sur la sidebar (src/sidebar-render.js).
 const MODULES = [
-    { id: 'dashboard',     label: 'Dashboard',     icon: '🚀' },
-    { id: 'assets',        label: 'Assets',         icon: '📈' },
-    { id: 'transactions',  label: 'Transactions',   icon: '📋' },
-    { id: 'analytics',     label: 'Analytics',      icon: '📊' },
-    { id: 'watchlist',     label: 'Watchlist',      icon: '👁️' },
-    { id: 'screener',      label: 'Screener',       icon: '🔍' },
-    { id: 'news',          label: 'News',            icon: '📰' },
-    { id: 'realestate',    label: 'Immobilier',     icon: '🏢' },
-    { id: 'assistant',     label: 'Assistant IA',   icon: '🤖' },
+    { id: 'dashboard',     label: 'Dashboard',     icon: 'squares-four' },
+    { id: 'assets',        label: 'Assets',         icon: 'chart-line-up' },
+    { id: 'transactions',  label: 'Transactions',   icon: 'receipt' },
+    { id: 'analytics',     label: 'Analytics',      icon: 'chart-pie-slice' },
+    { id: 'watchlist',     label: 'Watchlist',      icon: 'eye' },
+    { id: 'screener',      label: 'Screener',       icon: 'funnel' },
+    { id: 'news',          label: 'News',            icon: 'newspaper' },
+    { id: 'realestate',    label: 'Immobilier',     icon: 'buildings' },
+    { id: 'assistant',     label: 'Assistant IA',   icon: 'sparkle' },
 ];
 
 function defaultModules() {
@@ -118,7 +119,7 @@ function buildModalGrid() {
     grid.innerHTML = MODULES.map(m => {
         const on = BASIC_MODULES.includes(m.id);
         return `<span class="modal-module-chip ${on ? 'on' : 'off'}" data-mod="${m.id}">
-                    <span class="dot"></span>${m.icon} ${m.label}
+                    <span class="dot"></span><i class="ph ph-${m.icon}" aria-hidden="true"></i> ${m.label}
                 </span>`;
     }).join('');
 
@@ -388,7 +389,7 @@ function buildUserCard(doc) {
             className: `module-chip ${enabled ? 'enabled' : 'disabled'}`,
             style: isAdmin ? 'pointer-events:none;opacity:0.6;' : null,
             dataset: { module: mod.id },
-        }, [el('span', { className: 'module-dot' }), `${mod.icon} ${mod.label}`]);
+        }, [el('span', { className: 'module-dot' }), el('i', { className: `ph ph-${mod.icon}`, 'aria-hidden': 'true' }), ` ${mod.label}`]);
         if (!isAdmin) chip.addEventListener('click', () => toggleModule(chip, uid, chips, indicator));
         return chip;
     });
