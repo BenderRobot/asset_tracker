@@ -1009,6 +1009,11 @@ export class HistoricalChart {
                 const assetSnapshot = this.dataManager.buildAssetPortfolioSnapshot(currentTicker, targetAssetPurchases, todayGraphData, singleAssetFxMap);
                 targetHoldings = assetSnapshot.holdings;
                 targetSummary = assetSnapshot.summary;
+                // Les dividendes de l'actif sont du cash (splitTransactions) et
+                // entrent dans portfolioSnapshot.totalValue : la carte Cash
+                // Reserve doit lire la même réserve, sinon Total Value affiche
+                // un écart inexpliqué avec la ligne du tableau.
+                targetCashReserve = assetSnapshot.cashReserve;
                 portfolioSnapshot = assetSnapshot.portfolioSnapshot;
 
                 // FINANCIAL TRUTH OVER KPI RECONCILIATION (validation architecture
@@ -1529,8 +1534,7 @@ export class HistoricalChart {
         // sélection de cet actif. kpiData est pourtant déjà calculé plus haut
         // de façon mode-agnostique (_computeAggregateKPIs, à partir de
         // targetSummary/targetCashReserve — l'actif seul en mode 'asset',
-        // cash=0 puisque targetCashReserve n'est jamais renseigné dans cette
-        // branche de update()) : aucun second moteur, aucune formule
+        // cash = ses dividendes perçus) : aucun second moteur, aucune formule
         // spéciale, on lui fait juste atteindre portfolioKPIs dans TOUS les
         // modes sauf l'index (qui n'a pas de notion de "Total Return
         // portefeuille" à afficher — comportement inchangé pour lui).
