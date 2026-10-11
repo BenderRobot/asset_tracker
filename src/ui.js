@@ -25,7 +25,7 @@ export class UIComponents {
         const formatPctSimple = (value) => {
             if (value === null || isNaN(value)) return '-';
             const sign = value >= 0 ? '+' : '';
-            return sign + value.toFixed(2) + ' %';
+            return sign + value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %';
         };
         const updateHTML = (id, html) => {
             const el = document.getElementById(id);
@@ -49,7 +49,7 @@ export class UIComponents {
         // FIX UNIFIÉ: Met à jour la valeur "Invested" sur les deux pages
         const investedSubtitleEl = document.getElementById('invested');
         if (investedSubtitleEl) {
-            investedSubtitleEl.textContent = `Invested: ${formatSimple(summary.totalInvestedEUR)}`;
+            investedSubtitleEl.textContent = `${investedSubtitleEl.dataset.label || "Invested"} : ${formatSimple(summary.totalInvestedEUR)}`;
             // Style inline pour correspondre au design du dashboard (optionnel, mais assure la cohérence)
             investedSubtitleEl.style.fontSize = '14px';
             investedSubtitleEl.style.opacity = '0.9';

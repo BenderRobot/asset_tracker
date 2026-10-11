@@ -1,0 +1,123 @@
+// Isolated UI validation: real HTML/CSS/renderers with deterministic demo data.
+// No Firebase login, production data, or writes. Pass a local Playwright module
+// directory as argv[2] when Playwright isn't installed in the project.
+import { createServer } from 'node:http';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import assert from 'node:assert/strict';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.argv[2] || 'playwright');
+const root = path.resolve(import.meta.dirname, '..');
+const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.json': 'application/json', '.svg': 'image/svg+xml' };
+const server = createServer(async (req, res) => {
+    try {
+        const file = path.resolve(root, '.' + decodeURIComponent(new URL(req.url, 'http://localhost').pathname));
+        if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
+        let data = await readFile(file);
+        if (file.endsWith('dashboard.html')) data = data.toString().replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+        res.setHeader('Content-Type', (mime[path.extname(file)] || 'application/octet-stream') + '; charset=utf-8');
+        res.end(data);
+    } catch { res.writeHead(404).end(); }
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1080 } });
+const errors = [];
+page.on('pageerror', e => errors.push(e.message));
+try {
+    const address = `http://127.0.0.1:${server.address().port}`;
+    await page.goto(address + '/dashboard.html');
+    await page.addScriptTag({ url: address + '/src/sidebar-render.js' });
+    await page.addScriptTag({ url: 'https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js' });
+    await page.evaluate(async () => {
+        window.firebase = { apps: [], initializeApp() {}, auth: () => ({ currentUser: null }), firestore: () => ({}) };
+        const { DashboardApp } = await import('/src/dashboardApp.js');
+        const { DEFAULT_DASHBOARD_INDICES } = await import('/src/appDataContext.js');
+        const { MarketTicker } = await import('/src/marketTicker.js');
+        const { UIComponents } = await import('/src/ui.js');
+        const { mountViewToggle } = await import('/src/chartViewToggle.js');
+        const app = Object.create(DashboardApp.prototype);
+        const prices = [6000, 21000, 8000, 5200, 75000, 2600, 1.10];
+        const fixed = Date.parse('2026-10-09T18:00:00Z');
+        const quotes = Object.fromEntries(DEFAULT_DASHBOARD_INDICES.map((idx, i) => [idx.ticker, {
+            price: prices[i], previousClose: prices[i] / (1 + (i % 2 ? -.003 : .006)),
+            currency: idx.format === 'crypto' ? 'EUR' : 'USD', quoteAsOf: fixed,
+            exchangeTimezone: 'America/New_York', regularSession: { startMs: fixed - 5 * 3600000, endMs: fixed + 2 * 3600000 },
+            fetchedAt: fixed, changeBasis: idx.format === 'crypto' ? 'Depuis 00:00 UTC' : 'Clôture de la séance précédente', source: 'Démonstration'
+        }]));
+        app.storage = { currentData: {}, setCurrentPrice(t, q) { this.currentData[t] = q; } };
+        app.getMarketStatus = () => 'MARKET_OPEN';
+        app.api = { fetchIndexDataForDashboard: async ticker => quotes[ticker] };
+        app.marketTicker = new MarketTicker(document.getElementById('market-ticker'), row => app.selectMarketRow(row));
+        app.chart = { currentMode: 'portfolio', selectedAssets: [], showIndex: async (ticker, name) => { app.chart.currentMode = 'index'; app.chart.selectedAssets = [ticker]; document.getElementById('chart-title-text').textContent = name; }, showPortfolioChart: async () => { app.chart.currentMode = 'portfolio'; app.chart.selectedAssets = []; document.getElementById('chart-title-text').textContent = 'Portefeuille global'; } };
+        app.setupEventListeners(); app.setupIndicesModal();
+        await app.loadMarketIndices();
+        const holdings = [
+            { name: 'ETF Monde', ticker: 'WORLD', quantity: 200, gainPct: 28.2, currentValue: 24000, currentPrice: 120, assetType: 'ETF' },
+            { name: 'Alphabet', ticker: 'GOOGL', quantity: 40, gainPct: 18.4, currentValue: 6200, currentPrice: 155, assetType: 'Stock' },
+            { name: 'Bitcoin', ticker: 'BTC-EUR', quantity: .068, gainPct: -5.4, currentValue: 5100, currentPrice: 75000, assetType: 'Crypto' }
+        ];
+        app.renderKPIs({}, 389, holdings); app.renderAllocation(holdings, 389);
+        const ui = new UIComponents(app.storage, {});
+        ui._updateTotalValueModal = () => {};
+        ui.updateTopKPIs({ totalCurrentEUR: 35689, totalInvestedEUR: 28000, gainTotal: 7689, gainPct: 27.46, totalDayChangeEUR: 142.8, dayChangePct: .4 }, 389, null);
+        document.getElementById('dashboard-freshness').textContent = 'Aperçu de démonstration · données fictives';
+        document.getElementById('chart-loading').style.display = 'none';
+        document.getElementById('performance-label').textContent = '+142,80 €';
+        document.getElementById('performance-percent').textContent = '+0,40 %';
+        for (const [id, value] of Object.entries({ 'price-start': '35 546,20 €', 'price-end': '35 689,00 €', 'price-high': '35 700,00 €', 'price-low': '35 520,00 €' })) document.getElementById(id).textContent = value;
+        mountViewToggle(document.getElementById('view-toggle'), 'portfolio', () => {});
+        document.getElementById('view-toggle').style.display = 'flex';
+        app.renderNewsList(document.getElementById('news-portfolio-container'), [], 'portfolio');
+        app.showNewsState(document.getElementById('news-portfolio-container'), 'Aucune actualité récente pour cette sélection.');
+        app.renderNewsList(document.getElementById('news-global-container'), [], 'global');
+        app.showNewsState(document.getElementById('news-global-container'), 'Actualités indisponibles.', () => {});
+        const values = Array.from({ length: 80 }, (_, i) => .04 + i * .004 + Math.sin(i * .6) * .025 + Math.sin(i * 2.7) * .006);
+        new Chart(document.getElementById('historical-portfolio-chart'), {
+            type: 'line', data: { labels: values.map((_, i) => `${9 + Math.floor(i / 9)}:${String(i % 9 * 6).padStart(2, '0')}`), datasets: [{ data: values, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.09)', fill: true, pointRadius: 0, borderWidth: 2, tension: .15 }] },
+            options: { animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#a6b2ca', maxTicksLimit: 8 }, grid: { display: false } }, y: { ticks: { color: '#a6b2ca', callback: v => v.toFixed(2) + ' %' }, grid: { color: '#28364b' } } } }
+        });
+        window.previewDashboard = app;
+    });
+    await page.mouse.move(0, 0);
+    const results = [];
+    for (const width of [1920, 1366, 768, 390, 360]) {
+        await page.setViewportSize({ width, height: 1080 });
+        await page.waitForTimeout(250);
+        const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth,
+            detailOpen: document.querySelector('.dashboard-chart-details').open,
+            animation: getComputedStyle(document.querySelector('.market-ticker-track')).animationName,
+            main: document.querySelector('.main-content').getBoundingClientRect().width,
+            overflowingValues: [...document.querySelectorAll('.summary-card-value')].filter(el => el.scrollWidth > el.clientWidth + 1).length
+        }));
+        assert.equal(size.scroll, width, `page overflow at ${width}`);
+        assert.equal(size.overflowingValues, 0, `KPI overflow at ${width}`);
+        if (width <= 768) assert.equal(size.animation, 'none');
+        await page.locator('.dashboard-chart-details summary').click();
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width, `open details overflow at ${width}`);
+        await page.locator('.dashboard-chart-details summary').click();
+        results.push(size);
+        if (width === 1366 || width === 390) await page.screenshot({ path: path.join(root, `audit/dashboard-preview-${width}.png`), fullPage: true });
+    }
+    await page.setViewportSize({ width: 1366, height: 1080 });
+    await page.mouse.move(0, 0);
+    await page.locator('[data-ticker-pause]').click();
+    assert.equal(await page.locator('.market-ticker-track').evaluate(el => getComputedStyle(el).animationPlayState), 'paused');
+    await page.locator('[data-ticker-pause]').click();
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    assert.equal(await page.locator('.market-ticker-track').evaluate(el => getComputedStyle(el).animationName), 'none');
+    await page.locator('.market-ticker-group:not(.market-ticker-copy) button').first().click();
+    await page.locator('#dashboard-back-portfolio').click();
+    assert.equal(await page.locator('#chart-title-text').textContent(), 'Portefeuille global');
+    await page.locator('.dashboard-chart-details summary').click();
+    assert.equal(await page.locator('#price-start').isVisible(), true);
+    await page.locator('#ticker-settings').click();
+    assert.equal(await page.locator('#add-index-modal').isVisible(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#add-index-modal').isVisible(), false);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'ticker-settings');
+    assert.deepEqual(errors, []);
+    await writeFile(path.join(root, 'audit/dashboard-preview-results.json'), JSON.stringify({ scope: 'Isolated deterministic UI, no authenticated session', sizes: results, errors, checks: ['pause control', 'reduced motion', 'market selection and back', 'details disclosure at all sizes', 'market settings'] }, null, 2));
+    console.log(JSON.stringify(results));
+} finally { await browser.close(); server.close(); }

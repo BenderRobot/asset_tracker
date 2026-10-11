@@ -43,7 +43,7 @@ function makeApp(fetchQuote) {
 describe('Dashboard futures presentation', () => {
     it('shows the followed index through its future with a purple label outside cash hours', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
-        vi.setSystemTime(new Date(2026, 9, 5, 22, 30));
+        vi.setSystemTime(new Date('2026-10-05T20:30:00Z'));
         const fetchQuote = vi.fn().mockResolvedValue({
             price: 7777.25, previousClose: 7700, lastTradingDayClose: 7650,
             currency: 'USD', marketState: 'REGULAR', fetchedAt: Date.now()
@@ -63,7 +63,7 @@ describe('Dashboard futures presentation', () => {
 
     it('falls back to the cash index when the futures quote is unavailable', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
-        vi.setSystemTime(new Date(2026, 9, 5, 22, 30));
+        vi.setSystemTime(new Date('2026-10-05T20:30:00Z'));
         const fetchQuote = vi.fn(async ticker => ticker === 'ES=F' ? null : {
             price: 7700, previousClose: 7650, lastTradingDayClose: 7600,
             currency: 'USD', marketState: 'CLOSED', fetchedAt: Date.now()

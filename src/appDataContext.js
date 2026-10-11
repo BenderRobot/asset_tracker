@@ -1,3 +1,4 @@
+import { normalizeDashboardIndices } from './dashboardMarketData.js';
 import { buildDataQuality, normalizeTimestamp } from './dataQualityContext.js';
 import { getIndexFuture } from './indexFutures.js';
 
@@ -8,7 +9,7 @@ export const INDICES_STORAGE_KEY = 'dashboard_indices_v1';
 const CDN = 'https://cdn.jsdelivr.net/npm/openmoji@14.0.0/color/svg/';
 export const DEFAULT_DASHBOARD_INDICES = Object.freeze([
     { ticker: '^GSPC', name: 'S&P 500', icon: `${CDN}1F1FA-1F1F8.svg`, format: 'index' },
-    { ticker: '^IXIC', name: 'NASDAQ 100', icon: `${CDN}1F4BB.svg`, format: 'index' },
+    { ticker: '^NDX', name: 'NASDAQ 100', icon: `${CDN}1F4BB.svg`, format: 'index' },
     { ticker: '^FCHI', name: 'CAC 40', icon: `${CDN}1F1EB-1F1F7.svg`, format: 'index' },
     { ticker: '^STOXX50E', name: 'EURO STOXX 50', icon: `${CDN}1F1EA-1F1FA.svg`, format: 'index' },
     { ticker: 'BTC-EUR', name: 'BITCOIN', icon: '₿', format: 'crypto' },
@@ -89,7 +90,7 @@ export function buildAppDataContext({
     now = Date.now()
 } = {}) {
     const savedIndices = safeParse(storage, INDICES_STORAGE_KEY);
-    const indices = Array.isArray(savedIndices) ? savedIndices : DEFAULT_DASHBOARD_INDICES;
+    const indices = normalizeDashboardIndices(Array.isArray(savedIndices) ? savedIndices : DEFAULT_DASHBOARD_INDICES);
     const screener = safeParse(storage, SCREENER_CONTEXT_KEY);
     const notificationsRaw = safeParse(storage, NOTIFICATION_CONTEXT_KEY);
     const notifications = notificationsRaw && (!userId || !notificationsRaw.userId || notificationsRaw.userId === userId)

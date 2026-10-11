@@ -28,7 +28,7 @@ export const PAGE_SIZE = 25;
 export const USD_TICKERS = new Set(['BKSY', 'SPY', 'VOO']);
 
 // Liste des indices du Dashboard pour forcer leur rafraîchissement
-export const DASHBOARD_INDICES = ['^GSPC', '^IXIC', '^FCHI', '^STOXX50E', 'BTC-EUR', 'GC=F', 'EURUSD=X'];
+export const DASHBOARD_INDICES = ['^GSPC', '^NDX', '^FCHI', '^STOXX50E', 'BTC-EUR', 'GC=F', 'EURUSD=X'];
 
 export const YAHOO_MAP = {
   'APC': 'APC.F', 'AMZ': 'AMZ.F', 'NVD': 'NVD.F', 'AP2': 'AP2.DE', 'MSF': 'MSF.F',

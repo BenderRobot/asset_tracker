@@ -3,8 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <script>document.addEventListener('touchmove',function(e){if(e.touches.length>1)e.preventDefault();},{passive:false});var _lte=0;document.addEventListener('touchend',function(e){var n=Date.now();if(n-_lte<=300)e.preventDefault();_lte=n;},false);</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Asset Tracker - Dashboard</title>
 
     <link rel="icon" href="/icons/android-chrome-192x192.png" sizes="192x192">
@@ -18,6 +17,7 @@
     <link rel="stylesheet" href="css/dashboard.css?v=102">
     <link rel="stylesheet" href="css/dashboard-mobile.css?v=6">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
+    <link rel="stylesheet" href="css/dashboard-premium.css?v=1">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -46,7 +46,7 @@
     </script>
 </head>
 
-<body>
+<body class="dashboard-premium">
     <header class="mobile-header" id="mobile-header"></header>
 
     <aside class="app-sidebar" id="app-sidebar"></aside>
@@ -54,6 +54,17 @@
 
     <main class="main-content">
         <div class="container">
+            <header class="dashboard-page-header">
+                <div><p class="dashboard-eyebrow">VUE D’ENSEMBLE</p><h1>Mon portefeuille</h1></div>
+                <span id="dashboard-freshness" class="dashboard-freshness" role="status">Chargement des données…</span>
+            </header>
+            <section id="market-ticker" class="market-ticker" aria-label="Bandeau des cotations de vos marchés favoris">
+                <span class="market-ticker-label"><i class="ph ph-globe" aria-hidden="true"></i> Marchés</span>
+                <div class="market-ticker-viewport"><div class="market-ticker-track"><span class="ticker-loading">Chargement des cotations…</span></div></div>
+                <span class="ticker-empty-label">Ajoutez vos marchés favoris ci-dessous.</span>
+                <button type="button" class="ticker-control" data-ticker-pause aria-label="Mettre en pause le défilement des cotations" aria-pressed="false">Ⅱ</button>
+                <button type="button" class="ticker-control" id="ticker-settings" aria-label="Personnaliser les marchés favoris" title="Personnaliser les marchés"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i></button>
+            </section>
 
             <!-- Onboarding banner — visible uniquement si aucune transaction -->
             <div id="onboarding-banner" style="display:none; margin-bottom: 20px;">
@@ -117,17 +128,18 @@
                 <div class="dashboard-left-column">
                     <div class="dashboard-hero-row summary-grid" style="margin-bottom: 0px;">
                         <div class="summary-card summary-card-primary">
-                            <div class="summary-card-label">Total Value</div>
+                            <div class="summary-card-label">Valeur totale</div>
                             <div id="total-current" class="summary-card-value">€0.00</div>
                             <div class="summary-card-meta">
-                                <span id="invested" class="meta-info"
-                                    style="font-size: 14px; opacity: 0.9; color: var(--text-secondary);">Invested:
+                                <span id="invested" class="meta-info" data-label="Investi"
+                                    style="font-size: 14px; opacity: 0.9; color: var(--text-secondary);">Investi :
                                     €0.00</span>
                             </div>
                         </div>
 
                         <div class="summary-card">
-                            <div class="summary-card-label">Total Return</div>
+                            <div class="summary-card-label">Gain total</div>
+                            <span class="summary-card-context">Depuis l’origine</span>
                             <div id="total-gain-loss" class="summary-card-value">€0.00</div>
                             <div class="summary-card-meta">
                                 <span id="total-gain-pct" class="meta-large">0.00%</span>
@@ -135,7 +147,8 @@
                         </div>
 
                         <div class="summary-card">
-                            <div class="summary-card-label">Var Today</div>
+                            <div class="summary-card-label">Variation du jour</div>
+                            <span class="summary-card-context">Référence quotidienne du portefeuille</span>
                             <div id="total-invested" class="summary-card-value">€0.00</div>
                             <div class="summary-card-meta">
                                 <span id="avg-cost-per-share" class="meta-info">0.00%</span>
@@ -143,44 +156,14 @@
                         </div>
                     </div>
 
-                    <div class="dashboard-kpi-grid-v2">
-                        <div class="kpi-card">
-                            <div class="kpi-header"><span class="kpi-label">Top Gainer</span><i
-                                    class="ph ph-trend-up kpi-icon"></i>
-                            </div>
-                            <div class="kpi-name-large" id="dashboard-top-gainer-name">-</div>
-                            <div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span>
-                            </div>
-                        </div>
-                        <div class="kpi-card">
-                            <div class="kpi-header"><span class="kpi-label">Top Loser</span><i
-                                    class="ph ph-trend-down kpi-icon"></i>
-                            </div>
-                            <div class="kpi-name-large" id="dashboard-top-loser-name">-</div>
-                            <div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span>
-                            </div>
-                        </div>
-                        <div class="kpi-card">
-                            <div class="kpi-header"><span class="kpi-label">Top Asset</span><i
-                                    class="ph ph-factory kpi-icon"></i></div>
-                            <div class="kpi-name-large" id="dashboard-top-sector">-</div>
-                        </div>
-                        <div class="kpi-card">
-                            <div class="kpi-header"><span class="kpi-label">Asset Allocation</span><i
-                                    class="ph ph-chart-pie-slice kpi-icon"></i>
-                            </div>
-                            <div id="dashboard-allocation-container"></div>
-                        </div>
-                    </div>
-
                     <div class="dashboard-chart-section">
                         <div class="chart-header-mini chart-header">
                             <div class="title-mini">
                                 <h3 class="chart-title"><span class="title-icon"><i class="ph ph-chart-line-up" aria-hidden="true"></i></span><span
-                                        id="chart-title-text">Portfolio
-                                        Global</span></h3>
+                                        id="chart-title-text">Portefeuille global</span></h3>
                                 <span id="chart-title-icon" style="display:none"></span>
-                                <div id="last-update" style="display:none"></div>
+                                <div id="last-update" class="chart-status"></div>
+                                <button id="dashboard-back-portfolio" class="dashboard-text-button" type="button" hidden>← Mon portefeuille</button>
 
                             </div>
                             <!-- Chart toolbar: view → options/reference lines (injected by
@@ -195,7 +178,7 @@
                                         title="Comparer la performance à un indice">
                                         <option value="">Comparer</option>
                                         <option value="^GSPC">S&P 500</option>
-                                        <option value="^IXIC">Nasdaq 100</option>
+                                        <option value="^NDX">Nasdaq 100</option>
                                         <option value="^STOXX50E">Eurostoxx 50</option>
                                         <option value="BTC-EUR">Bitcoin</option>
                                     </select>
@@ -203,27 +186,27 @@
                                 <div id="chart-info" style="display:none; font-size:12px;"></div>
                             </div>
                             <div class="chart-controls-inline">
-                                <button class="period-btn active" data-period="1">1D</button>
-                                <button class="period-btn" data-period="7">1W</button>
+                                <button class="period-btn active" data-period="1">1J</button>
+                                <button class="period-btn" data-period="7">1S</button>
                                 <button class="period-btn" data-period="30">1M</button>
                                 <button class="period-btn" data-period="90">3M</button>
                                 <button class="period-btn" data-period="180">6M</button>
                                 <button class="period-btn" data-period="ytd">YTD</button>
-                                <button class="period-btn" data-period="365">1Y</button>
-                                <button class="period-btn" data-period="730">2Y</button>
-                                <button class="period-btn period-disabled" data-period="1095">3Y</button>
-                                <button class="period-btn" data-period="all">All</button>
+                                <button class="period-btn" data-period="365">1A</button>
+                                <button class="period-btn" data-period="730">2A</button>
+                                <button class="period-btn period-disabled" data-period="1095">3A</button>
+                                <button class="period-btn" data-period="all">Tout</button>
                             </div>
                         </div>
                         <div class="chart-wrapper tall">
-                            <canvas id="historical-portfolio-chart"></canvas>
+                            <canvas id="historical-portfolio-chart" role="img" aria-label="Évolution du portefeuille sur la période sélectionnée"></canvas>
                             <div id="chart-loading" class="chart-loading">
                                 <div class="svg-loader-container"><svg class="loader-svg" viewBox="0 0 50 50">
                                         <circle class="loader-svg-path" cx="25" cy="25" r="20" fill="none"
                                             stroke-width="4">
                                         </circle>
                                     </svg>
-                                    <div class="loader-text">Loading...</div>
+                                    <div class="loader-text">Chargement…</div>
                                 </div>
                             </div>
                         </div>
@@ -243,6 +226,9 @@
                                 <div id="stat-yesterday-close" class="stat"><span class="label">CLÔTURE
                                         HIER</span><span id="yesterday-close-value" class="value"></span></div>
                             </div>
+                            <details class="dashboard-chart-details">
+                                <summary>Détails de la période et records</summary>
+                                <div class="dashboard-detail-grid">
                             <div class="stat-group stat-group-3">
                                 <div class="stat"><span class="label">DÉBUT</span><span id="price-start"
                                         class="value">--</span>
@@ -259,34 +245,70 @@
                             </div>
                             <!-- ATH (filled by chartKPIManager.updateAthStats, hidden unless the ATH line is shown — 4th 2×2 block of the stats bar, see css/chart-toolbar.css) -->
                             <div class="stat-group stat-group-ath" id="stat-group-ath" hidden>
-                                <div class="stat" id="ath-value-row"><span class="label" id="ath-value-label">Total Value ATH</span><span id="ath-total-value" class="value">—</span></div>
-                                <div class="stat" id="ath-return-row"><span class="label">Total Return ATH</span><span class="stat-inline"><span id="ath-total-return" class="value">—</span><span id="ath-total-return-pct" class="pct"></span></span></div>
+                                <div class="stat" id="ath-value-row"><span class="label" id="ath-value-label">Valeur au record</span><span id="ath-total-value" class="value">—</span></div>
+                                <div class="stat" id="ath-return-row"><span class="label">Gain au record</span><span class="stat-inline"><span id="ath-total-return" class="value">—</span><span id="ath-total-return-pct" class="pct"></span></span></div>
                                 <div class="stat"><span class="label">Date ATH</span><span id="ath-date" class="value">—</span></div>
                                 <div class="stat"><span class="label">Écart / ATH</span><span id="ath-gap" class="value">—</span></div>
                             </div>
+                                </div>
+                            </details>
                         </div>
                         <div class="chart-controls-bottom-mobile" style="display:none;">
-                            <button class="period-btn active" data-period="1">1D</button>
-                            <button class="period-btn" data-period="7">1W</button>
+                            <button class="period-btn active" data-period="1">1J</button>
+                            <button class="period-btn" data-period="7">1S</button>
                             <button class="period-btn" data-period="30">1M</button>
                             <button class="period-btn" data-period="90">3M</button>
                             <button class="period-btn" data-period="180">6M</button>
-                            <button class="period-btn" data-period="365">1Y</button>
+                            <button class="period-btn" data-period="365">1A</button>
                             <button class="period-btn" data-period="ytd">YTD</button>
-                            <button class="period-btn" data-period="730">2Y</button>
-                            <button class="period-btn period-disabled" data-period="1095">3Y</button>
-                            <button class="period-btn" data-period="all">All</button>
+                            <button class="period-btn" data-period="730">2A</button>
+                            <button class="period-btn period-disabled" data-period="1095">3A</button>
+                            <button class="period-btn" data-period="all">Tout</button>
                         </div>
                     </div>
+                    <div class="dashboard-kpi-grid-v2">
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span class="kpi-label">Meilleures performances</span><i
+                                    class="ph ph-trend-up kpi-icon"></i>
+                            </div>
+                            <p class="kpi-horizon">Depuis l’achat · performance totale</p>
+                            <div class="kpi-name-large" id="dashboard-top-gainer-name">-</div>
+                            <div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span>
+                            </div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span class="kpi-label">Moins bonnes performances</span><i
+                                    class="ph ph-trend-down kpi-icon"></i>
+                            </div>
+                            <p class="kpi-horizon">Depuis l’achat · performance totale</p>
+                            <div class="kpi-name-large" id="dashboard-top-loser-name">-</div>
+                            <div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span>
+                            </div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span class="kpi-label">Principales positions</span><i
+                                    class="ph ph-factory kpi-icon"></i></div>
+                            <p class="kpi-horizon">Valeur actuelle en euros</p>
+                            <div class="kpi-name-large" id="dashboard-top-sector">-</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header"><span class="kpi-label">Répartition</span><i
+                                    class="ph ph-chart-pie-slice kpi-icon"></i>
+                            </div>
+                            <p class="kpi-horizon">Valeur actuelle · liquidités incluses</p>
+                            <div id="dashboard-allocation-container"></div>
+                        </div>
+                    </div>
+
                 </div>
 
                 <!-- COLONNE DROITE (Indices) -->
                 <div class="dashboard-indices-panel-full">
                     <div class="indices-header">
-                        <h3 class="section-title-right">Indices</h3>
+                        <h3 class="section-title-right">Marchés favoris</h3>
                         <div style="display:flex;align-items:center;gap:8px;">
-                            <div id="market-status-container"></div>
-                            <button id="add-index-btn" class="add-index-btn" title="Ajouter un actif">+</button>
+
+                            <button id="add-index-btn" class="add-index-btn" title="Ajouter un marché favori" aria-label="Ajouter un marché favori">+</button>
                         </div>
                     </div>
 
@@ -310,7 +332,7 @@
                             </div>
                         </div>
                         <div id="news-portfolio-container" class="feed-content">
-                            <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...
+                            <div style="text-align:center; padding: 20px; color: var(--text-muted);">Chargement…
                             </div>
                         </div>
                     </div>
@@ -322,7 +344,7 @@
                                     class="ph ph-arrows-clockwise"></i></button>
                         </div>
                         <div id="news-global-container" class="feed-content">
-                            <div style="text-align:center; padding: 20px; color: var(--text-muted);">Loading...
+                            <div style="text-align:center; padding: 20px; color: var(--text-muted);">Chargement…
                             </div>
                         </div>
                     </div>
@@ -357,7 +379,7 @@
                     </button>
                 </div>
 
-                <div id="modal-news-summary" class="news-summary-text">Loading...</div>
+                <div id="modal-news-summary" class="news-summary-text">Chargement…</div>
 
                 <div id="modal-news-context" class="news-context-box" style="display:none;">
                     <div class="context-header">
@@ -379,10 +401,10 @@
 
     <!-- MODAL AJOUT INDICE -->
     <div id="add-index-modal" class="add-index-modal-overlay" style="display:none;">
-        <div class="add-index-modal">
+        <div class="add-index-modal" role="dialog" aria-modal="true" aria-labelledby="add-index-title">
             <div class="add-index-modal-header">
-                <h3>Ajouter un actif</h3>
-                <button id="close-index-modal" class="modal-close-btn">×</button>
+                <h3 id="add-index-title">Ajouter un marché favori</h3>
+                <button id="close-index-modal" class="modal-close-btn" aria-label="Fermer les marchés favoris">×</button>
             </div>
             <div class="add-index-tabs">
                 <button class="index-tab active" data-tab="Indices">Indices</button>

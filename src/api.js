@@ -6,6 +6,7 @@ import { YAHOO_MAP, PRICE_PROXY_URL } from './config.js';
 import { sleep } from './utils.js';
 import { formatTicker as resolveYahooTicker, resolveTickerPreviousClose, getLastTradingDay } from './MarketUtils.js';
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
+import { normalizeDashboardQuote } from './dashboardMarketData.js';
 import { marketDataMetrics } from './marketDataMetrics.js';
 import { historicalPointStore, isDeltaFetchEligible } from './historicalPointStore.js';
 import { withHistoryCurrency } from './currency.js';
@@ -225,193 +226,42 @@ export class PriceAPI {
   }
 
   async fetchIndexDataForDashboard(ticker) {
+    this._dashboardQuotes ??= new Map();
+    this._dashboardPending ??= new Map();
     const symbol = this.formatTicker(ticker);
-    const type = 'STOCK'; // Les indices sont toujours de type STOCK
-
-    try {
-      // Déterminer l'intervalle selon le type d'actif
-      const isBitcoin = ticker.includes('BTC');
-      const interval = isBitcoin ? '5m' : '1d';
-      const url = `${PRICE_PROXY_URL}?symbol=${symbol}&type=${type}&range=7d&interval=${interval}`;
-
-      const res = await _fetchTimeout(url, 8000, 'index-quote');
-      if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
-
-      const data = await res.json();
-
-      // Parser les données Yahoo
-      if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
-        throw new Error('Invalid Yahoo format from proxy');
-      }
-
-      const chartData = data.chart.result[0];
-      const meta = chartData.meta || {};
-      const quote = chartData.indicators?.quote?.[0] || {};
-      const timestamps = chartData.timestamp || [];
-      const closes = quote.close || [];
-      if (interval === '1d') {
-        const points = Object.fromEntries(timestamps.flatMap((ts,i) =>
-          Number.isFinite(closes[i]) && closes[i] > 0 ? [[ts*1000, closes[i]]] : []));
-        this._indexDaily.set(ticker, { points, fetchedAt: Date.now() });
-      }
-
-      // Prix actuel
-      let currentPrice = meta.regularMarketPrice || closes[closes.length - 1];
-      if (!currentPrice || currentPrice <= 0) {
-        throw new Error('No valid current price');
-      }
-
-      // previousClose de base
-      let previousClose = meta.chartPreviousClose || meta.previousClose;
-      if (!previousClose || previousClose <= 0) {
-        previousClose = currentPrice;
-      }
-
-      const currency = meta.currency || 'EUR';
-
-      // LOGIQUE SPÉCIFIQUE INDICES : Récupérer previousClose et lastTradingDayClose via historique
-      let truePreviousClose = null;
-      let lastTradingDayClose = null;
-
+    const cached = this._dashboardQuotes.get(symbol);
+    if (cached && Date.now() - cached.fetchedAt < 25000) return cached;
+    if (this._dashboardPending.has(symbol)) return this._dashboardPending.get(symbol);
+    const request = (async () => {
       try {
-        const nowSec = Math.floor(Date.now() / 1000);
-        let histInterval, histRange;
-
-        // Futures (ES=F, NQ=F) et Bitcoin : intervalle 5m pour données intraday lisses
-        const isFuture = ticker.endsWith('=F');
-        if (isBitcoin || isFuture) {
-          // Bitcoin/Futures : récupérer les 2 derniers jours avec intervalle 5m
-          histInterval = '5m';
-          histRange = nowSec - (2 * 24 * 60 * 60);
-        } else {
-          // Indices classiques : récupérer 5 jours avec intervalle 1d
-          histInterval = '1d';
-          histRange = nowSec - (5 * 24 * 60 * 60);
-        }
-
-        const hist = (histInterval === '1d' && this.getCachedIndexDaily(ticker)) || await this.getHistoricalPricesWithRetry(
-          ticker,
-          histRange,
-          nowSec,
-          histInterval
-        );
-
-        if (hist && Object.keys(hist).length > 0) {
-          // Normalisation des timestamps en MS pour la comparaison
-          const sortedKeys = Object.keys(hist).sort((a, b) => Number(b) - Number(a));
-          const snapshots = sortedKeys.map(key => {
-            let ts = Number(key);
-            // Détection heuristique : Si < 1000000000000 (10^12), c'est probablement des secondes (l'an 2001 en ms est > 10^12)
-            // Le timestamp actuel est env 1.7 * 10^12 (ms) ou 1.7 * 10^9 (sec)
-            const isSeconds = ts < 1000000000000;
-            return {
-              originalKey: key,
-              tsMs: isSeconds ? ts * 1000 : ts,
-              price: hist[key]
-            };
-          });
-
-          if (isBitcoin) {
-            // Pour Bitcoin : utiliser Minuit UTC comme référence (standard crypto)
-            // NOTE: laissé tel quel (pas migré sur resolveTickerPreviousClose) —
-            // l'ancrage UTC 24/7 est une sémantique différente du cutoff
-            // "dernier jour de bourse" que le résolveur partagé implémente pour
-            // les actifs cotés en semaine ; les unifier changerait le comportement
-            // sans pouvoir être vérifié en conditions réelles ici.
-            const now = new Date();
-            const midnightMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0);
-
-            const snapBeforeMidnight = snapshots.find(s => s.tsMs < midnightMs);
-            if (snapBeforeMidnight) {
-              truePreviousClose = snapBeforeMidnight.price;
-            }
-
-            // lastTradingDayClose = minuit UTC d'hier
-            const midnightYesterdayMs = midnightMs - (24 * 60 * 60 * 1000);
-
-            const snapBeforeYesterday = snapshots.find(s => s.tsMs < midnightYesterdayMs);
-            if (snapBeforeYesterday) {
-              lastTradingDayClose = snapBeforeYesterday.price;
-            }
-          } else {
-            // Pour les indices classiques : SINGLE SOURCE OF TRUTH — même résolveur
-            // que le portefeuille (MarketUtils.resolveTickerPreviousClose), au lieu
-            // d'une classification de bougies ad-hoc par position (snapshots[1]/[2]).
-            // On réutilise `hist` déjà récupéré ci-dessus (aucun fetch supplémentaire).
-            const previousCloseResult = await resolveTickerPreviousClose(ticker, {
-              storage: this.storage,
-              refDate: new Date(),
-              historicalDataMap: hist
-            });
-            truePreviousClose = previousCloseResult.closePrice;
-
-            const lastTradingDayResult = await resolveTickerPreviousClose(ticker, {
-              storage: this.storage,
-              refDate: getLastTradingDay(new Date()),
-              historicalDataMap: hist
-            });
-            lastTradingDayClose = lastTradingDayResult.closePrice || truePreviousClose;
-          }
-
-          console.log(`[IndexDashboard ${ticker}] previousClose (J): ${truePreviousClose?.toFixed(4)}, lastTradingDayClose (J-1): ${lastTradingDayClose?.toFixed(4)}`);
-        }
-      } catch (err) {
-        console.warn(`Could not fetch historical close for ${ticker}:`, err.message);
+        const url = `${PRICE_PROXY_URL}?symbol=${encodeURIComponent(symbol)}&type=STOCK&range=7d&interval=1d`;
+        const res = await _fetchTimeout(url, 8000, 'index-quote', 25000);
+        if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+        const data = await res.json();
+        const chart = data.chart?.result?.[0];
+        const quote = normalizeDashboardQuote(symbol, chart);
+        if (!quote) throw new Error('Cotation indisponible');
+        quote.fetchedAt = res.fetchedAt || quote.fetchedAt;
+        quote.stale = !!res.stale;
+        if (!quote.stale) marketCalendarEngine.ingestProviderMetadata(symbol, chart.meta);
+        const closes = chart.indicators?.quote?.[0]?.close || [];
+        this._indexDaily.set(ticker, {
+          points: Object.fromEntries((chart.timestamp || []).flatMap((ts, i) =>
+            Number.isFinite(closes[i]) && closes[i] > 0 && ts * 1000 <= Date.now() ? [[ts * 1000, closes[i]]] : [])),
+          fetchedAt: quote.fetchedAt
+        });
+        if (!quote.stale) this._dashboardQuotes.set(symbol, quote);
+        return quote;
+      } catch (error) {
+        console.warn(`[Dashboard quote ${symbol}]`, error.message);
+        // Preserve native units and the actual quote time, never renew its age.
+        return cached ? { ...cached, stale: true } : null;
+      } finally {
+        this._dashboardPending.delete(symbol);
       }
-
-      // FALLBACK NIVEAU 3: Si truePreviousClose est toujours null après l'historique, essayer le cache
-      if (!truePreviousClose || truePreviousClose <= 0) {
-        const cachedData = this.storage.getCurrentPrice(ticker);
-        if (cachedData && cachedData.previousClose && cachedData.previousClose > 0) {
-          truePreviousClose = cachedData.previousClose;
-          console.log(`[IndexDashboard ${ticker}] Using cached previousClose: ${truePreviousClose.toFixed(4)}`);
-        }
-      }
-
-      // Si lastTradingDayClose est null, utiliser truePreviousClose comme fallback minimal
-      if (!lastTradingDayClose || lastTradingDayClose <= 0) {
-        lastTradingDayClose = truePreviousClose;
-      }
-
-      // Convertir en EUR si nécessaire
-      // On ne convertit QUE les actions (Stocks) listées dans USD_TICKERS ou explicitement en USD.
-      // Les Indices (^GSPC, ^IXIC) restent en points.
-      // Les Futures (GC=F) restent en USD.
-      // Le Forex (EURUSD=X) reste en taux.
-      const isUSD = (currency === 'USD') && !ticker.startsWith('^') && !ticker.endsWith('=F') && !ticker.endsWith('=X');
-
-      if (isUSD) {
-        const rate = this.storage.getConversionRate('USD_TO_EUR');
-        if (!(rate > 0)) {
-          // FAIL-CLOSED : pas de conversion inventée (ex. ancien 0.925).
-          console.warn(`[IndexDashboard ${ticker}] USD_TO_EUR indisponible — refus de convertir.`);
-          return null;
-        }
-        currentPrice = currentPrice * rate;
-        if (truePreviousClose) truePreviousClose = truePreviousClose * rate;
-        if (lastTradingDayClose) lastTradingDayClose = lastTradingDayClose * rate;
-      }
-
-      // S'assurer qu'on ne retourne jamais 0 ou null - FALLBACK FINAL
-      const finalPreviousClose = truePreviousClose || previousClose || null;
-      const finalLastTradingDayClose = lastTradingDayClose || truePreviousClose || previousClose || null;
-
-      console.log(`[IndexDashboard ${ticker}] FINAL: price=${currentPrice.toFixed(2)}, previousClose=${finalPreviousClose?.toFixed(2)}, lastTradingDayClose=${finalLastTradingDayClose?.toFixed(2)}`);
-
-      return {
-        price: currentPrice,
-        previousClose: finalPreviousClose,
-        lastTradingDayClose: finalLastTradingDayClose,
-        currency: 'EUR',
-        marketState: meta.marketState || 'CLOSED',
-        fetchedAt: res.fetchedAt || Date.now(),
-        lastQuoteTime: meta.regularMarketTime ? meta.regularMarketTime * 1000 : null
-      };
-
-    } catch (err) {
-      console.error(`[IndexDashboard] Error fetching ${ticker}:`, err.message);
-      return null;
-    }
+    })();
+    this._dashboardPending.set(symbol, request);
+    return request;
   }
 
   // NOUVELLE FONCTION CORE: Appelle le Cloud Function Proxy pour les prix en temps réel

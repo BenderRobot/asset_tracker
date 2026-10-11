@@ -53,7 +53,7 @@ it('dashboard and chart share one computation; reload restores a snapshot with z
     }),
     expect.any(Number),
     0,
-    undefined
+    null // No global stock-hours badge on a portfolio that can also hold crypto.
   );
   const cold = marketDataMetrics.snapshot();
   expect(cold.historicalCalculations).toBe(1);

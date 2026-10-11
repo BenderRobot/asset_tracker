@@ -925,8 +925,8 @@ export class HistoricalChart {
                     const smart = await this.api.fetchIndexDataForDashboard(currentTicker);
                     if (smart) {
                         this.storage.setCurrentPrice(currentTicker, {
-                            price: smart.price, previousClose: smart.previousClose,
-                            currency: smart.currency, marketState: smart.marketState, lastUpdate: Date.now()
+                            ...smart,
+                            lastUpdate: smart.quoteAsOf ?? smart.lastQuoteTime ?? null
                         });
                     }
                 }

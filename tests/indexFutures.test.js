@@ -9,7 +9,8 @@ import {
 describe('Dashboard index futures', () => {
     it('maps the supported followed indices to explicit futures contracts', () => {
         expect(getIndexFuture('^GSPC')).toMatchObject({ ticker: 'ES=F', code: 'ES' });
-        expect(getIndexFuture('^IXIC')).toMatchObject({ ticker: 'NQ=F', code: 'NQ' });
+        expect(getIndexFuture('^NDX')).toMatchObject({ ticker: 'NQ=F', code: 'NQ' });
+        expect(getIndexFuture('^IXIC')).toBeNull();
         expect(getIndexFuture('^DJI')).toMatchObject({ ticker: 'YM=F', code: 'YM' });
         expect(getIndexFuture('^RUT')).toMatchObject({ ticker: 'RTY=F', code: 'RTY' });
         expect(getIndexFuture('^N225')).toMatchObject({ ticker: 'NKD=F', code: 'NKD' });
@@ -17,7 +18,7 @@ describe('Dashboard index futures', () => {
     });
 
     it('uses the future while the cash index is closed on a weekday', () => {
-        const mondayEvening = new Date(2026, 9, 5, 22, 30);
+        const mondayEvening = new Date('2026-10-05T20:30:00Z');
         expect(selectIndexDisplayInstrument('^GSPC', 'POST_MARKET', mondayEvening)).toMatchObject({
             ticker: 'ES=F', isFuture: true, future: { code: 'ES' }
         });

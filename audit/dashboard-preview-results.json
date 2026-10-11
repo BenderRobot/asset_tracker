@@ -1,0 +1,53 @@
+{
+  "scope": "Isolated deterministic UI, no authenticated session",
+  "sizes": [
+    {
+      "width": 1920,
+      "scroll": 1920,
+      "detailOpen": false,
+      "animation": "market-ticker-scroll",
+      "main": 1680,
+      "overflowingValues": 0
+    },
+    {
+      "width": 1366,
+      "scroll": 1366,
+      "detailOpen": false,
+      "animation": "market-ticker-scroll",
+      "main": 1126,
+      "overflowingValues": 0
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "detailOpen": false,
+      "animation": "none",
+      "main": 767.609375,
+      "overflowingValues": 0
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "detailOpen": false,
+      "animation": "none",
+      "main": 390,
+      "overflowingValues": 0
+    },
+    {
+      "width": 360,
+      "scroll": 360,
+      "detailOpen": false,
+      "animation": "none",
+      "main": 360,
+      "overflowingValues": 0
+    }
+  ],
+  "errors": [],
+  "checks": [
+    "pause control",
+    "reduced motion",
+    "market selection and back",
+    "details disclosure at all sizes",
+    "market settings"
+  ]
+}

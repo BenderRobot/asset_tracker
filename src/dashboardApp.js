@@ -26,6 +26,8 @@ import { ALLOCATION_TYPES, buildAllocationTimeline, calculateCurrentAllocation }
 import { buildNewsHoldingDetails, getHeldAssetNames } from './newsHoldingMatcher.js';
 import { buildWatchlistContext } from './watchlistContext.js';
 import { DEFAULT_DASHBOARD_INDICES } from './appDataContext.js';
+import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus } from './dashboardMarketData.js';
+import { MarketTicker } from './marketTicker.js';
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -71,7 +73,7 @@ export class DashboardApp {
             currentSearchQuery: '',
             currentAssetTypeFilter: '',
             currentBrokerFilter: '',
-            getChartTitleConfig: () => ({ mode: 'global', label: 'Portfolio Global', icon: 'chart-line-up' }),
+            getChartTitleConfig: () => ({ mode: 'global', label: 'Portefeuille global', icon: 'chart-line-up' }),
             // Dashboard n'a pas de filtres ticker/type/courtier (toujours portefeuille
             // global) — historicalChart.js délègue maintenant à getFilteredPurchasesFromPage
             // de la "page" pour éviter un doublon avec investmentsPage.js ; ce mock doit donc
@@ -124,8 +126,8 @@ export class DashboardApp {
     async init() {
         console.log('Dashboard Init...');
 
-        // Start market status
-        this.marketStatus.startAutoRefresh('market-status-container', 'compact');
+        // Shared quote view: the ticker doesn't own a network refresh timer.
+        this.marketTicker = new MarketTicker(document.getElementById('market-ticker'), row => this.selectMarketRow(row));
 
         // === CRITICAL: Subscribe to centralized KPIs ===
         this.subscribeToKPIs();
@@ -172,6 +174,8 @@ export class DashboardApp {
     subscribeToKPIs() {
         if (this._kpiListener) portfolioKPIs.removeListener(this._kpiListener);
         this._kpiListener = (kpis) => {
+            // Exploring a market changes the chart, not the portfolio headline.
+            if (this.chart && this.chart.currentMode !== 'portfolio') return;
             if (!kpis || kpis.source !== 'snapshot' || (this.chart?.currentMode === 'portfolio' && this._latestPortfolioSnapshotId && kpis.snapshotId !== this._latestPortfolioSnapshotId)) {
                 return;
             }
@@ -191,7 +195,7 @@ export class DashboardApp {
                 dayChangePct: kpis.varTodayPct,
                 cash: kpis.cash
             };
-            this.ui.updateTopKPIs(adaptedSummary, kpis.cash, this.marketStatus);
+            this.ui.updateTopKPIs(adaptedSummary, kpis.cash, null);
 
             console.log('[Dashboard] ✅ KPIs displayed successfully via IDs');
         };
@@ -298,6 +302,13 @@ export class DashboardApp {
             movementsCount: engineSummary.movementsCount || 0
         };
         this._latestPortfolioSnapshotId = snapshot.snapshotId;
+        const freshness = document.getElementById('dashboard-freshness');
+        if (freshness) {
+            const at = result.pricesAsOf ?? snapshot.portfolioSnapshot.pricesTimestamp;
+            const time = at ? new Date(at).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' Paris' : 'date inconnue';
+            freshness.textContent = `${stale || degraded ? 'Dernier état connu' : 'Cotations du portefeuille'} · ${time}`;
+            freshness.classList.toggle('is-stale', !!(stale || degraded));
+        }
         this.lastHoldings = holdings;
         this.lastCashTotal = cashReserve.total;
         // Copie décorée pour les consommateurs secondaires (notamment Gemini
@@ -320,7 +331,7 @@ export class DashboardApp {
         this.renderAssetSelect();
         this.renderKPIs(engineSummary, cashReserve.total, holdings);
         this.renderAllocation(holdings, cashReserve.total);
-        if (this.chart?.currentMode !== 'asset') this.ui.updatePortfolioSummary(canonicalSummary, canonicalSummary.movementsCount, canonicalSummary.cash, this.marketStatus);
+        this.ui.updatePortfolioSummary(canonicalSummary, canonicalSummary.movementsCount, canonicalSummary.cash, null);
         if (stale || degraded) {
             this.showCacheBadge();
             const badge = document.getElementById('cache-badge');
@@ -391,158 +402,8 @@ export class DashboardApp {
      * Détermine le statut du marché pour un ticker donné
      * @returns 'PRE_MARKET' | 'MARKET_OPEN' | 'POST_MARKET' | 'WEEKEND' | '24_7'
      */
-    getMarketStatus(ticker, hour, day, minutes = 0) {
-        // Weekend
-        if (day === 0 || day === 6) {
-            if (this.is247Asset(ticker)) return '24_7';
-            // Or et EUR/USD sont 24/5, donc fermés le weekend
-            return 'WEEKEND';
-        }
-
-        // Actifs 24/7 (Bitcoin uniquement)
-        if (this.is247Asset(ticker)) return '24_7';
-
-        // Actifs 24/5 (Or, EUR/USD) - cotent 24h en semaine
-        if (this.is245Asset(ticker)) return '24_5';
-
-        // Indices européens (Paris timezone 9h-17h30)
-        const EU_INDICES = ['^FCHI', '^STOXX50E', '^GDAXI', '^FTSE', '^IBEX'];
-        if (EU_INDICES.includes(ticker)) {
-            if (hour >= 7 && hour < 9) return 'PRE_MARKET';
-            if (hour >= 9 && hour < 17) return 'MARKET_OPEN';
-            if (hour === 17 && minutes < 30) return 'MARKET_OPEN';
-            return 'POST_MARKET';
-        }
-
-        // Indices US + Volatilité CBOE + Taux US (tous sur horaires NYSE)
-        const US_INDICES = ['^GSPC', '^IXIC', '^DJI', '^RUT', '^VIX', '^VXN', '^RVX', '^VVIX', '^TNX', '^TYX', '^FVX', '^IRX'];
-        if (US_INDICES.includes(ticker)) {
-            if (hour >= 10 && hour < 15) return 'PRE_MARKET';
-            if (hour === 15 && minutes >= 30) return 'MARKET_OPEN';
-            if (hour >= 16 && hour < 22) return 'MARKET_OPEN';
-            return 'POST_MARKET';
-        }
-
-        // Indices asiatiques / Pacifique (heures approximatives en heure de Paris)
-        // Nikkei 225 ^N225  : TSE 9h-15h30 JST    = ~1h-8h30 Paris
-        // Hang Seng  ^HSI   : HKEX 9h30-16h HKT   = ~2h30-10h Paris
-        // KOSPI      ^KS11  : KRX 9h-15h30 KST    = ~1h-8h30 Paris
-        // BSE Sensex ^BSESN : BSE 9h15-15h30 IST  = ~3h45-11h Paris
-        // ASX 200    ^AXJO  : ASX 10h-16h AEST     = ~0h-7h Paris
-        const ASIAN_INDICES = ['^N225', '^HSI', '^KS11', '^BSESN', '^AXJO'];
-        if (ASIAN_INDICES.includes(ticker)) {
-            const totalMinutes = hour * 60 + minutes;
-            if (totalMinutes < 11 * 60) return 'MARKET_OPEN';
-            return 'POST_MARKET';
-        }
-
-        return 'POST_MARKET';
-    }
-
-    /**
-     * Rend l'indicateur visuel d'un statut de marché (hérite de la couleur du badge).
-     * Pastille ronde pour fermé / différé / live (pulsée), icône Phosphor pour les
-     * marchés continus (24/7, 24/5) et les futures.
-     */
-    renderMarketStatusIcon(kind) {
-        switch (kind) {
-            case 'live':
-                return '<span class="market-status-dot is-live" aria-hidden="true"></span>';
-            case 'closed':
-            case 'delayed':
-                return '<span class="market-status-dot" aria-hidden="true"></span>';
-            case 'continuous':
-                return '<i class="ph ph-arrows-clockwise market-status-glyph" aria-hidden="true"></i>';
-            case 'future':
-                return '<i class="ph-fill ph-diamond market-status-glyph" aria-hidden="true"></i>';
-            default:
-                return '';
-        }
-    }
-
-    /**
-     * Calcule la variation intelligente selon le statut du marché
-     * @returns {Object} { variation, variationPct, referencePrice, label, statusIcon }
-     *   statusIcon ∈ 'closed' | 'delayed' | 'live' | 'continuous' | '' (rendu par renderMarketStatusIcon)
-     */
-    getSmartVariation(ticker, currentPrice, previousClose, lastTradingDayClose, lastQuoteTime = null) {
-        const now = new Date();
-        const hour = now.getHours();
-        const minutes = now.getMinutes();
-        const day = now.getDay(); // 0 = dimanche, 6 = samedi
-
-        const marketStatus = this.getMarketStatus(ticker, hour, day, minutes);
-
-        let referencePrice, label, statusIcon, priceToUse;
-
-        switch (marketStatus) {
-            case 'PRE_MARKET':
-                // Matin : Afficher CLOSED au lieu de futures
-                priceToUse = currentPrice;
-                referencePrice = previousClose; // Clôture veille
-                label = 'CLOSED';
-                statusIcon = 'closed'; // Pastille rouge (fermé)
-                break;
-
-            case 'MARKET_OPEN':
-                // Marché ouvert : Variation du jour
-                priceToUse = currentPrice;
-                referencePrice = previousClose; // Clôture veille
-                
-                // Si la donnée a plus de 30 minutes de retard pendant l'ouverture des marchés
-                if (lastQuoteTime && (Date.now() - lastQuoteTime) > 1800000) {
-                    label = 'DELAYED';
-                    statusIcon = 'delayed';
-                } else {
-                    label = 'LIVE';
-                    statusIcon = 'live';
-                }
-                break;
-
-            case 'POST_MARKET':
-            case 'WEEKEND':
-                // Soir/Weekend : Afficher la variation de la dernière séance connue par rapport à la veille
-                // Pour un Lundi soir : currentPrice (Lundi Close) vs previousClose (Vendredi Close)
-                priceToUse = currentPrice;
-                referencePrice = previousClose;
-                label = 'CLOSED';
-                statusIcon = 'closed';
-                break;
-
-            case '24_7':
-                // Bitcoin : Toujours variation du jour (prix actuel vs 00:00)
-                priceToUse = currentPrice;
-                referencePrice = previousClose;
-                label = '24/7';
-                statusIcon = 'continuous';
-                break;
-
-            case '24_5':
-                // Or, EUR/USD : 24h en semaine, variation du jour
-                priceToUse = currentPrice;
-                referencePrice = previousClose;
-                label = '24/5';
-                statusIcon = 'continuous';
-                break;
-
-            default:
-                priceToUse = currentPrice;
-                referencePrice = previousClose;
-                label = '';
-                statusIcon = '';
-        }
-
-        const variation = priceToUse - referencePrice;
-        const variationPct = referencePrice > 0 ? (variation / referencePrice) * 100 : 0;
-
-        return {
-            variation,
-            variationPct,
-            referencePrice,
-            label,
-            statusIcon,
-            marketStatus
-        };
+    getMarketStatus(ticker) {
+        return scheduledMarketStatus(ticker);
     }
 
     renderAssetSelect() {
@@ -577,6 +438,11 @@ export class DashboardApp {
         window.addEventListener('purchases-updated', () => {
             this.loadPortfolioData();
             this.chart?.update(false, false);
+        });
+        document.getElementById('dashboard-back-portfolio')?.addEventListener('click', async event => {
+            const button = event.currentTarget;
+            await this.chart?.showPortfolioChart();
+            button.hidden = true;
         });
         const closeBtn = document.getElementById('close-news-modal');
         const modal = document.getElementById('news-modal');
@@ -706,7 +572,7 @@ export class DashboardApp {
             listHTML += `<div class="alloc-row">
                 <div class="alloc-left">
                     <span class="alloc-dot" style="background-color: ${item.color};"></span>
-                    <span class="alloc-pct">${item.pct.toFixed(1)}%</span>
+                    <span class="alloc-pct">${item.pct.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %</span>
                     <span class="alloc-label">${item.label}</span>
                 </div>
                 <div class="alloc-right"><span>${fmt(item.value)}</span></div>
@@ -739,7 +605,7 @@ export class DashboardApp {
         this.injectListIntoCard('dashboard-top-sector', topAssets, 'asset');
 
         const sectorTitle = document.getElementById('dashboard-top-sector')?.closest('.kpi-card')?.querySelector('.kpi-label');
-        if (sectorTitle) sectorTitle.textContent = 'Top Holdings';
+        if (sectorTitle) sectorTitle.textContent = 'Principales positions';
     }
 
     injectListIntoCard(elementId, items, type) {
@@ -751,14 +617,14 @@ export class DashboardApp {
         let listHTML = '<div class="kpi-list-container">';
         items.forEach(item => {
             // CRITICAL FIX: Add null-safety for gainPct and currentValue
-            const safeGainPct = item.gainPct ?? 0;
-            const safeCurrentValue = item.currentValue ?? 0;
+            const safeGainPct = Number.isFinite(item.gainPct) ? item.gainPct : null;
+            const safeCurrentValue = Number.isFinite(item.currentValue) ? item.currentValue : null;
 
             let valueHTML = type === 'asset'
-                ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(safeCurrentValue)
-                : (safeGainPct > 0 ? '+' : '') + safeGainPct.toFixed(2) + '%';
-            let valueColor = type === 'asset' ? 'text-primary' : (safeGainPct >= 0 ? 'stat-positive' : 'stat-negative');
-            let subValueHTML = item.currentPrice ? item.currentPrice.toFixed(2) + ' €' : '';
+                ? (safeCurrentValue === null ? '—' : new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(safeCurrentValue))
+                : (safeGainPct === null ? '—' : (safeGainPct > 0 ? '+' : '') + safeGainPct.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %');
+            let valueColor = type === 'asset' || safeGainPct === null ? 'text-primary' : (safeGainPct >= 0 ? 'stat-positive' : 'stat-negative');
+            let subValueHTML = item.currentPrice ? item.currentPrice.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '';
 
             listHTML += `
                 <div class="kpi-list-row">
@@ -773,10 +639,9 @@ export class DashboardApp {
         });
         listHTML += '</div>';
 
-        Array.from(card.children).forEach(child => {
-            if (!child.classList.contains('kpi-header')) child.remove();
-        });
-        card.insertAdjacentHTML('beforeend', listHTML);
+        targetEl.innerHTML = listHTML;
+        targetEl.classList.add('kpi-list-host');
+        card.querySelector('.kpi-meta')?.remove();
     }
 
     cleanText(text) {
@@ -784,70 +649,77 @@ export class DashboardApp {
         return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
     }
 
-    async loadPortfolioNews(forceRefresh = false) {
-        const container = document.getElementById('news-portfolio-container');
-        if (!container) return;
-        container.innerHTML = '<div style="padding:20px; text-align:center; color:#666"><i class="ph ph-circle-notch ph-spin"></i></div>';
-
-        let uniqueNames = [];
-        if (this.selectedAssetFilter) {
-            uniqueNames = [this.selectedAssetFilter];
-        } else {
-            uniqueNames = getHeldAssetNames(this.storage.getPurchases());
-        }
-
-        if (uniqueNames.length === 0) { container.innerHTML = '<div style="padding:20px; text-align:center; color:#666">Aucun actif</div>'; return; }
-
-        const articleLimit = this.selectedAssetFilter ? 8 : 2;
-
-        const promises = uniqueNames.map(name => this.fetchGoogleRSS(`${name} actualité financière`, articleLimit)
+    async loadPortfolioNews() {
+        const names = this.selectedAssetFilter ? [this.selectedAssetFilter] : getHeldAssetNames(this.storage.getPurchases());
+        const requests = names.map(name => () => this.fetchGoogleRSS(`${name} actualité financière`, this.selectedAssetFilter ? 8 : 2)
             .then(items => items.map(item => ({ ...item, assetName: name }))));
-        try {
-            const results = await Promise.all(promises);
-            let allNews = results.flat();
-
-            if (!this.selectedAssetFilter) {
-                allNews = this.filterNewsByAssetNames(allNews, uniqueNames);
-            }
-
-            const uniqueNews = this.deduplicateNews(allNews).sort((a, b) => b.datetime - a.datetime);
-            this.portfolioNews = uniqueNews.slice(0, 15);
-            this.renderNewsList(container, this.portfolioNews, 'portfolio');
-            this.renderAssetSelect();
-        } catch (e) {
-            container.innerHTML = '<div style="padding:20px; text-align:center; color:#ef4444">Erreur de chargement des actualités.</div>';
-        }
+        return this.loadNewsFeed('portfolio', requests, names.join('|'), names.length ? 'Aucune actualité récente pour cette sélection.' : 'Ajoutez des actifs pour retrouver leurs actualités.');
     }
 
-    filterNewsByAssetNames(newsArray, assetNames) {
-        const lowerAssetNames = assetNames.map(name => name.toLowerCase());
-        return newsArray.filter(n => {
-            const titleLower = n.title.toLowerCase();
-            return lowerAssetNames.some(name => titleLower.includes(name));
-        });
-    }
-
-    async loadGlobalNews(forceRefresh = false) {
-        const container = document.getElementById('news-global-container');
-        if (!container) return;
-        container.innerHTML = '<div style="padding:20px; text-align:center; color:#666"><i class="ph ph-circle-notch ph-spin"></i></div>';
-
+    async loadGlobalNews() {
         const topics = [
-            { query: "Marchés Bourse Paris", label: "Macro FR" },
-            { query: "Wall Street économie", label: "Wall Street" },
-            { query: "Crypto Bitcoin actu", label: "Crypto" },
-            { query: "Inflation BCE Fed", label: "Politique Monétaire" }
+            { query: 'Marchés Bourse Paris', label: 'Macro FR' },
+            { query: 'Wall Street économie', label: 'Wall Street' },
+            { query: 'Crypto Bitcoin actu', label: 'Crypto' },
+            { query: 'Inflation BCE Fed', label: 'Politique monétaire' }
         ];
+        return this.loadNewsFeed('global', topics.map(topic => () => this.fetchGoogleRSS(topic.query, 4, topic.label)), 'macro', 'Aucune actualité récente.');
+    }
 
-        const promises = topics.map(t => this.fetchGoogleRSS(t.query, 4, t.label));
-        try {
-            const results = await Promise.all(promises);
-            const allNews = results.flat().sort((a, b) => b.datetime - a.datetime);
-            this.globalNews = this.deduplicateNews(allNews).slice(0, 15);
-            this.renderNewsList(container, this.globalNews, 'global');
-        } catch (e) {
-            container.innerHTML = '<div style="padding:20px; text-align:center; color:#ef4444">Erreur de chargement des actualités.</div>';
+    async loadNewsFeed(type, requests, selection, emptyMessage) {
+        const container = document.getElementById(`news-${type}-container`);
+        if (!container) return;
+        this._newsFeedGeneration ??= {};
+        this._newsFeedSelection ??= {};
+        this._newsFeedCache ??= {};
+        const ticket = this._newsFeedGeneration[type] = (this._newsFeedGeneration[type] || 0) + 1;
+        const sameSelection = this._newsFeedSelection[type] === selection;
+        if (!sameSelection) {
+            container.replaceChildren();
+            this._newsFeedCache[type] = new Map();
+            this[`${type}News`] = [];
         }
+        this._newsFeedSelection[type] = selection;
+        this._newsFeedCache[type] ??= new Map();
+        container.setAttribute('aria-busy', 'true');
+        this.showNewsState(container, 'Actualisation des actualités…');
+        const results = await Promise.allSettled(requests.map(request => Promise.resolve().then(request)));
+        if (ticket !== this._newsFeedGeneration[type]) return;
+        const cache = this._newsFeedCache[type];
+        // Successful empty responses clear that source; failed responses keep
+        // only their own last articles, visibly marked as potentially old.
+        results.forEach((result, i) => { if (result.status === 'fulfilled') cache.set(i, result.value); });
+        const failures = results.filter(result => result.status === 'rejected').length;
+        const articles = this.deduplicateNews([...cache.values()].flat()).sort((a, b) => b.datetime - a.datetime).slice(0, 15);
+        this[`${type}News`] = articles;
+        this.renderNewsList(container, articles, type);
+        container.setAttribute('aria-busy', 'false');
+        if (failures) {
+            const message = failures === requests.length ? 'Actualités indisponibles.' : 'Certaines sources sont indisponibles.';
+            this.showNewsState(container, message + (articles.length ? ' Derniers articles conservés ; vérifiez leur date.' : ''), () => type === 'portfolio' ? this.loadPortfolioNews() : this.loadGlobalNews());
+        } else if (!articles.length) {
+            this.showNewsState(container, emptyMessage);
+        }
+        if (type === 'portfolio') this.renderAssetSelect();
+    }
+
+    showNewsState(container, message, retry = null) {
+        container.querySelector('.news-feed-state')?.remove();
+        const state = document.createElement('div');
+        state.className = 'news-feed-state';
+        state.setAttribute('role', 'status');
+        const text = document.createElement('span');
+        text.textContent = message;
+        state.append(text);
+        if (retry) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'dashboard-text-button';
+            button.textContent = 'Réessayer';
+            button.onclick = retry;
+            state.append(button);
+        }
+        container.prepend(state);
     }
 
     fetchGoogleRSS(query, limit = 1, fixedLabel = null) {
@@ -867,6 +739,7 @@ export class DashboardApp {
             })
             .then(xmlText => {
                 const data = new window.DOMParser().parseFromString(xmlText, "text/xml");
+                if (data.querySelector('parsererror') || !data.querySelector('rss, feed')) throw new Error('Flux RSS invalide');
 
                 return Array.from(data.querySelectorAll("item")).slice(0, limit).map(item => {
                     const pubDate = item.querySelector("pubDate")?.textContent;
@@ -878,7 +751,7 @@ export class DashboardApp {
                     return {
                         ticker: fixedLabel || source,
                         name: query,
-                        title: parts.join(" - "),
+                        title: parts.length ? parts.join(" - ") : fullTitle,
                         source: source,
                         url: item.querySelector("link")?.textContent,
                         datetime: pubDate ? new Date(pubDate).getTime() / 1000 : Date.now() / 1000,
@@ -887,16 +760,12 @@ export class DashboardApp {
                     };
                 });
             })
-            .catch(e => {
-                console.warn(`Échec Fetch RSS pour "${query}":`, e);
-                return [];
-            })
             .finally(() => clearTimeout(timeoutId));
     }
 
     renderNewsList(container, newsData, type) {
         if (newsData.length === 0) {
-            container.innerHTML = '<div style="padding:20px; text-align:center; color:#666">Aucune news.</div>';
+            container.replaceChildren();
             return;
         }
 
@@ -1108,372 +977,112 @@ export class DashboardApp {
     async loadMarketIndices() {
         const container = document.getElementById('market-overview-container');
         if (!container) return;
-
-        if (container.querySelector('.market-loading') || container.children.length === 0) {
-            container.innerHTML = '';
-        }
-
+        const generation = this._marketGeneration = (this._marketGeneration || 0) + 1;
         const indices = this.getCustomIndices();
-
-        // Supprimer les cartes dont l'indice a été retiré de la liste
-        const activeTickers = new Set(indices.map(i => `market-card-${i.ticker.replace(/[^a-zA-Z0-9]/g, '-')}`));
+        const rows = await Promise.all(indices.map(async idx => {
+            let instrument = selectIndexDisplayInstrument(idx.ticker, this.getMarketStatus(idx.ticker));
+            const fetchQuote = ticker => this.api.fetchIndexDataForDashboard(ticker).catch(() => null);
+            let quote = await fetchQuote(instrument.ticker);
+            if ((!quote || quote.stale) && instrument.isFuture) {
+                const cash = await fetchQuote(idx.ticker);
+                if (cash && !cash.stale) {
+                    quote = cash;
+                    instrument = { ticker: idx.ticker, isFuture: false, future: null };
+                } else if (!quote) {
+                    quote = cash;
+                    instrument = { ticker: idx.ticker, isFuture: false, future: null };
+                }
+            }
+            if (!quote) {
+                const prior = this._lastMarketRows?.find(row => row.targetTicker === instrument.ticker);
+                if (prior?.quote) quote = { ...prior.quote, stale: true };
+            }
+            return { idx, quote, targetTicker: instrument.ticker, isFuturesSwap: instrument.isFuture, future: instrument.future };
+        }));
+        if (generation !== this._marketGeneration) return;
+        this._lastMarketRows = rows;
+        container.querySelector('.market-loading')?.remove();
+        const keys = new Set(rows.map(row => row.idx.ticker));
         container.querySelectorAll('.market-card').forEach(card => {
-            if (!activeTickers.has(card.id)) card.remove();
+            if (!keys.has(card.dataset.followedTicker)) card.remove();
         });
-
-        // Récupération de tous les prix en une seule fois (via Promise.all pour paralléliser)
-        const fetchPromises = indices.map(async (idx) => {
-            let dashboardData = null;
-            const now = new Date();
-            const hour = now.getHours();
-            const min = now.getMinutes();
-            const cashMarketStatus = this.getMarketStatus(idx.ticker, hour, now.getDay(), min);
-            const displayInstrument = selectIndexDisplayInstrument(idx.ticker, cashMarketStatus, now);
-            let targetTicker = displayInstrument.ticker;
-            let isFuturesSwap = displayInstrument.isFuture;
-            let future = displayInstrument.future;
-
-            const fetchDashboardQuote = async (ticker) => {
-                try {
-                    console.log(`[Dashboard] Fetching data for ${ticker}...`);
-                    return await this.api.fetchIndexDataForDashboard(ticker);
-                } catch (error) {
-                    console.error(`[Dashboard] Error fetching ${ticker}:`, error);
-                    return null;
-                }
-            };
-
-            dashboardData = await fetchDashboardQuote(targetTicker);
-
-            // A missing future must never make the card disappear. Fall back to
-            // the followed cash index and clearly keep its CLOSED presentation.
-            if (!dashboardData && isFuturesSwap) {
-                console.warn(`[Dashboard] Future ${targetTicker} unavailable; falling back to ${idx.ticker}`);
-                targetTicker = idx.ticker;
-                isFuturesSwap = false;
-                future = null;
-                dashboardData = await fetchDashboardQuote(targetTicker);
-            }
-
-            if (!dashboardData) {
-                console.warn(`[Dashboard] No data returned for ${targetTicker}`);
-            } else {
-                // Keep cash-index and futures caches separate: storing ES=F at
-                // ^GSPC would corrupt the index card as soon as its market opens.
-                this.storage.setCurrentPrice(targetTicker, {
-                    price: dashboardData.price,
-                    previousClose: dashboardData.previousClose,
-                    currency: dashboardData.currency,
-                    marketState: dashboardData.marketState,
-                    lastUpdate: dashboardData.fetchedAt || Date.now()
-                });
-                console.log(`[Dashboard] ✓ ${targetTicker}: ${dashboardData.price}`);
-            }
-
-            // Fallback sur le cache si l'appel échoue
-            if (!dashboardData) {
-                const cached = this.storage.getCurrentPrice(targetTicker);
-                if (cached) {
-                    dashboardData = {
-                        price: cached.price,
-                        previousClose: cached.previousClose,
-                        lastTradingDayClose: cached.lastTradingDayClose ?? null,
-                        marketState: cached.marketState || 'UNKNOWN',
-                        stale: true
-                    };
-                }
-            }
-
-            // Récupération des données pour le sparkline
-            let indexData = null;
-            let truePreviousClose = null;
-
-            // Logic allowFallback: Disable fallback to yesterday if market is strictly OPEN
-            let allowFallback = true;
-            const dayOfWeek = now.getDay();
-            const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-
-            if (isWeekday) {
-                if (idx.ticker === '^FCHI' || idx.ticker === '^STOXX50E') {
-                    // EU Open 09:00 - 17:35
-                    if (hour >= 9 && hour < 18) {
-                        allowFallback = false;
-                    }
-                }
-                if (idx.ticker === '^GSPC' || idx.ticker === '^IXIC') {
-                    // US Open 15:30 - 22:00
-                    if ((hour > 15 || (hour === 15 && min >= 30)) && hour < 22) {
-                        allowFallback = false;
+        const notificationQuotes = {};
+        for (const row of rows) {
+            const { idx, quote, targetTicker, isFuturesSwap, future } = row;
+            const view = presentDashboardQuote(targetTicker, quote);
+            if (quote && !quote.stale) {
+                this.storage.setCurrentPrice(targetTicker, { ...quote, lastUpdate: quote.quoteAsOf ?? quote.lastQuoteTime ?? null });
+                // Never evaluate cash-index rules against the future or stale data.
+                if (!isFuturesSwap && view.pct !== null && (quote.quoteAsOf || quote.lastQuoteTime) && view.status !== 'Cours ancien') {
+                    const stored = this.storage.currentData?.[targetTicker];
+                    if (stored) {
+                        stored.changePercent = view.pct;
+                        stored.change = quote.price - quote.previousClose;
+                        notificationQuotes[targetTicker] = stored;
                     }
                 }
             }
-
-            try {
-                indexData = await this.chartKPIManager.fetchIndexData(targetTicker, '1D', allowFallback);
-                if (indexData) truePreviousClose = indexData.truePreviousClose;
-            } catch (e) { console.warn(`[Sparkline ${targetTicker}] Error:`, e.message); }
-
-            return { idx, dashboardData, indexData, truePreviousClose, isFuturesSwap, targetTicker, future };
-        });
-
-        const results = await Promise.all(fetchPromises);
-
-        for (const { idx, dashboardData, indexData, truePreviousClose, isFuturesSwap, targetTicker, future } of results) {
-
-            let currentPrice = dashboardData ? dashboardData.price : 0;
-            let apiPreviousClose = dashboardData ? dashboardData.previousClose : 0;
-            const lastTradingDayClose = dashboardData ? dashboardData.lastTradingDayClose : 0;
-
-            // VALIDATION CRITIQUE: Ne jamais permettre de variation avec des prix à zéro
-            if (currentPrice <= 0 || apiPreviousClose <= 0) {
-                console.error(`[Card ${idx.ticker}] Invalid price data - current: ${currentPrice}, previous: ${apiPreviousClose}`);
-                // Essayer d'utiliser le cache comme dernier recours
-                const cached = this.storage.getCurrentPrice(targetTicker);
-                if (cached && cached.price > 0 && cached.previousClose > 0) {
-                    currentPrice = cached.price;
-                    apiPreviousClose = cached.previousClose;
-                    console.log(`[Card ${idx.ticker}] Recovered from cache - price: ${currentPrice}, previousClose: ${apiPreviousClose}`);
-                } else {
-                    // Si vraiment aucune donnée valide, skip cette carte (ne pas l'afficher avec 0%)
-                    console.warn(`[Card ${idx.ticker}] Skipping - no valid data available`);
-                    continue; // Passer à la prochaine carte
-                }
-            }
-
-            let sparklineBg = '';
-
-            // 2. LOGIQUE CORRIGÉE : Utiliser lastTradingDayClose si previousClose === currentPrice
-            // Cela arrive quand le marché est fermé et que l'API retourne le dernier prix comme previousClose
-            let referenceClose = apiPreviousClose;
-
-            // Si previousClose === currentPrice, c'est que l'API n'a pas de vraie clôture veille
-            // Dans ce cas, utiliser lastTradingDayClose qui contient la vraie clôture de J-1
-            if (Math.abs(apiPreviousClose - currentPrice) < 0.01 && lastTradingDayClose > 0) {
-                referenceClose = lastTradingDayClose;
-                console.log(`[Card ${idx.ticker}] Using lastTradingDayClose (${lastTradingDayClose.toFixed(2)}) instead of previousClose (${apiPreviousClose.toFixed(2)}) for variation`);
-            } else if (apiPreviousClose > 0) {
-                referenceClose = apiPreviousClose;
-            } else {
-                referenceClose = currentPrice; // Fallback ultime
-            }
-
-            // Debug: vérifier 
-            console.log(`[Card ${idx.ticker}] price: ${currentPrice}, apiPreviousClose: ${apiPreviousClose}, Ref: ${referenceClose}`);
-
-            // A future has its own previous close and its own variation. It must
-            // not inherit the CLOSED/LIVE semantics of the underlying cash index.
-            const smartVar = isFuturesSwap
-                ? {
-                    variation: currentPrice - referenceClose,
-                    variationPct: referenceClose > 0 ? ((currentPrice - referenceClose) / referenceClose) * 100 : 0,
-                    referencePrice: referenceClose,
-                    label: 'FUTURE',
-                    statusIcon: 'future',
-                    marketStatus: 'FUTURE'
-                }
-                : this.getSmartVariation(
-                    idx.ticker,
-                    currentPrice,
-                    referenceClose,
-                    lastTradingDayClose || referenceClose,
-                    dashboardData?.lastQuoteTime ?? null
-                );
-
-            const change = smartVar.variation;
-            const pct = smartVar.variationPct;
-
-            // CRITICAL FIX: Update currentData with the smart variation so Notifications see it
-            // Ensure storage.currentData exists
-            if (!this.storage.currentData) {
-                this.storage.currentData = {};
-            }
-
-            // Notifications configured for the cash index must not be evaluated
-            // against a futures price with a different scale.
-            if (!isFuturesSwap) {
-                if (this.storage.currentData[idx.ticker]) {
-                    this.storage.currentData[idx.ticker].changePercent = pct;
-                    this.storage.currentData[idx.ticker].change = change;
-                } else {
-                    this.storage.currentData[idx.ticker] = {
-                        changePercent: pct,
-                        change: change,
-                        price: currentPrice
-                    };
-                }
-            }
-
-
-            const statusLabel = smartVar.label;
-
-            const statusIcon = smartVar.statusIcon;
-            const indicatorColor = change > 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
-
-            // Générer le sparkline maintenant qu'on a la bonne couleur et la bonne référence
-            if (indexData) {
-                sparklineBg = this.chartKPIManager.generateSparkline(indexData, smartVar.referencePrice, idx.ticker, indicatorColor);
-            }
-
-            // Classe de statut pour la variation
-            const finalStatusClass = change > 0 ? 'stat-positive' : change < 0 ? 'stat-negative' : 'stat-positive';
-
-            // Formatage prix selon le format de l'actif
-            const fmt = idx.format || (
-                idx.ticker.endsWith('=X') ? 'forex' :
-                idx.ticker.endsWith('=F') ? 'commodity' :
-                idx.ticker.includes('-EUR') || idx.ticker.includes('-USD') ? 'crypto' : 'index'
-            );
-            let priceStr, changeDecimals = 2;
-            if (fmt === 'crypto') {
-                if (currentPrice >= 1) {
-                    priceStr = Math.round(currentPrice).toLocaleString('fr') + ' €';
-                } else {
-                    priceStr = currentPrice.toFixed(4) + ' €';
-                    changeDecimals = 4;
-                }
-            } else if (fmt === 'forex' || fmt === 'commodity') {
-                priceStr = currentPrice.toFixed(4);
-                changeDecimals = 4;
-            } else {
-                priceStr = currentPrice.toLocaleString('fr', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            }
-
-            const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(changeDecimals)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
-            const changeClass = change >= 0 ? 'stat-positive' : 'stat-negative';
-
-            // Extraire les KPIs depuis indexData
-            let kpiHTML = '';
-            if (indexData && indexData.values && indexData.values.length > 0) {
-                // STATS (DEBUT/FIN/HAUT/BAS) DÉSACTIVÉES SUR DEMANDE UTILISATEUR
-                // kpiHTML = ...
-            }
-
-            // Utiliser statusColor basé sur le statut
-            let statusColor = '#9fa6bc';
-            if (isFuturesSwap) statusColor = FUTURE_ACCENT_COLOR;
-            else if (statusLabel === 'LIVE') statusColor = '#10b981'; // Green
-            else if (statusLabel === 'DELAYED') statusColor = '#f59e0b'; // Orange
-            else if (statusLabel === 'CLOSED') statusColor = '#ef4444'; // Red
-            else statusColor = change >= 0 ? '#10b981' : change < 0 ? '#ef4444' : '#9fa6bc';
-
-            const futureBadge = isFuturesSwap
-                ? `<span class="market-source-badge market-source-future" title="${escHtml(future.name)}">FUTURE · ${escHtml(future.code)}</span>`
-                : '';
-
-            // Icône normalisée (Conteneur fixe pour éviter les décalages de hauteur sur BTC)
-            const iconContent = idx.icon.includes('http')
-                ? `<img src="${idx.icon}" alt="" style="width:100%; height:100%; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">`
-                : `<span style="font-size:24px; line-height:1; filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6)); display:flex; align-items:center; justify-content:center; height:100%; width:100%;">${escHtml(idx.icon)}</span>`;
-
-            const iconHTML = `<div style="width:26px; height:26px; display:flex; align-items:center; justify-content:center;">${iconContent}</div>`;
-
-            const innerHTMLStructure = `
-				<button class="market-card-delete" title="Supprimer"><i class="ph ph-trash"></i></button>
-				${sparklineBg}
-				<div style="position:relative; z-index:2; display:flex; justify-content:space-between; align-items:flex-start;">
-					<div class="market-card-title"><span>${escHtml(idx.name)}</span>${futureBadge}</div>
-					${iconHTML}
-				</div>
-				<div style="position:relative; z-index:2;">
-					<div style="font-size:16px; font-weight:700; color:#fff; margin:2px 0;">${priceStr}</div>
-					<div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
-						<span class="${changeClass}" style="font-size:11.5px; font-weight:600;">${changeStr}</span>
-						<span style="display:inline-flex; align-items:center; gap:5px; color:${statusColor}; border:1px solid ${statusColor}; padding:3px 8px; border-radius:6px; font-weight:700; font-size:9px; background:rgba(255,255,255,0.1); text-transform:uppercase; letter-spacing:0.4px;">
-							${this.renderMarketStatusIcon(statusIcon)}${statusLabel}
-						</span>
-					</div>
-					${kpiHTML}
-				</div>`;
-
-            // ID unique de la carte
             const cardId = `market-card-${idx.ticker.replace(/[^a-zA-Z0-9]/g, '-')}`;
-            let cardElement = document.getElementById(cardId);
-
-            // Sauvegarde de l'état actif AVANT toute modification
-            const wasActive = cardElement ? cardElement.classList.contains('active-index') : false;
-
-            // Création de la carte si elle n'existe pas encore
-            if (!cardElement) {
-                cardElement = document.createElement('div');
-                cardElement.id = cardId;
-                cardElement.className = 'market-card';
-                cardElement.style.cssText = `
-					position:relative;
-					overflow:hidden;
-					border-radius:12px;
-					background:#0f172a;
-					height:112px;
-					display:flex;
-					flex-direction:column;
-					justify-content:space-between;
-					padding:10px 12px 12px;
-					box-sizing:border-box;
-					cursor:pointer;
-					transition:all 0.25s ease;
-				`;
-                container.appendChild(cardElement);
+            let card = document.getElementById(cardId);
+            if (!card) {
+                card = document.createElement('div');
+                card.id = cardId;
+                card.className = 'market-card';
+                card.dataset.followedTicker = idx.ticker;
+                card.innerHTML = `<button type="button" class="market-card-open">
+                    <span class="market-card-title"></span><span class="market-source-badge market-source-future"></span>
+                    <span class="market-card-price"></span><span class="market-card-change"></span>
+                    <span class="market-card-session"></span><span class="market-card-time"></span>
+                </button><button type="button" class="market-card-delete"><i class="ph ph-x" aria-hidden="true"></i></button>`;
+                container.append(card);
             }
-
-            // Nettoyage des anciennes classes de statut
-            cardElement.classList.remove('stat-positive', 'stat-negative', 'active-index', 'market-card-future');
-
-            // Application de la nouvelle couleur du jour
-            cardElement.classList.add(finalStatusClass);
-            if (isFuturesSwap) cardElement.classList.add('market-card-future');
-            const cardAccentColor = isFuturesSwap ? FUTURE_ACCENT_COLOR : indicatorColor;
-            cardElement.style.border = `1px solid ${cardAccentColor}80`;
-            cardElement.style.boxShadow = `0 0 12px ${cardAccentColor}22`;
-            cardElement.dataset.instrumentTicker = targetTicker;
-            cardElement.dataset.instrumentType = isFuturesSwap ? 'future' : 'cash';
-
-            // Mise à jour du contenu
-            cardElement.innerHTML = innerHTMLStructure;
-
-            // Bouton suppression
-            const delBtn = cardElement.querySelector('.market-card-delete');
-            if (delBtn) {
-                delBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    this.removeIndex(idx.ticker);
-                };
-            }
-
-            // Restauration de la surbrillance si c'était la carte active
-            if (wasActive) {
-                cardElement.classList.add('active-index');
-            }
-
-            // Event listener (toujours à jour)
-            cardElement.onclick = async () => {
-                // Recliquer sur la carte déjà active désélectionne l'indice et
-                // revient à la vue portefeuille — jusqu'ici il n'existait aucun
-                // moyen de revenir en arrière une fois un indice sélectionné.
-                const wasActive = cardElement.classList.contains('active-index');
-                document.querySelectorAll('.market-card').forEach(c => c.classList.remove('active-index'));
-                if (wasActive) {
-                    if (this.chart) this.chart.showPortfolioChart();
-                    return;
-                }
-                cardElement.classList.add('active-index');
-
-                await this.dataManager.repository.getPrice(targetTicker, { forceRefresh: true });
-                if (this.chart) {
-                    const chartName = isFuturesSwap ? `${idx.name} · Future ${future.code}` : idx.name;
-                    this.chart.showIndex(targetTicker, chartName);
-                }
-                if (window.innerWidth < 768) {
-                    document.querySelector('.dashboard-chart-section')?.scrollIntoView({ behavior: 'smooth' });
-                }
-            };
+            card.dataset.instrumentTicker = targetTicker;
+            const isContract = targetTicker.endsWith('=F');
+            card.dataset.instrumentType = isContract ? 'future' : 'cash';
+            card.classList.toggle('market-card-future', isFuturesSwap);
+            card.style.border = isFuturesSwap ? `1px solid ${FUTURE_ACCENT_COLOR}` : '';
+            card.querySelector('.market-card-title').textContent = idx.name;
+            const futureBadge = card.querySelector('.market-source-future');
+            futureBadge.hidden = !isContract;
+            futureBadge.textContent = isContract ? `FUTURE · ${isFuturesSwap ? future.code : targetTicker}` : '';
+            card.querySelector('.market-card-price').textContent = view.priceText;
+            const change = card.querySelector('.market-card-change');
+            change.textContent = view.pctText;
+            change.className = `market-card-change ${view.tone}`;
+            card.querySelector('.market-card-session').textContent = view.status;
+            card.querySelector('.market-card-time').textContent = view.time;
+            const open = card.querySelector('.market-card-open');
+            open.title = view.detail;
+            open.disabled = !quote;
+            open.setAttribute('aria-label', `${idx.name}, ${view.priceText}, ${view.pctText}. ${view.detail}. Afficher le graphique`);
+            open.onclick = () => this.selectMarketRow(row);
+            const remove = card.querySelector('.market-card-delete');
+            remove.setAttribute('aria-label', `Retirer ${idx.name} des marchés favoris`);
+            remove.title = `Retirer ${idx.name}`;
+            remove.onclick = () => this.removeIndex(idx.ticker);
         }
+        let empty = container.querySelector('.markets-empty');
+        if (!rows.length && !empty) {
+            empty = document.createElement('p');
+            empty.className = 'markets-empty';
+            empty.textContent = 'Ajoutez un marché avec le bouton +.';
+            container.append(empty);
+        } else if (rows.length) empty?.remove();
+        this.marketTicker?.update(rows);
+        if (Object.keys(notificationQuotes).length) this.notificationManager?.checkAll(notificationQuotes);
+    }
 
-        // Nettoyage final du loader
-        const loader = container.querySelector('.market-loading');
-        if (loader) loader.remove();
-
-        // TRIGGER NOTIFICATIONS FOR INDICES
-        if (this.notificationManager && this.storage.currentData) {
-            this.notificationManager.checkAll(this.storage.currentData);
+    async selectMarketRow(row) {
+        if (!this.chart || !row.quote) return;
+        const selected = this.chart.currentMode === 'index' && this.chart.selectedAssets?.[0] === row.targetTicker;
+        document.querySelectorAll('.market-card').forEach(card => card.classList.toggle('active-index', !selected && card.dataset.followedTicker === row.idx.ticker));
+        const back = document.getElementById('dashboard-back-portfolio');
+        if (selected) {
+            await this.chart.showPortfolioChart();
+            if (back) back.hidden = true;
+        } else {
+            if (back) back.hidden = false;
+            await this.chart.showIndex(row.targetTicker, row.isFuturesSwap ? `${row.idx.name} · Future ${row.future.code}` : row.idx.name);
         }
     }
 
@@ -1484,7 +1093,14 @@ export class DashboardApp {
     getCustomIndices() {
         try {
             const saved = localStorage.getItem('dashboard_indices_v1');
-            if (saved) return JSON.parse(saved);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) {
+                    const normalized = normalizeDashboardIndices(parsed);
+                    if (JSON.stringify(normalized) !== JSON.stringify(parsed)) this.saveCustomIndices(normalized);
+                    return normalized;
+                }
+            }
         } catch (e) {}
         return DEFAULT_DASHBOARD_INDICES.map(index => ({ ...index }));
     }
@@ -1507,6 +1123,7 @@ export class DashboardApp {
         this.saveCustomIndices(updated);
         const cardId = `market-card-${ticker.replace(/[^a-zA-Z0-9]/g, '-')}`;
         document.getElementById(cardId)?.remove();
+        this.loadMarketIndices();
     }
 
     getIndicesCatalogue() {
@@ -1515,7 +1132,7 @@ export class DashboardApp {
             'Indices': [
                 // US
                 { ticker: '^GSPC',     name: 'S&P 500',       icon: `${cdn}1F1FA-1F1F8.svg`, format: 'index' },
-                { ticker: '^IXIC',     name: 'NASDAQ 100',    icon: `${cdn}1F4BB.svg`,        format: 'index' },
+                { ticker: '^NDX',      name: 'Nasdaq 100',    icon: `${cdn}1F4BB.svg`,        format: 'index' },
                 { ticker: '^DJI',      name: 'Dow Jones',     icon: `${cdn}1F1FA-1F1F8.svg`, format: 'index' },
                 { ticker: '^RUT',      name: 'Russell 2000',  icon: `${cdn}1F1FA-1F1F8.svg`, format: 'index' },
                 // Europe
@@ -1580,17 +1197,33 @@ export class DashboardApp {
     }
 
     setupIndicesModal() {
+        const modal = document.getElementById('add-index-modal');
+        const close = document.getElementById('close-index-modal');
+        this.closeIndicesModal = () => {
+            if (modal) modal.style.display = 'none';
+            this._indicesTrigger?.focus();
+        };
+        document.getElementById('ticker-settings')?.addEventListener('click', () => document.getElementById('add-index-btn')?.click());
         document.getElementById('add-index-btn')?.addEventListener('click', () => {
-            document.getElementById('add-index-modal').style.display = 'flex';
+            if (!modal) return;
+            this._indicesTrigger = document.activeElement;
+            modal.style.display = 'flex';
             this.renderIndexModal('Indices');
+            close?.focus();
         });
 
-        document.getElementById('close-index-modal')?.addEventListener('click', () => {
-            document.getElementById('add-index-modal').style.display = 'none';
-        });
+        close?.addEventListener('click', this.closeIndicesModal);
 
-        document.getElementById('add-index-modal')?.addEventListener('click', (e) => {
-            if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
+        modal?.addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) this.closeIndicesModal();
+        });
+        modal?.addEventListener('keydown', event => {
+            if (event.key === 'Escape') { event.preventDefault(); this.closeIndicesModal(); }
+            if (event.key !== 'Tab') return;
+            const buttons = [...modal.querySelectorAll('button:not(:disabled)')];
+            const first = buttons[0], last = buttons.at(-1);
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+            if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
         });
 
         document.querySelectorAll('.index-tab').forEach(btn => {
@@ -1604,6 +1237,7 @@ export class DashboardApp {
 
         document.querySelectorAll('.index-tab').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.tab === activeTab);
+            btn.setAttribute('aria-pressed', String(btn.dataset.tab === activeTab));
         });
 
         const grid = document.getElementById('add-index-grid');
@@ -1616,14 +1250,14 @@ export class DashboardApp {
                 ? `<img src="${item.icon}" alt="" style="width:22px;height:22px;object-fit:contain;">`
                 : `<span style="font-size:18px;line-height:1;">${escHtml(item.icon)}</span>`;
             return `
-                <div class="add-index-item${isAdded ? ' already-added' : ''}" data-ticker="${escHtml(item.ticker)}">
+                <button type="button" class="add-index-item${isAdded ? ' already-added' : ''}" data-ticker="${escHtml(item.ticker)}" ${isAdded ? 'disabled' : ''}>
                     <div class="add-index-item-icon">${iconHTML}</div>
                     <div>
                         <div class="add-index-item-name">${escHtml(item.name)}</div>
                         <div class="add-index-item-ticker">${escHtml(item.ticker)}</div>
                     </div>
                     <span class="add-index-item-action" style="color:${isAdded ? '#10b981' : '#818cf8'};"><i class="ph ${isAdded ? 'ph-check' : 'ph-plus'}" aria-hidden="true"></i></span>
-                </div>`;
+                </button>`;
         }).join('');
 
         grid.querySelectorAll('.add-index-item:not(.already-added)').forEach(el => {
@@ -1632,15 +1266,14 @@ export class DashboardApp {
                 const item = items.find(i => i.ticker === ticker);
                 if (item) {
                     this.addIndex(item);
-                    document.getElementById('add-index-modal').style.display = 'none';
+                    this.closeIndicesModal();
                 }
             });
         });
     }
 
     setupKPIModals() {
-        // Sélection par position dans la grille — les IDs internes disparaissent
-        // après injectListIntoCard(), mais les .kpi-card eux-mêmes restent stables
+        // Card order matches the four corresponding detail views.
         const grid = document.querySelector('.dashboard-kpi-grid-v2');
         const cards = grid ? [...grid.querySelectorAll(':scope > .kpi-card')] : [];
         const types = ['gainer', 'loser', 'asset', 'allocation'];
@@ -1678,13 +1311,13 @@ export class DashboardApp {
         let sortedItems, titleText, iconClass, iconColor;
 
         if (type === 'gainer') {
-            titleText = 'Top Performers — Détails';
+            titleText = 'Meilleures performances — depuis l’achat';
             iconClass = 'ph-trend-up'; iconColor = '#10b981';
         } else if (type === 'loser') {
-            titleText = 'Worst Performers — Détails';
+            titleText = 'Moins bonnes performances — depuis l’achat';
             iconClass = 'ph-trend-down'; iconColor = '#ef4444';
         } else {
-            titleText = 'Top Holdings — Valeur du portefeuille';
+            titleText = 'Principales positions — valeur actuelle';
             iconClass = 'ph-stack'; iconColor = '#3b82f6';
             sortedItems = [...holdings]
                 .filter(h => h.currentValue != null && h.currentValue > 0)
