@@ -27,7 +27,13 @@ import { buildNewsHoldingDetails, getHeldAssetNames } from './newsHoldingMatcher
 import { buildWatchlistContext } from './watchlistContext.js';
 import { DEFAULT_DASHBOARD_INDICES } from './appDataContext.js';
 import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus } from './dashboardMarketData.js';
-import { MarketTicker } from './marketTicker.js';
+import { MarketTicker, selectPortfolioMovers } from './marketTicker.js';
+
+const SPARKLINE_TTL_MS = 5 * 60 * 1000;
+const marketCardStateClass = view => {
+    if (view.status === 'Cours ancien' || view.status === 'Actualisation indisponible') return 'is-stale';
+    return { OPEN: 'is-open', CONTINUOUS: 'is-continuous', CLOSED: 'is-closed' }[view.session] || 'is-unknown';
+};
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -126,8 +132,8 @@ export class DashboardApp {
     async init() {
         console.log('Dashboard Init...');
 
-        // Shared quote view: the ticker doesn't own a network refresh timer.
-        this.marketTicker = new MarketTicker(document.getElementById('market-ticker'), row => this.selectMarketRow(row));
+        // Portfolio movers ticker: fed by each snapshot, no network timer of its own.
+        this.marketTicker = new MarketTicker(document.getElementById('market-ticker'), item => this.selectTickerAsset(item));
 
         // === CRITICAL: Subscribe to centralized KPIs ===
         this.subscribeToKPIs();
@@ -302,14 +308,8 @@ export class DashboardApp {
             movementsCount: engineSummary.movementsCount || 0
         };
         this._latestPortfolioSnapshotId = snapshot.snapshotId;
-        const freshness = document.getElementById('dashboard-freshness');
-        if (freshness) {
-            const at = result.pricesAsOf ?? snapshot.portfolioSnapshot.pricesTimestamp;
-            const time = at ? new Date(at).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' Paris' : 'date inconnue';
-            freshness.textContent = `${stale || degraded ? 'Dernier état connu' : 'Cotations du portefeuille'} · ${time}`;
-            freshness.classList.toggle('is-stale', !!(stale || degraded));
-        }
         this.lastHoldings = holdings;
+        this.marketTicker?.update(selectPortfolioMovers(holdings));
         this.lastCashTotal = cashReserve.total;
         // Copie décorée pour les consommateurs secondaires (notamment Gemini
         // Actualités). Ne jamais muter le snapshot partagé du repository.
@@ -1049,8 +1049,14 @@ export class DashboardApp {
             const change = card.querySelector('.market-card-change');
             change.textContent = view.pctText;
             change.className = `market-card-change ${view.tone}`;
-            card.querySelector('.market-card-session').textContent = view.status;
+            const session = card.querySelector('.market-card-session');
+            session.textContent = view.status;
+            session.className = 'market-card-session';
             card.querySelector('.market-card-time').textContent = view.time;
+            // Colour code: card edge follows the day's direction, the session
+            // pill follows the market state (open / 24/7 / closed / stale).
+            card.classList.remove('stat-positive', 'stat-negative', 'stat-neutral', 'is-open', 'is-closed', 'is-continuous', 'is-stale', 'is-unknown');
+            card.classList.add(view.tone, marketCardStateClass(view));
             const open = card.querySelector('.market-card-open');
             open.title = view.detail;
             open.disabled = !quote;
@@ -1068,8 +1074,53 @@ export class DashboardApp {
             empty.textContent = 'Ajoutez un marché avec le bouton +.';
             container.append(empty);
         } else if (rows.length) empty?.remove();
-        this.marketTicker?.update(rows);
         if (Object.keys(notificationQuotes).length) this.notificationManager?.checkAll(notificationQuotes);
+        this.renderMarketSparklines(rows, generation);
+    }
+
+    // Day sparklines behind the market cards. Intraday history is cached a few
+    // minutes per instrument so the 30 s quote cycle doesn't refetch it.
+    async renderMarketSparklines(rows, generation) {
+        if (!this.chartKPIManager) return;
+        this._sparkCache ??= new Map();
+        await Promise.all(rows.map(async row => {
+            if (!row.quote) return;
+            const view = presentDashboardQuote(row.targetTicker, row.quote);
+            let entry = this._sparkCache.get(row.targetTicker);
+            if (!entry || Date.now() - entry.at > SPARKLINE_TTL_MS) {
+                const data = await this.chartKPIManager.fetchIndexData(row.targetTicker, '1D', view.session !== 'OPEN').catch(() => null);
+                entry = { at: Date.now(), data };
+                this._sparkCache.set(row.targetTicker, entry);
+            }
+            if (generation !== this._marketGeneration) return;
+            const card = document.getElementById(`market-card-${row.idx.ticker.replace(/[^a-zA-Z0-9]/g, '-')}`);
+            if (!card || card.dataset.instrumentTicker !== row.targetTicker) return;
+            const color = view.pct > 0 ? '#10b981' : view.pct < 0 ? '#ef4444' : '#9fa6bc';
+            const reference = row.quote.previousClose ?? entry.data?.values?.[0];
+            let spark = card.querySelector('.market-card-spark');
+            if (!spark) {
+                spark = document.createElement('div');
+                spark.className = 'market-card-spark';
+                spark.setAttribute('aria-hidden', 'true');
+                card.prepend(spark);
+            }
+            spark.innerHTML = this.chartKPIManager.generateSparkline(entry.data, reference, row.targetTicker, color);
+        }));
+    }
+
+    // Holding clicked in the ticker: its own chart, with a way back.
+    async selectTickerAsset(item) {
+        if (!this.chart) return;
+        document.querySelectorAll('.market-card.active-index').forEach(card => card.classList.remove('active-index'));
+        const back = document.getElementById('dashboard-back-portfolio');
+        if (this.chart.currentMode === 'asset' && this.chart.selectedAssets?.[0] === item.ticker) {
+            await this.chart.showPortfolioChart();
+            if (back) back.hidden = true;
+            return;
+        }
+        if (back) back.hidden = false;
+        await this.chart.showAssetChart(item.ticker);
+        if (window.innerWidth < 768) document.querySelector('.dashboard-chart-section')?.scrollIntoView({ behavior: 'smooth' });
     }
 
     async selectMarketRow(row) {
@@ -1203,7 +1254,6 @@ export class DashboardApp {
             if (modal) modal.style.display = 'none';
             this._indicesTrigger?.focus();
         };
-        document.getElementById('ticker-settings')?.addEventListener('click', () => document.getElementById('add-index-btn')?.click());
         document.getElementById('add-index-btn')?.addEventListener('click', () => {
             if (!modal) return;
             this._indicesTrigger = document.activeElement;

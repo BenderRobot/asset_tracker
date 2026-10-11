@@ -4,7 +4,10 @@
     {
       "width": 1920,
       "scroll": 1920,
-      "detailOpen": false,
+      "startVisible": true,
+      "panelHeight": 1012,
+      "leftHeight": 1012,
+      "sparklines": 7,
       "animation": "market-ticker-scroll",
       "main": 1680,
       "overflowingValues": 0
@@ -12,7 +15,10 @@
     {
       "width": 1366,
       "scroll": 1366,
-      "detailOpen": false,
+      "startVisible": true,
+      "panelHeight": 1377,
+      "leftHeight": 1377,
+      "sparklines": 7,
       "animation": "market-ticker-scroll",
       "main": 1126,
       "overflowingValues": 0
@@ -20,15 +26,21 @@
     {
       "width": 768,
       "scroll": 768,
-      "detailOpen": false,
+      "startVisible": true,
+      "panelHeight": 608,
+      "leftHeight": 1943,
+      "sparklines": 7,
       "animation": "none",
-      "main": 767.609375,
+      "main": 766.3125,
       "overflowingValues": 0
     },
     {
       "width": 390,
       "scroll": 390,
-      "detailOpen": false,
+      "startVisible": true,
+      "panelHeight": 608,
+      "leftHeight": 2015,
+      "sparklines": 7,
       "animation": "none",
       "main": 390,
       "overflowingValues": 0
@@ -36,7 +48,10 @@
     {
       "width": 360,
       "scroll": 360,
-      "detailOpen": false,
+      "startVisible": true,
+      "panelHeight": 641,
+      "leftHeight": 2015,
+      "sparklines": 7,
       "animation": "none",
       "main": 360,
       "overflowingValues": 0
@@ -46,8 +61,9 @@
   "checks": [
     "pause control",
     "reduced motion",
-    "market selection and back",
-    "details disclosure at all sizes",
+    "ticker asset selection and back",
+    "period stats visible at all sizes",
+    "markets panel matches left column",
     "market settings"
   ]
 }

@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="css/dashboard.css?v=102">
     <link rel="stylesheet" href="css/dashboard-mobile.css?v=6">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
-    <link rel="stylesheet" href="css/dashboard-premium.css?v=1">
+    <link rel="stylesheet" href="css/dashboard-premium.css?v=2">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -54,16 +54,12 @@
 
     <main class="main-content">
         <div class="container">
-            <header class="dashboard-page-header">
-                <div><p class="dashboard-eyebrow">VUE D’ENSEMBLE</p><h1>Mon portefeuille</h1></div>
-                <span id="dashboard-freshness" class="dashboard-freshness" role="status">Chargement des données…</span>
-            </header>
-            <section id="market-ticker" class="market-ticker" aria-label="Bandeau des cotations de vos marchés favoris">
-                <span class="market-ticker-label"><i class="ph ph-globe" aria-hidden="true"></i> Marchés</span>
-                <div class="market-ticker-viewport"><div class="market-ticker-track"><span class="ticker-loading">Chargement des cotations…</span></div></div>
-                <span class="ticker-empty-label">Ajoutez vos marchés favoris ci-dessous.</span>
+            <section id="market-ticker" class="market-ticker" aria-label="Meilleures et pires variations du jour de vos positions">
+                <span class="market-ticker-label"><i class="ph ph-briefcase" aria-hidden="true"></i> Mes actifs</span>
+                <div class="market-ticker-viewport"><div class="market-ticker-track"><span class="ticker-loading">Chargement des positions…</span></div></div>
+                <span class="ticker-empty-label">Aucune position cotée à afficher.</span>
+                <span class="ticker-legend" aria-hidden="true"><span class="legend-dot is-open"></span>Ouvert<span class="legend-dot is-continuous"></span>24/7<span class="legend-dot is-closed"></span>Fermé</span>
                 <button type="button" class="ticker-control" data-ticker-pause aria-label="Mettre en pause le défilement des cotations" aria-pressed="false">Ⅱ</button>
-                <button type="button" class="ticker-control" id="ticker-settings" aria-label="Personnaliser les marchés favoris" title="Personnaliser les marchés"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i></button>
             </section>
 
             <!-- Onboarding banner — visible uniquement si aucune transaction -->
@@ -226,9 +222,6 @@
                                 <div id="stat-yesterday-close" class="stat"><span class="label">CLÔTURE
                                         HIER</span><span id="yesterday-close-value" class="value"></span></div>
                             </div>
-                            <details class="dashboard-chart-details">
-                                <summary>Détails de la période et records</summary>
-                                <div class="dashboard-detail-grid">
                             <div class="stat-group stat-group-3">
                                 <div class="stat"><span class="label">DÉBUT</span><span id="price-start"
                                         class="value">--</span>
@@ -250,8 +243,6 @@
                                 <div class="stat"><span class="label">Date ATH</span><span id="ath-date" class="value">—</span></div>
                                 <div class="stat"><span class="label">Écart / ATH</span><span id="ath-gap" class="value">—</span></div>
                             </div>
-                                </div>
-                            </details>
                         </div>
                         <div class="chart-controls-bottom-mobile" style="display:none;">
                             <button class="period-btn active" data-period="1">1J</button>

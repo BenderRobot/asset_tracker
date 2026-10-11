@@ -34,7 +34,8 @@ try {
         window.firebase = { apps: [], initializeApp() {}, auth: () => ({ currentUser: null }), firestore: () => ({}) };
         const { DashboardApp } = await import('/src/dashboardApp.js');
         const { DEFAULT_DASHBOARD_INDICES } = await import('/src/appDataContext.js');
-        const { MarketTicker } = await import('/src/marketTicker.js');
+        const { MarketTicker, selectPortfolioMovers } = await import('/src/marketTicker.js');
+        const { ChartKPIManager } = await import('/src/chartKPIManager.js');
         const { UIComponents } = await import('/src/ui.js');
         const { mountViewToggle } = await import('/src/chartViewToggle.js');
         const app = Object.create(DashboardApp.prototype);
@@ -49,20 +50,30 @@ try {
         app.storage = { currentData: {}, setCurrentPrice(t, q) { this.currentData[t] = q; } };
         app.getMarketStatus = () => 'MARKET_OPEN';
         app.api = { fetchIndexDataForDashboard: async ticker => quotes[ticker] };
-        app.marketTicker = new MarketTicker(document.getElementById('market-ticker'), row => app.selectMarketRow(row));
-        app.chart = { currentMode: 'portfolio', selectedAssets: [], showIndex: async (ticker, name) => { app.chart.currentMode = 'index'; app.chart.selectedAssets = [ticker]; document.getElementById('chart-title-text').textContent = name; }, showPortfolioChart: async () => { app.chart.currentMode = 'portfolio'; app.chart.selectedAssets = []; document.getElementById('chart-title-text').textContent = 'Portefeuille global'; } };
+        app.marketTicker = new MarketTicker(document.getElementById('market-ticker'), item => app.selectTickerAsset(item));
+        app.chartKPIManager = { generateSparkline: ChartKPIManager.prototype.generateSparkline,
+            fetchIndexData: async ticker => ({ values: Array.from({ length: 60 }, (_, i) => 100 + Math.sin(i / 6 + ticker.length) * 2 + (ticker.length % 2 ? i : -i) * .05) }) };
+        app.chart = { currentMode: 'portfolio', selectedAssets: [], showAssetChart: async ticker => { app.chart.currentMode = 'asset'; app.chart.selectedAssets = [ticker]; document.getElementById('chart-title-text').textContent = ticker; }, showIndex: async (ticker, name) => { app.chart.currentMode = 'index'; app.chart.selectedAssets = [ticker]; document.getElementById('chart-title-text').textContent = name; }, showPortfolioChart: async () => { app.chart.currentMode = 'portfolio'; app.chart.selectedAssets = []; document.getElementById('chart-title-text').textContent = 'Portefeuille global'; } };
         app.setupEventListeners(); app.setupIndicesModal();
         await app.loadMarketIndices();
+        await new Promise(r => setTimeout(r, 50));
         const holdings = [
-            { name: 'ETF Monde', ticker: 'WORLD', quantity: 200, gainPct: 28.2, currentValue: 24000, currentPrice: 120, assetType: 'ETF' },
-            { name: 'Alphabet', ticker: 'GOOGL', quantity: 40, gainPct: 18.4, currentValue: 6200, currentPrice: 155, assetType: 'Stock' },
-            { name: 'Bitcoin', ticker: 'BTC-EUR', quantity: .068, gainPct: -5.4, currentValue: 5100, currentPrice: 75000, assetType: 'Crypto' }
+            { name: 'ETF Monde', ticker: 'WORLD', quantity: 200, gainPct: 28.2, currentValue: 24000, currentPrice: 120, assetType: 'ETF', displayDayPct: .62, displayDayChange: 148.1 },
+            { name: 'Alphabet', ticker: 'GOOGL', quantity: 40, gainPct: 18.4, currentValue: 6200, currentPrice: 155, assetType: 'Stock', displayDayPct: 1.84, displayDayChange: 112.3 },
+            { name: 'Riber', ticker: 'ALRIB.PA', quantity: 100, gainPct: -38.5, currentValue: 810, currentPrice: 8.1, assetType: 'Stock', displayDayPct: -2.41, displayDayChange: -20 },
+            { name: 'Applied Materials', ticker: 'AMAT', quantity: 3, gainPct: 213, currentValue: 1366, currentPrice: 455.45, assetType: 'Stock', displayDayPct: 3.12, displayDayChange: 41.3 },
+            { name: 'Bitcoin', ticker: 'BTC-EUR', quantity: .068, gainPct: -5.4, currentValue: 5100, currentPrice: 75000, assetType: 'Crypto', displayDayPct: .82, displayDayChange: 41.5 }
         ];
+        app.marketTicker.update(selectPortfolioMovers(holdings));
         app.renderKPIs({}, 389, holdings); app.renderAllocation(holdings, 389);
         const ui = new UIComponents(app.storage, {});
         ui._updateTotalValueModal = () => {};
         ui.updateTopKPIs({ totalCurrentEUR: 35689, totalInvestedEUR: 28000, gainTotal: 7689, gainPct: 27.46, totalDayChangeEUR: 142.8, dayChangePct: .4 }, 389, null);
-        document.getElementById('dashboard-freshness').textContent = 'Aperçu de démonstration · données fictives';
+        document.querySelector('.stat-group-2').style.display = '';
+        document.getElementById('day-var-label').textContent = '+142,80 €';
+        document.getElementById('day-var-percent').textContent = '+0,40 %';
+        document.getElementById('yesterday-close-value').textContent = '35 546,20 €';
+        document.getElementById('unit-price-row').style.display = 'none';
         document.getElementById('chart-loading').style.display = 'none';
         document.getElementById('performance-label').textContent = '+142,80 €';
         document.getElementById('performance-percent').textContent = '+0,40 %';
@@ -86,7 +97,10 @@ try {
         await page.setViewportSize({ width, height: 1080 });
         await page.waitForTimeout(250);
         const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth,
-            detailOpen: document.querySelector('.dashboard-chart-details').open,
+            startVisible: !!document.getElementById('price-start').offsetParent,
+            panelHeight: Math.round(document.querySelector('.dashboard-indices-panel-full').getBoundingClientRect().height),
+            leftHeight: Math.round(document.querySelector('.dashboard-left-column').getBoundingClientRect().height),
+            sparklines: document.querySelectorAll('.market-card-spark svg').length,
             animation: getComputedStyle(document.querySelector('.market-ticker-track')).animationName,
             main: document.querySelector('.main-content').getBoundingClientRect().width,
             overflowingValues: [...document.querySelectorAll('.summary-card-value')].filter(el => el.scrollWidth > el.clientWidth + 1).length
@@ -94,9 +108,8 @@ try {
         assert.equal(size.scroll, width, `page overflow at ${width}`);
         assert.equal(size.overflowingValues, 0, `KPI overflow at ${width}`);
         if (width <= 768) assert.equal(size.animation, 'none');
-        await page.locator('.dashboard-chart-details summary').click();
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width, `open details overflow at ${width}`);
-        await page.locator('.dashboard-chart-details summary').click();
+        assert.equal(size.startVisible, true, `period stats hidden at ${width}`);
+        if (width > 1200) assert.ok(Math.abs(size.panelHeight - size.leftHeight) <= 2, `markets panel height ${size.panelHeight} vs ${size.leftHeight} at ${width}`);
         results.push(size);
         if (width === 1366 || width === 390) await page.screenshot({ path: path.join(root, `audit/dashboard-preview-${width}.png`), fullPage: true });
     }
@@ -110,14 +123,12 @@ try {
     await page.locator('.market-ticker-group:not(.market-ticker-copy) button').first().click();
     await page.locator('#dashboard-back-portfolio').click();
     assert.equal(await page.locator('#chart-title-text').textContent(), 'Portefeuille global');
-    await page.locator('.dashboard-chart-details summary').click();
-    assert.equal(await page.locator('#price-start').isVisible(), true);
-    await page.locator('#ticker-settings').click();
+    await page.locator('#add-index-btn').click();
     assert.equal(await page.locator('#add-index-modal').isVisible(), true);
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#add-index-modal').isVisible(), false);
-    assert.equal(await page.evaluate(() => document.activeElement.id), 'ticker-settings');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'add-index-btn');
     assert.deepEqual(errors, []);
-    await writeFile(path.join(root, 'audit/dashboard-preview-results.json'), JSON.stringify({ scope: 'Isolated deterministic UI, no authenticated session', sizes: results, errors, checks: ['pause control', 'reduced motion', 'market selection and back', 'details disclosure at all sizes', 'market settings'] }, null, 2));
+    await writeFile(path.join(root, 'audit/dashboard-preview-results.json'), JSON.stringify({ scope: 'Isolated deterministic UI, no authenticated session', sizes: results, errors, checks: ['pause control', 'reduced motion', 'ticker asset selection and back', 'period stats visible at all sizes', 'markets panel matches left column', 'market settings'] }, null, 2));
     console.log(JSON.stringify(results));
 } finally { await browser.close(); server.close(); }

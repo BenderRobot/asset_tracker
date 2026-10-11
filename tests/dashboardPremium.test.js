@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { normalizeDashboardIndices, normalizeDashboardQuote, presentDashboardQuote, quoteSession, scheduledMarketStatus } from '../src/dashboardMarketData.js';
-import { MarketTicker } from '../src/marketTicker.js';
+import { MarketTicker, selectPortfolioMovers } from '../src/marketTicker.js';
 import { PriceAPI } from '../src/api.js';
 import { createFakeStorage } from './helpers.js';
 import { marketCalendarEngine } from '../src/MarketCalendarEngine.js';
@@ -109,22 +109,44 @@ describe('Dashboard ticker and feeds', () => {
         document.body.innerHTML = '<section id="ticker"><div class="market-ticker-track"></div><button data-ticker-pause></button></section>';
         return document.getElementById('ticker');
     }
+    const holding = (ticker, displayDayPct, extra = {}) => ({
+        ticker, name: ticker, quantity: 1, currentPrice: 10, displayDayPct, displayDayChange: displayDayPct, ...extra
+    });
     it('retains focused nodes on price updates, exposes one keyboard list and persists pause', () => {
         const root = tickerRoot(); const select = vi.fn();
         const ticker = new MarketTicker(root, select);
-        const quote = normalizeDashboardQuote('^NDX', chart(), NOW);
-        const row = { idx: { ticker: '^NDX', name: 'Nasdaq 100' }, targetTicker: '^NDX', quote };
-        ticker.update([row]);
-        const item = root.querySelector('.market-ticker-item'); item.focus();
-        ticker.update([{ ...row, quote: { ...quote, price: 112 } }]);
-        expect(root.querySelector('.market-ticker-item')).toBe(item);
-        expect(document.activeElement).toBe(item);
+        const item = { ticker: 'AMAT', name: 'Applied Materials', price: 455, pct: 2, change: 9, state: 'open', stateLabel: 'Séance ouverte' };
+        ticker.update([item]);
+        const node = root.querySelector('.market-ticker-item'); node.focus();
+        ticker.update([{ ...item, price: 460, pct: 3 }]);
+        expect(root.querySelector('.market-ticker-item')).toBe(node);
+        expect(document.activeElement).toBe(node);
+        expect(node.classList.contains('is-open')).toBe(true);
         expect(root.querySelector('.market-ticker-copy').getAttribute('aria-hidden')).toBe('true');
         expect(root.querySelector('.market-ticker-copy').querySelector('button')).toBeNull();
-        item.click(); expect(select.mock.calls[0][0].quote.price).toBe(112);
+        node.click(); expect(select.mock.calls[0][0].price).toBe(460);
         root.querySelector('[data-ticker-pause]').click();
         expect(root.classList.contains('is-paused')).toBe(true);
         expect(new MarketTicker(root, select).paused).toBe(true);
+    });
+    it('shows weekend cryptos live and Friday movers as closed', () => {
+        const saturday = Date.parse('2026-10-10T12:00:00Z');
+        const items = selectPortfolioMovers([
+            holding('BTC-EUR', 0.8), holding('AMAT', 3.1), holding('RIBER.PA', -2.4),
+            holding('REIT', 5, { assetType: 'Real Estate' }), holding('KO', null, { dayPct: null })
+        ], { now: saturday });
+        expect(items.map(i => i.ticker)).toEqual(['AMAT', 'BTC-EUR', 'RIBER.PA']);
+        expect(items.find(i => i.ticker === 'BTC-EUR')).toMatchObject({ state: 'continuous' });
+        const closed = items.find(i => i.ticker === 'AMAT');
+        expect(closed.state).toBe('closed');
+        expect(closed.stateLabel).toContain('ven.');
+        expect(closed.stateLabel).toContain('09/10');
+    });
+    it('keeps only the best and worst movers of a large portfolio', () => {
+        const items = selectPortfolioMovers(Array.from({ length: 20 }, (_, i) => holding(`T${i}`, i - 10)), { now: NOW });
+        expect(items).toHaveLength(12);
+        expect(items[0].pct).toBe(9);
+        expect(items.at(-1).pct).toBe(-10);
     });
     function newsApp() {
         document.body.innerHTML = '<div id="news-global-container"></div><div id="news-portfolio-container"></div>';
@@ -183,19 +205,19 @@ describe('Dashboard ticker and feeds', () => {
             expect(app.ui.updateTopKPIs).toHaveBeenCalledWith(expect.objectContaining({ totalCurrentEUR: 35000 }), 100, null);
         } finally { portfolioKPIs.removeListener(app._kpiListener); }
     });
-    it('uses a single quote for both views and retains unavailable instruments', async () => {
+    it('requests one quote per market and retains unavailable instruments', async () => {
         const app = Object.create(DashboardApp.prototype);
         document.body.innerHTML = '<div id="market-overview-container"></div>';
         const fetchQuote = vi.fn().mockResolvedValue(null);
         Object.assign(app, {
             getCustomIndices: () => [{ ticker: '^NDX', name: 'Nasdaq 100' }], getMarketStatus: () => 'MARKET_OPEN',
-            api: { fetchIndexDataForDashboard: fetchQuote }, marketTicker: { update: vi.fn() },
+            api: { fetchIndexDataForDashboard: fetchQuote },
             storage: { currentData: {}, setCurrentPrice: vi.fn() }
         });
         await app.loadMarketIndices();
         expect(fetchQuote).toHaveBeenCalledOnce();
         expect(document.querySelector('.market-card-open').disabled).toBe(true);
         expect(document.body.textContent).toContain('Indisponible');
-        expect(app.marketTicker.update).toHaveBeenCalledWith([expect.objectContaining({ quote: null, targetTicker: '^NDX' })]);
+        expect(document.querySelector('.market-card').classList.contains('stat-neutral')).toBe(true);
     });
 });
