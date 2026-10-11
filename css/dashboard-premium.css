@@ -4,10 +4,12 @@
 .dashboard-premium .dashboard-top-section { grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: stretch; }
 .dashboard-premium .dashboard-left-column { min-width: 0; overflow: visible; gap: 20px; }
 .dashboard-premium .dashboard-hero-row { gap: 14px; }
-.dashboard-premium .summary-card { padding: 20px; min-width: 0; }
+.dashboard-premium .summary-card { padding: 18px 22px; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
 .dashboard-premium .summary-card-label { color: #acb8d0; font-size: 11px; }
-.dashboard-premium .summary-card-value { font-size: clamp(22px, 2.1vw, 32px); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.summary-card-context { display: block; font-size: 11px; color: var(--dashboard-muted); margin: -4px 0 12px; }
+/* Sized from the card's own width so the amount always fits on one line. */
+.dashboard-premium .dashboard-hero-row .summary-card { container-type: inline-size; }
+.dashboard-premium .summary-card-value { font-size: clamp(22px, 13cqi, 44px); line-height: 1.1; margin: 4px 0 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dashboard-premium .summary-card-meta .meta-large, .dashboard-premium .summary-card-meta .meta-info { font-size: 17px !important; }
 .dashboard-premium .summary-card-primary { background: linear-gradient(130deg, #1a2c4b, #15203a); border-color: #2d4875; }
 .dashboard-premium .dashboard-chart-section { min-width: 0; overflow: hidden; }
 .dashboard-premium .chart-wrapper.tall { flex: none; height: 340px; min-height: 340px; }
@@ -20,7 +22,6 @@
 .dashboard-premium .kpi-card { min-width: 0; padding: 18px; }
 .dashboard-premium .kpi-header { margin-bottom: 7px; }
 .dashboard-premium .kpi-label { color: #acb8d0; font-size: 11px; }
-.kpi-horizon { font-size: 11px; color: var(--dashboard-muted); margin: 0 0 12px; }
 .dashboard-premium .kpi-list-host { margin: 0; font-size: 13px; font-weight: 400; }
 .dashboard-premium .kpi-row-name { font-size: 12px; max-width: none; }
 .dashboard-premium .kpi-row-left { min-width: 0; }
@@ -128,7 +129,6 @@
     .dashboard-premium .summary-card:nth-child(2) { grid-column: 1; grid-row: 2; }
     .dashboard-premium .summary-card:nth-child(3) { grid-column: 2; grid-row: 2; }
     .dashboard-premium #invested { white-space: nowrap; }
-    .summary-card-context { font-size: 10px; margin: -2px 0 6px; }
     .dashboard-premium .summary-card-label { font-size: 11px !important; }
     .dashboard-premium .dashboard-left-column { gap: 16px; }
     .dashboard-premium .chart-wrapper.tall { height: 285px; min-height: 285px; }
@@ -137,7 +137,7 @@
     .dashboard-premium .dashboard-kpi-grid-v2 { grid-template-columns: 1fr !important; gap: 12px !important; }
     .dashboard-premium .kpi-card { padding: 16px !important; }
     .dashboard-premium .feed-card { height: auto !important; }
-    .dashboard-premium .kpi-label, .dashboard-premium .kpi-horizon { font-size: 11px !important; }
+    .dashboard-premium .kpi-label { font-size: 11px !important; }
     .dashboard-premium .kpi-row-name { font-size: 13px !important; max-width: none !important; }
     .dashboard-premium .kpi-row-right { font-size: 13px !important; }
     .dashboard-premium .kpi-row-right .kpi-sub-value { font-size: 11px !important; }

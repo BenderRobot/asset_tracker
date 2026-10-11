@@ -1088,7 +1088,7 @@ export class DashboardApp {
             const view = presentDashboardQuote(row.targetTicker, row.quote);
             let entry = this._sparkCache.get(row.targetTicker);
             if (!entry || Date.now() - entry.at > SPARKLINE_TTL_MS) {
-                const data = await this.chartKPIManager.fetchIndexData(row.targetTicker, '1D', view.session !== 'OPEN').catch(() => null);
+                const data = await this.chartKPIManager.fetchIndexData(row.targetTicker, '1D', view.session !== 'OPEN' || view.status === 'Cours ancien').catch(() => null);
                 entry = { at: Date.now(), data };
                 this._sparkCache.set(row.targetTicker, entry);
             }

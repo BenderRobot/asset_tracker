@@ -51,6 +51,16 @@ describe('Dashboard quote contract', () => {
         expect(presentDashboardQuote('^NDX', quote, sunday)).toMatchObject({ status: 'Dernière séance', session: 'CLOSED' });
         expect(presentDashboardQuote('^NDX', quote, sunday).time).toContain('09/10');
     });
+    it('treats gold futures as closed over the weekend despite a Sunday-long provider period', () => {
+        const sunday = Date.parse('2026-10-11T19:35:00Z');
+        const quote = normalizeDashboardQuote('GC=F', chart({
+            regularMarketTime: sec('2026-10-09T20:59:59Z'), instrumentType: 'FUTURE',
+            currentTradingPeriod: { regular: { start: sec('2026-10-11T04:00:00Z'), end: sec('2026-10-12T03:59:00Z') } }
+        }), sunday);
+        expect(presentDashboardQuote('GC=F', quote, sunday)).toMatchObject({ session: 'CLOSED', status: 'Dernière séance' });
+        // Globex reopens Sunday 18:00 New York time.
+        expect(quoteSession('GC=F', quote, Date.parse('2026-10-11T22:30:00Z'))).toBe('OPEN');
+    });
     it('never invents a zero variation or a live quote when reference/time are absent', () => {
         const data = chart({ regularMarketTime: undefined, chartPreviousClose: 110 });
         data.timestamp = [];

@@ -29,8 +29,21 @@ export function instrumentUnit(symbol, currency) {
     return currency || 'devise inconnue';
 }
 
+// Futures (CME Globex) and FX trade around the clock on weekdays but stop
+// from Friday 17:00 to Sunday 18:00 New York time. Yahoo nonetheless reports
+// a "regular" period covering the whole Sunday for GC=F, so this break is
+// checked before trusting the provider session.
+function inWeeklyFuturesBreak(now) {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', hourCycle: 'h23'
+    }).formatToParts(now).map(p => [p.type, p.value]));
+    const hour = Number(parts.hour);
+    return parts.weekday === 'Sat' || (parts.weekday === 'Fri' && hour >= 17) || (parts.weekday === 'Sun' && hour < 18);
+}
+
 export function quoteSession(symbol, quote, now = Date.now()) {
     if (/^[A-Z0-9]+-[A-Z]{3}$/.test(symbol)) return 'CONTINUOUS';
+    if ((symbol.endsWith('=F') || symbol.endsWith('=X')) && inWeeklyFuturesBreak(now)) return 'CLOSED';
     const session = quote?.regularSession;
     const timezone = quote?.exchangeTimezone;
     if (session && now >= session.startMs && now < session.endMs) return 'OPEN';
