@@ -2129,8 +2129,8 @@ export class DataManager {
         return computeAthReference(params);
     }
 
-    mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate) {
-        return mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate);
+    mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate, options) {
+        return mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate, options);
     }
 
     // ============================================================
@@ -2208,15 +2208,26 @@ export class DataManager {
 // ============================================================
 // Daily closes miss intraday peaks. Keep a revision-aware recent window plus
 // older peaks, rather than freezing the maximum of every provisional candle.
+// v4: 1W intraday window (15 min) in addition to 1D/2D, bars tagged with
+// their spacing. Older caches are rebuilt to collect last week's peaks.
+export const ATH_INTRADAY_VERSION = 4;
 const athFinite = value => value != null && Number.isFinite(Number(value));
 const athPositive = value => athFinite(value) && Number(value) > 0;
 const athSameValue = (a, b) => athFinite(a) && athFinite(b) && Math.abs(Number(a) - Number(b)) <= 0.000001;
 const athFields = ['timestamps', 'values', 'assetValues', 'cash', 'totalReturn',
     'totalReturnWithDividends', 'totalReturnPct', 'totalReturnPctWithDividends',
     'twr', 'twrWithDividends', 'observedAt', 'observationSequence',
-    'anchorDate', 'anchorTwr', 'anchorTwrWithDividends'];
+    'anchorDate', 'anchorTwr', 'anchorTwrWithDividends', 'resolutionMs'];
 const athRecords = history => (history?.timestamps ?? []).map((_, i) =>
     Object.fromEntries(athFields.map(field => [field, history[field]?.[i] ?? null])));
+// Bar spacing of an intraday window, given by the caller (5 min for 1D/2D,
+// 15 min for 1W). A coarser window never erases a finer bar: its peak could
+// only be lower, and the ATH must not move when the user switches views.
+// Unknown spacing (null) keeps the plain revision rules.
+const athIsFiner = (record, resolution) => athFinite(record.resolutionMs) && athFinite(resolution)
+    && Number(record.resolutionMs) < resolution;
+const athOtherResolution = (record, resolution) => athFinite(record.resolutionMs) && athFinite(resolution)
+    && Number(record.resolutionMs) !== resolution;
 const athRevision = record => [Number(record.observedAt) || 0, Number(record.observationSequence) || 0];
 const athIsNewer = (a, b) => {
     const [at, as] = athRevision(a), [bt, bs] = athRevision(b);
@@ -2226,7 +2237,7 @@ const athIsNewer = (a, b) => {
 // A common timestamp alone is NOT an anchor: an open candle can be revised.
 // Join only unchanged valuations, preferably at the beginning of the window.
 // Otherwise use the settled daily close strictly before the window's session.
-function athWindowBases(allHistory, history, records, sessionDate) {
+function athWindowBases(allHistory, history, records, sessionDate, resolution = null) {
     const start = history.timestamps?.find(athFinite);
     if (!athFinite(start)) return {};
     const dates = allHistory.sessionDates ?? allHistory.pointMeta?.map(point => point?.sessionDate);
@@ -2239,7 +2250,10 @@ function athWindowBases(allHistory, history, records, sessionDate) {
         bases.twrWithDividends = Number(allHistory.twrWithDividends?.[i] ?? bases.twr);
         bases.anchorDate = dates?.[i] ?? sessionDate(allHistory.timestamps[i]);
     }
-    const byTime = new Map(records.map(record => [record.timestamps, record]));
+    // Join only bars of the same spacing: a 5 min and a 15 min bar sharing a
+    // timestamp close at different moments.
+    const byTime = new Map(records.filter(record => !athOtherResolution(record, resolution))
+        .map(record => [record.timestamps, record]));
     for (let i = 0; i < history.timestamps.length; i++) {
         const shared = byTime.get(history.timestamps[i]);
         if (!shared || !athSameValue(shared.values, history.values?.[i])) continue;
@@ -2258,7 +2272,7 @@ function athWindowBases(allHistory, history, records, sessionDate) {
     return bases;
 }
 
-export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate) {
+export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHistory, sessionDate, { resolutionMs = null } = {}) {
     if (!allHistory || allHistory.dataQuality?.valid === false) return allHistory;
     // V1 had no provenance and recursively reused mutable terminal indices.
     // It cannot safely certify a peak; rebuild from real histories instead.
@@ -2282,21 +2296,23 @@ export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHis
     let merged = records;
     if (intradayHistory?.dataQuality?.valid !== false && !intradayHistory?.dataQuality?.estimated
         && intradayHistory?.timestamps?.some(athFinite)) {
-        const bases = athWindowBases(allHistory, intradayHistory, records, sessionDate);
+        const bases = athWindowBases(allHistory, intradayHistory, records, sessionDate, resolutionMs);
         if (athPositive(bases.twr)) {
             const revision = { observedAt: intradayHistory.calculatedAt ?? 0,
                 observationSequence: intradayHistory.calculationSequence ?? 0 };
             const times = intradayHistory.timestamps.filter(athFinite);
             const start = Math.min(...times), end = Math.max(...times);
+            const barKey = record => `${record.timestamps}|${record.resolutionMs ?? ''}`;
             // A newer complete window supersedes old bars in its coverage,
-            // including bars removed by the provider. Out-of-window peaks stay.
+            // including bars removed by the provider. Out-of-window peaks and
+            // finer bars stay.
             const byTime = new Map(records.filter(record => record.timestamps < start || record.timestamps > end
-                || !athIsNewer(revision, record)).map(record => [record.timestamps, record]));
+                || !athIsNewer(revision, record) || athIsFiner(record, resolutionMs)).map(record => [barKey(record), record]));
             for (let i = 0; i < intradayHistory.timestamps.length; i++) {
                 if (!athFinite(intradayHistory.timestamps[i]) || !athPositive(intradayHistory.twr?.[i])
                     || !athFinite(intradayHistory.values?.[i])) continue;
                 const record = Object.fromEntries(athFields.map(field => [field, intradayHistory[field]?.[i] ?? null]));
-                Object.assign(record, revision);
+                Object.assign(record, revision, { resolutionMs });
                 record.twr = Number(record.twr) * bases.twr;
                 const dividendRatio = intradayHistory.twrWithDividends?.[i] ?? intradayHistory.twr[i];
                 record.twrWithDividends = athPositive(bases.twrWithDividends) && athPositive(dividendRatio)
@@ -2304,14 +2320,14 @@ export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHis
                 record.anchorDate = bases.anchorDate;
                 record.anchorTwr = bases.anchorTwr ?? bases.twr;
                 record.anchorTwrWithDividends = bases.anchorTwrWithDividends ?? bases.twrWithDividends;
-                const existing = byTime.get(record.timestamps);
-                if (!existing || athIsNewer(record, existing)) byTime.set(record.timestamps, record);
+                const existing = byTime.get(barKey(record));
+                if (!existing || athIsNewer(record, existing)) byTime.set(barKey(record), record);
             }
             merged = [...byTime.values()];
             current = merged.reduce((last, record) => !last || record.timestamps > last.timestamps ? record : last, null);
         }
     }
-    if (!merged.length) return { ...allHistory, athIntradayVersion: 3, athIntraday: null, athCurrent: null };
+    if (!merged.length) return { ...allHistory, athIntradayVersion: ATH_INTRADAY_VERSION, athIntraday: null, athCurrent: null };
     merged.sort((a, b) => a.timestamps - b.timestamps);
     // Keep alternatives in the recent window: a revised peak must expose the
     // next real high, not lose it because only the old maximum was persisted.
@@ -2329,7 +2345,7 @@ export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHis
     const points = [...retained].sort((a, b) => a.timestamps - b.timestamps);
     return {
         ...allHistory,
-        athIntradayVersion: 3,
+        athIntradayVersion: ATH_INTRADAY_VERSION,
         athIntraday: Object.fromEntries(athFields.map(field => [field, points.map(point => point[field])])),
         athCurrent: current ? { timestamp: current.timestamps, twr: current.twr,
             twrWithDividends: current.twrWithDividends } : null
@@ -2339,7 +2355,7 @@ export function mergeAthIntradayHistory(allHistory, intradayHistory, previousHis
 export function computeAthReference({
     kind, allHistory, visibleHistory, firstIndex = 0, lastIndex = null,
     includeDividends = false, intraday = false, sessionDate = null,
-    portfolioValue = false
+    portfolioValue = false, resolutionMs = null
 }) {
     if (!allHistory || !visibleHistory) return null;
     if (allHistory.dataQuality?.valid === false || visibleHistory.dataQuality?.valid === false) return null;
@@ -2441,7 +2457,7 @@ export function computeAthReference({
     if (intraday && sessionDate && allHistory.athIntradayVersion >= 2) {
         // The line/gap describe the curve actually displayed, not a later
         // background snapshot. Never equate two different terminal timestamps.
-        const bases = athWindowBases(allHistory, visibleHistory, athRecords(allHistory.athIntraday), sessionDate);
+        const bases = athWindowBases(allHistory, visibleHistory, athRecords(allHistory.athIntraday), sessionDate, resolutionMs);
         const base = includeDividends ? bases.twrWithDividends : bases.twr;
         if (!athPositive(base)) return null;
         canonicalCurrent = visible.last * base;

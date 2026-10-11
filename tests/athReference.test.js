@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HistoricalChart } from '../src/historicalChart.js';
-import { DataManager, computeAthReference, mergeAthIntradayHistory } from '../src/dataManager.js';
+import { ATH_INTRADAY_VERSION, DataManager, computeAthReference, mergeAthIntradayHistory } from '../src/dataManager.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 
 describe('computeAthReference (engine)', () => {
@@ -131,6 +131,43 @@ describe('computeAthReference (engine)', () => {
         expect(ath.value).toBeCloseTo(2, 8);
         expect(ath.fromAthPct).toBeCloseTo(0, 8);
         expect(ath.at.source).toBe('intraday');
+    });
+
+    it('performance: a 1W intraday peak becomes the same ATH in every view', () => {
+        const day = 86400000, m15 = 900000;
+        const sessionDate = t => new Date(t).toISOString().slice(0, 10);
+        const t0 = Date.parse('2026-10-05T00:00:00Z');
+        // Daily closes: best close +1.0 % (Wednesday). Tuesday touched +1.3 %
+        // intraday, only visible in the 15 min 1W series.
+        const allHistory = {
+            timestamps: [t0 - 3 * day, t0 + day, t0 + 2 * day, t0 + 6 * day],
+            sessionDates: ['2026-10-02', '2026-10-06', '2026-10-07', '2026-10-11'],
+            twr: [1, 1.008, 1.01, 0.995]
+        };
+        const week = { timestamps: [t0, t0 + day + 38 * m15, t0 + day + 39 * m15, t0 + 6 * day], values: [100, 101.3, 100.8, 99.5], twr: [1, 1.013, 1.008, 0.995] };
+        const merged = mergeAthIntradayHistory(allHistory, week, null, sessionDate, { resolutionMs: m15 });
+
+        const inWeek = computeAthReference({ kind: 'performance', allHistory: merged, visibleHistory: week, intraday: true, sessionDate, resolutionMs: m15 });
+        // 1W: the line sits exactly on the plotted peak.
+        expect(inWeek.value).toBeCloseTo(1.3, 8);
+        expect(inWeek.at.source).toBe('intraday');
+
+        // All-time view (daily points only): same record, same gap.
+        const allView = computeAthReference({ kind: 'performance', allHistory: merged, visibleHistory: allHistory });
+        expect(allView.at).toEqual(inWeek.at);
+        expect(allView.fromAthPct).toBeCloseTo(inWeek.fromAthPct, 8);
+        expect(allView.value).toBeCloseTo(1.3, 8);
+    });
+
+    it('a coarser 1W window never erases a finer 1D peak', () => {
+        const m5 = 300000, m15 = 900000, t0 = Date.parse('2026-10-09T07:00:00Z');
+        const sessionDate = t => new Date(t).toISOString().slice(0, 10);
+        const allHistory = { timestamps: [t0 - 86400000], sessionDates: ['2026-10-08'], twr: [1] };
+        const oneDay = { timestamps: [t0, t0 + m5, t0 + 2 * m5, t0 + 3 * m5], values: [100, 102, 101, 100.5], twr: [1, 1.02, 1.01, 1.005], calculatedAt: 1 };
+        const week = { timestamps: [t0, t0 + m15, t0 + 2 * m15], values: [100, 100.5, 100.4], twr: [1, 1.005, 1.004], calculatedAt: 2 };
+        const merged = mergeAthIntradayHistory(allHistory, week,
+            mergeAthIntradayHistory(allHistory, oneDay, null, sessionDate, { resolutionMs: m5 }), sessionDate, { resolutionMs: m15 });
+        expect(Math.max(...merged.athIntraday.twr)).toBeCloseTo(1.02, 8);
     });
 
     it('performance: keeps an intraday ATH after the live session pulls back', () => {
@@ -613,7 +650,7 @@ describe('ATH revisions and stable anchors', () => {
         }, athCurrent: { timestamp: times[3], twr: 999 } };
         const visible = make([opening, 37695.08, 37685, 37620.07]);
         const rebuilt = merge(visible, old);
-        expect(rebuilt.athIntradayVersion).toBe(3);
+        expect(rebuilt.athIntradayVersion).toBe(ATH_INTRADAY_VERSION);
         expect(rebuilt.athIntraday.values[reference(rebuilt, visible).at.index]).toBe(37695.08);
     });
 

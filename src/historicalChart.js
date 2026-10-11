@@ -28,6 +28,7 @@
 import { eventBus } from './eventBus.js';
 import { performanceSeries, periodPerformance } from './financialSeries.js';
 import { ChartKPIManager } from './chartKPIManager.js';
+import { ATH_INTRADAY_VERSION } from './dataManager.js';
 import { MarketStatus } from './marketStatus.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js';
@@ -60,6 +61,13 @@ const HISTORY_CHART_MEMORY_MAX_ENTRIES = 32;
 // Provider daily/intraday candles of a session are settled after its close.
 const MARKET_SETTLE_MS = 30 * 60_000;
 const ATH_RETRY_DELAY_MS = 5 * 60 * 1000;
+// The ATH is the highest level ever reached, intraday included, and the same
+// in every view. Each all-time rebuild collects last week's 15 min bars; the
+// 1D/2D/1W views also feed the shared peak register and draw the line in
+// their own frame.
+const ATH_INTRADAY_DAYS = 7;
+// Bar spacing of each intraday view (see MarketUtils.getIntervalForPeriod).
+const ATH_INTRADAY_RESOLUTION_MS = new Map([[1, 5 * 60000], [2, 5 * 60000], [7, 15 * 60000]]);
 const historyEncode = (_, value) => value instanceof Map ? { $historyMap: [...value] } : value;
 const historyDecode = (_, value) => value?.$historyMap ? new Map(value.$historyMap) : value;
 const athSessionDate = timestamp => new Intl.DateTimeFormat('en-CA', {
@@ -789,7 +797,8 @@ export class HistoricalChart {
             const key = this._historyKey(source.scope, source.purchases, 'all');
             const [all, recent] = await Promise.all([source.producer(), source.intradayProducer()]);
             const previous = this._historyCache.get(key)?.data;
-            return this.dataManager.mergeAthIntradayHistory(all, recent, previous, athSessionDate);
+            return this.dataManager.mergeAthIntradayHistory(all, recent, previous, athSessionDate,
+                { resolutionMs: ATH_INTRADAY_RESOLUTION_MS.get(ATH_INTRADAY_DAYS) });
         };
     }
 
@@ -801,7 +810,7 @@ export class HistoricalChart {
         const cached = this._peekCachedHistory(key, 'all', producer);
         if (cached) {
             // Older daily-only entries do not contain Friday's intraday high.
-            if (source.intradayProducer && cached.athIntradayVersion !== 3) this._refreshCachedHistory(key, 'all', producer);
+            if (source.intradayProducer && cached.athIntradayVersion !== ATH_INTRADAY_VERSION) this._refreshCachedHistory(key, 'all', producer);
             return cached;
         }
         if (this._athPending.has(key)) {
@@ -983,8 +992,8 @@ export class HistoricalChart {
                         ? this.dataManager.calculateAssetHistory(currentTicker, 'all')
                         : this.dataManager.calculateGenericHistory(targetAssetPurchases, 'all', true),
                     intradayProducer: () => targetAssetPurchases.length === 0
-                        ? this.dataManager.calculateAssetHistory(currentTicker, 2)
-                        : this.dataManager.calculateGenericHistory(targetAssetPurchases, 2, true)
+                        ? this.dataManager.calculateAssetHistory(currentTicker, ATH_INTRADAY_DAYS)
+                        : this.dataManager.calculateGenericHistory(targetAssetPurchases, ATH_INTRADAY_DAYS, true)
                 };
                 this._prefetchAthHistory(athSource);
 
@@ -1047,7 +1056,7 @@ export class HistoricalChart {
                     scope: 'portfolio',
                     purchases: historyPurchases,
                     producer: () => this.dataManager.calculateHistory(historyPurchases, 'all'),
-                    intradayProducer: () => this.dataManager.calculateHistory(historyPurchases, 2)
+                    intradayProducer: () => this.dataManager.calculateHistory(historyPurchases, ATH_INTRADAY_DAYS)
                 };
                 this._prefetchAthHistory(athSource);
 
@@ -1558,8 +1567,10 @@ export class HistoricalChart {
         if (!athKind || !this.refLineVisibility.ath) return null;
         let allHistory = this._getAthHistory(athSource, graphData);
         if (!allHistory) return null;
-        if (athKind === 'performance' && (this.currentPeriod === 1 || this.currentPeriod === 2)) {
-            allHistory = this.dataManager.mergeAthIntradayHistory(allHistory, graphData, allHistory, athSessionDate);
+        const resolutionMs = ATH_INTRADAY_RESOLUTION_MS.get(this.currentPeriod) ?? null;
+        const intradayView = resolutionMs !== null;
+        if (athKind === 'performance' && intradayView) {
+            allHistory = this.dataManager.mergeAthIntradayHistory(allHistory, graphData, allHistory, athSessionDate, { resolutionMs });
             const key = this._historyKey(athSource.scope, athSource.purchases, 'all');
             const cached = this._historyCache.get(key);
             if (cached && JSON.stringify([cached.data.athIntraday, cached.data.athCurrent]) !==
@@ -1574,7 +1585,8 @@ export class HistoricalChart {
         const ath = this.dataManager.computeAthReference({
             kind: athKind, allHistory, visibleHistory: graphData,
             firstIndex, lastIndex, includeDividends: this.includeDividends,
-            intraday: this.currentPeriod === 1 || this.currentPeriod === 2,
+            intraday: intradayView,
+            resolutionMs,
             // Always the TWR peak: a value high would sit above later return
             // peaks after a sale or a revaluation (issue #16).
             sessionDate: athSessionDate
