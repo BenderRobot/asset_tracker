@@ -9,6 +9,7 @@ import { formatCurrency, formatQuantity } from './utils.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
 import { mountViewToggle } from './chartViewToggle.js';
+import { renderInvestmentInsights } from './investmentsInsights.js';
 
 const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
   .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -155,7 +156,7 @@ export class InvestmentsPage {
         const targetAllPurchases = this.getFilteredPurchasesFromPage(false);
         const result = await this.dataManager.getCanonicalMarketSnapshot(targetAllPurchases);
         const { holdings, summary, cashReserve } = result.snapshot._engine;
-        this.renderData(holdings, summary, cashReserve.total);
+        this.renderData(holdings, summary, cashReserve);
       }
     }
 
@@ -191,9 +192,13 @@ export class InvestmentsPage {
       this.expandedTicker = null;
       for (const id of ['total-current', 'invested', 'total-gain-loss', 'total-gain-pct',
         'total-invested', 'avg-cost-per-share', 'best-day-asset', 'worst-day-asset',
-        'best-asset', 'worst-asset', 'cash-reserve']) {
+        'best-asset', 'worst-asset', 'cash-reserve', 'cash-wallets']) {
         const element = document.getElementById(id);
         if (element) element.textContent = '—';
+      }
+      for (const id of ['best-day-context', 'worst-day-context']) {
+        const element = document.getElementById(id);
+        if (element) element.textContent = 'Variation du jour';
       }
       const context = document.getElementById('investment-filter-context');
       if (context) {
@@ -279,10 +284,9 @@ export class InvestmentsPage {
   // via historicalChart.js::update()) — cette méthode ne lit/n'agrège plus
   // aucune donnée issue du graphique (voir suppression du paramètre chartStats
   // et de la logique d'écrasement qui l'utilisait, ci-dessous).
-  renderData(holdings, summary, cashReserveTotal, { dividendsOnly = false } = {}) {
+  renderData(holdings, summary, cashReserve, { dividendsOnly = false } = {}) {
     this.currentHoldings = holdings;
-    const cashLabel = document.getElementById('cash-reserve-label');
-    if (cashLabel) cashLabel.textContent = dividendsOnly ? 'Dividendes' : 'Cash Reserve';
+    this.currentCashReserve = cashReserve;
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
     this.hasRenderedData = true;
@@ -411,32 +415,9 @@ export class InvestmentsPage {
         `;
     }).join('') || '<tr><td colspan="11" class="investments-table-state">Aucune position pour cette sélection.</td></tr>';
 
-    // SSOT (audit architecture) : le résumé affiché ici est TOUJOURS dérivé
-    // des positions canoniques déjà filtrées (filteredHoldings — elles-mêmes
-    // issues de targetHoldings/portfolioSnapshot.positions produit par
-    // historicalChart.js::update(), voir getFilteredPurchasesFromPage, seule
-    // source de filtrage partagée par le graphique ET le tableau). calculateSummary
-    // est la SEULE formule d'agrégation (Σ position.dayChange, Σ position.gainEUR,
-    // etc.) — jamais recalculée différemment ici.
-    //
-    // BUG FOUND (interdit dans la nouvelle architecture — voir audit SSOT) :
-    // ce bloc écrasait finalSummary.totalDayChangeEUR/gainTotal par une valeur
-    // venant du GRAPHIQUE (chartStats/effectiveChartStats, potentiellement
-    // this.lastChartStats — un état d'un rendu PRÉCÉDENT, donc potentiellement
-    // périmé par rapport au filtre actuellement affiché) au lieu de la valeur
-    // canonique déjà correcte. Un graphique (courbe TWR) n'est jamais une
-    // source de vérité financière — voir historicalChart::_computeAggregateKPIs,
-    // qui ne fait plus lui non plus ce genre de substitution. Fix : toujours
-    // utiliser filteredSummary tel quel (déjà la somme exacte des lignes
-    // affichées) — aucun second calcul, aucun choix entre deux sources.
-    const filteredSummary = this.dataManager.calculateSummary(filteredHoldings);
-    const finalSummary = filteredSummary;
-
-    // === MODIF : Passage de marketStatus (utilise finalSummary) ===
-    // Les 5 KPI du haut sont écrits UNIQUEMENT par le listener portfolioKPIs
-    // (subscribeToKPIs ci-dessus) — plus de double écriture ici.
-    this.ui.updateSecondaryKPIs(finalSummary, filteredSummary.movementsCount, cashReserveTotal,
-      { displayDayHoldings: filteredHoldings });
+    // Les classements lisent les mêmes positions et variations affichées que le
+    // tableau. Les KPI principaux restent alimentés par le snapshot canonique.
+    renderInvestmentInsights(filteredHoldings, cashReserve, this.brokersList, { dividendsOnly });
 
     const filterContext = document.getElementById('investment-filter-context');
     if (filterContext) {
@@ -447,7 +428,7 @@ export class InvestmentsPage {
 
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
-      this.renderData(this.currentHoldings, summary, cashReserveTotal, { dividendsOnly });
+      this.renderData(this.currentHoldings, summary, this.currentCashReserve, { dividendsOnly });
     });
 
     this.ui.populateTickerSelect(this.storage.getPurchases());

@@ -118,7 +118,7 @@ describe('KPI top cards — synchronisation avec le mode affiché (portefeuille/
         expect(holdings).toHaveLength(1);
         expect(holdings[0]).toMatchObject({ ticker: 'SOI', quantity: 5 });
         expect(summary.totalCurrentEUR).toBeCloseTo(760.25, 2);
-        expect(cash).toBe(0);
+        expect(cash.total).toBe(0);
         expect(options).toEqual({ dividendsOnly: true });
     });
 

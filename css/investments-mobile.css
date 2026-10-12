@@ -112,6 +112,25 @@
         grid-column: 1 / -1 !important;
     }
 
+    .investment-insights .investment-insight {
+        padding: 12px;
+    }
+
+    .investment-insights .insight-table {
+        font-size: 10.5px;
+    }
+
+    .investment-insights .insight-table th { width: 54%; }
+    .investment-insights .insight-table td { width: 46%; font-size: 9.5px; }
+
+    .investment-insights .insight-rank {
+        width: 18px;
+    }
+
+    .investment-insights .insight-identity {
+        max-width: calc(100% - 19px);
+    }
+
     /* --- CHART HEIGHT & INNER BORDER REMOVAL --- */
     .chart-wrapper.tall {
         height: 250px !important;

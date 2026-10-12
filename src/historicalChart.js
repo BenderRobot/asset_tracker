@@ -1112,7 +1112,7 @@ export class HistoricalChart {
                 const snapshot = repoResult.snapshot._engine;
                 if (repoResult.previousSession) {
                     this.investmentsPage.renderData?.(snapshot.holdings,
-                        { ...snapshot.summary, totalDayChangeEUR: null, dayChangePct: null }, snapshot.cashReserve.total, { dividendsOnly: isSingleAsset });
+                        { ...snapshot.summary, totalDayChangeEUR: null, dayChangePct: null }, snapshot.cashReserve, { dividendsOnly: isSingleAsset });
                     this.showMessage(`Dernier portefeuille connu : ${new Date(repoResult.snapshot.generatedAt).toLocaleString()}. Actualisation en cours.`);
                     return;
                 }
@@ -1174,7 +1174,7 @@ export class HistoricalChart {
             // The positions belong to the canonical snapshot and remain usable
             // when only the requested historical chart series is unavailable.
             if (!isIndexMode && portfolioSnapshot) {
-                this.investmentsPage.renderData?.(targetHoldings, targetSummary, targetCashReserve.total,
+                this.investmentsPage.renderData?.(targetHoldings, targetSummary, targetCashReserve,
                     { dividendsOnly: isSingleAsset });
             }
 

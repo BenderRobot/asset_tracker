@@ -60,12 +60,13 @@ try {
         const dm = new DataManager(storage, createFakeApi());
         const ui = new UIComponents(storage, dm);
         const filters = new FilterManager(storage);
-        const view = new InvestmentsPage(storage, { formatTicker: t => t }, ui, filters, dm, [{ value: 'TR', label: 'Trade Republic' }], null);
+        const view = new InvestmentsPage(storage, { formatTicker: t => t }, ui, filters, dm,
+            [{ value: 'TR', label: 'Trade Republic' }, { value: 'BOURSO', label: 'Boursobank' }], null);
         filters.updateTickerFilter(() => {});
         view.setupFilters(); view.setupSorting();
         const summary = dm.calculateSummary(holdings);
         ui.updateTopKPIs({ ...summary, totalCurrentEUR: summary.totalCurrentEUR + 1300 }, 1300);
-        view.renderData(holdings, summary, 1300);
+        view.renderData(holdings, summary, { total: 1300, byBroker: { TR: 900, BOURSO: 400 } });
         document.getElementById('filter-broker').insertAdjacentHTML('beforeend', '<option value="TR">Trade Republic</option>');
         mountViewToggle(document.getElementById('view-toggle'), 'portfolio', () => {});
         document.querySelector('#view-toggle [data-view="global"]').click();
@@ -95,6 +96,10 @@ try {
                 quantityAttribute: first.cells[0].getAttribute('data-quantity'),
                 kpiOverflows: [...document.querySelectorAll('.summary-card-value')].filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.id),
                 clippedSummaryCards: [...document.querySelectorAll('.summary-stats .stat-item')].filter(el => { const r = el.getBoundingClientRect(); return r.right > innerWidth + 1 || r.left < 0; }).map(el => el.querySelector('.stat-label').innerText),
+                rankingRows: [...document.querySelectorAll('.investment-insight:not(.investment-cash-insight) .insight-table')].map(table => table.rows.length),
+                clippedRankingValues: [...document.querySelectorAll('.investment-insight:not(.investment-cash-insight) .insight-table td')]
+                    .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent),
+                wallets: [...document.querySelectorAll('.wallet-table tbody tr')].map(row => row.innerText),
                 summaryGridWidth: Math.round(document.querySelector('.summary-stats').getBoundingClientRect().width),
                 rowFocusable: first.tabIndex >= 0,
                 sortableHeadersFocusable: [...document.querySelectorAll('th[data-sort]')].every(el => el.tabIndex >= 0 || el.querySelector('button')),
@@ -173,7 +178,7 @@ try {
         const invalidHistoryState = { table: document.querySelector('#investments-table > tbody').innerText, chartMessage: document.getElementById('chart-info').innerText };
         return { searchTitle, dateResults, weekendState, purchaseDateOrder, partialSale, insertedMarkup, clearState, invalidHistoryState };
     });
-    if (outputSuffix === '-lot1') {
+    if (outputSuffix === '-lot1' || outputSuffix === '-insights') {
         assert.equal(results.errors.length, 0);
         for (const size of results.viewports.filter(item => item.width <= 768)) {
             assert.deepEqual(size.clippedSummaryCards, [], `summary cards clipped at ${size.width}px`);
@@ -186,6 +191,13 @@ try {
         assert.ok(!results.checks.logic.invalidHistoryState.table.includes('Loading'));
         assert.deepEqual(results.checks.logic.purchaseDateOrder, ['1 janv. 2024', '1 sept. 2026']);
         assert.deepEqual(results.checks.mobileDetailScroll, { scrollable: true, amountVisibleAfterScroll: true });
+        if (outputSuffix === '-insights') {
+            for (const size of results.viewports) {
+                assert.deepEqual(size.rankingRows, [3, 3, 3, 3]);
+                assert.equal(size.wallets.length, 2);
+                assert.deepEqual(size.clippedRankingValues, [], `ranking values clipped at ${size.width}px`);
+            }
+        }
     }
     await writeFile(path.join(root, `audit/investments-preview-results${outputSuffix}.json`), JSON.stringify(results, null, 2) + '\n');
     console.log(JSON.stringify(results, null, 2));

@@ -14,8 +14,8 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/investments.css?v=57">
-    <link rel="stylesheet" href="css/investments-mobile.css?v=5">
+    <link rel="stylesheet" href="css/investments.css?v=58">
+    <link rel="stylesheet" href="css/investments-mobile.css?v=6">
     <link rel="stylesheet" href="css/investments-table-compact.css?v=7">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
 
@@ -80,29 +80,32 @@
                     </div>
                 </div>
 
-                <div class="summary-stats">
-                    <div class="stat-item">
-                        <div class="stat-label" id="best-day-label">Meilleure variation du jour</div>
-                        <div id="best-day-asset" class="stat-value stat-positive">-</div>
-                    </div>
-
-                    <div class="stat-item">
-                        <div class="stat-label" id="worst-day-label">Pire variation du jour</div>
-                        <div id="worst-day-asset" class="stat-value stat-negative">-</div>
-                    </div>
-
-                    <div class="stat-item">
-                        <div class="stat-label">Best Performer</div>
-                        <div id="best-asset" class="stat-value stat-positive">-</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-label">Worst Performer</div>
-                        <div id="worst-asset" class="stat-value stat-negative">-</div>
-                    </div>
-                    <div class="stat-item">
-                        <div id="cash-reserve-label" class="stat-label">Cash Reserve</div>
-                        <div id="cash-reserve" class="stat-value">—</div>
-                    </div>
+                <div class="summary-stats investment-insights" aria-label="Classements des actifs et réserve de cash">
+                    <section class="stat-item investment-insight" aria-labelledby="best-day-label">
+                        <div class="stat-label" id="best-day-label">Meilleurs · jour</div>
+                        <div class="insight-context" id="best-day-context">Variation du jour</div>
+                        <div id="best-day-asset" class="insight-list" aria-live="polite">—</div>
+                    </section>
+                    <section class="stat-item investment-insight" aria-labelledby="worst-day-label">
+                        <div class="stat-label" id="worst-day-label">Moins bons · jour</div>
+                        <div class="insight-context" id="worst-day-context">Variation du jour</div>
+                        <div id="worst-day-asset" class="insight-list" aria-live="polite">—</div>
+                    </section>
+                    <section class="stat-item investment-insight" aria-labelledby="best-total-label">
+                        <div class="stat-label" id="best-total-label">Meilleurs · total</div>
+                        <div class="insight-context">Depuis achat · latent</div>
+                        <div id="best-asset" class="insight-list" aria-live="polite">—</div>
+                    </section>
+                    <section class="stat-item investment-insight" aria-labelledby="worst-total-label">
+                        <div class="stat-label" id="worst-total-label">Moins bons · total</div>
+                        <div class="insight-context">Depuis achat · latent</div>
+                        <div id="worst-asset" class="insight-list" aria-live="polite">—</div>
+                    </section>
+                    <section class="stat-item investment-insight investment-cash-insight" aria-labelledby="cash-reserve-label">
+                        <div id="cash-reserve-label" class="stat-label">Cash par wallet</div>
+                        <div id="cash-reserve" class="cash-insight-total">—</div>
+                        <div id="cash-wallets" class="insight-list" aria-live="polite">—</div>
+                    </section>
                 </div>
             </div>
 

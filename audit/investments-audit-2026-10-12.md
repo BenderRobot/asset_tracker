@@ -2,6 +2,12 @@
 
 Date : 12 octobre 2026. Page : `investments.html`, intitulée « Assets » dans la navigation.
 
+## Suivi — cartes de synthèse Investment
+
+Le choix produit est désormais explicite : **conserver le graphique au-dessus du tableau**. La proposition I09 de les inverser n'est plus retenue. Les cinq cartes secondaires gardent leur place et présentent davantage d'information : trois meilleures et trois moins bonnes variations affichées pour le jour, trois meilleures et trois moins bonnes performances latentes des positions depuis achat, puis réserve de cash ventilée par wallet/courtier. Les variations du jour emploient les mêmes valeurs de présentation que le tableau ; la carte précise lorsqu'une dernière séance est incluse. La répartition du cash lit `cashReserve.byBroker` du snapshot canonique et affiche soldes, parts et barre de répartition lorsque tous les montants sont disponibles et positifs. Les noms des wallets sont insérés comme texte.
+
+Le graphique, ses statistiques et le tableau restent dans le même ordre. Validation locale : **752 tests réussis sur 752, 94 fichiers sur 94** ; Chrome isolé avec six largeurs (360, 390, 768, 1 024, 1 366 et 1 920 px), quatre listes de trois lignes et deux wallets visibles, aucune valeur de classement coupée. [Capture bureau](investments-preview-1366-insights.png), [capture mobile](investments-preview-390-insights.png) et [mesures](investments-preview-results-insights.json). Ce navigateur utilise des positions fictives ; la vérification dans un portefeuille connecté reste à faire. Le débordement du tableau à 1 024 px et l'accès clavier aux contrôles restent ouverts.
+
 ## Suivi — premier lot livré localement
 
 Le premier lot recommandé à la fin de cet audit est implémenté dans le dépôt, avec l’identité mobile et la correction des cartes coupées à 360/390 px. **Aucun déploiement.** Les constats ci-dessous décrivent l’état observé *avant* cette livraison ; le présent suivi fait foi lorsque les deux se contredisent.
@@ -16,7 +22,7 @@ Le premier lot recommandé à la fin de cet audit est implémenté dans le dép�
 
 Validation du lot : tests ciblés du rendu des ventes, de l’injection HTML, du contexte de filtre et du snapshot malgré un historique invalide ; contrôle Chrome isolé sur six largeurs, capture mobile avec détail ouvert. La suite complète et les artefacts mis à jour sont indiqués dans le suivi de validation en fin de document.
 
-**Restent ouverts :** à 1 024 px, le tableau déborde encore ; le tableau arrive encore sous le graphique ; certaines fenêtres, entêtes de tri et filtres ne sont pas accessibles au clavier ; le détail mobile reste dense. Ces points appartiennent aux lots 2 et 3. La vérification avec un portefeuille connecté reste nécessaire.
+**Restent ouverts :** à 1 024 px, le tableau déborde encore ; certaines fenêtres, entêtes de tri et filtres ne sont pas accessibles au clavier ; le détail mobile reste dense. Ces points appartiennent aux lots 2 et 3. La vérification avec un portefeuille connecté reste nécessaire. L'ordre graphique puis tableau est conservé conformément au choix produit ci-dessus.
 
 ## Diagnostic
 
@@ -146,7 +152,7 @@ Cela établit une **surface d’injection HTML et un risque de XSS persistante**
 
 Les trois KPI, les cinq cartes secondaires et le graphique utilisent presque tout le premier parcours vertical. Le tableau, qui distingue réellement Investment du dashboard, arrive après.
 
-**Proposition :** trois KPI compacts, contexte des filtres, puis tableau prioritaire ; graphique complet accessible dans le même espace via une vue « Analyse » ou placé sous les positions. Si le graphique doit rester au-dessus, compacter les espaces et le bloc des extrêmes, ajouter un accès « Positions » et mesurer la présence de premières lignes sur un écran bureau courant. Ne pas dissimuler les statistiques du graphique dans un volet pour gagner artificiellement de la place.
+**Proposition initiale, écartée pour l'ordre des blocs :** trois KPI compacts, contexte des filtres, puis tableau prioritaire ; graphique complet accessible dans le même espace via une vue « Analyse » ou placé sous les positions. Le choix actuel garde le graphique au-dessus ; la piste restante consiste à améliorer la densité visuelle et, si utile, ajouter un accès « Positions », sans dissimuler les statistiques du graphique.
 
 ### I10 — P2 — Onze colonnes, mais aucune pondération de position
 
