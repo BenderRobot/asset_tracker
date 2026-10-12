@@ -35,6 +35,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.8` | 2026-10-12 | fix alignement div | — |
 | `1.17.9` | 2026-10-12 | fix taille text kpi sec | — |
 | `1.17.10` | 2026-10-12 | fix chart infos / boutons | — |
+| `1.17.11` | 2026-10-12 | fix chart news modal link | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les

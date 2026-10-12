@@ -20,16 +20,6 @@ function numberOrNull(value) {
     return Number.isFinite(number) ? number : null;
 }
 
-function textWithGroundingSources(data, text) {
-    const sources = (data?.groundingMetadata?.groundingChunks || [])
-        .map(chunk => chunk?.web)
-        .filter(source => source?.uri)
-        .filter((source, index, all) => all.findIndex(item => item.uri === source.uri) === index)
-        .slice(0, 5);
-    if (!sources.length) return text;
-    return `${text}\n\nSources vérifiées :\n${sources.map(source => `- ${source.title || 'Source'} : ${source.uri}`).join('\n')}`;
-}
-
 /**
  * Appelle l'API Gemini pour générer un résumé.
  */
@@ -65,7 +55,7 @@ ${cleanText(context)}
             // Nouveau format simplifié du proxy: {text: "..."}
             if (data.text) {
                 console.log('[fetchGeminiSummary] Success! Using simplified format');
-                return formatSafeGeminiHtml(textWithGroundingSources(data, data.text));
+                return formatSafeGeminiHtml(data.text);
             }
 
             // Ancien format complet: {candidates: [{content: {parts: [{text: "..."}]}}]}
@@ -182,7 +172,7 @@ export async function fetchGeminiContext(title, summary, holdingDetails, { signa
 
         // Format simplifié du proxy: {text: "..."}
         if (data.text) {
-            return formatSafeGeminiHtml(textWithGroundingSources(data, data.text));
+            return formatSafeGeminiHtml(data.text);
         }
 
         // Format complet (fallback)
