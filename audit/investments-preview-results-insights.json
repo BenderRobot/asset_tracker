@@ -4,7 +4,7 @@
     {
       "width": 1920,
       "documentWidth": 1920,
-      "firstPositionY": 1585,
+      "firstPositionY": 1374,
       "tableWidth": 1352,
       "visibleFirstRowCells": [
         "AAPL",
@@ -31,7 +31,17 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t400,00 €\n30,77 %"
+        "Boursobank\t350,00 €\n26,92 %",
+        "Revolut\t50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        215,
+        215,
+        215,
+        215,
+        215
       ],
       "summaryGridWidth": 1352,
       "rowFocusable": false,
@@ -42,10 +52,10 @@
       ]
     },
     {
-      "width": 1366,
-      "documentWidth": 1366,
-      "firstPositionY": 1603,
-      "tableWidth": 1078,
+      "width": 1601,
+      "documentWidth": 1601,
+      "firstPositionY": 1393,
+      "tableWidth": 1313,
       "visibleFirstRowCells": [
         "AAPL",
         "Apple",
@@ -71,7 +81,117 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t400,00 €\n30,77 %"
+        "Boursobank\t350,00 €\n26,92 %",
+        "Revolut\t50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        215,
+        215,
+        215,
+        215,
+        215
+      ],
+      "summaryGridWidth": 1313,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        48,
+        45
+      ]
+    },
+    {
+      "width": 1600,
+      "documentWidth": 1600,
+      "firstPositionY": 1478,
+      "tableWidth": 1312,
+      "visibleFirstRowCells": [
+        "AAPL",
+        "Apple",
+        "30",
+        "170,00 €",
+        "5 100,00 €",
+        "210,00 €",
+        "6 300,00 €",
+        "1 200,00 €",
+        "+23,53 %",
+        "88,20 €",
+        "+1,40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "rankingRows": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "clippedRankingValues": [],
+      "wallets": [
+        "Trade Republic\n900,00 €\n69,23 %",
+        "Boursobank\n350,00 €\n26,92 %",
+        "Revolut\n50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        215,
+        215,
+        215,
+        215,
+        215
+      ],
+      "summaryGridWidth": 1312,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        48,
+        45
+      ]
+    },
+    {
+      "width": 1366,
+      "documentWidth": 1366,
+      "firstPositionY": 1478,
+      "tableWidth": 1078,
+      "visibleFirstRowCells": [
+        "AAPL",
+        "Apple",
+        "30",
+        "170,00 €",
+        "5 100,00 €",
+        "210,00 €",
+        "6 300,00 €",
+        "1 200,00 €",
+        "+23,53 %",
+        "88,20 €",
+        "+1,40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "rankingRows": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "clippedRankingValues": [],
+      "wallets": [
+        "Trade Republic\n900,00 €\n69,23 %",
+        "Boursobank\n350,00 €\n26,92 %",
+        "Revolut\n50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        215,
+        215,
+        215,
+        215,
+        215
       ],
       "summaryGridWidth": 1078,
       "rowFocusable": false,
@@ -82,9 +202,109 @@
       ]
     },
     {
-      "width": 1024,
+      "width": 1300,
+      "documentWidth": 1300,
+      "firstPositionY": 1478,
+      "tableWidth": 1012,
+      "visibleFirstRowCells": [
+        "AAPL",
+        "Apple",
+        "30",
+        "170,00 €",
+        "5 100,00 €",
+        "210,00 €",
+        "6 300,00 €",
+        "1 200,00 €",
+        "+23,53 %",
+        "88,20 €",
+        "+1,40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "rankingRows": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "clippedRankingValues": [],
+      "wallets": [
+        "Trade Republic\n900,00 €\n69,23 %",
+        "Boursobank\n350,00 €\n26,92 %",
+        "Revolut\n50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        215,
+        215,
+        215,
+        215,
+        215
+      ],
+      "summaryGridWidth": 1012,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        48,
+        45
+      ]
+    },
+    {
+      "width": 1251,
       "documentWidth": 1251,
-      "firstPositionY": 2284,
+      "firstPositionY": 1522,
+      "tableWidth": 987,
+      "visibleFirstRowCells": [
+        "AAPL",
+        "Apple",
+        "30",
+        "170,00 €",
+        "5 100,00 €",
+        "210,00 €",
+        "6 300,00 €",
+        "1 200,00 €",
+        "+23,53 %",
+        "88,20 €",
+        "+1,40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "rankingRows": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "clippedRankingValues": [],
+      "wallets": [
+        "Trade Republic\n900,00 €\n69,23 %",
+        "Boursobank\n350,00 €\n26,92 %",
+        "Revolut\n50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        215,
+        215,
+        215,
+        215,
+        215
+      ],
+      "summaryGridWidth": 963,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        48,
+        45
+      ]
+    },
+    {
+      "width": 1152,
+      "documentWidth": 1251,
+      "firstPositionY": 2061,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -111,7 +331,67 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t400,00 €\n30,77 %"
+        "Boursobank\t350,00 €\n26,92 %",
+        "Revolut\t50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        215,
+        215,
+        483,
+        483,
+        751
+      ],
+      "summaryGridWidth": 864,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        48,
+        45
+      ]
+    },
+    {
+      "width": 1024,
+      "documentWidth": 1251,
+      "firstPositionY": 2342,
+      "tableWidth": 987,
+      "visibleFirstRowCells": [
+        "AAPL",
+        "Apple",
+        "30",
+        "170,00 €",
+        "5 100,00 €",
+        "210,00 €",
+        "6 300,00 €",
+        "1 200,00 €",
+        "+23,53 %",
+        "88,20 €",
+        "+1,40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "rankingRows": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "clippedRankingValues": [],
+      "wallets": [
+        "Trade Republic\t900,00 €\n69,23 %",
+        "Boursobank\t350,00 €\n26,92 %",
+        "Revolut\t50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        374,
+        374,
+        642,
+        642,
+        910
       ],
       "summaryGridWidth": 736,
       "rowFocusable": false,
@@ -124,7 +404,7 @@
     {
       "width": 768,
       "documentWidth": 768,
-      "firstPositionY": 2401,
+      "firstPositionY": 2462,
       "tableWidth": 724,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -144,7 +424,17 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t400,00 €\n30,77 %"
+        "Boursobank\t350,00 €\n26,92 %",
+        "Revolut\t50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        319,
+        575,
+        830,
+        1086,
+        1341
       ],
       "summaryGridWidth": 724,
       "rowFocusable": false,
@@ -157,7 +447,7 @@
     {
       "width": 390,
       "documentWidth": 390,
-      "firstPositionY": 2400,
+      "firstPositionY": 2461,
       "tableWidth": 358,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -177,7 +467,17 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t400,00 €\n30,77 %"
+        "Boursobank\t350,00 €\n26,92 %",
+        "Revolut\t50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        319,
+        575,
+        830,
+        1086,
+        1341
       ],
       "summaryGridWidth": 358,
       "rowFocusable": false,
@@ -190,7 +490,7 @@
     {
       "width": 360,
       "documentWidth": 360,
-      "firstPositionY": 2418,
+      "firstPositionY": 2478,
       "tableWidth": 328,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -210,7 +510,17 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t400,00 €\n30,77 %"
+        "Boursobank\t350,00 €\n26,92 %",
+        "Revolut\t50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "insightCardTops": [
+        319,
+        575,
+        830,
+        1086,
+        1341
       ],
       "summaryGridWidth": 328,
       "rowFocusable": false,
@@ -248,7 +558,7 @@
       },
       "dateResults": 0,
       "weekendState": {
-        "card": "Apple\t+1,40 %\n+88,20 €\n\nBitcoin\t+0,80 %\n+40,80 €\n\niShares Core S&P 500 UCITS ETF USD (Acc)\t+0,70 %\n+64,26 €",
+        "card": "Apple\n+1,40 %\n+88,20 €\nBitcoin\n+0,80 %\n+40,80 €\niShares Core S&P 500 UCITS ETF USD (Acc)\n+0,70 %\n+64,26 €",
         "firstRow": "AAPL",
         "firstDayPct": "+1,40 %"
       },

@@ -61,12 +61,12 @@ try {
         const ui = new UIComponents(storage, dm);
         const filters = new FilterManager(storage);
         const view = new InvestmentsPage(storage, { formatTicker: t => t }, ui, filters, dm,
-            [{ value: 'TR', label: 'Trade Republic' }, { value: 'BOURSO', label: 'Boursobank' }], null);
+            [{ value: 'TR', label: 'Trade Republic' }, { value: 'BOURSO', label: 'Boursobank' }, { value: 'REV', label: 'Revolut' }], null);
         filters.updateTickerFilter(() => {});
         view.setupFilters(); view.setupSorting();
         const summary = dm.calculateSummary(holdings);
         ui.updateTopKPIs({ ...summary, totalCurrentEUR: summary.totalCurrentEUR + 1300 }, 1300);
-        view.renderData(holdings, summary, { total: 1300, byBroker: { TR: 900, BOURSO: 400 } });
+        view.renderData(holdings, summary, { total: 1300, byBroker: { TR: 900, BOURSO: 350, REV: 50 } });
         document.getElementById('filter-broker').insertAdjacentHTML('beforeend', '<option value="TR">Trade Republic</option>');
         mountViewToggle(document.getElementById('view-toggle'), 'portfolio', () => {});
         document.querySelector('#view-toggle [data-view="global"]').click();
@@ -83,8 +83,9 @@ try {
         const demoChart = new Chart(document.querySelector('canvas'), { type: 'line', data: { labels: values.map((_, i) => `${9 + Math.floor(i / 6)}:${String(i % 6 * 10).padStart(2, '0')}`), datasets: [{ data: values, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.07)', fill: true, pointRadius: 0, borderWidth: 2 }] }, options: { animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8, color: '#a6b2ca' } }, y: { ticks: { color: '#a6b2ca' } } } } });
         window.audit = { view, ui, dm, storage, holdings, summary, HistoricalChart, demoChart };
     });
-    for (const width of [1920, 1366, 1024, 768, 390, 360]) {
+    for (const width of [1920, 1601, 1600, 1366, 1300, 1251, 1152, 1024, 768, 390, 360]) {
         await page.setViewportSize({ width, height: 900 });
+        await page.mouse.move(1, 1);
         await page.waitForTimeout(200);
         await page.evaluate(() => scrollTo(0, 0));
         results.viewports.push(await page.evaluate(() => {
@@ -100,6 +101,12 @@ try {
                 clippedRankingValues: [...document.querySelectorAll('.investment-insight:not(.investment-cash-insight) .insight-table td')]
                     .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent),
                 wallets: [...document.querySelectorAll('.wallet-table tbody tr')].map(row => row.innerText),
+                walletNameClips: [...document.querySelectorAll('.wallet-table th .insight-identity')]
+                    .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent),
+                walletValueClips: [...document.querySelectorAll('.wallet-table td')]
+                    .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent),
+                insightCardTops: [...document.querySelectorAll('.investment-insights .investment-insight')]
+                    .map(card => Math.round(card.getBoundingClientRect().top + scrollY)),
                 summaryGridWidth: Math.round(document.querySelector('.summary-stats').getBoundingClientRect().width),
                 rowFocusable: first.tabIndex >= 0,
                 sortableHeadersFocusable: [...document.querySelectorAll('th[data-sort]')].every(el => el.tabIndex >= 0 || el.querySelector('button')),
@@ -194,8 +201,14 @@ try {
         if (outputSuffix === '-insights') {
             for (const size of results.viewports) {
                 assert.deepEqual(size.rankingRows, [3, 3, 3, 3]);
-                assert.equal(size.wallets.length, 2);
+                assert.equal(size.wallets.length, 3);
                 assert.deepEqual(size.clippedRankingValues, [], `ranking values clipped at ${size.width}px`);
+                assert.deepEqual(size.walletNameClips, [], `wallet names clipped at ${size.width}px`);
+                assert.deepEqual(size.walletValueClips, [], `wallet values clipped at ${size.width}px`);
+                if (size.width > 1250) {
+                    assert.ok(size.insightCardTops.every(top => Math.abs(top - size.insightCardTops[0]) <= 1),
+                        `all five cards should share a row at ${size.width}px: ${size.insightCardTops.join(', ')}`);
+                }
             }
         }
     }

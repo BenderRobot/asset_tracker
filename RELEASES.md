@@ -42,6 +42,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.15` | 2026-10-12 | audit investments | — |
 | `1.17.16` | 2026-10-12 | fix codex investments kpi | — |
 | `1.17.17` | 2026-10-12 | fix codex style investments kpi | — |
+| `1.17.18` | 2026-10-12 | fix codex style investments kpi 1 | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les

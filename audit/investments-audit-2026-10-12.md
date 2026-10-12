@@ -2,11 +2,17 @@
 
 Date : 12 octobre 2026. Page : `investments.html`, intitulée « Assets » dans la navigation.
 
+## Suivi — cinq cartes sur une ligne
+
+Les quatre classements (meilleures et moins bonnes variations du jour, meilleures et moins bonnes performances depuis achat) **et la carte Cash occupent une seule ligne sur bureau**. Cash conserve son total, sa barre de répartition et le détail de chaque wallet. De 1 251 à 1 600 px, les données des cartes se lisent sur plusieurs lignes pour rester complètes malgré leur largeur réduite. À 1 250 px et en dessous, les cartes passent sur deux colonnes, puis sur une colonne sur mobile. Les trois KPI principaux, puis le graphique et le tableau, gardent leur ordre.
+
+Vérification dans Chrome isolé à onze largeurs de 360 à 1 920 px, dont les seuils 1 251, 1 600 et 1 601 px : les cinq cartes partagent une rangée au-dessus de 1 250 px, aucune valeur de classement, aucun nom ni solde de wallet du jeu d'essai n’est coupé ; le rendu mobile à 390 px reste lisible. Le jeu d'essai comprend trois wallets. Captures : [bureau 1 366 px](investments-preview-1366-insights.png), [grand bureau](investments-preview-1920-insights.png), [mobile](investments-preview-390-insights.png). Ces captures utilisent des données fictives.
+
 ## Suivi — style Dashboard et détail des wallets
 
 La capture de vérification montrait les nouvelles listes à l'intérieur des anciennes cartes HTML (anciens libellés Best/Worst, aucun conteneur `cash-wallets`). Le rendu Investment complète désormais cette structure lorsqu'une page déjà ouverte garde l'ancien HTML : titres, icônes, cartes et conteneur Cash sont créés avant la mise à jour. Si un ancien appelant ne transmet que le montant total de cash, le détail est reconstruit avec le moteur existant uniquement lorsqu'il se réconcilie au centime avec ce montant. Sinon, l'indisponibilité du détail est affichée explicitement.
 
-Les cartes secondaires reprennent maintenant la présentation du Dashboard : nom de l'actif, pourcentage et montant en euros sur deux niveaux, séparateurs discrets et en-têtes avec icônes. La carte Cash donne le total, la barre de répartition et **chaque wallet avec son solde et sa part**. L'ordre graphique puis tableau est conservé. Contrôles locaux : **754 tests réussis sur 754, 94 fichiers sur 94** ; Chrome isolé aux six largeurs de l'audit, dont les captures [grand bureau](investments-preview-1920-insights.png), [bureau](investments-preview-1366-insights.png) et [mobile](investments-preview-390-insights.png). Les captures restent des données fictives ; un portefeuille connecté n'a pas été vérifié.
+Les cartes secondaires reprennent maintenant la présentation du Dashboard : nom de l'actif, pourcentage et montant en euros sur deux niveaux, séparateurs discrets et en-têtes avec icônes. La carte Cash donne le total, la barre de répartition et **chaque wallet avec son solde et sa part**. L'ordre graphique puis tableau est conservé. Contrôles effectués à cette étape : **754 tests réussis sur 754, 94 fichiers sur 94** ; Chrome isolé à six largeurs. Les captures liées dans le suivi le plus récent ont depuis été régénérées pour la disposition sur cinq cartes. Un portefeuille connecté n'a pas été vérifié.
 
 ## Suivi — cartes de synthèse Investment
 
