@@ -62,6 +62,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.35` | 2026-10-12 | fix claude modal evo dette | — |
 | `1.17.36` | 2026-10-12 | fix claude modal evo dette 1 | — |
 | `1.17.37` | 2026-10-12 | fix claude modal evo dette 2 | — |
+| `1.17.38` | 2026-10-12 | add transac chart global | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les

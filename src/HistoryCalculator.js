@@ -295,6 +295,18 @@ export class HistoryCalculator {
         const purchasePoints = isSingleAsset
             ? this._buildPurchasePoints(ledger, tickers[0], displayTimestamps, series.labels, days, win, dynamicRate, historicalFxMap, series.unitPrices)
             : [];
+        // Portfolio views: every buy and sale of the window, placed with the
+        // same rule as the single-asset markers; amount in EUR at the
+        // transaction-day rate. The chart sizes them by amount, colours them by
+        // asset and shapes them by side.
+        const transactionPoints = isSingleAsset ? [] : tickers
+            .filter(ticker => !ticker.startsWith('CASH-'))
+            .flatMap(ticker => {
+                const name = (ledger.byTicker.get(ticker) || []).find(entry => entry.name)?.name || ticker;
+                return this._buildPurchasePoints(ledger, ticker, displayTimestamps, series.labels, days, win, dynamicRate, historicalFxMap, null)
+                    .filter(point => Number.isFinite(point.y) && point.quantity > 0)
+                    .map(point => ({ x: point.x, ticker, name, side: point.side, amount: point.y * point.quantity, quantity: point.quantity, date: point.date }));
+            });
 
         // FAIL-CLOSED (audit incident 2026-09-23) : quand dataQuality.valid ===
         // false, les séries qui DÉPENDENT d'un prix de marché sont remplacées
@@ -337,6 +349,7 @@ export class HistoryCalculator {
             perTickerLastSessionPerformance,
             unitPrices: fxUnavailable.size ? nullSeries(series.unitPrices) : series.unitPrices,
             purchasePoints,
+            transactionPoints,
             timestamps: displayTimestamps,
             // Same completeness rule as the values: a held instrument without
             // real prices makes its performance unknown, not flat.
@@ -384,7 +397,7 @@ export class HistoryCalculator {
             const entry = {
                 date: parseDate(p.date), price: isCash ? 1 : Number(p.price),
                 quantity: isCash ? Number(p.price || 0) * Number(p.quantity ?? 1) : Number(p.quantity),
-                currency, broker: p.broker || 'RV-CT',
+                currency, broker: p.broker || 'RV-CT', name: p.name || null,
                 isExternalFlow: kind !== 'dividend', isDividend: kind === 'dividend'
             };
             if (!byTicker.has(ticker)) byTicker.set(ticker, []);

@@ -311,6 +311,12 @@
 }
 
 /* One colour per line — the same values as the Chart.js datasets/plugin. */
+.chart-chip[data-refline="buys"] {
+    --chip-color: #38bdf8;
+    --chip-tint: rgba(56, 189, 248, 0.13);
+    --chip-edge: rgba(56, 189, 248, 0.5);
+}
+
 .chart-chip[data-refline="pru"] {
     --chip-color: #ff9f43;
     --chip-tint: rgba(255, 159, 67, 0.13);

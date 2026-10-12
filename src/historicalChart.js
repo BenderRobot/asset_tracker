@@ -61,6 +61,16 @@ const HISTORY_CHART_MEMORY_MAX_ENTRIES = 32;
 // Provider daily/intraday candles of a session are settled after its close.
 const MARKET_SETTLE_MS = 30 * 60_000;
 const ATH_RETRY_DELAY_MS = 5 * 60 * 1000;
+// Purchase points: one stable colour per asset (same ticker, same colour on
+// every period and page). No green or red: the curve itself is green/red.
+const ASSET_MARKER_PALETTE = ['#f59e0b', '#22d3ee', '#a78bfa', '#f472b6', '#60a5fa', '#facc15', '#c084fc', '#fb923c', '#93c5fd', '#e879f9', '#fde68a', '#818cf8'];
+const assetMarkerColor = ticker => {
+    let hash = 0;
+    for (const char of String(ticker)) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+    return ASSET_MARKER_PALETTE[hash % ASSET_MARKER_PALETTE.length];
+};
+const escapeChartText = value => String(value ?? '').replace(/[&<>"']/g, char =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 // The ATH is the highest level ever reached, intraday included, and the same
 // in every view. Each all-time rebuild collects last week's 15 min bars; the
 // 1D/2D/1W views also feed the shared peak register and draw the line in
@@ -101,7 +111,9 @@ export class HistoricalChart {
             // Always drawn in 1D: neither page offers a toggle for it any more.
             close: true,
             pru: this._loadRefLinePref('pru'),
-            ath: this._loadRefLinePref('ath')
+            ath: this._loadRefLinePref('ath'),
+            // Purchase points + invested capital: off until asked for.
+            buys: this._loadRefLinePref('buys', false)
         };
         try { this.includeDividends = localStorage.getItem('chart_include_dividends') === '1'; }
         catch { this.includeDividends = false; }
@@ -297,7 +309,7 @@ export class HistoricalChart {
             pointMeta: _pointMeta,
             ...renderData
         } = entry.data;
-        const record = { signature: key, createdAt: entry.createdAt, data: renderData };
+        const record = { signature: key, createdAt: entry.createdAt, buysReady: !!entry.buysReady, data: renderData };
         if (isPersistentCacheAvailable()) {
             // IndexedDB rejects non-cloneable values; JSON drops them, as the
             // localStorage cache always did.
@@ -356,6 +368,10 @@ export class HistoricalChart {
     // point can exist, i.e. one of its markets traded (or settled its close)
     // after the series was built, or the civil day changed (sliding window).
     _isHistoryStale(key, entry, period, now = Date.now()) {
+        // Portfolio series built before purchase points existed: served once,
+        // rebuilt in the background (the ATH register is merged, not lost —
+        // see _commitHistory), unlike a cache-version bump which would drop it.
+        if (key.startsWith('["portfolio"') && entry.data && !entry.buysReady && !Array.isArray(entry.data.transactionPoints)) return true;
         const age = now - entry.createdAt;
         if (new Date(entry.createdAt).toDateString() !== new Date(now).toDateString()) return true;
         const tickers = this._historyTickers(key);
@@ -403,7 +419,8 @@ export class HistoricalChart {
         if (period === 'all' && previous?.athIntraday && !data.athIntraday) {
             data = this.dataManager.mergeAthIntradayHistory(data, null, previous, athSessionDate);
         }
-        const entry = { createdAt: Date.now(), data };
+        // buysReady: built by a version that knows purchase points (see _isHistoryStale).
+        const entry = { createdAt: Date.now(), data, buysReady: true };
         this._historyCache.set(key, entry);
         while (this._historyCache.size > HISTORY_CHART_MEMORY_MAX_ENTRIES) this._historyCache.delete(this._historyCache.keys().next().value);
         this._persistHistory(key, entry, period);
@@ -1290,11 +1307,11 @@ export class HistoricalChart {
         mountViewToggle(container, mode, () => this.update(false, false));
     }
 
-    _loadRefLinePref(key) {
+    _loadRefLinePref(key, fallback = true) {
         try {
             const v = localStorage.getItem(`chart_refline_${key}`);
-            return v === null ? true : v === '1';
-        } catch (e) { return true; }
+            return v === null ? fallback : v === '1';
+        } catch (e) { return fallback; }
     }
 
     // Small independent checkboxes (not a mutually-exclusive toggle) next to
@@ -1315,9 +1332,10 @@ export class HistoricalChart {
             // ATH on both pages; Investments adds PRU (its single-asset view).
             // Each chip carries a dashed swatch in its line's colour (see
             // css/chart-toolbar.css), so the chips also act as the legend.
+            const buys = ['buys', 'Achats', 'Achats (●) et ventes (▼) : taille = montant, couleur = actif ; capital investi en vue €'];
             const lines = this.ui
-                ? [['pru', 'PRU', 'Prix de revient unitaire moyen'], ['ath', 'ATH', '']]
-                : [['ath', 'ATH', '']];
+                ? [buys, ['pru', 'PRU', 'Prix de revient unitaire moyen'], ['ath', 'ATH', '']]
+                : [buys, ['ath', 'ATH', '']];
             lines.forEach(([key, label, title]) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
@@ -1339,9 +1357,13 @@ export class HistoricalChart {
                 container.appendChild(btn);
             });
         }
+        const buysBtn = container.querySelector('[data-refline="buys"]');
         const pruBtn = container.querySelector('[data-refline="pru"]');
         const athBtn = container.querySelector('[data-refline="ath"]');
+        // Portfolio views only (global or filtered): an asset view has its own markers.
+        const showBuys = !!buysBtn && !isSingleAssetMode;
         const showPru = !!pruBtn && isSingleAssetMode;
+        if (buysBtn) buysBtn.style.display = showBuys ? '' : 'none';
         const showAth = !!athBtn && athKind !== null;
         if (pruBtn) pruBtn.style.display = showPru ? '' : 'none';
         if (athBtn) {
@@ -1350,7 +1372,7 @@ export class HistoricalChart {
                 ? 'Plus haut prix unitaire depuis le premier achat'
                 : 'Plus haut historique de la performance (TWR), dans le repère de la période affichée';
         }
-        container.style.display = (showPru || showAth) ? '' : 'none';
+        container.style.display = (showBuys || showPru || showAth) ? '' : 'none';
     }
 
     // Toolbar state that is not a button of its own: the benchmark chip tint
@@ -1757,7 +1779,7 @@ export class HistoricalChart {
     _renderKpiRowsHtml(titleText, rows) {
         const rowsHtml = rows.map(r => {
             const tone = r.positive ? 'positive' : 'negative';
-            return `<div class="hc-tt-row"><span class="hc-tt-marker ${r.marker || tone}"></span><span class="hc-tt-label">${r.label}</span><span class="hc-tt-values"><span class="hc-tt-eur">${r.eur ?? ''}</span>${r.pct != null ? `<span class="hc-tt-pct ${tone}">${r.pct}</span>` : ''}</span></div>`;
+            return `<div class="hc-tt-row"><span class="hc-tt-marker ${r.marker || tone}"${r.color ? ` style="background:${r.color}"` : ''}></span><span class="hc-tt-label">${r.label}</span><span class="hc-tt-values"><span class="hc-tt-eur">${r.eur ?? ''}</span>${r.pct != null ? `<span class="hc-tt-pct ${tone}">${r.pct}</span>` : ''}</span></div>`;
         }).join('');
         return `<div class="hc-tt-title">${titleText}</div>${rowsHtml}`;
     }
@@ -1819,6 +1841,7 @@ export class HistoricalChart {
         // Cette vue ne fait que lire et formater ces deux séries canoniques.
         // No "Var Today" row for the portfolio: in 1D it equals "Période".
         this._pushBenchmarkRows(rows, idx, pct, opts);
+        if (this._showsPortfolioBuys(graphData, opts)) this._pushPortfolioBuyRows(rows, idx, graphData, eurFmt);
         return rows;
     }
 
@@ -1834,6 +1857,76 @@ export class HistoricalChart {
                 eur: eurFmt(p.y), pct: null, positive: !sell, marker: sell ? 'negative' : 'buy'
             });
         }
+    }
+
+    // Portfolio buys and sales on the hovered point: asset (in its marker
+    // colour) and amount.
+    _pushPortfolioBuyRows(rows, idx, graphData, eurFmt) {
+        const groups = new Map();
+        for (const p of graphData.transactionPoints || []) {
+            if (p.x !== idx || !Number.isFinite(p.amount)) continue;
+            const side = p.side === 'sell' ? 'sell' : 'buy';
+            const key = `${p.ticker}|${side}`;
+            const entry = groups.get(key) || { ticker: p.ticker, name: p.name, side, amount: 0 };
+            entry.amount += p.amount;
+            groups.set(key, entry);
+        }
+        for (const entry of groups.values()) {
+            const sell = entry.side === 'sell';
+            rows.push({ label: `${sell ? 'Vente' : 'Achat'} · ${escapeChartText(entry.name)}`, eur: eurFmt(entry.amount), pct: null,
+                positive: !sell, marker: sell ? 'negative' : 'buy', color: assetMarkerColor(entry.ticker) });
+        }
+    }
+
+    _showsPortfolioBuys(graphData, { isIndexMode, isUnitView } = {}) {
+        return !!this.refLineVisibility.buys && !isIndexMode && !isUnitView
+            && Array.isArray(graphData?.transactionPoints) && graphData.transactionPoints.length > 0;
+    }
+
+    // One dataset per asset and side: points on the drawn curve, radius by
+    // amount (one scale for buys and sales), colour by asset, round for a buy
+    // and a downward triangle for a sale.
+    _buildPortfolioBuyDatasets(graphData, curve, firstIndex, lastIndex) {
+        const sums = new Map();
+        for (const p of graphData.transactionPoints || []) {
+            if (p.x < firstIndex || p.x > lastIndex || !Number.isFinite(p.amount) || curve[p.x] == null) continue;
+            const side = p.side === 'sell' ? 'sell' : 'buy';
+            const key = `${p.ticker}|${side}|${p.x}`;
+            const entry = sums.get(key) || { ticker: p.ticker, name: p.name, side, x: p.x, amount: 0 };
+            entry.amount += p.amount;
+            sums.set(key, entry);
+        }
+        if (!sums.size) return [];
+        const max = Math.max(...[...sums.values()].map(entry => entry.amount));
+        const byTicker = new Map();
+        for (const entry of sums.values()) {
+            const group = `${entry.ticker}|${entry.side}`;
+            if (!byTicker.has(group)) byTicker.set(group, []);
+            byTicker.get(group).push(entry);
+        }
+        const length = curve.length;
+        // Largest buys first: Chart.js draws later datasets on top, so a small
+        // buy on the same day as a big one stays visible.
+        const largest = entries => Math.max(...entries.map(entry => entry.amount));
+        return [...byTicker.values()].sort((a, b) => largest(b) - largest(a)).map(entries => {
+            const { ticker, side, name } = entries[0];
+            const sell = side === 'sell';
+            const data = Array(length).fill(null);
+            const radius = Array(length).fill(0);
+            for (const entry of entries) {
+                data[entry.x] = curve[entry.x];
+                // Area-proportional size: 4 px for the smallest, 14 px for the largest transaction.
+                radius[entry.x] = 4 + 10 * Math.sqrt(entry.amount / max);
+            }
+            const color = assetMarkerColor(ticker);
+            return {
+                label: `${sell ? 'Ventes' : 'Achats'} · ${name}`, data, isTransactionMarker: true,
+                showLine: false, spanGaps: false, fill: false,
+                pointStyle: sell ? 'triangle' : 'circle', rotation: sell ? 180 : 0,
+                backgroundColor: `${color}e6`, borderColor: 'rgba(255, 255, 255, 0.85)', borderWidth: 1.5,
+                pointRadius: radius, pointHoverRadius: radius.map(r => (r ? r + 2 : 0)), pointHitRadius: radius
+            };
+        });
     }
 
     _pushDayPnlRow(rows, idx, graphData, eurFmt, pctFmt) {
@@ -2060,9 +2153,14 @@ export class HistoricalChart {
                 }
             }
             datasets.push({ label: 'Base 0%', data: Array(graphData.labels.length).fill(0), borderColor: 'rgba(255,255,255,0.2)', borderWidth: 1, borderDash: [5, 5], fill: false, pointRadius: 0 });
+            if (this._showsPortfolioBuys(graphData, { isIndexMode, isUnitView })) {
+                datasets.push(...this._buildPortfolioBuyDatasets(graphData, perfData, firstIndex, lastIndex));
+            }
         } else {
+            const showBuys = this._showsPortfolioBuys(graphData, { isIndexMode, isUnitView });
             if (!isIndexMode && !isUnitView && graphData.invested) {
-                datasets.push({ label: 'Investi (€)', data: graphData.invested, borderColor: '#3b82f6', borderWidth: 2, fill: false, pointRadius: 0, borderDash: [5, 5], hidden: true, tension: 0, spanGaps: false });
+                // Invested capital: shown with the "Achats" toggle (portfolio views).
+                datasets.push({ label: 'Investi (€)', data: graphData.invested, borderColor: '#38bdf8', borderWidth: 2, fill: false, pointRadius: 0, borderDash: [6, 4], hidden: !showBuys, tension: 0, spanGaps: false });
             }
             let label = isUnitView ? 'Prix unitaire (€)' : (isIndexMode ? 'Cours' : 'Total Value (€)');
             datasets.push({
@@ -2074,6 +2172,7 @@ export class HistoricalChart {
                 borderWidth: 3, fill: true, tension: 0, pointRadius: 0, spanGaps: false,
                 isMain: true
             });
+            if (showBuys) datasets.push(...this._buildPortfolioBuyDatasets(graphData, displayValues, firstIndex, lastIndex));
             if (this.currentPeriod === 1 && referenceClose > 0 && this.refLineVisibility.close) {
                 datasets.push({ label: 'Clôture hier', data: Array(graphData.labels.length).fill(referenceClose), borderColor: '#95a5a6', borderWidth: 2, borderDash: [6, 4], fill: false, pointRadius: 0 });
             }

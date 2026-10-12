@@ -470,6 +470,9 @@ describe('ATH across the Friday-to-Sunday boundary', () => {
             const [all, two, one] = await Promise.all([
                 dm.calculateHistory(purchases, 'all'), dm.calculateHistory(purchases, 2), dm.calculateHistory(purchases, 1)
             ]);
+            // Portfolio history also places each buy of the window (Achats toggle).
+            expect(all.transactionPoints.map(p => [p.ticker, p.amount]).sort()).toEqual([['AAPL', 36000], ['BTC-EUR', 1016.42]]);
+            expect(all.transactionPoints.every(p => Number.isInteger(p.x) && p.x >= 0)).toBe(true);
             const shared = dm.mergeAthIntradayHistory(all, two, null, sessionDate);
             const sunday = dm.mergeAthIntradayHistory(shared, one, shared, sessionDate);
             const reference2 = dm.computeAthReference({ kind: 'performance', allHistory: shared, visibleHistory: two });

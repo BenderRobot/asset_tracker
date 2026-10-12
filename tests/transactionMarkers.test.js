@@ -124,3 +124,69 @@ describe('PÉRIODE (period return) of the portfolio chart', () => {
         expect(all.kpiManager.updateKPIs.mock.calls[0][0].perfPct).toBeCloseTo(32, 8);
     });
 });
+
+describe('Portfolio purchase points ("Achats" toggle)', () => {
+    function portfolioChart() {
+        const storage = createFakeStorage();
+        const chart = new HistoricalChart(storage, new DataManager(storage, createFakeApi()), null, {
+            filterManager: { getSelectedTickers: () => new Set() },
+            getFilteredPurchasesFromPage: () => [], getChartTitleConfig: () => ({}), renderData: vi.fn()
+        });
+        chart.currentPeriod = 30;
+        return chart;
+    }
+    const graphData = {
+        values: [1000, 1100, 1200, 1300],
+        transactionPoints: [
+            { x: 1, ticker: 'AAPL', name: 'Apple', amount: 100 },
+            { x: 1, ticker: 'AAPL', name: 'Apple', amount: 300 },
+            { x: 2, ticker: 'BTC-EUR', name: 'Bitcoin', amount: 1600 },
+            { x: 9, ticker: 'AAPL', name: 'Apple', amount: 50 },
+            { x: 3, ticker: 'AAPL', name: 'Apple', side: 'sell', amount: 800 }
+        ]
+    };
+
+    it('places one point per asset and day on the curve, sized by amount and coloured by asset', () => {
+        const chart = portfolioChart();
+        const sets = chart._buildPortfolioBuyDatasets(graphData, graphData.values, 0, 3);
+        const apple = sets.find(set => set.label === 'Achats · Apple');
+        const bitcoin = sets.find(set => set.label === 'Achats · Bitcoin');
+        expect(sets).toHaveLength(3);
+        // Two Apple buys on the same point are merged (400 €); out-of-window buys are ignored.
+        expect(apple.data).toEqual([null, 1100, null, null]);
+        expect(apple.pointRadius[1]).toBeCloseTo(4 + 10 * Math.sqrt(400 / 1600), 8);
+        expect(bitcoin.pointRadius[2]).toBe(14);
+        expect(apple.backgroundColor).not.toBe(bitcoin.backgroundColor);
+        expect(sets.every(set => set.isTransactionMarker && set.showLine === false)).toBe(true);
+        // Sales: same asset colour, downward triangle, sized on the same scale.
+        const appleSales = sets.find(set => set.label === 'Ventes · Apple');
+        expect(appleSales).toMatchObject({ pointStyle: 'triangle', rotation: 180, backgroundColor: apple.backgroundColor });
+        expect(appleSales.data).toEqual([null, null, null, 1300]);
+        expect(appleSales.pointRadius[3]).toBeCloseTo(4 + 10 * Math.sqrt(800 / 1600), 8);
+        expect(apple.pointStyle).toBe('circle');
+    });
+
+    it('lists the buys of the hovered point only while the toggle is on', () => {
+        const chart = portfolioChart();
+        const opts = { graphData, pctSeries: [0, 10, 20, 30], eurFmt: n => `${n} €`, pctFmt: String,
+            isIndexMode: false, isUnitView: false, displayValues: graphData.values };
+        chart.refLineVisibility.buys = false;
+        expect(chart._buildKpiRows(1, opts).some(row => row.label.startsWith('Achat'))).toBe(false);
+        chart.refLineVisibility.buys = true;
+        const buy = chart._buildKpiRows(1, opts).find(row => row.label === 'Achat · Apple');
+        expect(buy).toMatchObject({ eur: '400 €', marker: 'buy' });
+        expect(buy.color).toMatch(/^#/);
+        expect(chart._buildKpiRows(3, opts).find(row => row.label === 'Vente · Apple')).toMatchObject({ eur: '800 €', positive: false });
+    });
+
+    it('is off by default and only offered in portfolio views', () => {
+        localStorage.removeItem('chart_refline_buys');
+        const chart = portfolioChart();
+        expect(chart.refLineVisibility.buys).toBe(false);
+        document.body.innerHTML = '<div class="chart-toolbar"><div id="view-toggle"></div></div>';
+        chart._syncReferenceLineToggles(false, 'performance');
+        expect(document.querySelector('[data-refline="buys"]').style.display).toBe('');
+        chart._syncReferenceLineToggles(true, 'price');
+        expect(document.querySelector('[data-refline="buys"]').style.display).toBe('none');
+    });
+});
