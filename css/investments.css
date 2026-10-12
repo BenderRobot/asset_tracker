@@ -765,6 +765,27 @@
     }
 }
 
+/* Table badges: larger, lighter text on the same tints for contrast. */
+@media (min-width: 769px) {
+    #investments-table tbody .badge {
+        padding: 5px 10px;
+        border-radius: 7px;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.2;
+        letter-spacing: 0;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+    #investments-table tbody .badge strong { font-weight: 700; }
+    #investments-table tbody .badge-positive { color: #34d399; background: rgba(16, 185, 129, 0.16); border-color: rgba(16, 185, 129, 0.4); }
+    #investments-table tbody .badge-negative { color: #f87171; background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.4); }
+    #investments-table tbody .badge-neutral { color: #cbd5e1; }
+    #investments-table tbody .badge-pru { color: #ffb46b; background: rgba(255, 159, 67, 0.14); border-color: rgba(255, 159, 67, 0.45); }
+    #investments-table tbody .badge-invested { color: #e2e8f0; background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.35); }
+    #investments-table tbody .badge-invested i { font-size: 12px; }
+}
+
 #investments-table td.neutral-value { color: var(--text-muted); }
 #investments-table .position-weight { display: none; }
 @media (min-width: 769px) { #investments-table .position-weight { display: flex; } }

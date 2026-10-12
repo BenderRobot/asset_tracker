@@ -52,6 +52,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.25` | 2026-10-12 | fix claude nom kpi main | — |
 | `1.17.26` | 2026-10-12 | fix claude tab | — |
 | `1.17.27` | 2026-10-12 | fix claude tab 1 | — |
+| `1.17.28` | 2026-10-12 | fix claude tab 2 | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les
