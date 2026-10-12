@@ -17,6 +17,10 @@ const formatMovementAmount = (price, quantity, currency) =>
   price != null && quantity != null && Number.isFinite(Number(price)) && Number.isFinite(Number(quantity))
     ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: currency === 'USD' ? 'USD' : 'EUR' }).format(Math.abs(Number(price) * Number(quantity)))
     : '—';
+// A change that rounds to 0,00 is shown as zero, in grey (never "-0,00 €" in red).
+const settleZero = value => Number.isFinite(value) && Math.abs(value) < 0.005 ? 0 : value;
+const toneClass = (value, positive, negative, neutral = '') => value > 0 ? positive : value < 0 ? negative : neutral;
+const weightFormatter = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const formatInvestmentPercent = value => Number.isFinite(value)
   ? `<strong>${value > 0 ? '+' : ''}${value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %</strong>`
   : '—';
@@ -341,6 +345,10 @@ export class InvestmentsPage {
     if (this.currentPage > totalPages) this.currentPage = totalPages;
     const pageItems = filteredHoldings.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
 
+    // Weight of each position among all positions (cash excluded), whatever the filter.
+    const positionsValue = (this.currentHoldings || []).reduce((sum, position) =>
+      sum + (Number.isFinite(position.currentValue) && position.currentValue > 0 ? position.currentValue : 0), 0);
+
     tbody.innerHTML = pageItems.map(p => {
       const isSelected = selectedTickers.has(p.ticker.toUpperCase());
       const selectedClass = isSelected ? 'selected' : '';
@@ -372,8 +380,11 @@ export class InvestmentsPage {
       const isExpanded = this.expandedTicker === p.ticker;
       const rowExpandedClass = isExpanded ? 'expanded' : '';
       const purchasesOpenClass = isExpanded ? 'open' : '';
-      const displayedDayChange = p.displayDayChange ?? p.displayDayPnl ?? p.dayChange;
-      const displayedDayPct = p.displayDayPct ?? p.displayDayPnlPct ?? p.dayPct;
+      const displayedDayChange = settleZero(p.displayDayChange ?? p.displayDayPnl ?? p.dayChange);
+      const displayedDayPct = settleZero(p.displayDayPct ?? p.displayDayPnlPct ?? p.dayPct);
+      const gainEUR = settleZero(p.gainEUR);
+      const gainPct = settleZero(p.gainPct);
+      const weight = positionsValue > 0 && Number.isFinite(p.currentValue) ? Math.max(0, p.currentValue / positionsValue * 100) : null;
 
       const purchasesTable = `
         <tr class="purchases-row ${purchasesOpenClass}" data-ticker="${escapeHtml(p.ticker)}">
@@ -412,19 +423,19 @@ export class InvestmentsPage {
                 <td>
                     <div class="investment-asset-identity">
                         ${logoInfo.html}
-                        <span class="investment-asset-text"><strong>${escapeHtml(p.ticker)}</strong><small>${escapeHtml(p.name)}</small><small>${escapeHtml(formatQuantity(p.quantity))} titres</small></span>
+                        <span class="investment-asset-text"><strong>${escapeHtml(p.name || p.ticker)}</strong><small class="asset-ticker">${escapeHtml(p.ticker)}</small><small>${escapeHtml(formatQuantity(p.quantity))} titres</small></span>
                     </div>
                 </td>
-                <td>${escapeHtml(p.name)}</td>
-                <td>${formatQuantity(p.quantity)}</td>
-                <td><span class="badge badge-pru" title="Prix de revient unitaire (PRU)">${formatCurrency(p.avgPrice, 'EUR')}</span></td>
-                <td><span class="badge badge-invested" title="Montant engagé dans la position (coût de revient)"><i class="ph ph-lock-simple" aria-hidden="true"></i>${formatCurrency(p.invested, 'EUR')}</span></td>
-                <td>${formatCurrency(p.currentPrice, 'EUR')}</td>
-                <td>${formatCurrency(p.currentValue, 'EUR')}</td>
-                <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatCurrency(p.gainEUR, 'EUR')}</td>
-                <td><span class="badge ${p.gainPct > 0 ? 'badge-positive' : p.gainPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatInvestmentPercent(p.gainPct)}</span></td>
-                <td class="${displayedDayChange > 0 ? 'positive' : displayedDayChange < 0 ? 'negative' : ''}">${formatCurrency(displayedDayChange, 'EUR')}</td>
-                <td><span class="badge ${displayedDayPct > 0 ? 'badge-positive' : displayedDayPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatInvestmentPercent(displayedDayPct)}</span></td>
+                <td>${escapeHtml(p.ticker)}</td>
+                <td class="num">${formatQuantity(p.quantity)}</td>
+                <td class="num"><span class="badge badge-pru" title="Prix de revient unitaire (PRU)">${formatCurrency(p.avgPrice, 'EUR')}</span></td>
+                <td class="num"><span class="badge badge-invested" title="Montant engagé dans la position (coût de revient)"><i class="ph ph-lock-simple" aria-hidden="true"></i>${formatCurrency(p.invested, 'EUR')}</span></td>
+                <td class="num">${formatCurrency(p.currentPrice, 'EUR')}</td>
+                <td class="num value-cell"><span class="value-amount">${formatCurrency(p.currentValue, 'EUR')}</span>${weight === null ? '' : `<span class="position-weight" title="Poids dans l'ensemble des positions"><span class="weight-track" aria-hidden="true"><span style="width:${Math.min(100, weight).toFixed(1)}%"></span></span><span class="weight-pct">${weightFormatter.format(weight)} %</span></span>`}</td>
+                <td class="num ${toneClass(gainEUR, 'positive', 'negative', 'neutral-value')}">${formatCurrency(gainEUR, 'EUR')}</td>
+                <td class="num"><span class="badge ${toneClass(gainPct, 'badge-positive', 'badge-negative', 'badge-neutral')}">${formatInvestmentPercent(gainPct)}</span></td>
+                <td class="num ${toneClass(displayedDayChange, 'positive', 'negative', 'neutral-value')}">${formatCurrency(displayedDayChange, 'EUR')}</td>
+                <td class="num"><span class="badge ${toneClass(displayedDayPct, 'badge-positive', 'badge-negative', 'badge-neutral')}">${formatInvestmentPercent(displayedDayPct)}</span></td>
             </tr>
             ${purchasesTable}
         `;

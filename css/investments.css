@@ -705,6 +705,70 @@
 
 .investment-asset-text small { display: none; }
 
+/* Desktop table: name + ticker in the first column (the separate ticker
+   column stays in the DOM for the mobile layout), numbers right-aligned in
+   fixed-width digits, position weight under the value. */
+@media (min-width: 769px) {
+    #investments-table thead th:nth-child(2),
+    #investments-table tbody tr.asset-row > td:nth-child(2) { display: none; }
+
+    #investments-table .investment-asset-text strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    #investments-table .investment-asset-text small.asset-ticker {
+        display: block;
+        margin-top: 2px;
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+    }
+
+    #investments-table thead th:nth-child(n+3),
+    #investments-table tbody tr.asset-row > td.num {
+        text-align: right;
+    }
+
+    #investments-table tbody tr.asset-row > td.num {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    #investments-table .position-weight {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        margin-top: 4px;
+        color: var(--text-muted);
+        font-size: 10.5px;
+        font-weight: 600;
+    }
+
+    #investments-table .weight-track {
+        width: 54px;
+        height: 4px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.18);
+    }
+
+    #investments-table .weight-track > span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--accent-blue);
+    }
+}
+
+#investments-table td.neutral-value { color: var(--text-muted); }
+#investments-table .position-weight { display: none; }
+@media (min-width: 769px) { #investments-table .position-weight { display: flex; } }
+
 .investment-filter-context {
     color: var(--text-secondary);
     font-size: 12px;

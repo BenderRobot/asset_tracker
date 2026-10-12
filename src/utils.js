@@ -101,17 +101,14 @@ export function formatDate(dateString) {
 // Formatage quantité intelligent (supprime les zéros inutiles)
 export function formatQuantity(qty) {
   if (qty === null || qty === undefined || isNaN(qty)) return '-';
-  
   const num = parseFloat(qty);
-  
-  // Si c'est un nombre entier ou très proche d'un entier
-  if (Math.abs(num - Math.round(num)) < 0.000001) {
-    return Math.round(num).toString();
-  }
-  
-  // Sinon, formatter avec le nombre de décimales nécessaires
-  // Supprimer les zéros à la fin
-  return num.toFixed(6).replace(/\.?0+$/, '');
+  // Format français (virgule, espace des milliers), sans zéros inutiles :
+  // 4 décimales au plus dès 1 titre, 8 en dessous (fractions de crypto).
+  const whole = Math.abs(num - Math.round(num)) < 0.000001;
+  return (whole ? Math.round(num) : num).toLocaleString('fr-FR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: whole ? 0 : (Math.abs(num) >= 1 ? 4 : 8)
+  });
 }
 export function parseDate(dateString) {
   if (!dateString) return null;

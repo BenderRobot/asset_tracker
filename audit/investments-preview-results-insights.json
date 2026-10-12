@@ -7,13 +7,12 @@
       "firstPositionY": 1249,
       "tableWidth": 1352,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -96,16 +95,15 @@
     {
       "width": 1601,
       "documentWidth": 1601,
-      "firstPositionY": 1267,
+      "firstPositionY": 1248,
       "tableWidth": 1313,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -188,16 +186,15 @@
     {
       "width": 1600,
       "documentWidth": 1600,
-      "firstPositionY": 1328,
+      "firstPositionY": 1309,
       "tableWidth": 1312,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -279,17 +276,16 @@
     },
     {
       "width": 1366,
-      "documentWidth": 1366,
+      "documentWidth": 1531,
       "firstPositionY": 1321,
-      "tableWidth": 1078,
+      "tableWidth": 1267,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -371,17 +367,16 @@
     },
     {
       "width": 1301,
-      "documentWidth": 1301,
+      "documentWidth": 1531,
       "firstPositionY": 1326,
-      "tableWidth": 1029,
+      "tableWidth": 1267,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -463,17 +458,16 @@
     },
     {
       "width": 1300,
-      "documentWidth": 1300,
+      "documentWidth": 1531,
       "firstPositionY": 1326,
-      "tableWidth": 1029,
+      "tableWidth": 1267,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -555,17 +549,16 @@
     },
     {
       "width": 1251,
-      "documentWidth": 1293,
+      "documentWidth": 1531,
       "firstPositionY": 1359,
-      "tableWidth": 1029,
+      "tableWidth": 1267,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -647,17 +640,16 @@
     },
     {
       "width": 1250,
-      "documentWidth": 1293,
+      "documentWidth": 1531,
       "firstPositionY": 1359,
-      "tableWidth": 1029,
+      "tableWidth": 1267,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -739,17 +731,16 @@
     },
     {
       "width": 1152,
-      "documentWidth": 1293,
+      "documentWidth": 1531,
       "firstPositionY": 1428,
-      "tableWidth": 1029,
+      "tableWidth": 1267,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -831,17 +822,16 @@
     },
     {
       "width": 1024,
-      "documentWidth": 1293,
+      "documentWidth": 1531,
       "firstPositionY": 1823,
-      "tableWidth": 1029,
+      "tableWidth": 1267,
       "visibleFirstRowCells": [
-        "AAPL",
-        "Apple",
+        "Apple\nAAPL",
         "30",
         "170,00 €",
         "5 100,00 €",
         "210,00 €",
-        "6 300,00 €",
+        "6 300,00 €\n18,8 %",
         "1 200,00 €",
         "+23,53 %",
         "88,20 €",
@@ -925,9 +915,9 @@
       "width": 768,
       "documentWidth": 768,
       "firstPositionY": 2256,
-      "tableWidth": 734,
+      "tableWidth": 732,
       "visibleFirstRowCells": [
-        "AAPL\nApple\n30 titres",
+        "Apple\nAAPL\n30 titres",
         "6 300,00 €",
         "88,20 €",
         "+1,40 %"
@@ -964,7 +954,7 @@
         20,
         20
       ],
-      "primaryGridWidth": 734,
+      "primaryGridWidth": 732,
       "secondaryCardTops": [
         299,
         537,
@@ -973,11 +963,11 @@
         1249
       ],
       "secondaryCardWidths": [
-        734,
-        734,
-        734,
-        734,
-        734
+        732,
+        732,
+        732,
+        732,
+        732
       ],
       "secondaryCardHeights": [
         226,
@@ -989,16 +979,16 @@
       "cashCardContentHeight": 229,
       "rankingCardContentHeight": 209,
       "primaryGridEdges": [
-        18,
+        20,
         752
       ],
       "secondaryGridEdges": [
-        18,
+        20,
         752
       ],
       "chartTop": 1520,
       "cashInInsightsGrid": true,
-      "summaryGridWidth": 734,
+      "summaryGridWidth": 732,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
       "clearButtonSize": [
@@ -1012,7 +1002,7 @@
       "firstPositionY": 2307,
       "tableWidth": 358,
       "visibleFirstRowCells": [
-        "AAPL\nApple\n30 titres",
+        "Apple\nAAPL\n30 titres",
         "6 300,00 €",
         "88,20 €",
         "+1,40 %"
@@ -1097,7 +1087,7 @@
       "firstPositionY": 2307,
       "tableWidth": 328,
       "visibleFirstRowCells": [
-        "AAPL\nApple\n30 titres",
+        "Apple\nAAPL\n30 titres",
         "6 300,00 €",
         "88,20 €",
         "+1,40 %"
@@ -1242,7 +1232,7 @@
         "benchmarkAfter": null
       },
       "invalidHistoryState": {
-        "table": "AAPL\n\tApple\t30\t170,00 €\t\n5 100,00 €\n\t210,00 €\t6 300,00 €\t1 200,00 €\t+23,53 %\t88,20 €\t+1,40 %\n\nBTC-EUR\n\tBitcoin\t0.068\t65 000,00 €\t\n4 420,00 €\n\t75 000,00 €\t5 100,00 €\t680,00 €\t+15,38 %\t40,80 €\t+0,80 %\n\nCSPX\n\tiShares Core S&P 500 UCITS ETF USD (Acc)\t18\t400,00 €\t\n7 200,00 €\n\t510,00 €\t9 180,00 €\t1 980,00 €\t+27,50 %\t64,26 €\t+0,70 %\n\nMSFT\n\tMicrosoft\t12\t320,00 €\t\n3 840,00 €\n\t380,00 €\t4 560,00 €\t720,00 €\t+18,75 %\t-22,80 €\t-0,50 %\n\nMC.PA\n\tLVMH\t8\t680,00 €\t\n5 440,00 €\n\t590,00 €\t4 720,00 €\t-720,00 €\t-13,24 %\t-51,92 €\t-1,10 %\n\nASML.AS\n\tASML Holding\t5\t600,00 €\t\n3 000,00 €\n\t720,00 €\t3 600,00 €\t600,00 €\t+20,00 %\t-82,80 €\t-2,30 %",
+        "table": "Apple\nAAPL\n\t30\t170,00 €\t\n5 100,00 €\n\t210,00 €\t6 300,00 €\n18,8 %\n\t1 200,00 €\t+23,53 %\t88,20 €\t+1,40 %\n\nBitcoin\nBTC-EUR\n\t0,068\t65 000,00 €\t\n4 420,00 €\n\t75 000,00 €\t5 100,00 €\n15,2 %\n\t680,00 €\t+15,38 %\t40,80 €\t+0,80 %\n\niShares Core S&P 500 UCITS ETF USD (Acc)\nCSPX\n\t18\t400,00 €\t\n7 200,00 €\n\t510,00 €\t9 180,00 €\n27,4 %\n\t1 980,00 €\t+27,50 %\t64,26 €\t+0,70 %\n\nMicrosoft\nMSFT\n\t12\t320,00 €\t\n3 840,00 €\n\t380,00 €\t4 560,00 €\n13,6 %\n\t720,00 €\t+18,75 %\t-22,80 €\t-0,50 %\n\nLVMH\nMC.PA\n\t8\t680,00 €\t\n5 440,00 €\n\t590,00 €\t4 720,00 €\n14,1 %\n\t-720,00 €\t-13,24 %\t-51,92 €\t-1,10 %\n\nASML Holding\nASML.AS\n\t5\t600,00 €\t\n3 000,00 €\n\t720,00 €\t3 600,00 €\n10,8 %\n\t600,00 €\t+20,00 %\t-82,80 €\t-2,30 %",
         "chartMessage": "Données de marché indisponibles pour cette période."
       }
     }

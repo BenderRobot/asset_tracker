@@ -208,7 +208,8 @@ try {
         assert.equal(results.errors.length, 0);
         for (const size of results.viewports.filter(item => item.width <= 768)) {
             assert.deepEqual(size.clippedSummaryCards, [], `summary cards clipped at ${size.width}px`);
-            assert.match(size.visibleFirstRowCells[0], /AAPL[\s\S]*Apple[\s\S]*30 titres/);
+            // Name first, then ticker and quantity (the ticker column is merged into it).
+            assert.match(size.visibleFirstRowCells[0], /Apple[\s\S]*AAPL[\s\S]*30 titres/);
         }
         assert.deepEqual(results.checks.logic.searchTitle.mode, 'filter');
         assert.equal(results.checks.logic.insertedMarkup, false);
