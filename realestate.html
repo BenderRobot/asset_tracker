@@ -235,11 +235,94 @@
         .credits-container { display: flex; flex-direction: column; gap: 12px; }
 
         .credit-card {
+            position: relative;
+            overflow: hidden;
             background: var(--bg-card);
             border: 1px solid var(--border-color);
-            border-left: 4px solid var(--credit-color);
             border-radius: 12px;
-            padding: 16px 18px;
+            padding: 16px 18px 16px 22px;
+        }
+
+        /* Liseré droit (une bordure gauche épaisse se déforme avec le border-radius) */
+        .credit-card::before {
+            content: '';
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 4px;
+            background: var(--credit-color);
+        }
+
+        /* --- Prochaines échéances --- */
+        .re-schedule { margin-top: 12px; }
+
+        .re-schedule-legend {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-transform: none;
+            color: var(--text-muted);
+        }
+
+        .re-schedule-legend i {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            margin-left: 6px;
+        }
+
+        .re-schedule-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .re-schedule-table th {
+            padding: 0 8px 8px;
+            font-size: 11.5px;
+            font-weight: 500;
+            text-align: left;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .re-schedule-table td {
+            padding: 10px 8px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            white-space: nowrap;
+        }
+
+        .re-schedule-table th:first-child, .re-schedule-table td:first-child { padding-left: 0; }
+        .re-schedule-table th:last-child, .re-schedule-table td:last-child { padding-right: 0; }
+        .re-schedule-table tbody tr:last-child td { border-bottom: 0; }
+        .re-schedule-table .num { text-align: right; }
+        .re-schedule-table .muted { color: var(--text-muted); }
+        .re-schedule-table strong { color: var(--text-primary); font-weight: 600; }
+        .re-schedule-table tr.is-next .re-schedule-date { color: var(--text-primary); font-weight: 600; }
+
+        .re-schedule-date { display: flex; align-items: center; gap: 8px; }
+
+        .re-split {
+            display: flex;
+            width: 96px;
+            height: 4px;
+            margin-top: 6px;
+            border-radius: 2px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .is-interest { background: var(--re-amber); }
+        .is-capital { background: var(--re-green); }
+
+        @media (max-width: 560px) {
+            .re-schedule-table th:nth-child(5), .re-schedule-table td:nth-child(5) { display: none; }
+            .re-schedule-table { font-size: 12px; }
         }
 
         .credit-header {
@@ -302,6 +385,7 @@
         .re-badge--muted { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; }
         .re-badge--success { background: rgba(16, 185, 129, 0.15); color: #34d399; }
         .re-badge--warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+        .re-badge--info { background: rgba(59, 130, 246, 0.15); color: #60a5fa; font-size: 10.5px; }
 
         .re-progress {
             width: 100%;
@@ -314,7 +398,6 @@
 
         .re-progress-bar {
             height: 100%;
-            min-width: 2px;
             border-radius: 3px;
             background: linear-gradient(90deg, #10b981, #34d399);
             transition: width 0.3s ease;

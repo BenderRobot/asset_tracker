@@ -580,6 +580,7 @@ export class RealEstateApp {
                     <div class="credits-container">
                         ${details.map((d, i) => this.renderCreditCard(d, CREDIT_COLORS[i % CREDIT_COLORS.length])).join('') || '<div class="re-empty">Aucun crédit renseigné.</div>'}
                     </div>
+                    ${this.renderUpcomingPayments(details, today)}
                 </div>
 
                 <div class="residence-side">
@@ -659,6 +660,89 @@ export class RealEstateApp {
                     <span>${this.formatEUR(credit.initialAmount - d.remaining)} remboursés</span>
                     <span>${formatPct(Math.max(0, d.progress))}</span>
                 </div>
+            </div>
+        `;
+    }
+
+    // Prochaines échéances (tous crédits confondus, regroupées par mois)
+    getUpcomingPayments(details, today, count = 3) {
+        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const byMonth = new Map();
+
+        details.forEach(d => {
+            if (d.status === 'repaid' || d.credit.duration <= 0) return;
+            MortgageCalculator.generateAmortizationSchedule(d.credit)
+                .filter(e => e.date >= todayStart)
+                .slice(0, count)
+                .forEach(e => {
+                    const key = e.date.getFullYear() * 12 + e.date.getMonth();
+                    const row = byMonth.get(key) || { key, date: e.date, payment: 0, interest: 0, capital: 0, entries: new Map() };
+                    row.payment += e.monthlyPayment;
+                    row.interest += e.interestPayment;
+                    row.capital += e.capitalPayment;
+                    row.entries.set(d, e);
+                    if (e.date < row.date) row.date = e.date;
+                    byMonth.set(key, row);
+                });
+        });
+
+        return [...byMonth.values()]
+            .sort((a, b) => a.key - b.key)
+            .slice(0, count)
+            .map(row => ({
+                ...row,
+                // Capital restant dû total après l'échéance (crédits sans échéance ce mois-ci : CRD à date)
+                remaining: details.reduce((s, d) => s + (row.entries.has(d)
+                    ? row.entries.get(d).remainingCapital
+                    : MortgageCalculator.calculateRemainingCapital(d.credit, row.date)), 0)
+            }));
+    }
+
+    renderUpcomingPayments(details, today) {
+        const rows = this.getUpcomingPayments(details, today);
+        if (!rows.length) return '';
+
+        return `
+            <div class="re-panel re-schedule">
+                <div class="re-subtitle">
+                    <span>Prochaines échéances</span>
+                    <span class="re-schedule-legend">
+                        <i class="is-interest"></i>Intérêts <i class="is-capital"></i>Capital
+                    </span>
+                </div>
+                <table class="re-schedule-table">
+                    <thead>
+                        <tr>
+                            <th>Échéance</th>
+                            <th class="num">Mensualité</th>
+                            <th class="num">Intérêts</th>
+                            <th class="num">Capital</th>
+                            <th class="num">Restant dû</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((r, i) => {
+                            const interestShare = r.payment > 0 ? (r.interest / r.payment) * 100 : 0;
+                            return `
+                            <tr class="${i === 0 ? 'is-next' : ''}">
+                                <td>
+                                    <div class="re-schedule-date">
+                                        ${r.date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                        ${i === 0 ? '<span class="re-badge re-badge--info">Prochaine</span>' : ''}
+                                    </div>
+                                    <div class="re-split" title="Intérêts ${formatPct(interestShare)} · Capital ${formatPct(100 - interestShare)}">
+                                        <span class="is-interest" style="width: ${interestShare.toFixed(1)}%"></span>
+                                        <span class="is-capital" style="width: ${(100 - interestShare).toFixed(1)}%"></span>
+                                    </div>
+                                </td>
+                                <td class="num"><strong>${this.formatEUR(r.payment, 2)}</strong></td>
+                                <td class="num is-warning">${this.formatEUR(r.interest, 2)}</td>
+                                <td class="num is-positive">${this.formatEUR(r.capital, 2)}</td>
+                                <td class="num muted">${this.formatEUR(r.remaining)}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
             </div>
         `;
     }
