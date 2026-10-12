@@ -64,20 +64,25 @@ try {
             { name: 'Applied Materials', ticker: 'AMAT', quantity: 3, gainPct: 213, currentValue: 1366, currentPrice: 455.45, assetType: 'Stock', displayDayPct: 3.12, displayDayChange: 41.3 },
             { name: 'Bitcoin', ticker: 'BTC-EUR', quantity: .068, gainPct: -5.4, currentValue: 5100, currentPrice: 75000, assetType: 'Crypto', displayDayPct: .82, displayDayChange: 41.5 }
         ];
-        app.marketTicker.update(selectPortfolioMovers(holdings));
+        app.marketTicker.update(selectPortfolioMovers(holdings, {
+            now: fixed, priceQuotes: new Map(holdings.map(h => [h.ticker, { lastUpdate: fixed - 3 * 60000 }]))
+        }));
+        const impacts = [48.1, 72.3, -20, 21.3, 21.1];
+        app.renderDailyContributions({ status: 'valid', totalValue: 37865, dayPnl: 142.8,
+            positions: holdings.map((h, i) => ({ ...h, dayPnl: impacts[i], dayPnlPct: h.displayDayPct })) });
         app.renderKPIs({}, 389, holdings); app.renderAllocation(holdings, 389);
         const ui = new UIComponents(app.storage, {});
         ui._updateTotalValueModal = () => {};
-        ui.updateTopKPIs({ totalCurrentEUR: 35689, totalInvestedEUR: 28000, gainTotal: 7689, gainPct: 27.46, totalDayChangeEUR: 142.8, dayChangePct: .4 }, 389, null);
+        ui.updateTopKPIs({ totalCurrentEUR: 37865, totalInvestedEUR: 28000, gainTotal: 9865, gainPct: 35.23, totalDayChangeEUR: 142.8, dayChangePct: .38 }, 389, null);
         document.querySelector('.stat-group-2').style.display = '';
         document.getElementById('day-var-label').textContent = '+142,80 €';
         document.getElementById('day-var-percent').textContent = '+0,40 %';
-        document.getElementById('yesterday-close-value').textContent = '35 546,20 €';
+        document.getElementById('yesterday-close-value').textContent = '37 722,20 €';
         document.getElementById('unit-price-row').style.display = 'none';
         document.getElementById('chart-loading').style.display = 'none';
         document.getElementById('performance-label').textContent = '+142,80 €';
         document.getElementById('performance-percent').textContent = '+0,40 %';
-        for (const [id, value] of Object.entries({ 'price-start': '35 546,20 €', 'price-end': '35 689,00 €', 'price-high': '35 700,00 €', 'price-low': '35 520,00 €' })) document.getElementById(id).textContent = value;
+        for (const [id, value] of Object.entries({ 'price-start': '37 722,20 €', 'price-end': '37 865,00 €', 'price-high': '37 900,00 €', 'price-low': '37 700,00 €' })) document.getElementById(id).textContent = value;
         mountViewToggle(document.getElementById('view-toggle'), 'portfolio', () => {});
         document.getElementById('view-toggle').style.display = 'flex';
         app.renderNewsList(document.getElementById('news-portfolio-container'), [], 'portfolio');
@@ -98,6 +103,10 @@ try {
         await page.waitForTimeout(250);
         const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth,
             startVisible: !!document.getElementById('price-start').offsetParent,
+            contributionsVisible: !!document.querySelector('.contributions-table tbody tr')?.offsetParent,
+            contributionsStatus: document.getElementById('dashboard-contributions').dataset.status,
+            impactVisible: document.querySelector('.contributions-table tbody td:last-child').getBoundingClientRect().right
+                <= document.querySelector('.contributions-table-wrap').getBoundingClientRect().right + 1,
             panelHeight: Math.round(document.querySelector('.dashboard-indices-panel-full').getBoundingClientRect().height),
             leftHeight: Math.round(document.querySelector('.dashboard-left-column').getBoundingClientRect().height),
             sparklines: document.querySelectorAll('.market-card-spark svg').length,
@@ -109,6 +118,9 @@ try {
         assert.equal(size.overflowingValues, 0, `KPI overflow at ${width}`);
         if (width <= 768) assert.equal(size.animation, 'none');
         assert.equal(size.startVisible, true, `period stats hidden at ${width}`);
+        assert.equal(size.contributionsVisible, true, `daily contributions hidden at ${width}`);
+        assert.equal(size.contributionsStatus, 'complete', `daily contributions do not reconcile at ${width}`);
+        assert.equal(size.impactVisible, true, `daily impact hidden at ${width}`);
         if (width > 1200) assert.ok(Math.abs(size.panelHeight - size.leftHeight) <= 2, `markets panel height ${size.panelHeight} vs ${size.leftHeight} at ${width}`);
         results.push(size);
         if (width === 1366 || width === 390) await page.screenshot({ path: path.join(root, `audit/dashboard-preview-${width}.png`), fullPage: true });

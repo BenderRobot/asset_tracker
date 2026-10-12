@@ -1029,12 +1029,16 @@ export class HistoryCalculator {
 
             let sessionCloseTs = null;
             let sessionClosePrice = null;
+            let sessionCloseObserved = false;
             if (history) {
                 const sessionKeys = Object.keys(history).map(Number)
                     .filter(ts => ts >= session.openUTCMs && ts <= session.closeUTCMs)
                     .sort((a, b) => a - b);
                 sessionCloseTs = sessionKeys.at(-1) ?? null;
-                if (sessionCloseTs !== null) sessionClosePrice = history[sessionCloseTs];
+                if (sessionCloseTs !== null) {
+                    sessionClosePrice = history[sessionCloseTs];
+                    sessionCloseObserved = sessionClosePrice > 0;
+                }
             }
 
             // Les metadonnees live du week-end portent la derniere cloture
@@ -1076,6 +1080,7 @@ export class HistoryCalculator {
                 previousCloseTotal: previousTotal,
                 sessionCloseTotal: sessionTotal,
                 sessionCloseTs,
+                sessionCloseObserved,
                 currency
             });
         }

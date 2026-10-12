@@ -2,6 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { normalizeDashboardIndices, normalizeDashboardQuote, presentDashboardQuote, quoteSession, scheduledMarketStatus } from '../src/dashboardMarketData.js';
 import { MarketTicker, selectPortfolioMovers } from '../src/marketTicker.js';
+import { selectDailyContributions } from '../src/dashboardContributions.js';
 import { PriceAPI } from '../src/api.js';
 import { createFakeStorage } from './helpers.js';
 import { marketCalendarEngine } from '../src/MarketCalendarEngine.js';
@@ -144,19 +145,71 @@ describe('Dashboard ticker and feeds', () => {
         const items = selectPortfolioMovers([
             holding('BTC-EUR', 0.8), holding('AMAT', 3.1), holding('RIBER.PA', -2.4),
             holding('REIT', 5, { assetType: 'Real Estate' }), holding('KO', null, { dayPct: null })
-        ], { now: saturday });
+        ], { now: saturday, lastSessionPerformance: new Map([
+            ['AMAT', { sessionCloseTs: Date.parse('2026-10-09T20:00:00Z'), sessionCloseObserved: true }],
+            ['RIBER.PA', { sessionCloseTs: Date.parse('2026-10-09T15:30:00Z'), sessionCloseObserved: true }]
+        ]) });
         expect(items.map(i => i.ticker)).toEqual(['AMAT', 'BTC-EUR', 'RIBER.PA']);
         expect(items.find(i => i.ticker === 'BTC-EUR')).toMatchObject({ state: 'continuous' });
         const closed = items.find(i => i.ticker === 'AMAT');
         expect(closed.state).toBe('closed');
         expect(closed.stateLabel).toContain('ven.');
         expect(closed.stateLabel).toContain('09/10');
+        const [unverified] = selectPortfolioMovers([holding('AMAT', 3.1)], { now: saturday });
+        expect(unverified.stateLabel).toContain('date de séance inconnue');
+        const [fallback] = selectPortfolioMovers([holding('AMAT', 3.1)], { now: saturday,
+            lastSessionPerformance: new Map([['AMAT', { sessionCloseTs: Date.parse('2026-10-09T20:00:00Z'), sessionCloseObserved: false }]]) });
+        expect(fallback.stateLabel).toContain('date de séance inconnue');
     });
     it('keeps only the best and worst movers of a large portfolio', () => {
         const items = selectPortfolioMovers(Array.from({ length: 20 }, (_, i) => holding(`T${i}`, i - 10)), { now: NOW });
         expect(items).toHaveLength(12);
         expect(items[0].pct).toBe(9);
         expect(items.at(-1).pct).toBe(-10);
+    });
+    it('never calls a heuristic or holiday-unknown session confirmed', () => {
+        const calendar = {
+            getTradingModel: () => 'exchange_us',
+            getSession: () => ({ source: 'heuristic-fallback', openUTCMs: NOW - 3600000, closeUTCMs: NOW + 3600000 }),
+            getTradingDayStatus: () => 'HOLIDAY_UNKNOWN'
+        };
+        const [item] = selectPortfolioMovers([holding('AMAT', 2)], {
+            now: NOW, calendar, priceQuotes: new Map([['AMAT', { lastUpdate: NOW - 60000 }]])
+        });
+        expect(item).toMatchObject({ state: 'unknown', stale: false });
+        expect(item.stateLabel).toBe('Séance non confirmée');
+        expect(item.freshnessLabel).toContain('Donnée');
+        calendar.getSession = () => ({ source: 'provider', openUTCMs: NOW - 3600000, closeUTCMs: NOW + 3600000 });
+        const [scheduledOnly] = selectPortfolioMovers([holding('AMAT', 2)], { now: NOW, calendar });
+        expect(scheduledOnly.state).toBe('unknown');
+        calendar.getProviderMetadata = () => ({ lastQuoteTimeMs: NOW - 60000 });
+        const [confirmed] = selectPortfolioMovers([holding('AMAT', 2)], { now: NOW, calendar });
+        expect(confirmed.state).toBe('open');
+    });
+    it('marks a retained or old quote on the affected position', () => {
+        const quotes = new Map([['BTC-EUR', { lastUpdate: NOW - 45 * 60000 }]]);
+        const [item] = selectPortfolioMovers([holding('BTC-EUR', 1)], { now: NOW, priceQuotes: quotes });
+        expect(item).toMatchObject({ state: 'continuous', stale: true });
+        const root = tickerRoot();
+        new MarketTicker(root, () => {}).update([item]);
+        expect(root.querySelector('.market-ticker-item').classList.contains('is-stale')).toBe(true);
+        expect(root.querySelector('.ticker-state').textContent).toContain('Cours ancien');
+        const [failed, healthy] = selectPortfolioMovers([
+            holding('AMAT', 2), holding('GOOGL', 1)
+        ], { now: NOW, staleInstruments: ['AMAT'], priceQuotes: new Map([
+            ['AMAT', { lastUpdate: NOW - 60000 }], ['GOOGL', { lastUpdate: NOW - 60000 }]
+        ]) });
+        expect(failed.freshnessLabel).toContain('Actualisation indisponible');
+        expect(healthy.stale).toBe(false);
+    });
+    it('uses the weekly break for a held future, even when provider hours claim Sunday is open', () => {
+        const sunday = Date.parse('2026-10-11T20:00:00Z');
+        marketCalendarEngine.ingestProviderMetadata('GC=F', {
+            exchangeTimezoneName: 'America/New_York', instrumentType: 'FUTURE',
+            currentTradingPeriod: { regular: { start: sunday / 1000 - 3600, end: sunday / 1000 + 3600 } }
+        });
+        const [item] = selectPortfolioMovers([holding('GC=F', 1)], { now: sunday });
+        expect(item.state).toBe('closed');
     });
     function newsApp() {
         document.body.innerHTML = '<div id="news-global-container"></div><div id="news-portfolio-container"></div>';
@@ -229,5 +282,42 @@ describe('Dashboard ticker and feeds', () => {
         expect(document.querySelector('.market-card-open').disabled).toBe(true);
         expect(document.body.textContent).toContain('Indisponible');
         expect(document.querySelector('.market-card').classList.contains('stat-neutral')).toBe(true);
+    });
+});
+
+describe('Daily portfolio contributions', () => {
+    const position = (ticker, dayPnl, currentValue = 100, dayPnlPct = 1) => ({
+        ticker, name: ticker, quantity: 1, currentValue, dayPnl, dayPnlPct
+    });
+    const snapshot = positions => ({ status: 'valid', totalValue: 1000, dayPnl: 30, positions });
+    it('uses canonical daily P&L and reconciles its sum with Var Today', () => {
+        const data = selectDailyContributions(snapshot([
+            { ...position('AAA', 50, 200, 5), displayDayPnl: 500 },
+            position('BBB', -20, 100, -2), position('CCC', 0, 50, 0)
+        ]));
+        expect(data).toMatchObject({ status: 'complete', total: 30, explained: 30, residual: 0, missing: 0 });
+        expect(data.rows.map(row => row.ticker)).toEqual(['AAA', 'BBB']);
+        expect(data.rows[0]).toMatchObject({ impact: 50, weight: 20 });
+    });
+    it('keeps missing attribution and mismatches visible instead of inventing a complete total', () => {
+        expect(selectDailyContributions(snapshot([position('AAA', 30), position('BBB', null)])))
+            .toMatchObject({ status: 'partial', missing: 1, explained: 30 });
+        expect(selectDailyContributions(snapshot([position('AAA', 20)])))
+            .toMatchObject({ status: 'mismatch', residual: 10 });
+        expect(selectDailyContributions(snapshot([position('AAA', 30)]), { previousSession: true }).status)
+            .toBe('previous-session');
+    });
+    it('renders an explicit partial state and hides the previous-day table', () => {
+        document.body.innerHTML = `<section id="dashboard-contributions"><p class="contributions-summary"></p>
+            <div class="contributions-table-wrap"><table class="contributions-table"><tbody></tbody></table></div>
+            <p class="contributions-note"></p></section>`;
+        const app = Object.create(DashboardApp.prototype);
+        const data = snapshot([position('AAA', 30), position('BBB', null)]);
+        app.renderDailyContributions(data);
+        expect(document.querySelector('#dashboard-contributions').dataset.status).toBe('partial');
+        expect(document.querySelector('.contributions-note').textContent).toContain('décomposition partielle');
+        app.renderDailyContributions(data, { previousSession: true });
+        expect(document.querySelector('.contributions-table').hidden).toBe(true);
+        expect(document.querySelector('.contributions-summary').textContent).toBe('Variation du jour indisponible');
     });
 });

@@ -1,4 +1,5 @@
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
+import { quoteSession } from './dashboardMarketData.js';
 
 const PAUSE_KEY = 'dashboard_ticker_paused_v1';
 const readPause = () => { try { return localStorage.getItem(PAUSE_KEY) === 'true'; } catch { return false; } };
@@ -8,27 +9,20 @@ const MOVERS_PER_SIDE = 6;
 const pctFormat = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const eurFormat = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const sessionDayFormat = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', weekday: 'short', day: '2-digit', month: '2-digit' });
-
-// Last civil day whose session is over: today after the close, otherwise the
-// previous trading day (weekends skipped; holidays aren't known here).
-function lastSessionDay(ticker, now, calendar) {
-    const today = new Date(now);
-    const session = calendar.getSession(ticker, today);
-    if (session && now >= session.closeUTCMs) return today;
-    const day = new Date(today);
-    for (let i = 0; i < 7; i++) {
-        day.setDate(day.getDate() - 1);
-        if (calendar.isTradingDay(ticker, day)) return day;
-    }
-    return null;
-}
+const quoteTimeFormat = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+// HistoryCalculator stops preferring a live price after ten minutes.
+const OLD_QUOTE_MS = 10 * 60000;
 
 /**
  * Portfolio positions shown in the ticker, best to worst daily move.
  * Open markets and cryptos use today's move; closed markets show their last
  * session (e.g. Friday's move during the weekend), flagged as closed.
  */
-export function selectPortfolioMovers(holdings, { now = Date.now(), calendar = marketCalendarEngine } = {}) {
+export function selectPortfolioMovers(holdings, {
+    now = Date.now(), calendar = marketCalendarEngine, priceQuotes = null,
+    lastSessionPerformance = null, staleInstruments = [], staleAll = false
+} = {}) {
+    const staleTickers = new Set(staleInstruments);
     const items = (holdings || []).flatMap(h => {
         if (!h?.ticker || h.ticker.startsWith('CASH-') || h.assetType === 'Real Estate') return [];
         if (h.priceDataUnavailable || !(h.quantity > 0)) return [];
@@ -36,16 +30,50 @@ export function selectPortfolioMovers(holdings, { now = Date.now(), calendar = m
         if (!Number.isFinite(pct)) return [];
         const change = Number.isFinite(h.displayDayChange) ? h.displayDayChange : h.dayChange;
         const continuous = calendar.getTradingModel(h.ticker) === 'crypto_24_7';
-        const open = continuous || calendar.isMarketOpen(h.ticker, now);
-        let stateLabel = continuous ? 'Marché 24/7' : 'Séance ouverte';
-        if (!open) {
-            const day = lastSessionDay(h.ticker, now, calendar);
-            stateLabel = day ? `Fermé · séance du ${sessionDayFormat.format(day)}` : 'Fermé · dernière séance';
+        const futureOrForex = h.ticker.endsWith('=F') || h.ticker.endsWith('=X');
+        const metadata = calendar.getProviderMetadata?.(h.ticker);
+        const observed = futureOrForex ? quoteSession(h.ticker, metadata, now) : null;
+        const session = continuous || futureOrForex ? null : calendar.getSession(h.ticker, new Date(now));
+        const providerSession = session?.source === 'provider';
+        const weekend = !continuous && !futureOrForex && calendar.getTradingDayStatus(h.ticker, new Date(now)) === 'HOLIDAY_CONFIRMED';
+        const tradeObservedToday = providerSession && Number.isFinite(metadata?.lastQuoteTimeMs)
+            && metadata.lastQuoteTimeMs >= session.openUTCMs && metadata.lastQuoteTimeMs <= now;
+        const tradeObservedInFutureSession = futureOrForex && observed === 'OPEN'
+            && Number.isFinite(metadata?.lastQuoteTimeMs)
+            && metadata.lastQuoteTimeMs >= metadata.regularSession.startMs && metadata.lastQuoteTimeMs <= now;
+        const open = futureOrForex ? tradeObservedInFutureSession
+            : !weekend && tradeObservedToday && now < session.closeUTCMs;
+        const closed = futureOrForex ? observed === 'CLOSED' : weekend || (providerSession && now >= session.closeUTCMs);
+        const state = continuous ? 'continuous' : open ? 'open' : closed ? 'closed' : 'unknown';
+        let stateLabel = continuous ? 'Marché 24/7' : open ? 'Séance observée' : 'Séance non confirmée';
+        if (closed) {
+            const lastSession = lastSessionPerformance?.get(h.ticker);
+            const sessionCloseTs = lastSession?.sessionCloseTs;
+            // A guessed weekday is not evidence of the session that produced
+            // this figure (Friday may have been a holiday).
+            stateLabel = lastSession?.sessionCloseObserved && Number.isFinite(sessionCloseTs)
+                && sessionCloseTs > 0 && sessionCloseTs <= now
+                ? `Fermé · séance du ${sessionDayFormat.format(sessionCloseTs)}`
+                : 'Fermé · date de séance inconnue';
         }
+        const quote = priceQuotes?.get(h.ticker);
+        const receivedAt = Number.isFinite(quote?.lastUpdate) && quote.lastUpdate > 0 && quote.lastUpdate <= now
+            ? quote.lastUpdate : null;
+        const refreshFailed = staleTickers.has(h.ticker) || !!quote?.stale;
+        const indicativeOpen = (futureOrForex && observed === 'OPEN')
+            || (session?.source === 'heuristic-fallback' && now >= session.openUTCMs && now < session.closeUTCMs);
+        const oldDuringSession = (open || continuous || indicativeOpen) && receivedAt !== null && now - receivedAt > OLD_QUOTE_MS;
+        const stale = staleAll || refreshFailed || oldDuringSession;
+        const timeLabel = receivedAt === null ? 'heure inconnue' : quoteTimeFormat.format(receivedAt);
+        const freshnessLabel = refreshFailed ? `Actualisation indisponible · ${timeLabel}`
+            : oldDuringSession ? `Cours ancien · ${timeLabel}`
+            : staleAll ? `À actualiser · ${timeLabel}`
+            : receivedAt === null ? 'Heure de la donnée inconnue' : `Donnée ${timeLabel}`;
         return [{
             ticker: h.ticker, name: h.name || h.ticker, price: h.currentPrice, pct,
             change: Number.isFinite(change) ? change : null,
-            state: continuous ? 'continuous' : open ? 'open' : 'closed', stateLabel
+            state, stateLabel, freshnessLabel, stale,
+            detail: `${stateLabel} · ${freshnessLabel}${receivedAt === null ? '' : ' (heure de récupération)'}`
         }];
     }).sort((a, b) => b.pct - a.pct);
     if (items.length <= MOVERS_PER_SIDE * 2) return items;
@@ -130,20 +158,21 @@ export class MarketTicker {
             const pctText = `${item.pct > 0 ? '▲ +' : item.pct < 0 ? '▼ ' : ''}${pctFormat.format(item.pct)} %`;
             const priceText = Number.isFinite(item.price) ? eurFormat.format(item.price) : '—';
             const amountText = item.change === null ? '' : `${item.change > 0 ? '+' : ''}${eurFormat.format(item.change)}`;
-            node.classList.remove('is-open', 'is-closed', 'is-continuous');
+            node.classList.remove('is-open', 'is-closed', 'is-continuous', 'is-unknown', 'is-stale');
             node.classList.add(`is-${item.state}`);
+            node.classList.toggle('is-stale', !!item.stale);
             node.querySelector('.ticker-name').textContent = item.name;
             node.querySelector('.ticker-price').textContent = priceText;
             const change = node.querySelector('.ticker-change');
             change.textContent = pctText;
             change.className = `ticker-change ${tone}`;
-            node.querySelector('.ticker-state').textContent = item.stateLabel;
+            node.querySelector('.ticker-state').textContent = `${item.stateLabel}${item.freshnessLabel ? ` · ${item.freshnessLabel}` : ''}`;
             const amount = node.querySelector('.ticker-amount');
             amount.textContent = amountText;
             amount.className = `ticker-amount ${tone}`;
-            node.title = `${item.name} (${item.ticker}) · ${item.stateLabel}`;
+            node.title = `${item.name} (${item.ticker}) · ${item.detail || item.stateLabel}`;
             if (node.tagName === 'BUTTON') {
-                node.setAttribute('aria-label', `${item.name}, ${priceText}, ${pctText}${amountText ? `, ${amountText}` : ''}. ${item.stateLabel}. Afficher le graphique`);
+                node.setAttribute('aria-label', `${item.name}, ${priceText}, ${pctText}${amountText ? `, ${amountText}` : ''}. ${item.detail || item.stateLabel}. Afficher le graphique`);
             }
         }
         this.updateOverflow();

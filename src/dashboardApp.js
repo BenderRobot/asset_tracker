@@ -28,6 +28,7 @@ import { buildWatchlistContext } from './watchlistContext.js';
 import { DEFAULT_DASHBOARD_INDICES } from './appDataContext.js';
 import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus } from './dashboardMarketData.js';
 import { MarketTicker, selectPortfolioMovers } from './marketTicker.js';
+import { selectDailyContributions } from './dashboardContributions.js';
 
 const SPARKLINE_TTL_MS = 5 * 60 * 1000;
 const marketCardStateClass = view => {
@@ -309,7 +310,15 @@ export class DashboardApp {
         };
         this._latestPortfolioSnapshotId = snapshot.snapshotId;
         this.lastHoldings = holdings;
-        this.marketTicker?.update(selectPortfolioMovers(holdings));
+        const portfolio = snapshot.portfolioSnapshot;
+        const staleInstruments = [...new Set([...(portfolio.staleInstruments || []), ...(result.staleInstruments || [])])];
+        this.marketTicker?.update(selectPortfolioMovers(holdings, {
+            priceQuotes: snapshot._engine.todayGraphData?.resolvedPrices,
+            lastSessionPerformance: snapshot._engine.todayGraphData?.perTickerLastSessionPerformance,
+            staleInstruments,
+            staleAll: !!(stale || degraded) && staleInstruments.length === 0
+        }));
+        this.renderDailyContributions(portfolio, { previousSession, stale: !!(stale || degraded) });
         this.lastCashTotal = cashReserve.total;
         // Copie décorée pour les consommateurs secondaires (notamment Gemini
         // Actualités). Ne jamais muter le snapshot partagé du repository.
@@ -343,6 +352,69 @@ export class DashboardApp {
         if (!stale && !degraded && snapshot.portfolioSnapshot.status === 'valid' && this._notifiedSnapshotId !== snapshot.snapshotId) {
             this._notifiedSnapshotId = snapshot.snapshotId;
             this.notificationManager?.checkAll(this.storage.currentData, engineSummary);
+        }
+    }
+
+    renderDailyContributions(snapshot, { previousSession = false, stale = false } = {}) {
+        const panel = document.getElementById('dashboard-contributions');
+        if (!panel) return;
+        const summary = panel.querySelector('.contributions-summary');
+        const note = panel.querySelector('.contributions-note');
+        const table = panel.querySelector('.contributions-table');
+        const body = table?.querySelector('tbody');
+        if (!summary || !note || !table || !body) return;
+        const data = selectDailyContributions(snapshot, { previousSession });
+        const money = value => `${value > 0 ? '+' : ''}${new Intl.NumberFormat('fr-FR', {
+            style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2
+        }).format(value)}`;
+        const percent = value => value === null ? '—' : `${value > 0 ? '+' : ''}${value.toLocaleString('fr-FR', {
+            minimumFractionDigits: 2, maximumFractionDigits: 2
+        })} %`;
+        const weightPercent = value => value === null ? '—' : `${value.toLocaleString('fr-FR', {
+            minimumFractionDigits: 2, maximumFractionDigits: 2
+        })} %`;
+        panel.dataset.status = data.status;
+        table.hidden = data.status === 'previous-session' || data.status === 'unavailable' || data.rows.length === 0;
+        body.replaceChildren();
+        for (const row of data.rows) {
+            const tr = document.createElement('tr');
+            const name = document.createElement('td');
+            const title = document.createElement('strong');
+            title.textContent = row.name;
+            const ticker = document.createElement('small');
+            ticker.textContent = row.ticker;
+            const mobileWeight = document.createElement('small');
+            mobileWeight.className = 'contribution-mobile-weight';
+            mobileWeight.textContent = `Poids ${weightPercent(row.weight)}`;
+            name.append(title, ticker, mobileWeight);
+            const weight = document.createElement('td');
+            weight.textContent = weightPercent(row.weight);
+            const variation = document.createElement('td');
+            variation.textContent = percent(row.pct);
+            const impact = document.createElement('td');
+            impact.textContent = row.impact === null ? '—' : money(row.impact);
+            impact.className = row.impact > 0 ? 'stat-positive' : row.impact < 0 ? 'stat-negative' : '';
+            tr.append(name, weight, variation, impact);
+            body.append(tr);
+        }
+        if (data.status === 'previous-session') {
+            summary.textContent = 'Variation du jour indisponible';
+            note.textContent = 'Le dernier snapshot date d’une autre journée. Les variations du bandeau peuvent correspondre à la dernière séance.';
+        } else if (data.status === 'unavailable') {
+            summary.textContent = 'Contributions indisponibles';
+            note.textContent = 'Une valorisation fiable du portefeuille est nécessaire pour expliquer la variation du jour.';
+        } else if (data.status === 'complete') {
+            summary.textContent = `Somme des positions ${money(data.explained)} = Variation du jour ${money(data.total)}`;
+            note.textContent = data.rows.length ? 'Impact en euros sur le portefeuille, classé par importance. Poids calculé sur la valeur totale, liquidités incluses.' : 'Aucune position n’a contribué à la variation du jour.';
+        } else if (data.status === 'partial') {
+            summary.textContent = `Impact connu ${money(data.explained)} · Variation du jour ${money(data.total)}`;
+            note.textContent = `${data.missing} position${data.missing > 1 ? 's' : ''} sans variation calculable : décomposition partielle, rapprochement non confirmé.`;
+        } else {
+            summary.textContent = `Somme des positions ${money(data.explained)} · Variation du jour ${money(data.total)}`;
+            note.textContent = `Écart non expliqué : ${money(data.residual)}. Vérifier les données avant d’interpréter les contributions.`;
+        }
+        if (stale && !['previous-session', 'unavailable'].includes(data.status)) {
+            note.textContent += ' · Dernier état connu : actualisation à confirmer.';
         }
     }
 

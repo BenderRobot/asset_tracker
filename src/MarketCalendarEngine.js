@@ -120,6 +120,11 @@ export class MarketCalendarEngine {
             exchangeTimezone: meta.exchangeTimezoneName || null,
             instrumentType: meta.instrumentType || null,
             regularSession: hasRegular ? { startMs: regular.start * 1000, endMs: regular.end * 1000 } : null,
+            // Actual provider observation, distinct from the scheduled session
+            // and from the time this payload was fetched. A holiday may still
+            // have a regular-session schedule but no trade today.
+            lastQuoteTimeMs: Number.isFinite(meta.regularMarketTime) && meta.regularMarketTime > 0
+                ? meta.regularMarketTime * 1000 : null,
             // Informationnel uniquement : le proxy Cloudflare demande
             // includePrePost=false (voir cloudflare-workers/prices-worker/worker.js),
             // donc aucune bougie pre/post n'est jamais récupérée — ce champ ne doit

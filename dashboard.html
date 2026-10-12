@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="css/dashboard.css?v=102">
     <link rel="stylesheet" href="css/dashboard-mobile.css?v=6">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
-    <link rel="stylesheet" href="css/dashboard-premium.css?v=3">
+    <link rel="stylesheet" href="css/dashboard-premium.css?v=4">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -54,11 +54,11 @@
 
     <main class="main-content">
         <div class="container">
-            <section id="market-ticker" class="market-ticker" aria-label="Meilleures et pires variations du jour de vos positions">
+            <section id="market-ticker" class="market-ticker" aria-label="Cotations et variations de vos positions, selon la dernière séance disponible">
                 <span class="market-ticker-label"><i class="ph ph-briefcase" aria-hidden="true"></i> Mes actifs</span>
                 <div class="market-ticker-viewport"><div class="market-ticker-track"><span class="ticker-loading">Chargement des positions…</span></div></div>
                 <span class="ticker-empty-label">Aucune position cotée à afficher.</span>
-                <span class="ticker-legend" aria-hidden="true"><span class="legend-dot is-open"></span>Ouvert<span class="legend-dot is-continuous"></span>24/7<span class="legend-dot is-closed"></span>Fermé</span>
+                <span class="ticker-legend" aria-hidden="true"><span class="legend-dot is-open"></span>Confirmée<span class="legend-dot is-continuous"></span>24/7<span class="legend-dot is-closed"></span>Fermé<span class="legend-dot is-unknown"></span>À confirmer</span>
                 <button type="button" class="ticker-control" data-ticker-pause aria-label="Mettre en pause le défilement des cotations" aria-pressed="false">Ⅱ</button>
             </section>
 
@@ -255,36 +255,6 @@
                             <button class="period-btn" data-period="all">Tout</button>
                         </div>
                     </div>
-                    <div class="dashboard-kpi-grid-v2">
-                        <div class="kpi-card">
-                            <div class="kpi-header"><span class="kpi-label">Meilleures performances</span><i
-                                    class="ph ph-trend-up kpi-icon"></i>
-                            </div>
-                            <div class="kpi-name-large" id="dashboard-top-gainer-name">-</div>
-                            <div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span>
-                            </div>
-                        </div>
-                        <div class="kpi-card">
-                            <div class="kpi-header"><span class="kpi-label">Moins bonnes performances</span><i
-                                    class="ph ph-trend-down kpi-icon"></i>
-                            </div>
-                            <div class="kpi-name-large" id="dashboard-top-loser-name">-</div>
-                            <div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span>
-                            </div>
-                        </div>
-                        <div class="kpi-card">
-                            <div class="kpi-header"><span class="kpi-label">Principales positions</span><i
-                                    class="ph ph-factory kpi-icon"></i></div>
-                            <div class="kpi-name-large" id="dashboard-top-sector">-</div>
-                        </div>
-                        <div class="kpi-card">
-                            <div class="kpi-header"><span class="kpi-label">Répartition</span><i
-                                    class="ph ph-chart-pie-slice kpi-icon"></i>
-                            </div>
-                            <div id="dashboard-allocation-container"></div>
-                        </div>
-                    </div>
-
                 </div>
 
                 <!-- COLONNE DROITE (Indices) -->
@@ -300,6 +270,50 @@
                     <div id="market-overview-container" class="indices-list">
                         <div class="market-loading"></div>
                     </div>
+                </div>
+            </div>
+
+            <section id="dashboard-contributions" class="dashboard-contributions" aria-labelledby="contributions-title">
+                <div class="contributions-header">
+                    <h3 id="contributions-title"><i class="ph ph-chart-bar" aria-hidden="true"></i> Contributions du jour</h3>
+                    <span class="contributions-horizon">Portefeuille · aujourd’hui</span>
+                </div>
+                <p class="contributions-summary">Chargement…</p>
+                <div class="contributions-table-wrap">
+                    <table class="contributions-table" aria-label="Impact quotidien des positions sur le portefeuille">
+                        <thead><tr><th scope="col">Position</th><th scope="col">Poids</th><th scope="col">Variation</th><th scope="col">Impact</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <p class="contributions-note"></p>
+            </section>
+            <div class="dashboard-kpi-grid-v2">
+                <div class="kpi-card">
+                    <div class="kpi-header"><span class="kpi-label">Meilleures performances</span><i
+                            class="ph ph-trend-up kpi-icon"></i>
+                    </div>
+                    <div class="kpi-name-large" id="dashboard-top-gainer-name">-</div>
+                    <div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header"><span class="kpi-label">Moins bonnes performances</span><i
+                            class="ph ph-trend-down kpi-icon"></i>
+                    </div>
+                    <div class="kpi-name-large" id="dashboard-top-loser-name">-</div>
+                    <div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header"><span class="kpi-label">Principales positions</span><i
+                            class="ph ph-factory kpi-icon"></i></div>
+                    <div class="kpi-name-large" id="dashboard-top-sector">-</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-header"><span class="kpi-label">Répartition</span><i
+                            class="ph ph-chart-pie-slice kpi-icon"></i>
+                    </div>
+                    <div id="dashboard-allocation-container"></div>
                 </div>
             </div>
 

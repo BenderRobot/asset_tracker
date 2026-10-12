@@ -1,6 +1,6 @@
 # Audit du dashboard — évolution vers un suivi boursier premium
 
-Date : 11 octobre 2026.
+Date : 11 octobre 2026 · mis à jour le 12 octobre 2026 (lot 2).
 
 Périmètre de l'audit initial : capture fournie et lecture du code local du dashboard, de son adaptateur de cotations, de ses styles et de composants partagés. Audit de présentation, d'usage et de contrats de données ; aucun parcours authentifié exécuté, aucun cours actuel vérifié, aucun audit exhaustif des calculs de portefeuille. Les références de lignes décrivent le code avant les changements décrits dans le suivi ci-dessous.
 
@@ -25,6 +25,95 @@ Contrôle Chrome avec HTML, CSS et composants réels sur données de démonstrat
 Artefacts : [aperçu bureau](dashboard-preview-1366.png), [aperçu mobile](dashboard-preview-390.png), [résultats navigateur](dashboard-preview-results.json), [script reproductible](dashboard-preview.mjs). Le script nécessite Chrome et Playwright ; son second argument permet de désigner une installation existante de Playwright sans ajouter de dépendance à l'application.
 
 Les contributions quotidiennes, le calendrier, les listes de bandeau Mes actifs/Watchlist et la personnalisation avancée restent des évolutions suivantes de la proposition. Les sections ci-dessous conservent l'audit initial et sa feuille de route.
+
+> **Attention :** le lot 2 ci-dessous remplace plusieurs points du premier lot : bandeau des marchés favoris, réglages du bandeau, détails repliés, en-tête « Mon portefeuille », retrait des sparklines et sous-titres des KPI. En cas de contradiction, c'est le lot 2 qui fait foi.
+
+## Suivi — lot 2 : retours utilisateur sur le premier lot (11–12 octobre 2026)
+
+Après test du premier lot (commit `d65c771 audit codex dashboard`), l'utilisateur a refusé plusieurs changements visuels. Ce lot rétablit les fonctionnalités perdues et applique ses demandes. Il conserve les corrections de données du premier lot : `^NDX`, contrat de cotation natif, absence de faux « LIVE », états des actualités et listes KPI rafraîchies. Implémenté localement ; aucun commit ni déploiement.
+
+### Préférences exprimées par l'utilisateur (à respecter pour la suite)
+
+- Rien au-dessus du bandeau de cotations : pas d'en-tête de page ni d'horodatage global.
+- Le bandeau montre **les positions du portefeuille**, pas les marchés favoris.
+- Les marchés favoris de droite gardent leurs **sparklines du jour** et un **code couleur**. Le panneau a **la même hauteur que la colonne de gauche** et défile à l'intérieur : aucune zone vide au-dessus des actualités.
+- **Aucune information du graphique cachée** derrière un volet repliable.
+- **Aucun sous-titre** sur les KPI (ni sur les 3 principaux, ni sur les 4 cartes secondaires).
+- Montants des KPI principaux grands par rapport à leur carte.
+- **ATH = plus haut niveau jamais atteint, pics de séance compris, identique dans toutes les vues.** Jamais une simple valeur de clôture si un pic plus haut a été observé.
+
+### Changements livrés
+
+**Haut de page — `dashboard.html`, `css/dashboard-premium.css`**
+- Suppression de `.dashboard-page-header` (« Vue d'ensemble / Mon portefeuille ») et de `#dashboard-freshness`, ainsi que du code JS associé dans `renderSnapshot`.
+
+**Bandeau « Mes actifs » — `src/marketTicker.js`, branché dans `DashboardApp.renderSnapshot`**
+- Alimenté par chaque snapshot du portefeuille (`holdings`), sans timer réseau propre. La fonction pure `selectPortfolioMovers(holdings, { now, calendar })` :
+  - exclut l'immobilier, le cash `CASH-*`, les prix indisponibles et les quantités nulles ;
+  - trie par variation décroissante ;
+  - au-delà de 12 positions, garde les 6 meilleures et les 6 pires.
+- La variation affichée est `displayDayPct` / `displayDayChange` (repli : `dayPct` / `dayChange`). Le moteur y place la dernière séance quand le marché est fermé : le week-end, on voit donc la séance du vendredi, et les cryptos leur variation depuis 00:00 UTC.
+- L'état vient de `marketCalendarEngine` (`getTradingModel`, `isMarketOpen`, `getSession`, `isTradingDay`) :
+  - `continuous` pour les cryptos : point bleu, « Marché 24/7 » ;
+  - `open` : point vert, « Séance ouverte » ;
+  - `closed` : point orange, fond teinté, « Fermé · séance du ven. 09/10 ».
+  - Une légende Ouvert / 24/7 / Fermé est affichée dans le bandeau. Les jours fériés ne sont pas connus.
+- Chaque élément affiche nom, cours en €, variation en % et impact en €.
+- Un clic appelle `DashboardApp.selectTickerAsset` → `chart.showAssetChart(ticker)`, avec le bouton `#dashboard-back-portfolio` ; un second clic revient au portefeuille.
+- Pause persistante, mouvement réduit et défilement manuel sur mobile sont conservés. Le bouton de réglages `#ticker-settings` est supprimé.
+
+**Marchés favoris (colonne droite) — `DashboardApp.loadMarketIndices` / `renderMarketSparklines`**
+- Les sparklines du jour reviennent en fond de carte, via `chartKPIManager.fetchIndexData(ticker, '1D', allowFallback)` et `generateSparkline` :
+  - cache de 5 minutes par instrument (`SPARKLINE_TTL_MS`), pour que le cycle de 30 s ne les recharge pas ;
+  - repli sur la dernière séance autorisé hors séance ouverte, et aussi en séance quand le cours est « Cours ancien ».
+- Code couleur de la carte :
+  - classe de tendance `stat-positive` / `stat-negative` / `stat-neutral`, pour le bord et la lueur ;
+  - classe d'état `is-open` (vert), `is-continuous` (bleu), `is-closed` (rouge), `is-stale` (orange), `is-unknown` (gris), pour la pastille de séance (`marketCardStateClass`).
+- Disposition de la carte : titre, badge future, prix, variation, puis heure et pastille sur la même ligne.
+- Hauteur alignée sur la colonne gauche : on revient au mécanisme d'origine de `css/dashboard.css` (`height: 0; min-height: 100%` sur `.dashboard-indices-panel-full`, liste en `overflow-y: auto`). La surcharge `height: auto; overflow: visible` du premier lot l'annulait.
+
+**Or et contrats à terme le week-end — `src/dashboardMarketData.js`, fonction `quoteSession`**
+- Constat sur la réponse réelle de Yahoo pour `GC=F` un dimanche : `currentTradingPeriod.regular` couvre tout le dimanche (00:00 → 23:59, heure de New York). Le marché passait donc pour ouvert, d'où « Cours ancien » et une sparkline vide.
+- Correction : `inWeeklyFuturesBreak` considère `=F` et `=X` comme fermés du vendredi 17:00 au dimanche 18:00 (heure de New York), avant de croire la séance fournisseur.
+
+**Graphique — `dashboard.html`**
+- Suppression du `<details class="dashboard-chart-details">` et des surcharges CSS correspondantes. La barre de stats retrouve la table unifiée d'une ligne de `css/chart-toolbar.css` : Période/Performance · Var. jour/Clôture hier (1J) · Début/Fin/Haut/Bas · bloc ATH.
+
+**KPI**
+- Suppression de `.summary-card-context` (2 occurrences) et `.kpi-horizon` (4 occurrences).
+- Cartes principales plus compactes ; montant dimensionné sur la largeur de la carte (`container-type: inline-size`, `font-size: clamp(22px, 13cqi, 44px)`), pour rester sur une ligne de 360 à 1920 px. Pourcentage et « Investi » à 17 px.
+
+**ATH avec pics de séance, identique dans toutes les vues — `src/dataManager.js`, `src/historicalChart.js`**
+- Constat : en 1S, la ligne ATH (+0,74 %, 37 910,02 €) passait sous le pic visible (HAUT 38 008,70 €, mardi 6 oct. vers 09:30). L'historique « tout » n'a qu'une clôture par jour. Le registre des pics de séance (`athIntraday`) ne recevait que les 2 derniers jours en points de 5 min, et seulement via les vues 1J/2J ou à la reconstruction de l'historique ATH.
+- Correction :
+  - chaque reconstruction de l'historique ATH verse les **7 derniers jours en points de 15 min** dans le registre (`ATH_INTRADAY_DAYS = 7`, pour le portefeuille comme pour un actif seul) ;
+  - la vue **1S** alimente aussi le registre et trace la ligne dans son repère, comme 1J et 2J (`ATH_INTRADAY_RESOLUTION_MS` : 1J/2J = 5 min, 1S = 15 min) ;
+  - toutes les vues lisent le même registre : `computeAthReference` retient `max(clôtures, registre)`.
+- `mergeAthIntradayHistory(…, { resolutionMs })` marque chaque barre avec sa finesse :
+  - une fenêtre plus grossière n'efface jamais une barre plus fine (un pic 5 min de la 1J survit à une fenêtre 15 min) ;
+  - la jointure d'ancrage (`athWindowBases`) ne compare que des barres de même finesse ;
+  - sans finesse connue (`null`), on garde les règles de révision d'origine, ce qui continue de corriger les barres provisoires.
+- `ATH_INTRADAY_VERSION = 4` : les caches en version 3 sont reconstruits au prochain chargement.
+- Limite : les pics de séance des périodes jamais observées en intraday restent inconnus. Pour celles-ci, le record reste la meilleure clôture. À partir de maintenant, aucun pic n'est perdu si l'app est ouverte au moins une fois par semaine avec l'ATH activé en vue %.
+
+### Validation du lot 2
+
+- Suite complète : **709 réussis / 710**. L'unique échec reste `versionTracking.test.js` (écart préexistant entre `version.json` 1.17.1 et `RELEASES.md` 1.17.0).
+- Tests modifiés ou ajoutés :
+  - `tests/dashboardPremium.test.js` : bandeau sur les positions, sélection week-end (crypto 24/7, vendredi fermé), limitation à 6+6, état neutre des cartes, or fermé le week-end malgré la séance Yahoo du dimanche ;
+  - `tests/athReference.test.js` : pic 1S devenu ATH identique en vue 1S et en vue Tout ; une fenêtre 15 min n'efface pas un pic 5 min.
+- `audit/dashboard-preview.mjs` adapté (bandeau sur les positions, sparklines factices, plus de volet ni de réglages du bandeau) :
+  - il vérifie aussi que Début/Fin/Haut/Bas sont visibles à toutes les tailles et que le panneau de droite a la même hauteur que la colonne de gauche au-dessus de 1200 px ;
+  - lancé avec succès de 360 à 1920 px, captures régénérées.
+- Pas de parcours connecté réel. À confirmer sur les vraies données :
+  - le passage bandeau → graphique d'un actif ;
+  - la ligne ATH 1S posée sur le pic du 6 oct. après reconstruction du cache.
+
+### Pistes suivantes
+
+1. Rattrapage ponctuel des pics de séance sur environ 60 jours (limite Yahoo en 15 min), pour compléter le registre ATH au-delà de la dernière semaine. Coût réseau au premier chargement à mesurer. La vue 1M (90 min) n'alimente pas le registre, à cause du décalage de chaînage TWR documenté dans `athReference.test.js`.
+2. Jours fériés absents du calendrier : le bandeau peut marquer « ouvert » un marché fermé.
+3. Reprendre la feuille de route de l'audit initial (contributions quotidiennes, alertes, calendrier, allocation par devise), en respectant les préférences ci-dessus.
 
 ## Diagnostic
 

@@ -27,6 +27,26 @@
 .dashboard-premium .kpi-row-left { min-width: 0; }
 .dashboard-premium .kpi-row-right { font-size: 13px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .dashboard-premium .kpi-row-right .kpi-sub-value { font-size: 11px; color: var(--dashboard-muted); }
+.dashboard-contributions { min-width: 0; padding: 17px 19px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card); }
+.contributions-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.contributions-header h3 { margin: 0; color: var(--text-primary); font-size: 14px; font-weight: 700; }
+.contributions-header h3 i { color: #60a5fa; margin-right: 7px; }
+.contributions-horizon { color: var(--dashboard-muted); font-size: 11px; }
+.contributions-summary { margin: 12px 0 8px; color: var(--text-primary); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.contributions-note { margin: 9px 0 0; color: var(--dashboard-muted); font-size: 11px; line-height: 1.45; }
+.contributions-table-wrap { min-width: 0; max-height: 320px; overflow: auto; scrollbar-width: thin; }
+.contributions-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.contributions-table th { position: sticky; top: 0; background: var(--bg-card); color: var(--dashboard-muted); text-align: right; font-size: 10px; font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border-color); }
+.contributions-table th:first-child { text-align: left; }
+.contributions-table td { padding: 8px 10px; border-bottom: 1px solid rgba(140, 160, 195, .1); text-align: right; white-space: nowrap; }
+.contributions-table td:first-child { text-align: left; min-width: 130px; white-space: normal; }
+.contributions-table td strong { display: block; color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.contributions-table td small { display: block; color: var(--dashboard-muted); font-size: 10px; }
+.contributions-table td .contribution-mobile-weight { display: none; }
+.contributions-table td.stat-positive { color: #10b981; font-weight: 650; }
+.contributions-table td.stat-negative { color: #f87171; font-weight: 650; }
+.dashboard-contributions[data-status="partial"] .contributions-summary,
+.dashboard-contributions[data-status="mismatch"] .contributions-summary { color: #fbbf24; }
 .dashboard-premium .indices-header .section-title-right { font-size: 11px; letter-spacing: .06em; }
 /* Same height as the left column (height:0 + min-height:100% in dashboard.css):
    the list scrolls inside instead of leaving an empty area. */
@@ -86,16 +106,20 @@
 .ticker-name { font-size: 11px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; }
 .ticker-price { font-size: 12px; font-variant-numeric: tabular-nums; }
 .ticker-change { font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.ticker-state { grid-column: 1 / 3; font-size: 9px; color: var(--dashboard-muted); display: inline-flex; align-items: center; gap: 6px; }
+.ticker-state { grid-column: 1 / 3; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 9px; color: var(--dashboard-muted); display: inline-flex; align-items: center; gap: 6px; }
 .ticker-state::before, .legend-dot { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #64748b; flex-shrink: 0; }
 .ticker-amount { font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
 /* Market state colour code: green = open, blue = 24/7, amber = closed (last session shown). */
 .market-ticker-item.is-open .ticker-state::before, .legend-dot.is-open { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, .7); }
 .market-ticker-item.is-continuous .ticker-state::before, .legend-dot.is-continuous { background: #60a5fa; }
 .market-ticker-item.is-closed .ticker-state::before, .legend-dot.is-closed { background: #f59e0b; }
+.market-ticker-item.is-unknown .ticker-state::before, .legend-dot.is-unknown { background: #94a3b8; }
 .market-ticker-item.is-closed { background: rgba(245, 158, 11, .06); }
 .market-ticker-item.is-closed .ticker-name, .market-ticker-item.is-closed .ticker-price { color: #c4cbd8; }
 .market-ticker-item.is-closed .ticker-state { color: #f5b544; }
+.market-ticker-item.is-stale { background: rgba(245, 158, 11, .1); }
+.market-ticker-item.is-stale .ticker-state { color: #fbbf24; }
+.market-ticker-item.is-stale .ticker-state::before { background: #fbbf24; box-shadow: 0 0 6px rgba(245, 158, 11, .5); }
 .ticker-legend { display: flex; align-items: center; gap: 5px; padding: 0 12px; font-size: 10px; color: var(--dashboard-muted); border-left: 1px solid #273955; align-self: stretch; white-space: nowrap; }
 .ticker-legend .legend-dot { margin-left: 6px; }
 .ticker-legend .legend-dot:first-child { margin-left: 0; }
@@ -115,9 +139,14 @@
 .dashboard-premium :is(button, select, summary, [role="button"]):focus-visible { outline: 2px solid #8ab7ff; outline-offset: 3px; }
 @keyframes market-ticker-scroll { to { transform: translateX(-50%); } }
 
-@media (min-width: 1600px) { .dashboard-premium .dashboard-kpi-grid-v2 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1200px) { .dashboard-premium .dashboard-kpi-grid-v2 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 1180px) {
-    .dashboard-premium .dashboard-top-section { grid-template-columns: minmax(0, 1fr); }
+    .dashboard-premium .dashboard-top-section { display: contents; }
+    .dashboard-premium .dashboard-left-column { order: 0; }
+    .dashboard-premium .dashboard-contributions { order: 1; }
+    .dashboard-premium .dashboard-indices-panel-full { order: 2; }
+    .dashboard-premium .dashboard-kpi-grid-v2 { order: 3; }
+    .dashboard-premium .dashboard-bottom-section { order: 4; }
     .dashboard-premium .dashboard-indices-panel-full { height: auto; min-height: 0; }
     .dashboard-premium .indices-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; overflow: visible; }
     .ticker-legend { display: none; }
@@ -135,6 +164,12 @@
     .dashboard-premium .stat-group .label { font-size: 10px !important; color: var(--dashboard-muted) !important; }
     .dashboard-premium .stat-group-2[style*="display: none"], .dashboard-premium .stat-group-2[style*="display:none"] { display: none !important; }
     .dashboard-premium .dashboard-kpi-grid-v2 { grid-template-columns: 1fr !important; gap: 12px !important; }
+    .dashboard-contributions { padding: 15px 12px; }
+    .contributions-table { min-width: 0; font-size: 11px; }
+    .contributions-table th, .contributions-table td { padding: 8px 5px; }
+    .contributions-table th:nth-child(2), .contributions-table td:nth-child(2) { display: none; }
+    .contributions-table td:first-child { min-width: 105px; }
+    .contributions-table td .contribution-mobile-weight { display: block; }
     .dashboard-premium .kpi-card { padding: 16px !important; }
     .dashboard-premium .feed-card { height: auto !important; }
     .dashboard-premium .kpi-label { font-size: 11px !important; }
