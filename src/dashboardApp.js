@@ -1288,17 +1288,21 @@ export class DashboardApp {
             card.dataset.instrumentType = isContract ? 'future' : 'cash';
             card.classList.toggle('market-card-future', isFuturesSwap);
             card.querySelector('.market-card-title').textContent = idx.name;
+            const contractLabel = isContract ? `FUTURE · ${isFuturesSwap ? future.code : targetTicker}` : '';
+            const showFuturesLabel = isContract && view.status === 'Séance ouverte';
+            // One futures marker per card: the bottom pill while the contract
+            // trades, the top badge otherwise (closed or old quote).
             const futureBadge = card.querySelector('.market-source-future');
-            futureBadge.hidden = !isContract;
-            futureBadge.textContent = isContract ? `FUTURE · ${isFuturesSwap ? future.code : targetTicker}` : '';
+            futureBadge.hidden = !isContract || showFuturesLabel;
+            futureBadge.textContent = contractLabel;
             card.querySelector('.market-card-price').textContent = view.priceText;
             const change = card.querySelector('.market-card-change');
             change.textContent = view.pctText;
             change.className = `market-card-change ${view.tone}`;
             const session = card.querySelector('.market-card-session');
-            const showFuturesLabel = isContract && view.status === 'Séance ouverte';
             session.textContent = showFuturesLabel ? 'Futures' : view.status;
             session.className = `market-card-session${showFuturesLabel ? ' is-futures' : ''}`;
+            session.title = showFuturesLabel ? `${contractLabel} · séance ouverte` : '';
             card.querySelector('.market-card-time').textContent = view.time;
             // Colour code: card edge follows the day's direction, the session
             // pill follows the market state (open / 24/7 / closed / stale).

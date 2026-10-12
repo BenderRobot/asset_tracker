@@ -58,7 +58,9 @@ describe('Dashboard futures presentation', () => {
         expect(card.dataset.instrumentTicker).toBe('ES=F');
         expect(card.dataset.instrumentType).toBe('future');
         expect(card.classList.contains('market-card-future')).toBe(true);
-        expect(card.textContent).toContain('FUTURE · ES');
+        // Only the bottom pill marks the future while it trades.
+        expect(card.querySelector('.market-source-future').hidden).toBe(true);
+        expect(card.querySelector('.market-card-session').title).toContain('FUTURE · ES');
         expect(card.querySelector('.market-card-session').textContent).toBe('Futures');
         expect(card.querySelector('.market-card-session').classList.contains('is-futures')).toBe(true);
         expect(card.style.border).toBe('');
@@ -99,5 +101,7 @@ describe('Dashboard futures presentation', () => {
         const session = document.querySelector('.market-card-session');
         expect(session.textContent).toBe('Dernière séance');
         expect(session.classList.contains('is-futures')).toBe(false);
+        // Closed contract: the top badge stays the futures marker.
+        expect(document.querySelector('.market-source-future').hidden).toBe(false);
     });
 });
