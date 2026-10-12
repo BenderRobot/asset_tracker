@@ -1,4 +1,5 @@
 import { marketCalendarEngine } from './MarketCalendarEngine.js';
+import { getOfficialCalendarDay, getOfficialEarlyCloseMs, getOfficialRegularCloseMs } from './exchangeCalendar.js';
 
 const DAY = 86400000;
 const positive = value => Number.isFinite(value) && value > 0;
@@ -44,7 +45,10 @@ function inWeeklyFuturesBreak(now) {
 export function quoteSession(symbol, quote, now = Date.now()) {
     if (/^[A-Z0-9]+-[A-Z]{3}$/.test(symbol)) return 'CONTINUOUS';
     if ((symbol.endsWith('=F') || symbol.endsWith('=X')) && inWeeklyFuturesBreak(now)) return 'CLOSED';
+    const official = getOfficialCalendarDay(symbol, now);
+    if (official?.closed || (official?.earlyCloseHour != null && now >= getOfficialEarlyCloseMs(official))) return 'CLOSED';
     const session = quote?.regularSession;
+    if (official?.halfDay && (!session || session.endMs >= getOfficialRegularCloseMs(official) - 30 * 60000)) return 'UNKNOWN';
     const timezone = quote?.exchangeTimezone;
     if (session && now >= session.startMs && now < session.endMs) return 'OPEN';
     if (session && timezone && (civilDay(now, timezone) === civilDay(session.startMs, timezone)
@@ -68,6 +72,7 @@ export function scheduledMarketStatus(symbol, at = new Date()) {
     if (observed === 'CONTINUOUS') return '24_7';
     if (observed === 'OPEN') return 'MARKET_OPEN';
     if (observed === 'CLOSED') return 'POST_MARKET';
+    if (getOfficialCalendarDay(symbol, at)?.halfDay) return 'UNKNOWN';
     const us = ['^GSPC', '^NDX', '^IXIC', '^DJI', '^RUT'];
     const eu = ['^FCHI', '^STOXX50E', '^GDAXI', '^IBEX'];
     const timezone = us.includes(symbol) ? 'America/New_York' : eu.includes(symbol) ? 'Europe/Paris' : null;

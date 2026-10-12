@@ -28,7 +28,7 @@ import { buildWatchlistContext } from './watchlistContext.js';
 import { DEFAULT_DASHBOARD_INDICES } from './appDataContext.js';
 import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus } from './dashboardMarketData.js';
 import { MarketTicker, selectPortfolioMovers } from './marketTicker.js';
-import { selectDailyContributions, selectContributionHighlights } from './dashboardContributions.js';
+import { selectDailyContributions, selectContributionHighlights, auditDashboardSnapshot } from './dashboardContributions.js';
 
 const SPARKLINE_TTL_MS = 5 * 60 * 1000;
 const marketCardStateClass = view => {
@@ -318,7 +318,8 @@ export class DashboardApp {
             staleInstruments,
             staleAll: !!(stale || degraded) && staleInstruments.length === 0
         }));
-        this.renderDailyContributions(portfolio, { previousSession, stale: !!(stale || degraded) });
+        this.renderDailyContributions(portfolio, { previousSession, stale: !!(stale || degraded),
+            reconciliation: auditDashboardSnapshot(snapshot) });
         this.lastCashTotal = cashReserve.total;
         // Copie décorée pour les consommateurs secondaires (notamment Gemini
         // Actualités). Ne jamais muter le snapshot partagé du repository.
@@ -355,7 +356,7 @@ export class DashboardApp {
         }
     }
 
-    renderDailyContributions(snapshot, { previousSession = false, stale = false } = {}) {
+    renderDailyContributions(snapshot, { previousSession = false, stale = false, reconciliation = null } = {}) {
         const data = selectDailyContributions(snapshot, { previousSession });
         const highlights = document.getElementById('dashboard-contribution-highlights');
         const state = document.getElementById('dashboard-contribution-state');
@@ -465,6 +466,15 @@ export class DashboardApp {
         }
         if (stale && !['previous-session', 'unavailable'].includes(data.status)) {
             note.textContent += ' · Dernier état connu : actualisation à confirmer.';
+        }
+        const audit = panel.querySelector('.contributions-audit');
+        if (audit) {
+            audit.dataset.status = reconciliation?.status || 'unavailable';
+            audit.textContent = previousSession ? 'Contrôle du jour en attente d’un nouveau snapshot.'
+                : reconciliation?.status === 'complete' ? 'Contrôle automatique : variation, valeur totale et gain rapprochés du même snapshot.'
+                : reconciliation?.status === 'partial' ? `Contrôle incomplet : ${reconciliation.incomplete.join(', ')}${reconciliation.missingDayPnl ? ` (${reconciliation.missingDayPnl} position${reconciliation.missingDayPnl > 1 ? 's' : ''} sans variation)` : ''}.`
+                : reconciliation?.status === 'mismatch' ? `Écart détecté : ${reconciliation.issues.map(issue => `${issue.label} (${money(issue.residual)})`).join(' · ')}.`
+                : '';
         }
     }
 

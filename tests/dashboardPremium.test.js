@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { normalizeDashboardIndices, normalizeDashboardQuote, presentDashboardQuote, quoteSession, scheduledMarketStatus } from '../src/dashboardMarketData.js';
 import { MarketTicker, selectPortfolioMovers } from '../src/marketTicker.js';
-import { selectDailyContributions, selectContributionHighlights } from '../src/dashboardContributions.js';
+import { selectDailyContributions, selectContributionHighlights, auditDashboardSnapshot } from '../src/dashboardContributions.js';
 import { PriceAPI } from '../src/api.js';
 import { createFakeStorage } from './helpers.js';
 import { marketCalendarEngine } from '../src/MarketCalendarEngine.js';
@@ -61,6 +61,24 @@ describe('Dashboard quote contract', () => {
         expect(presentDashboardQuote('GC=F', quote, sunday)).toMatchObject({ session: 'CLOSED', status: 'Dernière séance' });
         // Globex reopens Sunday 18:00 New York time.
         expect(quoteSession('GC=F', quote, Date.parse('2026-10-11T22:30:00Z'))).toBe('OPEN');
+    });
+    it('does not show an open market on a published holiday or after an early close', () => {
+        const holiday = Date.parse('2026-07-03T15:00:00Z');
+        const staleSchedule = { regularSession: { startMs: holiday - 3600000, endMs: holiday + 3600000 },
+            exchangeTimezone: 'America/New_York' };
+        expect(quoteSession('^NDX', staleSchedule, holiday)).toBe('CLOSED');
+        expect(scheduledMarketStatus('^NDX', new Date(holiday))).toBe('POST_MARKET');
+        const early = Date.parse('2026-11-27T18:30:00Z');
+        expect(quoteSession('^GSPC', { ...staleSchedule, regularSession: {
+            startMs: Date.parse('2026-11-27T14:30:00Z'), endMs: Date.parse('2026-11-27T21:00:00Z')
+        } }, early)).toBe('CLOSED');
+        expect(quoteSession('^FCHI', { regularSession: {
+            startMs: Date.parse('2026-12-24T08:00:00Z'), endMs: Date.parse('2026-12-24T16:30:00Z')
+        }, exchangeTimezone: 'Europe/Paris' }, Date.parse('2026-12-24T13:30:00Z'))).toBe('UNKNOWN');
+        expect(scheduledMarketStatus('^FCHI', new Date('2026-12-24T13:30:00Z'))).toBe('UNKNOWN');
+        expect(quoteSession('^FCHI', { regularSession: {
+            startMs: Date.parse('2026-12-24T08:00:00Z'), endMs: Date.parse('2026-12-24T13:00:00Z')
+        }, exchangeTimezone: 'Europe/Paris' }, Date.parse('2026-12-24T13:30:00Z'))).toBe('CLOSED');
     });
     it('never invents a zero variation or a live quote when reference/time are absent', () => {
         const data = chart({ regularMarketTime: undefined, chartPreviousClose: 110 });
@@ -160,6 +178,28 @@ describe('Dashboard ticker and feeds', () => {
         const [fallback] = selectPortfolioMovers([holding('AMAT', 3.1)], { now: saturday,
             lastSessionPerformance: new Map([['AMAT', { sessionCloseTs: Date.parse('2026-10-09T20:00:00Z'), sessionCloseObserved: false }]]) });
         expect(fallback.stateLabel).toContain('date de séance inconnue');
+    });
+    it('marks a held US stock closed on an exchange holiday while crypto continues', () => {
+        const holiday = Date.parse('2026-07-03T15:00:00Z');
+        marketCalendarEngine.ingestProviderMetadata('AMAT', {
+            exchangeTimezoneName: 'America/New_York', instrumentType: 'EQUITY', regularMarketTime: holiday / 1000,
+            currentTradingPeriod: { regular: { start: (holiday - 3600000) / 1000, end: (holiday + 3600000) / 1000 } }
+        });
+        const items = selectPortfolioMovers([holding('AMAT', 2), holding('BTC-EUR', 1)], { now: holiday });
+        expect(items.find(item => item.ticker === 'AMAT').state).toBe('closed');
+        expect(items.find(item => item.ticker === 'BTC-EUR').state).toBe('continuous');
+    });
+    it('closes a held stock after an official half day even if Yahoo still reports regular hours', () => {
+        const after = Date.parse('2026-11-27T18:30:00Z');
+        marketCalendarEngine.ingestProviderMetadata('AMAT', {
+            exchangeTimezoneName: 'America/New_York', instrumentType: 'EQUITY',
+            regularMarketTime: Date.parse('2026-11-27T17:30:00Z') / 1000,
+            currentTradingPeriod: { regular: {
+                start: Date.parse('2026-11-27T14:30:00Z') / 1000,
+                end: Date.parse('2026-11-27T21:00:00Z') / 1000
+            } }
+        });
+        expect(selectPortfolioMovers([holding('AMAT', 2)], { now: after })[0].state).toBe('closed');
     });
     it('keeps only the best and worst movers of a large portfolio', () => {
         const items = selectPortfolioMovers(Array.from({ length: 20 }, (_, i) => holding(`T${i}`, i - 10)), { now: NOW });
@@ -290,6 +330,24 @@ describe('Daily portfolio contributions', () => {
         ticker, name: ticker, quantity: 1, currentValue, dayPnl, dayPnlPct
     });
     const snapshot = positions => ({ status: 'valid', totalValue: 1000, dayPnl: 30, positions });
+    it('audits the live snapshot without changing amounts or hiding a missing component', () => {
+        const positions = [
+            { ...position('AAA', 45, 600), totalReturn: 100 },
+            { ...position('BBB', -15, 300), totalReturn: -20 }
+        ];
+        const result = { portfolioSnapshot: { ...snapshot(positions), cash: 100, totalReturn: 80 },
+            _engine: { summary: { totalDayChangeEUR: 30 } } };
+        expect(auditDashboardSnapshot(result)).toMatchObject({ status: 'complete', issues: [] });
+        result.portfolioSnapshot.totalValue = 1005;
+        expect(auditDashboardSnapshot(result)).toMatchObject({ status: 'mismatch',
+            issues: [{ label: 'Valeur totale', residual: 5 }] });
+        result.portfolioSnapshot.totalValue = 1000;
+        positions[1].dayPnl = null;
+        expect(auditDashboardSnapshot(result)).toMatchObject({ status: 'partial', missingDayPnl: 1 });
+        positions[1].dayPnl = -15;
+        positions[1].currentValue = null;
+        expect(auditDashboardSnapshot(result)).toMatchObject({ status: 'partial', incomplete: ['Valeur totale'] });
+    });
     it('uses canonical daily P&L and reconciles its sum with Var Today', () => {
         const data = selectDailyContributions(snapshot([
             { ...position('AAA', 50, 200, 5), displayDayPnl: 500 },

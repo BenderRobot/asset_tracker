@@ -35,15 +35,16 @@ export function selectPortfolioMovers(holdings, {
         const observed = futureOrForex ? quoteSession(h.ticker, metadata, now) : null;
         const session = continuous || futureOrForex ? null : calendar.getSession(h.ticker, new Date(now));
         const providerSession = session?.source === 'provider';
-        const weekend = !continuous && !futureOrForex && calendar.getTradingDayStatus(h.ticker, new Date(now)) === 'HOLIDAY_CONFIRMED';
+        const exchangeClosed = !continuous && !futureOrForex && calendar.getTradingDayStatus(h.ticker, new Date(now)) === 'HOLIDAY_CONFIRMED';
         const tradeObservedToday = providerSession && Number.isFinite(metadata?.lastQuoteTimeMs)
             && metadata.lastQuoteTimeMs >= session.openUTCMs && metadata.lastQuoteTimeMs <= now;
         const tradeObservedInFutureSession = futureOrForex && observed === 'OPEN'
             && Number.isFinite(metadata?.lastQuoteTimeMs)
             && metadata.lastQuoteTimeMs >= metadata.regularSession.startMs && metadata.lastQuoteTimeMs <= now;
         const open = futureOrForex ? tradeObservedInFutureSession
-            : !weekend && tradeObservedToday && now < session.closeUTCMs;
-        const closed = futureOrForex ? observed === 'CLOSED' : weekend || (providerSession && now >= session.closeUTCMs);
+            : !exchangeClosed && tradeObservedToday && now < session.closeUTCMs;
+        const closed = futureOrForex ? observed === 'CLOSED'
+            : exchangeClosed || (session && ['provider', 'official-calendar'].includes(session.source) && now >= session.closeUTCMs);
         const state = continuous ? 'continuous' : open ? 'open' : closed ? 'closed' : 'unknown';
         let stateLabel = continuous ? 'Marché 24/7' : open ? 'Séance observée' : 'Séance non confirmée';
         if (closed) {

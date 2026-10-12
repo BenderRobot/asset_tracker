@@ -35,24 +35,12 @@
 // reliably. This substitution is deliberate and documented here, not a
 // silent claim that "marketState" itself works.
 //
-// NO HOLIDAY SOURCE: confirmed by inspecting package.json (only dependency:
-// unused `yahoo-finance2`, never imported anywhere in src/) and node_modules
-// — no calendar/holiday library anywhere in this project. `tradingPeriods`
-// COULD, in principle, let a caller infer past closures empirically (a
-// weekday absent from a multi-day intraday fetch's tradingPeriods = market
-// was closed), but that requires a multi-day intraday fetch this engine
-// doesn't make on its own — not implemented, see getTradingDayStatus's
-// HOLIDAY_UNKNOWN result and the file-level limitation list below.
+// Published cash-equity calendars are bundled in exchangeCalendar.js for the
+// venues and years explicitly listed there. Uncovered dates remain unknown
+// unless the provider confirms a session for that day.
 //
-// CONFIDENCE HIERARCHY (section 3 of the brief), most to least trusted:
-//   1. 'provider'          — real metadata ingested from a Yahoo chart response
-//                             for THIS ticker, for THIS exact civil day.
-//   2. (asset-config)       — NOT IMPLEMENTED: no per-asset config table exists
-//                             anywhere in this project (checked before writing
-//                             this file). Skipped, not faked.
-//   3. (explicit config)    — NOT IMPLEMENTED: same reason.
-//   4. 'heuristic-fallback' — ticker-suffix guess (.PA/.DE/... = Europe,
-//                             else US), last resort, always labeled as such.
+// CONFIDENCE HIERARCHY: published closures and early closes, then provider
+// metadata for this ticker/day, then a labeled fallback hour heuristic.
 // Every method that can return provider-backed OR heuristic data exposes
 // which one it used (see *Source() methods / getTradingDayStatus).
 //
@@ -61,9 +49,8 @@
 //      session has no provider record yet and falls back to the heuristic.
 //      The cache is in-memory/per-session (not persisted), by design: it
 //      must never survive as stale "truth" across days.
-//   2. Real holiday detection is NOT implemented (see above) — a holiday
-//      that isn't also a weekend reports HOLIDAY_UNKNOWN, never a fabricated
-//      TRADING_DAY *or* HOLIDAY_CONFIRMED.
+//   2. Calendar coverage is bounded by venue/year and needs annual review.
+//      Unscheduled halts cannot be predicted by a published calendar.
 //   3. Exchanges beyond what this project's own tickers actually use (US via
 //      NMS/NasdaqGS-style codes, Europe via Euronext-style .PA/.DE/etc.,
 //      crypto) have never been observed in a real response fetched for this
@@ -73,10 +60,9 @@
 
 import {
     isCryptoTicker,
-    isStockRegularSession,
-    getMarketOpenUTCHour,
-    getLastTradingDay
+    getMarketOpenUTCHour
 } from './MarketUtils.js';
+import { getOfficialCalendarDay, getOfficialEarlyCloseMs, getOfficialRegularCloseMs } from './exchangeCalendar.js';
 
 const EU_SUFFIXES = ['.PA', '.DE', '.AS', '.L', '.BR', '.MI', '.HE', '.SW'];
 const DAY_MS = 24 * 3600000;
@@ -84,10 +70,6 @@ const DAY_MS = 24 * 3600000;
 function isEuTicker(ticker) {
     const t = (ticker || '').toUpperCase();
     return EU_SUFFIXES.some(suffix => t.endsWith(suffix));
-}
-
-function isSameCivilDay(a, b) {
-    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
 export class MarketCalendarEngine {
@@ -192,13 +174,20 @@ export class MarketCalendarEngine {
     getTradingDayStatus(ticker, date = new Date()) {
         if (this.getTradingModel(ticker) === 'crypto_24_7') return 'TRADING_DAY';
 
+        // getSession/getTradingDayStatus receive a requested CIVIL SESSION DAY
+        // from HistoryCalculator, often anchored at midnight in portfolio time.
+        // A New York instant at that anchor could still be the previous day.
+        const civilReference = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12));
+        const official = getOfficialCalendarDay(ticker, civilReference);
+        if (official) return official.closed ? 'HOLIDAY_CONFIRMED' : 'TRADING_DAY';
         const day = date.getDay();
-        if (day === 0 || day === 6) return 'HOLIDAY_CONFIRMED'; // weekend : certain, source = calendrier civil
+        if (day === 0 || day === 6) return 'HOLIDAY_CONFIRMED';
 
         const meta = this.getProviderMetadata(ticker);
         if (meta?.regularSession) {
             const sessionDate = new Date(meta.regularSession.startMs);
-            if (isSameCivilDay(sessionDate, date)) return 'TRADING_DAY'; // confirmé par le provider POUR CE JOUR
+            if (sessionDate.getFullYear() === date.getFullYear() && sessionDate.getMonth() === date.getMonth()
+                && sessionDate.getDate() === date.getDate()) return 'TRADING_DAY';
             // Le provider a répondu, mais pour un jour différent de celui demandé —
             // impossible de dire honnêtement si `date` était un jour férié ou si on
             // n'a simplement pas encore interrogé le provider pour ce jour-là.
@@ -210,8 +199,8 @@ export class MarketCalendarEngine {
     /**
      * Boolean convenience wrapper — see getTradingDayStatus for the honest,
      * three-way answer. HOLIDAY_UNKNOWN degrades to the historical
-     * weekday-only heuristic (a real holiday can still read as `true` here —
-     * documented limitation, not silently fixed).
+     * weekday-only heuristic on dates without published coverage. Status UI
+     * should use the tri-state method instead of this boolean wrapper.
      */
     isTradingDay(ticker, date = new Date()) {
         const status = this.getTradingDayStatus(ticker, date);
@@ -263,7 +252,7 @@ export class MarketCalendarEngine {
      * `exchangeTimezoneName` (see MarketCalendarEngine's file-level audit: the
      * real BTC-EUR payload has `exchangeTimezoneName: "UTC"`) — reusing the
      * provider's own convention rather than inventing a different one.
-     * @returns {{openUTCMs:number, closeUTCMs:number, tradingModel:string, source:'provider'|'heuristic-fallback'}|null}
+     * @returns {{openUTCMs:number, closeUTCMs:number, tradingModel:string, source:'provider'|'official-calendar'|'half-day-unconfirmed'|'heuristic-fallback'}|null}
      */
     getSession(ticker, date = new Date()) {
         const model = this.getTradingModel(ticker);
@@ -272,11 +261,22 @@ export class MarketCalendarEngine {
             return { openUTCMs, closeUTCMs: openUTCMs + DAY_MS, tradingModel: model, source: 'crypto-24-7-utc' };
         }
 
+        const civilReference = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12));
+        const official = getOfficialCalendarDay(ticker, civilReference);
+        if (official?.closed) return null;
         const meta = this.getProviderMetadata(ticker);
+        const timezone = this.getTimezone(ticker);
+        const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const earlyCloseMs = getOfficialEarlyCloseMs(official);
         if (meta?.regularSession) {
             const sessionDate = new Date(meta.regularSession.startMs);
-            if (isSameCivilDay(sessionDate, date)) {
-                return { openUTCMs: meta.regularSession.startMs, closeUTCMs: meta.regularSession.endMs, tradingModel: model, source: 'provider' };
+            if (sessionDate.getFullYear() === date.getFullYear() && sessionDate.getMonth() === date.getMonth()
+                && sessionDate.getDate() === date.getDate()) {
+                const halfDayConfirmed = !official?.halfDay
+                    || meta.regularSession.endMs < getOfficialRegularCloseMs(official) - 30 * 60000;
+                return { openUTCMs: meta.regularSession.startMs,
+                    closeUTCMs: earlyCloseMs === null ? meta.regularSession.endMs : Math.min(meta.regularSession.endMs, earlyCloseMs),
+                    tradingModel: model, source: halfDayConfirmed ? 'provider' : 'half-day-unconfirmed' };
             }
         }
 
@@ -285,13 +285,16 @@ export class MarketCalendarEngine {
         // Repli heuristique — mêmes horaires que MarketUtils.isStockRegularSession,
         // résolus en UTC de façon DST-aware (getMarketOpenUTCHour, réutilisée, pas
         // dupliquée).
-        const tz = this.getTimezone(ticker);
+        const tz = timezone;
         const isEu = model === 'exchange_eu';
         const localOpenHour = isEu ? 9 : 9.5;
         const localCloseHour = isEu ? 17.5 : 16;
-        const dayStartUTC = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+        const [year, month, day] = dayKey.split('-').map(Number);
+        const dayStartUTC = Date.UTC(year, month - 1, day);
         const toMs = (localHour) => dayStartUTC + getMarketOpenUTCHour(localHour, tz, date) * 3600000;
-        return { openUTCMs: toMs(localOpenHour), closeUTCMs: toMs(localCloseHour), tradingModel: model, source: 'heuristic-fallback' };
+        return { openUTCMs: toMs(localOpenHour), closeUTCMs: earlyCloseMs ?? toMs(localCloseHour),
+            tradingModel: model, source: official?.halfDay ? 'half-day-unconfirmed'
+                : earlyCloseMs === null ? 'heuristic-fallback' : 'official-calendar' };
     }
 
     getSessionOpen(ticker, date = new Date()) {
@@ -306,19 +309,18 @@ export class MarketCalendarEngine {
      * Real-time open/closed. Prefers the real session window for TODAY when we
      * have it (section 7's "provider state" — substituted by session bounds
      * since this app's provider never actually returns a marketState string,
-     * see file-level audit note); falls back to the ticker-suffix hour
-     * heuristic (MarketUtils.isStockRegularSession) otherwise.
+     * see file-level audit note); uses published closures and falls back to
+     * ticker-suffix hours only where no provider session is available.
      */
     isMarketOpen(ticker, timestamp = Date.now()) {
         if (this.getTradingModel(ticker) === 'crypto_24_7') return true;
         const session = this.getSession(ticker, new Date(timestamp));
-        if (session) return timestamp >= session.openUTCMs && timestamp < session.closeUTCMs;
-        return isStockRegularSession(ticker, timestamp);
+        return !!session && session.source !== 'half-day-unconfirmed'
+            && timestamp >= session.openUTCMs && timestamp < session.closeUTCMs;
     }
 
     /**
-     * Previous trading session (skips weekends via getLastTradingDay; a real
-     * holiday is not detected — see HOLIDAY_UNKNOWN above).
+     * Previous trading session skips published closures and weekends.
      */
     getPreviousTradingSession(ticker, date = new Date()) {
         if (this.getTradingModel(ticker) === 'crypto_24_7') {
@@ -326,11 +328,16 @@ export class MarketCalendarEngine {
             prevDay.setDate(prevDay.getDate() - 1);
             return this.getSession(ticker, prevDay);
         }
-        return this.getSession(ticker, getLastTradingDay(date));
+        const previous = new Date(date);
+        for (let i = 0; i < 10; i++) {
+            previous.setDate(previous.getDate() - 1);
+            if (this.isTradingDay(ticker, previous)) return this.getSession(ticker, previous);
+        }
+        return null;
     }
 
     /**
-     * Next trading session (skips weekends; a real holiday is not detected).
+     * Next trading session skips published closures and weekends.
      * Bounded loop guards against an infinite scan if isTradingDay were ever
      * wrongly false for a whole week.
      */

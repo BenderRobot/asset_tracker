@@ -75,6 +75,48 @@ describe('Sessions précédente/suivante — sautent le weekend', () => {
     });
 });
 
+describe('Calendriers officiels 2026', () => {
+    it('ferme les actions US le 3 juillet observé, mais garde Paris ouvert', () => {
+        const day = new Date('2026-07-03T15:00:00Z');
+        expect(engine.getTradingDayStatus('AAPL', day)).toBe('HOLIDAY_CONFIRMED');
+        expect(engine.getSession('AAPL', day)).toBeNull();
+        expect(engine.isMarketOpen('AAPL', day.getTime())).toBe(false);
+        expect(engine.getTradingDayStatus('AIR.PA', day)).toBe('TRADING_DAY');
+    });
+
+    it('applique la demi-séance américaine et ignore une fenêtre fournisseur trop longue', () => {
+        const before = new Date('2026-11-27T17:30:00Z');
+        const after = new Date('2026-11-27T18:30:00Z');
+        engine.ingestProviderMetadata('AAPL', {
+            exchangeTimezoneName: 'America/New_York', instrumentType: 'EQUITY',
+            currentTradingPeriod: { regular: {
+                start: Date.parse('2026-11-27T14:30:00Z') / 1000,
+                end: Date.parse('2026-11-27T21:00:00Z') / 1000
+            } }
+        });
+        expect(engine.getSession('AAPL', before).closeUTCMs).toBe(Date.parse('2026-11-27T18:00:00Z'));
+        expect(engine.isMarketOpen('AAPL', before.getTime())).toBe(true);
+        expect(engine.isMarketOpen('AAPL', after.getTime())).toBe(false);
+    });
+
+    it('distingue Paris, Milan et Xetra à Noël, puis saute les fermetures dans la session précédente', () => {
+        const eve = new Date('2026-12-24T13:30:00Z');
+        expect(engine.getTradingDayStatus('AIR.PA', eve)).toBe('TRADING_DAY');
+        expect(engine.getSession('AIR.PA', eve).source).toBe('half-day-unconfirmed');
+        expect(engine.isMarketOpen('AIR.PA', eve.getTime())).toBe(false);
+        expect(engine.getTradingDayStatus('ENI.MI', eve)).toBe('HOLIDAY_CONFIRMED');
+        expect(engine.getTradingDayStatus('SAP.DE', eve)).toBe('HOLIDAY_CONFIRMED');
+        expect(engine.getTradingDayStatus('SAP.DE', new Date('2026-05-14T12:00:00Z'))).toBe('TRADING_DAY');
+        const previous = engine.getPreviousTradingSession('AIR.PA', new Date('2026-12-28T12:00:00Z'));
+        expect(new Date(previous.openUTCMs).toISOString().slice(0, 10)).toBe('2026-12-24');
+    });
+
+    it('ne projette pas le calendrier 2026 de Paris sur 2027', () => {
+        expect(engine.getTradingDayStatus('AIR.PA', new Date('2027-12-24T12:00:00Z'))).toBe('HOLIDAY_UNKNOWN');
+        expect(engine.getTradingDayStatus('AAPL', new Date('2027-12-24T17:00:00Z'))).toBe('HOLIDAY_CONFIRMED');
+    });
+});
+
 describe('TEST I — DST (changement heure été/hiver)', () => {
     it("l'heure d'ouverture US en UTC change d'exactement 1h entre hiver (EST) et été (EDT)", () => {
         // 2024 : le marché US bascule en heure d'été le dimanche 10 mars.

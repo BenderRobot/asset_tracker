@@ -45,6 +45,9 @@
 .contributions-modal .kpi-modal-header i { color: #60a5fa; margin-right: 7px; }
 .contributions-summary { margin: 12px 0 8px; color: var(--text-primary); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .contributions-note { margin: 9px 0 0; color: var(--dashboard-muted); font-size: 11px; line-height: 1.45; }
+.contributions-audit { margin: 8px 0 0; color: var(--dashboard-muted); font-size: 11px; line-height: 1.45; }
+.contributions-audit:empty { display: none; }
+.contributions-audit[data-status="mismatch"], .contributions-audit[data-status="partial"] { color: #fbbf24; }
 .contributions-table-wrap { min-width: 0; max-height: 60vh; overflow: auto; scrollbar-width: thin; }
 .contributions-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .contributions-table th { position: sticky; top: 0; background: var(--bg-card); color: var(--dashboard-muted); text-align: right; font-size: 10px; font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border-color); }

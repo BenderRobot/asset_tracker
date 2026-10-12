@@ -28,3 +28,30 @@ export function selectContributionHighlights(data) {
         worst: rows.filter(row => row.impact < 0).sort((a, b) => a.impact - b.impact).slice(0, 2)
     };
 }
+
+// Read-only checks run on the same authenticated snapshot as the dashboard.
+// They expose inconsistencies; they never modify financial values.
+export function auditDashboardSnapshot(snapshot) {
+    const portfolio = snapshot?.portfolioSnapshot;
+    if (portfolio?.status !== 'valid' || !Array.isArray(portfolio.positions)) {
+        return { status: 'unavailable', issues: [], missingDayPnl: 0 };
+    }
+    const positions = portfolio.positions.filter(p => p?.quantity > 0 && !p.ticker?.startsWith('CASH-'));
+    const missingDayPnl = positions.filter(p => !Number.isFinite(p.dayPnl)).length;
+    const issues = [];
+    const incomplete = [];
+    const check = (label, actual, parts) => {
+        if (!Number.isFinite(actual) || parts.some(value => !Number.isFinite(value))) {
+            incomplete.push(label);
+            return;
+        }
+        const residual = actual - parts.reduce((sum, value) => sum + value, 0);
+        if (Math.abs(residual) > 0.01) issues.push({ label, residual });
+    };
+    if (!missingDayPnl) check('Variation du jour', portfolio.dayPnl, positions.map(p => p.dayPnl));
+    else incomplete.push('Variation du jour');
+    check('Valeur totale', portfolio.totalValue, [...positions.map(p => p.currentValue), portfolio.cash]);
+    check('Gain total', portfolio.totalReturn, positions.map(p => p.totalReturn));
+    check('Variation du jour / moteur', portfolio.dayPnl, [snapshot._engine?.summary?.totalDayChangeEUR]);
+    return { status: issues.length ? 'mismatch' : incomplete.length ? 'partial' : 'complete', issues, incomplete, missingDayPnl };
+}

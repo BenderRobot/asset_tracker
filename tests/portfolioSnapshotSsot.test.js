@@ -9,6 +9,7 @@
 // somme de positions[].dayPnl, et le cash n'est jamais une position.
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { DataManager } from '../src/dataManager.js';
+import { auditDashboardSnapshot, selectDailyContributions } from '../src/dashboardContributions.js';
 import { createFakeStorage, createFakeApi, purchase } from './helpers.js';
 
 // Les invariants de cash-flow ci-dessous modélisent une séance ouverte.
@@ -42,6 +43,30 @@ describe('Invariant A — snapshot.dayPnl === Σ positions[].dayPnl', () => {
 
         const sumPositionsDayPnl = ps.positions.reduce((s, p) => s + p.dayPnl, 0);
         expect(ps.dayPnl).toBeCloseTo(sumPositionsDayPnl, 9);
+    });
+});
+
+describe('Rapprochement du dashboard sur le moteur réel', () => {
+    it('compare KPI, contributions et positions avec actions EUR/USD, achat du jour et cash', async () => {
+        const storage = createFakeStorage({ prices: {
+            AAPL: { price: 200, previousClose: 190, currency: 'USD', lastUpdate: Date.now() },
+            'AIR.PA': { price: 120, previousClose: 118, currency: 'EUR', lastUpdate: Date.now() }
+        }, conversionRate: 0.9 });
+        const dm = new DataManager(storage, createFakeApi());
+        const assets = [
+            purchase({ ticker: 'AAPL', currency: 'EUR', price: 150, quantity: 5, date: '2024-01-01' }),
+            purchase({ ticker: 'AAPL', currency: 'EUR', price: 180, quantity: 2, date: today() }),
+            purchase({ ticker: 'AIR.PA', currency: 'EUR', price: 100, quantity: 4, date: '2024-01-01' })
+        ];
+        const cash = [purchase({ ticker: 'EUR', assetType: 'Cash', price: 250, quantity: 1, date: today() })];
+        const snapshot = await dm.buildTodaySnapshot(assets, cash);
+        expect(snapshot.portfolioSnapshot.status).toBe('valid');
+        expect(auditDashboardSnapshot({ portfolioSnapshot: snapshot.portfolioSnapshot, _engine: snapshot }))
+            .toMatchObject({ status: 'complete', issues: [] });
+        expect(selectDailyContributions(snapshot.portfolioSnapshot).explained)
+            .toBeCloseTo(snapshot.portfolioSnapshot.dayPnl, 2);
+        expect(snapshot.portfolioSnapshot.totalValue).toBeCloseTo(
+            snapshot.portfolioSnapshot.positions.reduce((sum, p) => sum + p.currentValue, 0) + 250, 2);
     });
 });
 
