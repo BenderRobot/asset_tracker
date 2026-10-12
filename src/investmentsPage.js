@@ -357,6 +357,7 @@ export class InvestmentsPage {
 
       // Generate purchases sub-rows
       const sortedPurchases = [...p.purchases].sort((a, b) => new Date(a.date) - new Date(b.date));
+      const brokerName = broker => this.brokersList?.find(item => item.value === broker)?.label || broker || 'Courtier inconnu';
       const purchaseRows = sortedPurchases.map(purchase => {
         const buyDate = purchase.date instanceof Date ? purchase.date : new Date(purchase.date);
         const dateStr = Number.isNaN(+buyDate) ? '—' : buyDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -387,7 +388,7 @@ export class InvestmentsPage {
 
         return `
           <tr class="purchase-detail-row">
-            <td>${isSale ? 'Vente' : 'Achat'} · ${escapeHtml(purchase.broker || 'Courtier inconnu')}</td>
+            <td><span class="movement-type ${isSale ? 'is-sale' : 'is-buy'}"><i class="ph ${isSale ? 'ph-arrow-up-right' : 'ph-arrow-down-left'}" aria-hidden="true"></i>${isSale ? 'Vente' : 'Achat'}</span><span class="movement-broker">${escapeHtml(brokerName(purchase.broker))}</span></td>
             <td>${dateStr}</td>
             <td class="num">${unitPrice}</td>
             <td class="num">${qty}</td>
@@ -449,8 +450,8 @@ export class InvestmentsPage {
                 </td>
                 <td>${escapeHtml(p.ticker)}</td>
                 <td class="num">${formatQuantity(p.quantity)}</td>
-                <td class="num"><span class="badge badge-pru" title="Prix de revient unitaire (PRU)">${formatCurrency(p.avgPrice, 'EUR')}</span></td>
                 <td class="num"><span class="badge badge-invested" title="Montant engagé dans la position (coût de revient)"><i class="ph ph-lock-simple" aria-hidden="true"></i>${formatCurrency(p.invested, 'EUR')}</span></td>
+                <td class="num"><span class="badge badge-pru" title="Prix de revient unitaire (PRU)">${formatCurrency(p.avgPrice, 'EUR')}</span></td>
                 <td class="num">${formatCurrency(p.currentPrice, 'EUR')}</td>
                 <td class="num value-cell"><span class="value-amount">${formatCurrency(p.currentValue, 'EUR')}</span>${weight === null ? '' : `<span class="position-weight" title="Poids dans l'ensemble des positions"><span class="weight-track" aria-hidden="true"><span style="width:${Math.min(100, weight).toFixed(1)}%"></span></span><span class="weight-pct">${weightFormatter.format(weight)} %</span></span>`}</td>
                 <td class="num ${toneClass(gainEUR, 'positive', 'negative', 'neutral-value')}">${formatCurrency(gainEUR, 'EUR')}</td>

@@ -213,7 +213,8 @@ try {
         }
         assert.deepEqual(results.checks.logic.searchTitle.mode, 'filter');
         assert.equal(results.checks.logic.insertedMarkup, false);
-        assert.equal(results.checks.logic.partialSale.rows[1][0], 'Vente · TR');
+        // Type badge then the broker (full name when the broker list knows it).
+        assert.match(results.checks.logic.partialSale.rows[1][0], /^Vente/);
         assert.equal(results.checks.logic.partialSale.rows[1][4].replace(/[\u00a0\u202f]/g, ' '), '750,00 €');
         assert.ok(!results.checks.logic.invalidHistoryState.table.includes('Loading'));
         assert.deepEqual(results.checks.logic.purchaseDateOrder, ['1 janv. 2024', '1 sept. 2026']);

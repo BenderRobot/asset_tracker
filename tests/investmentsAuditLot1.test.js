@@ -38,12 +38,15 @@ describe('Investment audit lot 1', () => {
         const page = pageWithDom();
         page.renderData([holding()], {}, 0);
         const rows = [...document.querySelectorAll('.purchase-detail-row')].map(row => [...row.cells].map(cell => cell.textContent.trim()));
-        expect(rows[0].slice(0, 5)).toEqual(['Achat · TR', '1 janv. 2025', '100,00 €', '10', '1 000,00 €']);
+        // Type badge then broker (no label known for "TR" here: its code is shown).
+        expect(document.querySelector('.purchase-detail-row .movement-type.is-buy').textContent).toBe('Achat');
+        expect(rows[0].slice(0, 5)).toEqual(['AchatTR', '1 janv. 2025', '100,00 €', '10', '1 000,00 €']);
         // Bought 10 at 100 €, now 200 €: +1 000 € / +100 % on the quantity bought.
         expect(rows[0][5].replace(/\s/g, '')).toBe('+1000,00€+100,00%');
         // A sale has no "gain since purchase": never the gap to today's price.
         expect(rows[1][5]).toBe('—');
-        expect(rows[1].slice(0, 5)).toEqual(['Vente · TR', '1 févr. 2025', '150,00 €', '5', '750,00 €']);
+        expect(document.querySelector('.purchase-detail-row .movement-type.is-sale').textContent).toBe('Vente');
+        expect(rows[1].slice(0, 5)).toEqual(['VenteTR', '1 févr. 2025', '150,00 €', '5', '750,00 €']);
         expect(document.querySelector('.purchases-sub-table').textContent).not.toContain('GAIN TOTAL');
         expect(document.querySelector('.purchases-sub-table').textContent).toContain("+/- DEPUIS L'ACHAT");
     });

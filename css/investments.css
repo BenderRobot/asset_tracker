@@ -616,6 +616,37 @@
     color: #10b981;
 }
 
+/* Movement type: icon badge (green buy, amber sale), then the broker's full name. */
+.purchases-sub-table .movement-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-right: 10px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid transparent;
+}
+
+.purchases-sub-table .movement-type i { font-size: 13px; }
+
+.purchases-sub-table .movement-type.is-buy {
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.35);
+}
+
+.purchases-sub-table .movement-type.is-sale {
+    color: #fbbf24;
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.35);
+}
+
+.purchases-sub-table .movement-broker {
+    color: var(--text-secondary);
+}
+
 /* Gain since the purchase: amount then its % badge, on one line. */
 .purchases-sub-table td.purchase-gain {
     white-space: nowrap;
