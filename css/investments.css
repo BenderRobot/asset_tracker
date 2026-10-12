@@ -844,85 +844,131 @@
 /* Mini-classements et cash, spécifiques à la page Investment. */
 .investment-insights {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.2fr);
-    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
     align-items: stretch;
 }
+
+.investment-cash-insight { grid-column: span 2; }
 
 .investment-insights .investment-insight {
     min-width: 0;
     width: auto;
-    padding: 15px 16px 12px;
+    min-height: 236px;
+    padding: 18px 20px;
     text-align: left;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+}
+
+.investment-insight .kpi-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    min-height: 28px;
+    margin-bottom: 8px;
 }
 
 .investment-insight .stat-label {
-    margin-bottom: 3px;
-    color: var(--text-primary);
-    font-size: 11px;
-    font-weight: 700;
+    margin: 0;
+    color: #a7c7ff;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1.35;
+    text-align: left;
+}
+
+.investment-insight .kpi-icon {
+    flex: none;
+    color: var(--text-muted);
+    font-size: 18px;
 }
 
 .investment-insight .insight-context {
-    min-height: 27px;
-    color: var(--text-muted);
-    font-size: 10px;
-    line-height: 1.25;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 .investment-insight .insight-list {
     min-width: 0;
+    width: 100%;
 }
 
 .investment-insight .insight-table {
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
-    font-size: 12px;
+    font-size: 14px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
 }
 
 .investment-insight .insight-table tr + tr {
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .investment-insight .insight-table th,
 .investment-insight .insight-table td {
-    height: 30px;
-    padding: 5px 0;
+    height: 54px;
+    padding: 8px 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    vertical-align: middle;
+    border: 0;
 }
 
 .investment-insight .insight-table th {
-    width: 58%;
+    width: 56%;
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: 500;
     text-align: left;
+    text-transform: none;
+    cursor: default;
+    user-select: text;
 }
 
 .investment-insight .insight-table td {
-    width: 42%;
+    width: 44%;
     font-variant-numeric: tabular-nums;
     font-weight: 700;
+    font-size: 17px;
     text-align: right;
 }
 
 .investment-insight .insight-rank {
-    display: inline-block;
-    width: 24px;
-    color: var(--text-muted);
-    font-size: 10px;
-    font-weight: 500;
+    display: none;
 }
 
 .investment-insight .insight-identity {
     display: inline-block;
-    max-width: calc(100% - 25px);
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     vertical-align: bottom;
+}
+
+.investment-insight .insight-sub-value {
+    display: block;
+    color: #a8bde7;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.3;
 }
 
 .investment-insight .insight-positive { color: var(--accent-green); }
@@ -935,9 +981,9 @@
 }
 
 .investment-cash-insight .cash-insight-total {
-    margin: 3px 0 12px;
+    margin: 0 0 12px;
     color: var(--accent-blue);
-    font-size: 19px;
+    font-size: 22px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -946,20 +992,20 @@
 .investment-cash-insight .wallet-track {
     display: flex;
     width: 100%;
-    height: 5px;
-    margin-bottom: 5px;
+    height: 6px;
+    margin-bottom: 8px;
     overflow: hidden;
     border-radius: 999px;
     background: var(--border-color);
 }
 
 .investment-cash-insight .wallet-segment { display: block; height: 100%; }
-.investment-cash-insight .wallet-table th { width: 54%; text-transform: none; font-size: 11px; }
-.investment-cash-insight .wallet-table td { width: 46%; font-size: 11px; }
+.investment-cash-insight .wallet-table th { width: 55%; text-transform: none; font-size: 14px; }
+.investment-cash-insight .wallet-table td { width: 45%; font-size: 15px; }
 .investment-cash-insight .wallet-table .wallet-share {
     display: block;
-    color: var(--text-muted);
-    font-size: 9px;
+    color: #a8bde7;
+    font-size: 11px;
     font-weight: 500;
 }
 .investment-cash-insight .wallet-table .insight-identity { max-width: calc(100% - 18px); }
@@ -978,6 +1024,6 @@
 .wallet-color-4 { background: #f472b6; }
 
 @media (max-width: 1150px) {
-    .investment-insights { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .investment-cash-insight { grid-column: span 2; }
+    .investment-insights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .investment-cash-insight { grid-column: 1 / -1; }
 }

@@ -106,7 +106,7 @@ try {
                 clearButtonSize: (() => { const r = document.getElementById('clear-filters').getBoundingClientRect(); return [r.width, r.height]; })()
             };
         }));
-        if ([1366, 390].includes(width)) {
+        if ([1920, 1366, 390].includes(width)) {
             await page.screenshot({ path: path.join(root, `audit/investments-preview-${width}${outputSuffix}.png`), fullPage: true });
             await page.locator('.asset-row').first().click();
             await page.evaluate(() => scrollTo(0, 0));

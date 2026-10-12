@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { renderInvestmentInsights } from '../src/investmentsInsights.js';
+import { InvestmentsPage } from '../src/investmentsPage.js';
 
 const asset = (ticker, dayPct, gainPct, overrides = {}) => ({
     ticker, name: ticker, dayPct, displayDayPct: dayPct, gainPct, ...overrides
@@ -51,5 +52,31 @@ describe('Investment mini-classements', () => {
         expect(document.getElementById('cash-wallets').textContent).toContain('<b>Wallet</b>');
         expect(document.querySelector('.wallet-segment')).toBeNull();
         expect(document.querySelector('.wallet-table .insight-negative').textContent).toContain('-50,00');
+    });
+
+    it('upgrades older Investment cards and creates the missing wallet detail host', () => {
+        document.body.innerHTML = `<div class="summary-stats">
+            <div class="stat-item"><div id="best-day-label" class="stat-label">Meilleure variation du jour</div><div id="best-day-asset" class="stat-value"></div></div>
+            <div class="stat-item"><div id="worst-day-label" class="stat-label">Pire variation du jour</div><div id="worst-day-asset" class="stat-value"></div></div>
+            <div class="stat-item"><div class="stat-label">Best Performer</div><div id="best-asset" class="stat-value"></div></div>
+            <div class="stat-item"><div class="stat-label">Worst Performer</div><div id="worst-asset" class="stat-value"></div></div>
+            <div class="stat-item"><div id="cash-reserve-label" class="stat-label">Cash par wallet</div><div id="cash-reserve" class="stat-value"></div></div>
+        </div>`;
+        renderInvestmentInsights([asset('AAPL', 1, 10)], { total: 300, byBroker: { TR: 200, BOURSO: 100 } });
+        expect(document.querySelectorAll('.investment-insights .kpi-card')).toHaveLength(5);
+        expect(document.querySelectorAll('#cash-wallets tbody tr')).toHaveLength(2);
+        expect(document.getElementById('cash-reserve').classList.contains('stat-value')).toBe(false);
+        expect(document.getElementById('best-asset').closest('.kpi-card').querySelector('.kpi-header').textContent)
+            .toBe('Meilleures performances');
+    });
+
+    it('recovers a legacy cash breakdown only when it reconciles with the snapshot total', () => {
+        const page = Object.create(InvestmentsPage.prototype);
+        page.storage = { getPurchases: () => [] };
+        page.getFilteredPurchasesFromPage = () => [{ ticker: 'CASH-EUR', price: 200 }];
+        page.dataManager = { calculateCashReserve: () => ({ total: 300, byBroker: { TR: 200, BOURSO: 100 } }) };
+        expect(page.resolveCashReserveDetails(300).byBroker).toEqual({ TR: 200, BOURSO: 100 });
+        expect(page.resolveCashReserveDetails(301)).toBe(301);
+        expect(page.resolveCashReserveDetails(300, { dividendsOnly: true })).toBe(300);
     });
 });

@@ -2,7 +2,15 @@
 
 Date : 12 octobre 2026. Page : `investments.html`, intitulée « Assets » dans la navigation.
 
+## Suivi — style Dashboard et détail des wallets
+
+La capture de vérification montrait les nouvelles listes à l'intérieur des anciennes cartes HTML (anciens libellés Best/Worst, aucun conteneur `cash-wallets`). Le rendu Investment complète désormais cette structure lorsqu'une page déjà ouverte garde l'ancien HTML : titres, icônes, cartes et conteneur Cash sont créés avant la mise à jour. Si un ancien appelant ne transmet que le montant total de cash, le détail est reconstruit avec le moteur existant uniquement lorsqu'il se réconcilie au centime avec ce montant. Sinon, l'indisponibilité du détail est affichée explicitement.
+
+Les cartes secondaires reprennent maintenant la présentation du Dashboard : nom de l'actif, pourcentage et montant en euros sur deux niveaux, séparateurs discrets et en-têtes avec icônes. La carte Cash donne le total, la barre de répartition et **chaque wallet avec son solde et sa part**. L'ordre graphique puis tableau est conservé. Contrôles locaux : **754 tests réussis sur 754, 94 fichiers sur 94** ; Chrome isolé aux six largeurs de l'audit, dont les captures [grand bureau](investments-preview-1920-insights.png), [bureau](investments-preview-1366-insights.png) et [mobile](investments-preview-390-insights.png). Les captures restent des données fictives ; un portefeuille connecté n'a pas été vérifié.
+
 ## Suivi — cartes de synthèse Investment
+
+État intermédiaire avant la correction visuelle ci-dessus ; les captures liées ci-dessous ont depuis été régénérées avec le style actuel.
 
 Le choix produit est désormais explicite : **conserver le graphique au-dessus du tableau**. La proposition I09 de les inverser n'est plus retenue. Les cinq cartes secondaires gardent leur place et présentent davantage d'information : trois meilleures et trois moins bonnes variations affichées pour le jour, trois meilleures et trois moins bonnes performances latentes des positions depuis achat, puis réserve de cash ventilée par wallet/courtier. Les variations du jour emploient les mêmes valeurs de présentation que le tableau ; la carte précise lorsqu'une dernière séance est incluse. La répartition du cash lit `cashReserve.byBroker` du snapshot canonique et affiche soldes, parts et barre de répartition lorsque tous les montants sont disponibles et positifs. Les noms des wallets sont insérés comme texte.
 

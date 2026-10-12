@@ -97,7 +97,7 @@
     /* --- PERFORMANCE STATS GRID (Best/Worst Performer) --- */
     .summary-stats {
         display: grid !important;
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-template-columns: minmax(0, 1fr) !important;
         gap: 12px !important;
     }
 
@@ -113,22 +113,19 @@
     }
 
     .investment-insights .investment-insight {
-        padding: 12px;
+        min-height: 0;
+        padding: 16px;
     }
 
     .investment-insights .insight-table {
-        font-size: 10.5px;
+        font-size: 13px;
     }
 
-    .investment-insights .insight-table th { width: 54%; }
-    .investment-insights .insight-table td { width: 46%; font-size: 9.5px; }
-
-    .investment-insights .insight-rank {
-        width: 18px;
-    }
+    .investment-insights .insight-table th { width: 58%; }
+    .investment-insights .insight-table td { width: 42%; font-size: 16px; }
 
     .investment-insights .insight-identity {
-        max-width: calc(100% - 19px);
+        max-width: 100%;
     }
 
     /* --- CHART HEIGHT & INNER BORDER REMOVAL --- */

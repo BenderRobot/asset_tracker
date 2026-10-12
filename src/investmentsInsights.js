@@ -2,12 +2,85 @@ const percentFormatter = new Intl.NumberFormat('fr-FR', { minimumFractionDigits:
 const moneyFormatter = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
 
 const dayPercent = asset => asset.displayDayPct ?? asset.displayDayPnlPct ?? asset.dayPct;
+const dayAmount = asset => asset.displayDayChange ?? asset.displayDayPnl ?? asset.dayChange;
+
+const cardDefinitions = [
+    { id: 'best-day-asset', labelId: 'best-day-label', title: 'Meilleures variations du jour', icon: 'ph-trend-up' },
+    { id: 'worst-day-asset', labelId: 'worst-day-label', title: 'Moins bonnes variations du jour', icon: 'ph-trend-down' },
+    { id: 'best-asset', labelId: 'best-total-label', title: 'Meilleures performances', icon: 'ph-trend-up' },
+    { id: 'worst-asset', labelId: 'worst-total-label', title: 'Moins bonnes performances', icon: 'ph-trend-down' },
+    { id: 'cash-reserve', labelId: 'cash-reserve-label', title: 'Cash par wallet', icon: 'ph-wallet' }
+];
 
 function makeText(tag, className, value) {
     const element = document.createElement(tag);
     element.className = className;
     element.textContent = value;
     return element;
+}
+
+// Une page laissée ouverte peut encore contenir l'ancien HTML des cinq cartes,
+// tandis que les modules JS ont été rechargés. Compléter ce DOM rend notamment
+// le détail des wallets visible sans dépendre d'un rechargement manuel.
+function ensureInsightMarkup() {
+    cardDefinitions.forEach(({ id, labelId, title, icon }) => {
+        const host = document.getElementById(id);
+        const card = host?.closest('.stat-item');
+        if (!card) return;
+        card.classList.add('investment-insight', 'kpi-card');
+        if (id === 'cash-reserve') card.classList.add('investment-cash-insight');
+        if (card.parentElement?.classList.contains('summary-stats')) {
+            card.parentElement.classList.add('investment-insights');
+        }
+        card.setAttribute('aria-labelledby', labelId);
+        let label = document.getElementById(labelId) || card.querySelector('.stat-label');
+        if (!label) label = makeText('span', 'stat-label', title);
+        label.id = labelId;
+        label.classList.add('stat-label', 'kpi-label');
+        label.textContent = title;
+        let header = card.querySelector('.kpi-header');
+        if (!header) {
+            header = makeText('div', 'kpi-header', '');
+            card.prepend(header);
+        }
+        if (label.parentElement !== header) header.prepend(label);
+        if (!header.querySelector('.kpi-icon')) {
+            const iconElement = makeText('i', `ph ${icon} kpi-icon`, '');
+            iconElement.setAttribute('aria-hidden', 'true');
+            header.append(iconElement);
+        }
+        if (id !== 'cash-reserve') {
+            const contextId = id.includes('-day-')
+                ? (id === 'best-day-asset' ? 'best-day-context' : 'worst-day-context')
+                : `${id}-context`;
+            let context = document.getElementById(contextId) || card.querySelector('.insight-context');
+            if (!context) {
+                context = makeText('div', 'insight-context', id.includes('-day-')
+                    ? 'Variation du jour' : 'Depuis achat · gain latent');
+                header.after(context);
+            }
+            context.id = contextId;
+            context.classList.add('insight-context');
+            card.setAttribute('aria-describedby', contextId);
+        }
+        if (id === 'cash-reserve') {
+            host.classList.remove('stat-value', 'stat-positive', 'stat-negative');
+            host.classList.add('cash-insight-total');
+            if (!document.getElementById('cash-wallets')) {
+                const wallets = makeText('div', 'insight-list', '');
+                wallets.id = 'cash-wallets';
+                wallets.setAttribute('aria-live', 'polite');
+                host.after(wallets);
+            }
+        } else {
+            host.classList.remove('stat-value', 'stat-positive', 'stat-negative');
+            host.classList.add('insight-list');
+        }
+    });
+}
+
+function signedMoney(value) {
+    return Number.isFinite(value) ? `${value > 0 ? '+' : ''}${moneyFormatter.format(value)}` : null;
 }
 
 function renderRankedAssets(id, holdings, valueOf, descending) {
@@ -32,12 +105,15 @@ function renderRankedAssets(id, holdings, valueOf, descending) {
         label.scope = 'row';
         label.title = `${asset.name || asset.ticker} · ${asset.ticker}`;
         label.append(makeText('span', 'insight-rank', String(index + 1).padStart(2, '0')));
-        const identity = makeText('span', 'insight-identity', asset.ticker || asset.name || 'Actif');
-        identity.title = asset.name || asset.ticker || '';
+        const identity = makeText('span', 'insight-identity', asset.name || asset.ticker || 'Actif');
+        identity.title = label.title;
         label.append(identity);
         const metric = valueOf(asset);
-        const value = makeText('td', metric >= 0 ? 'insight-positive' : 'insight-negative',
-            `${metric >= 0 ? '+' : ''}${percentFormatter.format(metric)} %`);
+        const value = document.createElement('td');
+        value.append(makeText('span', metric >= 0 ? 'insight-positive' : 'insight-negative',
+            `${metric >= 0 ? '+' : ''}${percentFormatter.format(metric)} %`));
+        const amount = signedMoney(id.includes('-day-') ? dayAmount(asset) : asset.gainEUR);
+        if (amount) value.append(makeText('small', 'insight-sub-value', amount));
         row.append(label, value);
         body.append(row);
     });
@@ -46,6 +122,7 @@ function renderRankedAssets(id, holdings, valueOf, descending) {
 }
 
 export function renderInvestmentInsights(holdings, cashReserve, brokersList = [], { dividendsOnly = false } = {}) {
+    ensureInsightMarkup();
     const displayedDay = holdings.some(asset => {
         const displayed = asset.displayDayPct ?? asset.displayDayPnlPct;
         return Number.isFinite(displayed) &&
@@ -55,6 +132,12 @@ export function renderInvestmentInsights(holdings, cashReserve, brokersList = []
     for (const id of ['best-day-context', 'worst-day-context']) {
         const element = document.getElementById(id);
         if (element) element.textContent = dayContext;
+    }
+    const bestDayLabel = document.getElementById('best-day-label');
+    const worstDayLabel = document.getElementById('worst-day-label');
+    if (displayedDay) {
+        if (bestDayLabel) bestDayLabel.textContent = 'Meilleures variations affichées';
+        if (worstDayLabel) worstDayLabel.textContent = 'Moins bonnes variations affichées';
     }
     renderRankedAssets('best-day-asset', holdings, dayPercent, true);
     renderRankedAssets('worst-day-asset', holdings, dayPercent, false);

@@ -279,6 +279,20 @@ export class InvestmentsPage {
     });
   }
 
+  resolveCashReserveDetails(cashReserve, { dividendsOnly = false } = {}) {
+    const total = typeof cashReserve === 'number' ? cashReserve : cashReserve?.total;
+    if (dividendsOnly || !Number.isFinite(total) || total === 0 ||
+        Object.keys(cashReserve?.byBroker || {}).length ||
+        !this.dataManager?.calculateCashReserve || !this.storage?.getPurchases) return cashReserve;
+
+    // Compatibilité avec un ancien appelant qui transmet seulement le total.
+    // Le détail n'est admis que s'il réconcilie exactement le montant affiché.
+    const candidate = this.dataManager.calculateCashReserve(this.getFilteredPurchasesFromPage(false));
+    if (!Number.isFinite(candidate?.total) || Math.abs(candidate.total - total) > 0.01 ||
+        !Object.keys(candidate.byBroker || {}).length) return cashReserve;
+    return { ...candidate, total };
+  }
+
   // SSOT (audit architecture) : `holdings` DOIT être les positions canoniques
   // déjà résolues par le moteur (dataManager.buildTodaySnapshot/calculateHoldings,
   // via historicalChart.js::update()) — cette méthode ne lit/n'agrège plus
@@ -286,7 +300,8 @@ export class InvestmentsPage {
   // et de la logique d'écrasement qui l'utilisait, ci-dessous).
   renderData(holdings, summary, cashReserve, { dividendsOnly = false } = {}) {
     this.currentHoldings = holdings;
-    this.currentCashReserve = cashReserve;
+    const detailedCashReserve = this.resolveCashReserveDetails(cashReserve, { dividendsOnly });
+    this.currentCashReserve = detailedCashReserve;
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
     this.hasRenderedData = true;
@@ -417,7 +432,7 @@ export class InvestmentsPage {
 
     // Les classements lisent les mêmes positions et variations affichées que le
     // tableau. Les KPI principaux restent alimentés par le snapshot canonique.
-    renderInvestmentInsights(filteredHoldings, cashReserve, this.brokersList, { dividendsOnly });
+    renderInvestmentInsights(filteredHoldings, detailedCashReserve, this.brokersList, { dividendsOnly });
 
     const filterContext = document.getElementById('investment-filter-context');
     if (filterContext) {

@@ -14,8 +14,8 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/investments.css?v=58">
-    <link rel="stylesheet" href="css/investments-mobile.css?v=6">
+    <link rel="stylesheet" href="css/investments.css?v=59">
+    <link rel="stylesheet" href="css/investments-mobile.css?v=7">
     <link rel="stylesheet" href="css/investments-table-compact.css?v=7">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
 
@@ -81,28 +81,28 @@
                 </div>
 
                 <div class="summary-stats investment-insights" aria-label="Classements des actifs et réserve de cash">
-                    <section class="stat-item investment-insight" aria-labelledby="best-day-label">
-                        <div class="stat-label" id="best-day-label">Meilleurs · jour</div>
+                    <section class="stat-item investment-insight kpi-card" aria-labelledby="best-day-label">
+                        <div class="kpi-header"><span class="stat-label kpi-label" id="best-day-label">Meilleures variations du jour</span><i class="ph ph-trend-up kpi-icon" aria-hidden="true"></i></div>
                         <div class="insight-context" id="best-day-context">Variation du jour</div>
                         <div id="best-day-asset" class="insight-list" aria-live="polite">—</div>
                     </section>
-                    <section class="stat-item investment-insight" aria-labelledby="worst-day-label">
-                        <div class="stat-label" id="worst-day-label">Moins bons · jour</div>
+                    <section class="stat-item investment-insight kpi-card" aria-labelledby="worst-day-label">
+                        <div class="kpi-header"><span class="stat-label kpi-label" id="worst-day-label">Moins bonnes variations du jour</span><i class="ph ph-trend-down kpi-icon" aria-hidden="true"></i></div>
                         <div class="insight-context" id="worst-day-context">Variation du jour</div>
                         <div id="worst-day-asset" class="insight-list" aria-live="polite">—</div>
                     </section>
-                    <section class="stat-item investment-insight" aria-labelledby="best-total-label">
-                        <div class="stat-label" id="best-total-label">Meilleurs · total</div>
+                    <section class="stat-item investment-insight kpi-card" aria-labelledby="best-total-label">
+                        <div class="kpi-header"><span class="stat-label kpi-label" id="best-total-label">Meilleures performances</span><i class="ph ph-trend-up kpi-icon" aria-hidden="true"></i></div>
                         <div class="insight-context">Depuis achat · latent</div>
                         <div id="best-asset" class="insight-list" aria-live="polite">—</div>
                     </section>
-                    <section class="stat-item investment-insight" aria-labelledby="worst-total-label">
-                        <div class="stat-label" id="worst-total-label">Moins bons · total</div>
+                    <section class="stat-item investment-insight kpi-card" aria-labelledby="worst-total-label">
+                        <div class="kpi-header"><span class="stat-label kpi-label" id="worst-total-label">Moins bonnes performances</span><i class="ph ph-trend-down kpi-icon" aria-hidden="true"></i></div>
                         <div class="insight-context">Depuis achat · latent</div>
                         <div id="worst-asset" class="insight-list" aria-live="polite">—</div>
                     </section>
-                    <section class="stat-item investment-insight investment-cash-insight" aria-labelledby="cash-reserve-label">
-                        <div id="cash-reserve-label" class="stat-label">Cash par wallet</div>
+                    <section class="stat-item investment-insight investment-cash-insight kpi-card" aria-labelledby="cash-reserve-label">
+                        <div class="kpi-header"><span id="cash-reserve-label" class="stat-label kpi-label">Cash par wallet</span><i class="ph ph-wallet kpi-icon" aria-hidden="true"></i></div>
                         <div id="cash-reserve" class="cash-insight-total">—</div>
                         <div id="cash-wallets" class="insight-list" aria-live="polite">—</div>
                     </section>
