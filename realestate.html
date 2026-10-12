@@ -204,7 +204,7 @@
 
         /* Le graphique absorbe la hauteur restante de la colonne */
         .re-panel--grow { flex: 1; display: flex; flex-direction: column; }
-        .re-panel--grow .re-chart-small { flex: 1; min-height: 220px; }
+        .re-panel--grow .re-chart-small { flex: 1; min-height: 230px; }
 
         .re-subtitle {
             display: flex;
@@ -282,14 +282,18 @@
         .re-link-btn:hover { color: #93c5fd; }
         .re-link-btn[hidden] { display: none; }
 
+        .re-scenario-modal { max-width: 960px; }
+        .re-scenario-modal .re-am-body { overflow-y: auto; }
+
+        .re-modal-actions { display: flex; align-items: center; gap: 12px; }
+
         .re-scenario {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(6, minmax(0, 1fr));
             gap: 10px 12px;
-            padding-bottom: 14px;
-            margin-bottom: 12px;
-            border-bottom: 1px solid var(--border-color);
         }
+
+        .re-scenario-chart { position: relative; height: 340px; flex-shrink: 0; }
 
         .re-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
         .re-field > span { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
@@ -357,7 +361,6 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
             gap: 8px;
-            margin-bottom: 12px;
         }
 
         .re-scenario-result > div {
@@ -384,24 +387,31 @@
             color: var(--text-muted);
         }
 
+        @media (max-width: 860px) {
+            .re-scenario { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+
         @media (max-width: 560px) {
             .re-scenario { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .re-scenario-chart { height: 260px; }
         }
 
         /* --- Prochaines échéances --- */
-        .re-schedule {
-            margin-top: 12px;
+        .re-schedule { margin-top: 12px; }
+
+        /* Cartes qui ouvrent un modal */
+        .re-panel--clickable {
             cursor: pointer;
             transition: border-color 0.2s ease, background-color 0.2s ease;
         }
 
-        .re-schedule:hover, .re-schedule:focus-visible {
+        .re-panel--clickable:hover, .re-panel--clickable:focus-visible {
             border-color: rgba(59, 130, 246, 0.45);
             background: color-mix(in srgb, var(--bg-card) 92%, #3b82f6);
             outline: none;
         }
 
-        .re-schedule-more {
+        .re-panel-more {
             margin-left: 8px;
             font-size: 11px;
             font-weight: 500;
@@ -412,7 +422,7 @@
             transition: opacity 0.2s ease;
         }
 
-        .re-schedule:hover .re-schedule-more, .re-schedule:focus-visible .re-schedule-more { opacity: 1; }
+        .re-panel--clickable:hover .re-panel-more, .re-panel--clickable:focus-visible .re-panel-more { opacity: 1; }
 
         /* --- Modal tableau d'amortissement --- */
         .re-am-modal {
@@ -990,6 +1000,28 @@
                 <div id="amortization-table-wrap" class="re-am-table-wrap">
                     <table id="amortization-table" class="re-schedule-table re-am-table"></table>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="scenario-modal" style="display: none;"
+        onclick="if (event.target === this) window.realEstateApp.closeScenarioModal()">
+        <div class="modal-content re-am-modal re-scenario-modal" role="dialog" aria-modal="true" aria-labelledby="scenario-title">
+            <div class="modal-header">
+                <h3 id="scenario-title"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i> Simulateur de remboursement</h3>
+                <div class="re-modal-actions">
+                    <button type="button" id="debt-scenario-reset" class="re-link-btn" hidden
+                        onclick="window.realEstateApp.resetDebtScenario()">
+                        <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i> Réinitialiser
+                    </button>
+                    <button class="modal-close" aria-label="Fermer" onclick="window.realEstateApp.closeScenarioModal()">×</button>
+                </div>
+            </div>
+            <div class="modal-body re-am-body">
+                <div id="scenario-controls"></div>
+                <div id="debt-scenario-result" class="re-scenario-result"></div>
+                <div class="re-scenario-chart"><canvas id="scenario-chart"></canvas></div>
+                <div class="re-chart-note">Simulation indicative, non enregistrée : votre crédit et la carte « Évolution de la dette » ne sont pas modifiés.</div>
             </div>
         </div>
     </div>

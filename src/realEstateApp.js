@@ -599,16 +599,13 @@ export class RealEstateApp {
                     </div>
 
                     ${details.length ? `
-                    <div class="re-panel re-panel--grow">
+                    <div class="re-panel re-panel--grow re-panel--clickable" role="button" tabindex="0"
+                        title="Simuler un remboursement anticipé ou une renégociation"
+                        onclick="window.realEstateApp.openScenarioModal()"
+                        onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); window.realEstateApp.openScenarioModal(); }">
                         <div class="re-subtitle">
-                            <span>Évolution de la dette</span>
-                            <button type="button" id="debt-scenario-reset" class="re-link-btn" hidden
-                                onclick="window.realEstateApp.resetDebtScenario()">
-                                <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i> Réinitialiser
-                            </button>
+                            <span>Évolution de la dette <span class="re-panel-more">Simuler <i class="ph ph-arrow-right" aria-hidden="true"></i></span></span>
                         </div>
-                        ${this.renderScenarioControls(details)}
-                        <div id="debt-scenario-result" class="re-scenario-result"></div>
                         <div class="re-chart-small"><canvas id="debt-chart"></canvas></div>
                         <div class="re-chart-note">Valeur nette calculée à valeur du bien constante.</div>
                     </div>` : ''}
@@ -619,6 +616,7 @@ export class RealEstateApp {
         // Conservés pour le modal du tableau d'amortissement complet
         this.residenceDetails = details;
         this.residenceToday = today;
+        this.residenceCurrentValue = currentValue;
 
         this.renderDebtChart(details, currentValue, today);
     }
@@ -717,12 +715,12 @@ export class RealEstateApp {
         if (!rows.length) return '';
 
         return `
-            <div class="re-panel re-schedule" role="button" tabindex="0"
+            <div class="re-panel re-schedule re-panel--clickable" role="button" tabindex="0"
                 title="Voir le tableau d'amortissement complet"
                 onclick="window.realEstateApp.openAmortizationModal()"
                 onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); window.realEstateApp.openAmortizationModal(); }">
                 <div class="re-subtitle">
-                    <span>Prochaines échéances <span class="re-schedule-more">Tout voir <i class="ph ph-arrow-right" aria-hidden="true"></i></span></span>
+                    <span>Prochaines échéances <span class="re-panel-more">Tout voir <i class="ph ph-arrow-right" aria-hidden="true"></i></span></span>
                     <span class="re-schedule-legend">
                         <i class="is-interest"></i>Intérêts <i class="is-capital"></i>Capital
                     </span>
@@ -924,7 +922,43 @@ export class RealEstateApp {
         `;
     }
 
-    // ========== SIMULATEUR DE SCÉNARIOS ==========
+    // ========== SIMULATEUR DE SCÉNARIOS (modal) ==========
+
+    openScenarioModal() {
+        const modal = document.getElementById('scenario-modal');
+        const details = this.residenceDetails;
+        if (!modal || !details?.length) return;
+
+        clearTimeout(this.scenarioCloseTimer);
+        document.getElementById('scenario-controls').innerHTML = this.renderScenarioControls(details);
+
+        modal.style.display = 'flex';
+        void modal.offsetWidth;
+        modal.classList.add('show');
+
+        // Graphique créé une fois le modal visible (Chart.js a besoin des dimensions)
+        if (this.scenarioChart) this.scenarioChart.destroy();
+        this.scenarioChart = this.createDebtChart(
+            document.getElementById('scenario-chart'), details, this.residenceCurrentValue, this.residenceToday || new Date()
+        );
+        this.updateDebtScenario();
+
+        if (!this.scenarioKeyHandler) {
+            this.scenarioKeyHandler = e => { if (e.key === 'Escape') this.closeScenarioModal(); };
+        }
+        document.addEventListener('keydown', this.scenarioKeyHandler);
+    }
+
+    closeScenarioModal() {
+        const modal = document.getElementById('scenario-modal');
+        if (!modal) return;
+        modal.classList.remove('show');
+        document.removeEventListener('keydown', this.scenarioKeyHandler);
+        this.scenarioCloseTimer = setTimeout(() => {
+            modal.style.display = 'none';
+            if (this.scenarioChart) { this.scenarioChart.destroy(); this.scenarioChart = null; }
+        }, 300);
+    }
 
     renderScenarioControls(details) {
         const s = this.debtScenario;
@@ -1080,7 +1114,7 @@ export class RealEstateApp {
 
     // Ajoute / met à jour / retire la courbe « Scénario » (dette totale) sur le graphique
     setDebtChartScenario(d, simulation) {
-        const chart = this.debtChart;
+        const chart = this.scenarioChart;
         if (!chart) return;
         const datasets = chart.data.datasets;
         const idx = datasets.findIndex(ds => ds.id === 'scenario');
@@ -1122,7 +1156,11 @@ export class RealEstateApp {
         if (this.debtChart) { this.debtChart.destroy(); this.debtChart = null; }
         const canvas = document.getElementById('debt-chart');
         if (!canvas || details.length === 0) return;
+        this.debtChart = this.createDebtChart(canvas, details, currentValue, today);
+    }
 
+    // Dette par crédit (aires empilées) + valeur nette, selon le plan de remboursement réel
+    createDebtChart(canvas, details, currentValue, today) {
         const minDate = new Date(Math.min(...details.map(d => d.start)));
         const maxDate = new Date(Math.max(...details.map(d => d.endDate)));
 
@@ -1169,7 +1207,7 @@ export class RealEstateApp {
             tension: 0.2
         });
 
-        this.debtChart = new Chart(canvas.getContext('2d'), {
+        return new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: { datasets },
             options: this.timeChartOptions({
@@ -1180,8 +1218,6 @@ export class RealEstateApp {
                 tooltipLabel: ctx => `${ctx.dataset.label} : ${this.formatEUR(ctx.parsed.y)}`
             })
         });
-
-        this.updateDebtScenario();
     }
 
     setupEventListeners() {
