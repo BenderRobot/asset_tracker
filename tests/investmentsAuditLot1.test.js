@@ -76,8 +76,9 @@ describe('Investment audit lot 1', () => {
         const page = pageWithDom();
         page.currentSearchQuery = 'Apple';
         page.renderData([holding()], {}, 0);
-        expect(page.getChartTitleConfig()).toMatchObject({ mode: 'filter', label: 'Recherche : Apple' });
-        expect(document.getElementById('investment-filter-context').textContent).toContain('1 position · Recherche : Apple');
+        // The count goes to the chart title; the filter bar stays clear.
+        expect(page.getChartTitleConfig()).toMatchObject({ mode: 'filter', label: 'Recherche : Apple', count: 1 });
+        expect(document.getElementById('investment-filter-context').hidden).toBe(true);
     });
 
     it('shows an error on first load but preserves a previously rendered table', () => {

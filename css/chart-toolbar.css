@@ -152,6 +152,21 @@
     opacity: 1;
 }
 
+/* Number of positions of a filtered view, next to the title. */
+.chart-header .chart-title-count {
+    padding: 3px 9px;
+    border-radius: 999px;
+    font: 600 12px/1.2 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--text-secondary);
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    white-space: nowrap;
+}
+
+.chart-header .chart-title-count[hidden] {
+    display: none;
+}
+
 /* Every direct control sits on the same 32px baseline, whatever page CSS
    says about margins — this is what makes the row look regular. */
 .chart-toolbar > * {

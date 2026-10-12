@@ -1618,6 +1618,20 @@ export class HistoricalChart {
         if (!titleText || !titleIcon || !titleConfig) return;
         titleText.textContent = titleConfig.label;
         titleText.title = titleConfig.label;
+        // Filtered views (Investments) show how many positions they contain.
+        let countEl = document.getElementById('chart-title-count');
+        if (Number.isFinite(titleConfig.count)) {
+            if (!countEl) {
+                countEl = document.createElement('span');
+                countEl.id = 'chart-title-count';
+                countEl.className = 'chart-title-count';
+                titleText.after(countEl);
+            }
+            countEl.textContent = `${titleConfig.count} position${titleConfig.count > 1 ? 's' : ''}`;
+            countEl.hidden = false;
+        } else if (countEl) {
+            countEl.hidden = true;
+        }
         if (isSingleAssetMode && currentTicker) {
             const purchases = this.storage.getPurchases().filter(p => p.ticker.toUpperCase() === currentTicker.toUpperCase());
             const assetName = purchases[0]?.name || currentTicker;

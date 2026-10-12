@@ -467,12 +467,10 @@ export class InvestmentsPage {
     // tableau. Les KPI principaux restent alimentés par le snapshot canonique.
     renderInvestmentInsights(filteredHoldings, detailedCashReserve, this.brokersList, { dividendsOnly });
 
+    // The filter bar only reports loading/stale states; the number of
+    // positions of a filtered view is shown in the chart title.
     const filterContext = document.getElementById('investment-filter-context');
-    if (filterContext) {
-      const active = !!(this.currentSearchQuery || this.currentAssetTypeFilter || this.currentBrokerFilter || selectedTickers.size);
-      filterContext.hidden = !active;
-      if (active) filterContext.textContent = `${filteredHoldings.length} position${filteredHoldings.length > 1 ? 's' : ''} · ${this.getChartTitleConfig().label}`;
-    }
+    if (filterContext) filterContext.hidden = true;
 
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
@@ -505,16 +503,18 @@ export class InvestmentsPage {
       const icon = this.dataManager.isCryptoTicker(ticker) ? 'currency-btc' : 'chart-bar';
       return { mode: 'asset', label: [...context, ticker, name].join(' • '), icon: icon };
     }
+    // Positions of the filtered view, shown next to the chart title.
+    const count = this.currentHoldings ? this.filterVisibleHoldings(this.currentHoldings).length : null;
     if (tickers.length > 1) {
       const tickerLabel = tickers.length > 2 ? `${tickers.slice(0, 2).join(', ')}... (+${tickers.length - 2})` : tickers.join(', ');
       const assetTypes = tickers.map(t => this.dataManager.isCryptoTicker(t) ? 'Crypto' : 'Stock');
       const uniqueTypes = [...new Set(assetTypes)];
       let icon = uniqueTypes.length === 1 && uniqueTypes[0] === 'Crypto' ? 'currency-btc' : 'chart-line-up';
-      return { mode: 'filter', label: [...context, tickerLabel].join(' • '), icon: icon };
+      return { mode: 'filter', label: [...context, tickerLabel].join(' • '), icon: icon, count };
     }
     if (context.length > 0) {
       const icon = this.currentAssetTypeFilter === 'Crypto' ? 'currency-btc' : (this.currentBrokerFilter ? 'bank' : 'chart-bar');
-      return { mode: 'filter', label: context.join(' • '), icon };
+      return { mode: 'filter', label: context.join(' • '), icon, count };
     }
     return { mode: 'global', label: 'Portefeuille global', icon: 'chart-line-up' };
   }
