@@ -114,6 +114,16 @@ try {
                 primaryGridWidth: Math.round(document.querySelector('.summary-grid').getBoundingClientRect().width),
                 secondaryCardTops: [...document.querySelectorAll('.investment-insights > .investment-insight')]
                     .map(card => Math.round(card.getBoundingClientRect().top + scrollY)),
+                secondaryCardWidths: [...document.querySelectorAll('.investment-insights > .investment-insight')]
+                    .map(card => Math.round(card.getBoundingClientRect().width)),
+                secondaryCardHeights: [...document.querySelectorAll('.investment-insights > .investment-insight')]
+                    .map(card => Math.round(card.getBoundingClientRect().height)),
+                cashCardContentHeight: (() => { const card = document.querySelector('.investment-cash-insight');
+                    const last = card.querySelector('.wallet-table tr:last-child'); return Math.round(last.getBoundingClientRect().bottom - card.getBoundingClientRect().top); })(),
+                rankingCardContentHeight: (() => { const card = document.querySelector('.investment-insight:not(.investment-cash-insight)');
+                    const last = card.querySelector('.insight-table tr:last-child'); return Math.round(last.getBoundingClientRect().bottom - card.getBoundingClientRect().top); })(),
+                primaryGridEdges: (r => [Math.round(r.left), Math.round(r.right)])(document.querySelector('.summary-grid').getBoundingClientRect()),
+                secondaryGridEdges: (r => [Math.round(r.left), Math.round(r.right)])(document.querySelector('.investment-insights').getBoundingClientRect()),
                 chartTop: Math.round(document.querySelector('.historical-chart-container').getBoundingClientRect().top + scrollY),
                 cashInInsightsGrid: !!document.querySelector('.investment-insights > .investment-cash-insight'),
                 summaryGridWidth: Math.round(document.querySelector('.summary-stats').getBoundingClientRect().width),
@@ -224,10 +234,16 @@ try {
                         `five insight cards should share a row at ${size.width}px: ${size.secondaryCardTops.join(', ')}`);
                     assert.ok(Math.max(...size.primaryCardHeights) <= 190,
                         `the first KPI row is too tall at ${size.width}px`);
-                    assert.ok(size.primaryValueFontSizes.every(fontSize => fontSize >= 30),
-                        `primary values should be prominent at ${size.width}px`);
-                    assert.ok(size.primaryGridWidth <= 1281,
-                        `the three primary KPI cards should remain narrower at ${size.width}px`);
+                    // Values readable but not oversized; top row aligned on the row below.
+                    assert.ok(size.primaryValueFontSizes.every(fontSize => fontSize >= 24 && fontSize <= 36),
+                        `primary values should stay between 24 and 36 px at ${size.width}px: ${size.primaryValueFontSizes}`);
+                    assert.deepEqual(size.primaryGridEdges, size.secondaryGridEdges,
+                        `primary KPI row should align with the insight row at ${size.width}px`);
+                    assert.ok(Math.max(...size.secondaryCardWidths) - Math.min(...size.secondaryCardWidths) <= 1,
+                        `the five insight cards should share one width at ${size.width}px: ${size.secondaryCardWidths}`);
+                    // The cash card no longer sets the row height (at most its colour bar taller).
+                    assert.ok(size.cashCardContentHeight - size.rankingCardContentHeight <= 20,
+                        `the cash card is too tall at ${size.width}px: ${size.cashCardContentHeight} vs ${size.rankingCardContentHeight}`);
                     assert.ok(size.chartTop <= 620, `chart starts too low at ${size.width}px`);
                 }
             }

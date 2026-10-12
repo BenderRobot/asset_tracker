@@ -842,34 +842,33 @@
 .investment-filter-context[hidden] { display: none; }
 
 /* Mini-classements et cash, spécifiques à la page Investment. */
+/* Same width and gap as the ranking row and the chart below. */
 .portfolio-summary-enhanced .summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    width: min(100%, 1280px);
-    margin-inline: auto;
+    gap: 16px;
 }
 
 .portfolio-summary-enhanced .summary-grid > .summary-card {
     min-width: 0;
-    min-height: 158px;
-    padding: 18px 22px;
+    padding: 16px 20px;
     display: flex;
     flex-direction: column;
     justify-content: center;
     container-type: inline-size;
 }
 .portfolio-summary-enhanced .summary-grid .summary-card-value {
-    font-size: clamp(32px, 14cqi, 50px);
+    font-size: clamp(24px, 8cqi, 36px);
     line-height: 1.1;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 .portfolio-summary-enhanced .summary-grid .meta-large,
-.portfolio-summary-enhanced .summary-grid .meta-info { font-size: 16px; }
+.portfolio-summary-enhanced .summary-grid .meta-info { font-size: 14px; }
 .portfolio-summary-enhanced .summary-grid #invested { opacity: 0.7; }
 
 .investment-insights {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.3fr);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 16px;
     align-items: stretch;
 }
@@ -877,7 +876,6 @@
 .investment-insights .investment-insight {
     min-width: 0;
     width: auto;
-    min-height: 212px;
     padding: 14px 16px;
     text-align: left;
     overflow: hidden;
@@ -1009,10 +1007,13 @@
     font-size: 12px;
 }
 
+/* Total on the header line: the cash card no longer sets the row height. */
+.investment-cash-insight .kpi-header { align-items: center; }
+.investment-cash-insight .kpi-header .kpi-icon { display: none; }
 .investment-cash-insight .cash-insight-total {
-    margin: 0 0 12px;
+    margin: 0 0 0 auto;
     color: var(--accent-blue);
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;

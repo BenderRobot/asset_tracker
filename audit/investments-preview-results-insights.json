@@ -4,7 +4,7 @@
     {
       "width": 1920,
       "documentWidth": 1920,
-      "firstPositionY": 1355,
+      "firstPositionY": 1287,
       "tableWidth": 1352,
       "visibleFirstRowCells": [
         "AAPL",
@@ -42,24 +42,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        130,
+        130,
+        130
       ],
       "primaryValueFontSizes": [
-        50,
-        50,
-        50
+        32,
+        32,
+        32
       ],
-      "primaryGridWidth": 1280,
+      "primaryGridWidth": 1352,
       "secondaryCardTops": [
-        222,
-        222,
-        222,
-        222,
-        222
+        194,
+        194,
+        194,
+        194,
+        194
       ],
-      "chartTop": 530,
+      "secondaryCardWidths": [
+        258,
+        258,
+        258,
+        258,
+        258
+      ],
+      "secondaryCardHeights": [
+        244,
+        244,
+        244,
+        244,
+        244
+      ],
+      "cashCardContentHeight": 229,
+      "rankingCardContentHeight": 218,
+      "primaryGridEdges": [
+        404,
+        1756
+      ],
+      "secondaryGridEdges": [
+        404,
+        1756
+      ],
+      "chartTop": 462,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 1352,
       "rowFocusable": false,
@@ -72,7 +96,7 @@
     {
       "width": 1601,
       "documentWidth": 1601,
-      "firstPositionY": 1375,
+      "firstPositionY": 1305,
       "tableWidth": 1313,
       "visibleFirstRowCells": [
         "AAPL",
@@ -110,24 +134,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        129,
+        129,
+        129
       ],
       "primaryValueFontSizes": [
-        50,
-        50,
-        50
+        31,
+        31,
+        31
       ],
-      "primaryGridWidth": 1280,
+      "primaryGridWidth": 1313,
       "secondaryCardTops": [
-        222,
-        222,
-        222,
-        222,
-        222
+        193,
+        193,
+        193,
+        193,
+        193
       ],
-      "chartTop": 530,
+      "secondaryCardWidths": [
+        250,
+        250,
+        250,
+        250,
+        250
+      ],
+      "secondaryCardHeights": [
+        244,
+        244,
+        244,
+        244,
+        244
+      ],
+      "cashCardContentHeight": 229,
+      "rankingCardContentHeight": 218,
+      "primaryGridEdges": [
+        264,
+        1577
+      ],
+      "secondaryGridEdges": [
+        264,
+        1577
+      ],
+      "chartTop": 461,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 1313,
       "rowFocusable": false,
@@ -140,7 +188,7 @@
     {
       "width": 1600,
       "documentWidth": 1600,
-      "firstPositionY": 1410,
+      "firstPositionY": 1366,
       "tableWidth": 1312,
       "visibleFirstRowCells": [
         "AAPL",
@@ -178,24 +226,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        129,
+        129,
+        129
       ],
       "primaryValueFontSizes": [
-        50,
-        50,
-        50
+        31,
+        31,
+        31
       ],
-      "primaryGridWidth": 1280,
+      "primaryGridWidth": 1312,
       "secondaryCardTops": [
-        222,
-        222,
-        222,
-        222,
-        222
+        193,
+        193,
+        193,
+        193,
+        193
       ],
-      "chartTop": 566,
+      "secondaryCardWidths": [
+        250,
+        250,
+        250,
+        250,
+        250
+      ],
+      "secondaryCardHeights": [
+        305,
+        305,
+        305,
+        305,
+        305
+      ],
+      "cashCardContentHeight": 257,
+      "rankingCardContentHeight": 290,
+      "primaryGridEdges": [
+        264,
+        1576
+      ],
+      "secondaryGridEdges": [
+        264,
+        1576
+      ],
+      "chartTop": 522,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 1312,
       "rowFocusable": false,
@@ -208,7 +280,7 @@
     {
       "width": 1366,
       "documentWidth": 1366,
-      "firstPositionY": 1410,
+      "firstPositionY": 1360,
       "tableWidth": 1078,
       "visibleFirstRowCells": [
         "AAPL",
@@ -246,24 +318,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        122,
+        122,
+        122
       ],
       "primaryValueFontSizes": [
-        42,
-        42,
-        42
+        25,
+        25,
+        25
       ],
       "primaryGridWidth": 1078,
       "secondaryCardTops": [
-        222,
-        222,
-        222,
-        222,
-        222
+        186,
+        186,
+        186,
+        186,
+        186
       ],
-      "chartTop": 566,
+      "secondaryCardWidths": [
+        203,
+        203,
+        203,
+        203,
+        203
+      ],
+      "secondaryCardHeights": [
+        305,
+        305,
+        305,
+        305,
+        305
+      ],
+      "cashCardContentHeight": 257,
+      "rankingCardContentHeight": 290,
+      "primaryGridEdges": [
+        264,
+        1342
+      ],
+      "secondaryGridEdges": [
+        264,
+        1342
+      ],
+      "chartTop": 515,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 1078,
       "rowFocusable": false,
@@ -276,7 +372,7 @@
     {
       "width": 1301,
       "documentWidth": 1301,
-      "firstPositionY": 1410,
+      "firstPositionY": 1364,
       "tableWidth": 1013,
       "visibleFirstRowCells": [
         "AAPL",
@@ -314,24 +410,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        121,
+        121,
+        121
       ],
       "primaryValueFontSizes": [
-        39,
-        39,
-        39
+        24,
+        24,
+        24
       ],
       "primaryGridWidth": 1013,
       "secondaryCardTops": [
-        222,
-        222,
-        222,
-        222,
-        222
+        185,
+        185,
+        185,
+        185,
+        185
       ],
-      "chartTop": 566,
+      "secondaryCardWidths": [
+        190,
+        190,
+        190,
+        190,
+        190
+      ],
+      "secondaryCardHeights": [
+        310,
+        310,
+        310,
+        310,
+        310
+      ],
+      "cashCardContentHeight": 262,
+      "rankingCardContentHeight": 295,
+      "primaryGridEdges": [
+        264,
+        1277
+      ],
+      "secondaryGridEdges": [
+        264,
+        1277
+      ],
+      "chartTop": 519,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 1013,
       "rowFocusable": false,
@@ -344,7 +464,7 @@
     {
       "width": 1300,
       "documentWidth": 1300,
-      "firstPositionY": 1410,
+      "firstPositionY": 1364,
       "tableWidth": 1012,
       "visibleFirstRowCells": [
         "AAPL",
@@ -382,24 +502,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        121,
+        121,
+        121
       ],
       "primaryValueFontSizes": [
-        39,
-        39,
-        39
+        24,
+        24,
+        24
       ],
       "primaryGridWidth": 1012,
       "secondaryCardTops": [
-        222,
-        222,
-        222,
-        222,
-        222
+        185,
+        185,
+        185,
+        185,
+        185
       ],
-      "chartTop": 566,
+      "secondaryCardWidths": [
+        190,
+        190,
+        190,
+        190,
+        190
+      ],
+      "secondaryCardHeights": [
+        310,
+        310,
+        310,
+        310,
+        310
+      ],
+      "cashCardContentHeight": 262,
+      "rankingCardContentHeight": 295,
+      "primaryGridEdges": [
+        264,
+        1276
+      ],
+      "secondaryGridEdges": [
+        264,
+        1276
+      ],
+      "chartTop": 519,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 1012,
       "rowFocusable": false,
@@ -412,7 +556,7 @@
     {
       "width": 1251,
       "documentWidth": 1251,
-      "firstPositionY": 1454,
+      "firstPositionY": 1408,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -450,24 +594,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        121,
+        121,
+        121
       ],
       "primaryValueFontSizes": [
-        37,
-        37,
-        37
+        24,
+        24,
+        24
       ],
       "primaryGridWidth": 963,
       "secondaryCardTops": [
-        222,
-        222,
-        222,
-        222,
-        222
+        185,
+        185,
+        185,
+        185,
+        185
       ],
-      "chartTop": 566,
+      "secondaryCardWidths": [
+        180,
+        180,
+        180,
+        180,
+        180
+      ],
+      "secondaryCardHeights": [
+        310,
+        310,
+        310,
+        310,
+        310
+      ],
+      "cashCardContentHeight": 262,
+      "rankingCardContentHeight": 295,
+      "primaryGridEdges": [
+        264,
+        1227
+      ],
+      "secondaryGridEdges": [
+        264,
+        1227
+      ],
+      "chartTop": 519,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 963,
       "rowFocusable": false,
@@ -480,7 +648,7 @@
     {
       "width": 1250,
       "documentWidth": 1251,
-      "firstPositionY": 1454,
+      "firstPositionY": 1408,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -518,24 +686,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        121,
+        121,
+        121
       ],
       "primaryValueFontSizes": [
-        37,
-        37,
-        37
+        24,
+        24,
+        24
       ],
       "primaryGridWidth": 962,
       "secondaryCardTops": [
-        222,
-        222,
-        222,
-        222,
-        222
+        185,
+        185,
+        185,
+        185,
+        185
       ],
-      "chartTop": 566,
+      "secondaryCardWidths": [
+        180,
+        180,
+        180,
+        180,
+        180
+      ],
+      "secondaryCardHeights": [
+        310,
+        310,
+        310,
+        310,
+        310
+      ],
+      "cashCardContentHeight": 262,
+      "rankingCardContentHeight": 295,
+      "primaryGridEdges": [
+        264,
+        1226
+      ],
+      "secondaryGridEdges": [
+        264,
+        1226
+      ],
+      "chartTop": 519,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 962,
       "rowFocusable": false,
@@ -548,7 +740,7 @@
     {
       "width": 1152,
       "documentWidth": 1251,
-      "firstPositionY": 1549,
+      "firstPositionY": 1512,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -586,24 +778,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        121,
+        121,
+        121
       ],
       "primaryValueFontSizes": [
-        32,
-        32,
-        32
+        24,
+        24,
+        24
       ],
       "primaryGridWidth": 864,
       "secondaryCardTops": [
-        222,
-        222,
-        222,
-        222,
-        222
+        185,
+        185,
+        185,
+        185,
+        185
       ],
-      "chartTop": 573,
+      "secondaryCardWidths": [
+        160,
+        160,
+        160,
+        160,
+        160
+      ],
+      "secondaryCardHeights": [
+        327,
+        327,
+        327,
+        327,
+        327
+      ],
+      "cashCardContentHeight": 262,
+      "rankingCardContentHeight": 295,
+      "primaryGridEdges": [
+        264,
+        1128
+      ],
+      "secondaryGridEdges": [
+        264,
+        1128
+      ],
+      "chartTop": 536,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 864,
       "rowFocusable": false,
@@ -616,7 +832,7 @@
     {
       "width": 1024,
       "documentWidth": 1251,
-      "firstPositionY": 2113,
+      "firstPositionY": 2029,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -654,24 +870,48 @@
         48
       ],
       "primaryCardHeights": [
-        158,
-        158,
-        158
+        121,
+        121,
+        121
       ],
       "primaryValueFontSizes": [
-        32,
-        32,
-        32
+        24,
+        24,
+        24
       ],
       "primaryGridWidth": 736,
       "secondaryCardTops": [
-        222,
-        222,
-        464,
-        464,
-        707
+        185,
+        185,
+        428,
+        428,
+        670
       ],
-      "chartTop": 1015,
+      "secondaryCardWidths": [
+        360,
+        360,
+        360,
+        360,
+        736
+      ],
+      "secondaryCardHeights": [
+        226,
+        226,
+        226,
+        226,
+        238
+      ],
+      "cashCardContentHeight": 223,
+      "rankingCardContentHeight": 211,
+      "primaryGridEdges": [
+        264,
+        1000
+      ],
+      "secondaryGridEdges": [
+        264,
+        1000
+      ],
+      "chartTop": 931,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 736,
       "rowFocusable": false,
@@ -684,7 +924,7 @@
     {
       "width": 768,
       "documentWidth": 768,
-      "firstPositionY": 2351,
+      "firstPositionY": 2305,
       "tableWidth": 729,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -732,7 +972,31 @@
         1012,
         1249
       ],
-      "chartTop": 1566,
+      "secondaryCardWidths": [
+        729,
+        729,
+        729,
+        729,
+        729
+      ],
+      "secondaryCardHeights": [
+        226,
+        226,
+        226,
+        226,
+        246
+      ],
+      "cashCardContentHeight": 229,
+      "rankingCardContentHeight": 209,
+      "primaryGridEdges": [
+        23,
+        752
+      ],
+      "secondaryGridEdges": [
+        23,
+        752
+      ],
+      "chartTop": 1520,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 729,
       "rowFocusable": false,
@@ -745,7 +1009,7 @@
     {
       "width": 390,
       "documentWidth": 390,
-      "firstPositionY": 2351,
+      "firstPositionY": 2304,
       "tableWidth": 358,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -793,7 +1057,31 @@
         1012,
         1249
       ],
-      "chartTop": 1566,
+      "secondaryCardWidths": [
+        358,
+        358,
+        358,
+        358,
+        358
+      ],
+      "secondaryCardHeights": [
+        226,
+        226,
+        226,
+        226,
+        246
+      ],
+      "cashCardContentHeight": 229,
+      "rankingCardContentHeight": 209,
+      "primaryGridEdges": [
+        16,
+        374
+      ],
+      "secondaryGridEdges": [
+        16,
+        374
+      ],
+      "chartTop": 1520,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 358,
       "rowFocusable": false,
@@ -806,7 +1094,7 @@
     {
       "width": 360,
       "documentWidth": 360,
-      "firstPositionY": 2368,
+      "firstPositionY": 2322,
       "tableWidth": 328,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -854,7 +1142,31 @@
         1012,
         1249
       ],
-      "chartTop": 1566,
+      "secondaryCardWidths": [
+        328,
+        328,
+        328,
+        328,
+        328
+      ],
+      "secondaryCardHeights": [
+        226,
+        226,
+        226,
+        226,
+        246
+      ],
+      "cashCardContentHeight": 229,
+      "rankingCardContentHeight": 209,
+      "primaryGridEdges": [
+        16,
+        344
+      ],
+      "secondaryGridEdges": [
+        16,
+        344
+      ],
+      "chartTop": 1520,
       "cashInInsightsGrid": true,
       "summaryGridWidth": 328,
       "rowFocusable": false,
