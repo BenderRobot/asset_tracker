@@ -4,6 +4,12 @@ Date : 11 octobre 2026 · mis à jour le 12 octobre 2026 (lot 2).
 
 Périmètre de l'audit initial : capture fournie et lecture du code local du dashboard, de son adaptateur de cotations, de ses styles et de composants partagés. Audit de présentation, d'usage et de contrats de données ; aucun parcours authentifié exécuté, aucun cours actuel vérifié, aucun audit exhaustif des calculs de portefeuille. Les références de lignes décrivent le code avant les changements décrits dans le suivi ci-dessous.
 
+## Suivi — carte Variation du jour compacte (12 octobre 2026)
+
+Le grand tableau des contributions est déplacé dans une fenêtre ouverte depuis la première des **cinq cartes KPI secondaires**. La carte affiche les deux impacts positifs les plus élevés et les deux impacts négatifs les plus forts, en euros. Le tableau complet conserve ses poids, variations, impacts et messages de rapprochement ou de données partielles. Sur bureau (1 366 et 1 920 px), les cinq cartes tiennent sur une ligne ; sur mobile, elles s'empilent.
+
+Validation : tests ciblés (27 réussis), contrôle Chrome isolé à 360, 390, 768, 1 366 et 1 920 px avec ouverture du tableau à chaque taille, sans débordement. Suite complète : 717 tests réussis sur 718 ; l'unique échec est le décalage préexistant entre `version.json` (1.17.1) et `RELEASES.md` (1.17.0).
+
 ## Suivi — premier lot livré localement
 
 La demande « go pour le premier lot » suit la proposition de regrouper fiabilité, bandeau et réorganisation du haut de page. Ce lot est implémenté localement ; aucun déploiement effectué.

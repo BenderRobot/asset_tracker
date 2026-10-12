@@ -54,7 +54,7 @@ try {
         app.chartKPIManager = { generateSparkline: ChartKPIManager.prototype.generateSparkline,
             fetchIndexData: async ticker => ({ values: Array.from({ length: 60 }, (_, i) => 100 + Math.sin(i / 6 + ticker.length) * 2 + (ticker.length % 2 ? i : -i) * .05) }) };
         app.chart = { currentMode: 'portfolio', selectedAssets: [], showAssetChart: async ticker => { app.chart.currentMode = 'asset'; app.chart.selectedAssets = [ticker]; document.getElementById('chart-title-text').textContent = ticker; }, showIndex: async (ticker, name) => { app.chart.currentMode = 'index'; app.chart.selectedAssets = [ticker]; document.getElementById('chart-title-text').textContent = name; }, showPortfolioChart: async () => { app.chart.currentMode = 'portfolio'; app.chart.selectedAssets = []; document.getElementById('chart-title-text').textContent = 'Portefeuille global'; } };
-        app.setupEventListeners(); app.setupIndicesModal();
+        app.setupEventListeners(); app.setupIndicesModal(); app.setupKPIModals();
         await app.loadMarketIndices();
         await new Promise(r => setTimeout(r, 50));
         const holdings = [
@@ -103,10 +103,11 @@ try {
         await page.waitForTimeout(250);
         const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth,
             startVisible: !!document.getElementById('price-start').offsetParent,
-            contributionsVisible: !!document.querySelector('.contributions-table tbody tr')?.offsetParent,
+            contributionsVisible: !!document.querySelector('.contribution-kpi-card')?.offsetParent,
             contributionsStatus: document.getElementById('dashboard-contributions').dataset.status,
-            impactVisible: document.querySelector('.contributions-table tbody td:last-child').getBoundingClientRect().right
-                <= document.querySelector('.contributions-table-wrap').getBoundingClientRect().right + 1,
+            highlights: document.querySelectorAll('.contribution-kpi-row').length,
+            cardCount: document.querySelectorAll('.dashboard-kpi-grid-v2 > .kpi-card').length,
+            cardRows: new Set([...document.querySelectorAll('.dashboard-kpi-grid-v2 > .kpi-card')].map(el => Math.round(el.getBoundingClientRect().top))).size,
             panelHeight: Math.round(document.querySelector('.dashboard-indices-panel-full').getBoundingClientRect().height),
             leftHeight: Math.round(document.querySelector('.dashboard-left-column').getBoundingClientRect().height),
             sparklines: document.querySelectorAll('.market-card-spark svg').length,
@@ -120,8 +121,16 @@ try {
         assert.equal(size.startVisible, true, `period stats hidden at ${width}`);
         assert.equal(size.contributionsVisible, true, `daily contributions hidden at ${width}`);
         assert.equal(size.contributionsStatus, 'complete', `daily contributions do not reconcile at ${width}`);
-        assert.equal(size.impactVisible, true, `daily impact hidden at ${width}`);
+        assert.equal(size.highlights, 3, `daily top/worst preview missing at ${width}`);
+        assert.equal(size.cardCount, 5, `five cards missing at ${width}`);
+        if (width >= 1200) assert.equal(size.cardRows, 1, `five cards do not fit one row at ${width}`);
         if (width > 1200) assert.ok(Math.abs(size.panelHeight - size.leftHeight) <= 2, `markets panel height ${size.panelHeight} vs ${size.leftHeight} at ${width}`);
+        await page.locator('.contribution-kpi-card').click();
+        assert.equal(await page.locator('#contributions-modal').isVisible(), true, `contribution detail closed at ${width}`);
+        const impactVisible = await page.evaluate(() => document.querySelector('.contributions-table tbody td:last-child').getBoundingClientRect().right
+            <= document.querySelector('.contributions-table-wrap').getBoundingClientRect().right + 1);
+        assert.equal(impactVisible, true, `daily impact hidden at ${width}`);
+        await page.locator('#close-contributions-modal').click();
         results.push(size);
         if (width === 1366 || width === 390) await page.screenshot({ path: path.join(root, `audit/dashboard-preview-${width}.png`), fullPage: true });
     }
@@ -140,7 +149,15 @@ try {
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#add-index-modal').isVisible(), false);
     assert.equal(await page.evaluate(() => document.activeElement.id), 'add-index-btn');
+    await page.locator('.contribution-kpi-card').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#contributions-modal').isVisible(), true);
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'close-contributions-modal');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#contributions-modal').isVisible(), false);
+    assert.equal(await page.evaluate(() => document.activeElement.classList.contains('contribution-kpi-card')), true);
     assert.deepEqual(errors, []);
-    await writeFile(path.join(root, 'audit/dashboard-preview-results.json'), JSON.stringify({ scope: 'Isolated deterministic UI, no authenticated session', sizes: results, errors, checks: ['pause control', 'reduced motion', 'ticker asset selection and back', 'period stats visible at all sizes', 'markets panel matches left column', 'market settings'] }, null, 2));
+    await writeFile(path.join(root, 'audit/dashboard-preview-results.json'), JSON.stringify({ scope: 'Isolated deterministic UI, no authenticated session', sizes: results, errors, checks: ['pause control', 'reduced motion', 'ticker asset selection and back', 'period stats visible at all sizes', 'five KPI cards', 'contribution preview and full table', 'contribution dialog keyboard access', 'markets panel matches left column', 'market settings'] }, null, 2));
     console.log(JSON.stringify(results));
 } finally { await browser.close(); server.close(); }

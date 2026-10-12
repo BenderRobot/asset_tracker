@@ -28,7 +28,7 @@ import { buildWatchlistContext } from './watchlistContext.js';
 import { DEFAULT_DASHBOARD_INDICES } from './appDataContext.js';
 import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus } from './dashboardMarketData.js';
 import { MarketTicker, selectPortfolioMovers } from './marketTicker.js';
-import { selectDailyContributions } from './dashboardContributions.js';
+import { selectDailyContributions, selectContributionHighlights } from './dashboardContributions.js';
 
 const SPARKLINE_TTL_MS = 5 * 60 * 1000;
 const marketCardStateClass = view => {
@@ -356,17 +356,67 @@ export class DashboardApp {
     }
 
     renderDailyContributions(snapshot, { previousSession = false, stale = false } = {}) {
+        const data = selectDailyContributions(snapshot, { previousSession });
+        const highlights = document.getElementById('dashboard-contribution-highlights');
+        const state = document.getElementById('dashboard-contribution-state');
         const panel = document.getElementById('dashboard-contributions');
+        if (!panel && !highlights) return;
+        const money = value => `${value > 0 ? '+' : ''}${new Intl.NumberFormat('fr-FR', {
+            style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2
+        }).format(value)}`;
+        if (highlights) {
+            highlights.replaceChildren();
+            const card = highlights.closest('.contribution-kpi-card');
+            if (card) card.dataset.status = data.status;
+            if (data.status === 'previous-session' || data.status === 'unavailable') {
+                const empty = document.createElement('p');
+                empty.className = 'contribution-kpi-empty';
+                empty.textContent = data.status === 'previous-session' ? 'Variation du jour indisponible' : 'Contributions indisponibles';
+                highlights.append(empty);
+            } else {
+                const { best, worst } = selectContributionHighlights(data);
+                for (const [label, rows, emptyText] of [
+                    ['Top du jour', best, 'Aucune hausse'],
+                    ['Pires du jour', worst, 'Aucune baisse']
+                ]) {
+                    const group = document.createElement('div');
+                    group.className = 'contribution-kpi-group';
+                    const heading = document.createElement('span');
+                    heading.className = 'contribution-kpi-group-label';
+                    heading.textContent = label;
+                    group.append(heading);
+                    if (!rows.length) {
+                        const empty = document.createElement('span');
+                        empty.className = 'contribution-kpi-placeholder';
+                        empty.textContent = emptyText;
+                        group.append(empty);
+                    }
+                    for (const row of rows) {
+                        const line = document.createElement('div');
+                        line.className = 'contribution-kpi-row';
+                        const name = document.createElement('span');
+                        name.className = 'contribution-kpi-name';
+                        name.textContent = row.name;
+                        name.title = row.name;
+                        const impact = document.createElement('strong');
+                        impact.className = row.impact > 0 ? 'stat-positive' : 'stat-negative';
+                        impact.textContent = money(row.impact);
+                        line.append(name, impact);
+                        group.append(line);
+                    }
+                    highlights.append(group);
+                }
+            }
+        }
+        if (state) {
+            state.textContent = data.status === 'partial' ? 'Décomposition partielle' : data.status === 'mismatch' ? 'Écart à vérifier' : stale && !['previous-session', 'unavailable'].includes(data.status) ? 'Dernier état connu' : 'Voir le détail';
+        }
         if (!panel) return;
         const summary = panel.querySelector('.contributions-summary');
         const note = panel.querySelector('.contributions-note');
         const table = panel.querySelector('.contributions-table');
         const body = table?.querySelector('tbody');
         if (!summary || !note || !table || !body) return;
-        const data = selectDailyContributions(snapshot, { previousSession });
-        const money = value => `${value > 0 ? '+' : ''}${new Intl.NumberFormat('fr-FR', {
-            style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2
-        }).format(value)}`;
         const percent = value => value === null ? '—' : `${value > 0 ? '+' : ''}${value.toLocaleString('fr-FR', {
             minimumFractionDigits: 2, maximumFractionDigits: 2
         })} %`;
@@ -1395,18 +1445,35 @@ export class DashboardApp {
     }
 
     setupKPIModals() {
-        // Card order matches the four corresponding detail views.
         const grid = document.querySelector('.dashboard-kpi-grid-v2');
         const cards = grid ? [...grid.querySelectorAll(':scope > .kpi-card')] : [];
-        const types = ['gainer', 'loser', 'asset', 'allocation'];
-        cards.forEach((card, i) => {
-            const type = types[i];
+        cards.forEach(card => {
+            const type = card.dataset.kpiType;
             if (!type) return;
             card.dataset.clickable = type;
-            card.addEventListener('click', () => {
-                if (type === 'allocation') this.openAllocationModal();
+            const open = () => {
+                if (type === 'contributions') this.openContributionsModal();
+                else if (type === 'allocation') this.openAllocationModal();
                 else this.openKPIModal(type);
+            };
+            card.addEventListener('click', open);
+            card.addEventListener('keydown', event => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                open();
             });
+        });
+
+        document.getElementById('close-contributions-modal')?.addEventListener('click', () => this.closeContributionsModal());
+        document.getElementById('contributions-modal')?.addEventListener('click', event => {
+            if (event.target === event.currentTarget) this.closeContributionsModal();
+        });
+        document.getElementById('contributions-modal')?.addEventListener('keydown', event => {
+            if (event.key === 'Escape') this.closeContributionsModal();
+            if (event.key === 'Tab') {
+                event.preventDefault();
+                document.getElementById('close-contributions-modal')?.focus();
+            }
         });
 
         document.getElementById('close-kpi-modal')?.addEventListener('click', () => {
@@ -1420,6 +1487,21 @@ export class DashboardApp {
                 if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
             });
         });
+    }
+
+    openContributionsModal() {
+        const modal = document.getElementById('contributions-modal');
+        if (!modal) return;
+        this._contributionsReturnFocus = document.activeElement;
+        modal.style.display = 'flex';
+        document.getElementById('close-contributions-modal')?.focus();
+    }
+
+    closeContributionsModal() {
+        const modal = document.getElementById('contributions-modal');
+        if (!modal) return;
+        modal.style.display = 'none';
+        this._contributionsReturnFocus?.focus?.();
     }
 
     openKPIModal(type) {

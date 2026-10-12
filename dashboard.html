@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="css/dashboard.css?v=102">
     <link rel="stylesheet" href="css/dashboard-mobile.css?v=6">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
-    <link rel="stylesheet" href="css/dashboard-premium.css?v=4">
+    <link rel="stylesheet" href="css/dashboard-premium.css?v=5">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -273,22 +273,13 @@
                 </div>
             </div>
 
-            <section id="dashboard-contributions" class="dashboard-contributions" aria-labelledby="contributions-title">
-                <div class="contributions-header">
-                    <h3 id="contributions-title"><i class="ph ph-chart-bar" aria-hidden="true"></i> Contributions du jour</h3>
-                    <span class="contributions-horizon">Portefeuille · aujourd’hui</span>
-                </div>
-                <p class="contributions-summary">Chargement…</p>
-                <div class="contributions-table-wrap">
-                    <table class="contributions-table" aria-label="Impact quotidien des positions sur le portefeuille">
-                        <thead><tr><th scope="col">Position</th><th scope="col">Poids</th><th scope="col">Variation</th><th scope="col">Impact</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-                <p class="contributions-note"></p>
-            </section>
             <div class="dashboard-kpi-grid-v2">
-                <div class="kpi-card">
+                <div class="kpi-card contribution-kpi-card" data-kpi-type="contributions" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="contributions-modal" aria-label="Variation du jour : voir toutes les contributions" aria-describedby="dashboard-contribution-highlights dashboard-contribution-state">
+                    <div class="kpi-header"><span class="kpi-label">Variation du jour</span><i class="ph ph-chart-bar kpi-icon" aria-hidden="true"></i></div>
+                    <div id="dashboard-contribution-highlights" class="contribution-highlights" aria-live="polite"></div>
+                    <div id="dashboard-contribution-state" class="contribution-kpi-state"></div>
+                </div>
+                <div class="kpi-card" data-kpi-type="gainer" role="button" tabindex="0">
                     <div class="kpi-header"><span class="kpi-label">Meilleures performances</span><i
                             class="ph ph-trend-up kpi-icon"></i>
                     </div>
@@ -296,7 +287,7 @@
                     <div class="kpi-meta"><span id="dashboard-top-gainer-pct" class="kpi-change-pct">-</span>
                     </div>
                 </div>
-                <div class="kpi-card">
+                <div class="kpi-card" data-kpi-type="loser" role="button" tabindex="0">
                     <div class="kpi-header"><span class="kpi-label">Moins bonnes performances</span><i
                             class="ph ph-trend-down kpi-icon"></i>
                     </div>
@@ -304,12 +295,12 @@
                     <div class="kpi-meta"><span id="dashboard-top-loser-pct" class="kpi-change-pct">-</span>
                     </div>
                 </div>
-                <div class="kpi-card">
+                <div class="kpi-card" data-kpi-type="asset" role="button" tabindex="0">
                     <div class="kpi-header"><span class="kpi-label">Principales positions</span><i
                             class="ph ph-factory kpi-icon"></i></div>
                     <div class="kpi-name-large" id="dashboard-top-sector">-</div>
                 </div>
-                <div class="kpi-card">
+                <div class="kpi-card" data-kpi-type="allocation" role="button" tabindex="0">
                     <div class="kpi-header"><span class="kpi-label">Répartition</span><i
                             class="ph ph-chart-pie-slice kpi-icon"></i>
                     </div>
@@ -414,6 +405,26 @@
                 <button class="index-tab" data-tab="Forex">Forex</button>
             </div>
             <div id="add-index-grid" class="add-index-grid"></div>
+        </div>
+    </div>
+
+    <!-- DÉTAIL DE LA VARIATION DU JOUR -->
+    <div id="contributions-modal" class="kpi-modal-overlay contributions-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="contributions-title">
+        <div class="kpi-modal-box">
+            <div class="kpi-modal-header">
+                <h3 id="contributions-title"><i class="ph ph-chart-bar" aria-hidden="true"></i> Contributions du jour</h3>
+                <button id="close-contributions-modal" class="kpi-modal-close" type="button" aria-label="Fermer les contributions du jour">×</button>
+            </div>
+            <div id="dashboard-contributions" class="dashboard-contributions kpi-modal-body">
+                <p class="contributions-summary">Chargement…</p>
+                <div class="contributions-table-wrap">
+                    <table class="contributions-table" aria-label="Impact quotidien des positions sur le portefeuille">
+                        <thead><tr><th scope="col">Position</th><th scope="col">Poids</th><th scope="col">Variation</th><th scope="col">Impact</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <p class="contributions-note"></p>
+            </div>
         </div>
     </div>
 

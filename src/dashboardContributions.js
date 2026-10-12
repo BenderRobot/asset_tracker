@@ -20,3 +20,11 @@ export function selectDailyContributions(snapshot, { previousSession = false } =
     const status = missing ? 'partial' : Math.abs(residual) > 0.01 ? 'mismatch' : 'complete';
     return { status, rows, total: snapshot.dayPnl, explained, residual, missing };
 }
+
+export function selectContributionHighlights(data) {
+    const rows = data?.rows || [];
+    return {
+        best: rows.filter(row => row.impact > 0).sort((a, b) => b.impact - a.impact).slice(0, 2),
+        worst: rows.filter(row => row.impact < 0).sort((a, b) => a.impact - b.impact).slice(0, 2)
+    };
+}

@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { normalizeDashboardIndices, normalizeDashboardQuote, presentDashboardQuote, quoteSession, scheduledMarketStatus } from '../src/dashboardMarketData.js';
 import { MarketTicker, selectPortfolioMovers } from '../src/marketTicker.js';
-import { selectDailyContributions } from '../src/dashboardContributions.js';
+import { selectDailyContributions, selectContributionHighlights } from '../src/dashboardContributions.js';
 import { PriceAPI } from '../src/api.js';
 import { createFakeStorage } from './helpers.js';
 import { marketCalendarEngine } from '../src/MarketCalendarEngine.js';
@@ -319,5 +319,37 @@ describe('Daily portfolio contributions', () => {
         app.renderDailyContributions(data, { previousSession: true });
         expect(document.querySelector('.contributions-table').hidden).toBe(true);
         expect(document.querySelector('.contributions-summary').textContent).toBe('Variation du jour indisponible');
+    });
+    it('selects two positive and two negative daily impacts', () => {
+        const rows = [position('A', 8), position('B', -3), position('C', 30), position('D', -20), position('E', 12), position('F', -9)]
+            .map(p => ({ ticker: p.ticker, impact: p.dayPnl }));
+        expect(selectContributionHighlights({ rows })).toMatchObject({
+            best: [{ ticker: 'C' }, { ticker: 'E' }],
+            worst: [{ ticker: 'D' }, { ticker: 'F' }]
+        });
+        expect(selectContributionHighlights({ rows: rows.filter(row => row.impact > 0) }).worst).toEqual([]);
+    });
+    it('opens the full table from the compact card and preserves data-quality states', () => {
+        document.body.innerHTML = `<div class="dashboard-kpi-grid-v2"><div class="kpi-card contribution-kpi-card" data-kpi-type="contributions" tabindex="0">
+            <div id="dashboard-contribution-highlights"></div><div id="dashboard-contribution-state"></div></div></div>
+            <div id="contributions-modal" style="display:none"><button id="close-contributions-modal">Fermer</button>
+            <section id="dashboard-contributions"><p class="contributions-summary"></p>
+            <div class="contributions-table-wrap"><table class="contributions-table"><tbody></tbody></table></div>
+            <p class="contributions-note"></p></section></div>`;
+        const app = Object.create(DashboardApp.prototype);
+        app.setupKPIModals();
+        const data = snapshot([position('AAA', 45), position('BBB', -15), position('CCC', null)]);
+        app.renderDailyContributions(data);
+        expect(document.querySelector('#dashboard-contribution-highlights').textContent).toContain('AAA');
+        expect(document.querySelector('#dashboard-contribution-highlights').textContent).toContain('BBB');
+        expect(document.querySelector('#dashboard-contribution-state').textContent).toContain('partielle');
+        document.querySelector('.contribution-kpi-card').click();
+        expect(document.getElementById('contributions-modal').style.display).toBe('flex');
+        expect(document.querySelectorAll('.contributions-table tbody tr')).toHaveLength(3);
+        document.getElementById('close-contributions-modal').click();
+        expect(document.getElementById('contributions-modal').style.display).toBe('none');
+        app.renderDailyContributions(data, { previousSession: true });
+        expect(document.querySelector('.contributions-table').hidden).toBe(true);
+        expect(document.querySelector('#dashboard-contribution-highlights').textContent).toContain('indisponible');
     });
 });
