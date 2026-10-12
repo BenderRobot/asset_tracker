@@ -447,6 +447,11 @@
     border-radius: 0;
 }
 
+/* Investments' card already has 14px of inner padding below the bar. */
+.historical-chart-container .chart-controls {
+    margin-bottom: 0;
+}
+
 @media (min-width: 769px) {
     :is(.dashboard-chart-section, .historical-chart-container) .chart-controls .period-btn {
         display: inline-flex;
