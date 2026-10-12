@@ -606,6 +606,10 @@ export class RealEstateApp {
             </div>
         `;
 
+        // Conservés pour le modal du tableau d'amortissement complet
+        this.residenceDetails = details;
+        this.residenceToday = today;
+
         this.renderDebtChart(details, currentValue, today);
     }
 
@@ -703,9 +707,12 @@ export class RealEstateApp {
         if (!rows.length) return '';
 
         return `
-            <div class="re-panel re-schedule">
+            <div class="re-panel re-schedule" role="button" tabindex="0"
+                title="Voir le tableau d'amortissement complet"
+                onclick="window.realEstateApp.openAmortizationModal()"
+                onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); window.realEstateApp.openAmortizationModal(); }">
                 <div class="re-subtitle">
-                    <span>Prochaines échéances</span>
+                    <span>Prochaines échéances <span class="re-schedule-more">Tout voir <i class="ph ph-arrow-right" aria-hidden="true"></i></span></span>
                     <span class="re-schedule-legend">
                         <i class="is-interest"></i>Intérêts <i class="is-capital"></i>Capital
                     </span>
@@ -744,6 +751,166 @@ export class RealEstateApp {
                     </tbody>
                 </table>
             </div>
+        `;
+    }
+
+    // ========== TABLEAU D'AMORTISSEMENT COMPLET ==========
+
+    // Échéancier mensuel cumulé des crédits donnés (un crédit seul = son propre échéancier)
+    buildAmortizationSchedule(details) {
+        const schedules = details.map(d => {
+            const byMonth = new Map();
+            MortgageCalculator.generateAmortizationSchedule(d.credit).forEach(e => {
+                byMonth.set(e.date.getFullYear() * 12 + e.date.getMonth(), e);
+            });
+            return { d, byMonth };
+        });
+
+        const keys = [...new Set(schedules.flatMap(s => [...s.byMonth.keys()]))].sort((a, b) => a - b);
+
+        return keys.map(key => {
+            const row = { key, date: null, payment: 0, interest: 0, capital: 0, remaining: 0 };
+            schedules.forEach(({ d, byMonth }) => {
+                const e = byMonth.get(key);
+                if (e) {
+                    row.payment += e.monthlyPayment;
+                    row.interest += e.interestPayment;
+                    row.capital += e.capitalPayment;
+                    row.remaining += e.remainingCapital;
+                    if (!row.date || e.date < row.date) row.date = e.date;
+                }
+            });
+            // Crédits sans échéance ce mois-ci (différé pas commencé / déjà soldé)
+            schedules.forEach(({ d, byMonth }) => {
+                if (!byMonth.has(key)) row.remaining += MortgageCalculator.calculateRemainingCapital(d.credit, row.date);
+            });
+            return row;
+        });
+    }
+
+    openAmortizationModal(scope = 'all') {
+        const modal = document.getElementById('amortization-modal');
+        if (!modal || !this.residenceDetails?.length) return;
+
+        this.amortizationScope = scope;
+        this.renderAmortizationModal();
+
+        modal.style.display = 'flex';
+        void modal.offsetWidth;
+        modal.classList.add('show');
+
+        if (!this.amortizationKeyHandler) {
+            this.amortizationKeyHandler = e => { if (e.key === 'Escape') this.closeAmortizationModal(); };
+        }
+        document.addEventListener('keydown', this.amortizationKeyHandler);
+
+        this.scrollAmortizationToCurrentYear();
+    }
+
+    closeAmortizationModal() {
+        const modal = document.getElementById('amortization-modal');
+        if (!modal) return;
+        modal.classList.remove('show');
+        document.removeEventListener('keydown', this.amortizationKeyHandler);
+        setTimeout(() => { modal.style.display = 'none'; }, 300);
+    }
+
+    setAmortizationScope(scope) {
+        this.amortizationScope = scope;
+        this.renderAmortizationModal();
+        this.scrollAmortizationToCurrentYear();
+    }
+
+    // Amène l'année de la prochaine échéance en haut de la zone scrollable (sous l'en-tête collant)
+    scrollAmortizationToCurrentYear() {
+        const wrap = document.getElementById('amortization-table-wrap');
+        const year = wrap?.querySelector('.re-am-year.is-open');
+        if (!wrap) return;
+        if (!year) { wrap.scrollTop = 0; return; }
+        const headHeight = wrap.querySelector('thead')?.offsetHeight || 0;
+        wrap.scrollTop += year.getBoundingClientRect().top - wrap.getBoundingClientRect().top - headHeight;
+    }
+
+    renderAmortizationModal() {
+        const details = this.residenceDetails;
+        const today = this.residenceToday || new Date();
+        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const scope = this.amortizationScope;
+        const selected = scope === 'all' ? details : [details[Number(scope)]].filter(Boolean);
+
+        // Onglets : vue globale + un par crédit
+        const tabs = document.getElementById('amortization-tabs');
+        tabs.innerHTML = (details.length > 1 ? [{ key: 'all', label: 'Tous les crédits', color: null }] : [])
+            .concat(details.map((d, i) => ({
+                key: String(i),
+                label: d.credit.name || `Crédit ${i + 1}`,
+                color: CREDIT_COLORS[i % CREDIT_COLORS.length]
+            })))
+            .map(t => `
+                <button type="button" class="re-am-tab ${String(scope) === t.key || (details.length === 1) ? 'is-active' : ''}"
+                    onclick="window.realEstateApp.setAmortizationScope('${t.key}')">
+                    ${t.color ? `<i style="background: ${t.color}"></i>` : ''}${escapeHtml(t.label)}
+                </button>`).join('');
+
+        const rows = this.buildAmortizationSchedule(selected);
+        const nextIndex = rows.findIndex(r => r.date >= todayStart);
+        const paidRows = nextIndex === -1 ? rows : rows.slice(0, nextIndex);
+        const sum = (list, field) => list.reduce((s, r) => s + r[field], 0);
+
+        document.getElementById('amortization-summary').innerHTML = `
+            <div><span>Total des échéances</span><strong>${this.formatEUR(sum(rows, 'payment'))}</strong></div>
+            <div><span>Dont intérêts</span><strong class="is-warning">${this.formatEUR(sum(rows, 'interest'))}</strong></div>
+            <div><span>Déjà réglé</span><strong class="is-positive">${this.formatEUR(sum(paidRows, 'payment'))}</strong>
+                <small>${paidRows.length} / ${rows.length} échéances</small></div>
+            <div><span>Dernière échéance</span><strong>${rows.length ? formatMonthYear(rows[rows.length - 1].date) : '—'}</strong></div>
+        `;
+
+        // Regroupement par année, l'année de la prochaine échéance est dépliée
+        const years = new Map();
+        rows.forEach((r, i) => {
+            const y = r.date.getFullYear();
+            if (!years.has(y)) years.set(y, []);
+            years.get(y).push({ ...r, index: i });
+        });
+        const openYear = nextIndex === -1 ? null : rows[nextIndex].date.getFullYear();
+        const fmt = v => this.formatEUR(v, 2);
+
+        document.getElementById('amortization-table').innerHTML = `
+            <thead>
+                <tr>
+                    <th>Échéance</th>
+                    <th class="num">Mensualité</th>
+                    <th class="num">Intérêts</th>
+                    <th class="num">Capital</th>
+                    <th class="num">Restant dû</th>
+                </tr>
+            </thead>
+            ${[...years.entries()].map(([year, list]) => {
+                const allPaid = list.every(r => r.index < nextIndex || nextIndex === -1);
+                return `
+                <tbody class="re-am-year ${year === openYear ? 'is-open' : ''}">
+                    <tr class="re-am-year-row" onclick="this.parentElement.classList.toggle('is-open')">
+                        <td><i class="ph ph-caret-right" aria-hidden="true"></i> ${year}
+                            ${allPaid ? '<span class="re-badge re-badge--success">Réglé</span>' : ''}</td>
+                        <td class="num">${this.formatEUR(sum(list, 'payment'))}</td>
+                        <td class="num is-warning">${this.formatEUR(sum(list, 'interest'))}</td>
+                        <td class="num is-positive">${this.formatEUR(sum(list, 'capital'))}</td>
+                        <td class="num muted">${this.formatEUR(list[list.length - 1].remaining)}</td>
+                    </tr>
+                    ${list.map(r => `
+                    <tr class="re-am-row ${r.index < nextIndex || nextIndex === -1 ? 'is-paid' : ''} ${r.index === nextIndex ? 'is-next' : ''}">
+                        <td>
+                            <span class="re-am-num">${r.index + 1}</span>
+                            ${r.date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            ${r.index === nextIndex ? '<span class="re-badge re-badge--info">Prochaine</span>' : ''}
+                        </td>
+                        <td class="num"><strong>${fmt(r.payment)}</strong></td>
+                        <td class="num is-warning">${fmt(r.interest)}</td>
+                        <td class="num is-positive">${fmt(r.capital)}</td>
+                        <td class="num muted">${this.formatEUR(r.remaining)}</td>
+                    </tr>`).join('')}
+                </tbody>`;
+            }).join('')}
         `;
     }
 

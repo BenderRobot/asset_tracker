@@ -263,7 +263,154 @@
         }
 
         /* --- Prochaines échéances --- */
-        .re-schedule { margin-top: 12px; }
+        .re-schedule {
+            margin-top: 12px;
+            cursor: pointer;
+            transition: border-color 0.2s ease, background-color 0.2s ease;
+        }
+
+        .re-schedule:hover, .re-schedule:focus-visible {
+            border-color: rgba(59, 130, 246, 0.45);
+            background: color-mix(in srgb, var(--bg-card) 92%, #3b82f6);
+            outline: none;
+        }
+
+        .re-schedule-more {
+            margin-left: 8px;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-transform: none;
+            color: #60a5fa;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .re-schedule:hover .re-schedule-more, .re-schedule:focus-visible .re-schedule-more { opacity: 1; }
+
+        /* --- Modal tableau d'amortissement --- */
+        .re-am-modal {
+            max-width: 860px;
+            width: 95%;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .re-am-body {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            min-height: 0;
+            padding: 20px 24px 24px;
+        }
+
+        .re-am-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+
+        .re-am-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-secondary);
+            font: inherit;
+            font-size: 12.5px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .re-am-tab:hover { color: var(--text-primary); }
+        .re-am-tab.is-active {
+            color: var(--text-primary);
+            border-color: rgba(59, 130, 246, 0.5);
+            background: rgba(59, 130, 246, 0.15);
+        }
+
+        .re-am-tab i { width: 8px; height: 8px; border-radius: 50%; }
+
+        .re-am-summary {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .re-am-summary > div {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+        }
+
+        .re-am-summary span { font-size: 11.5px; color: var(--text-muted); }
+        .re-am-summary strong { font-size: 15px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+        .re-am-summary small { font-size: 11px; color: var(--text-muted); }
+
+        .re-am-table-wrap {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .re-am-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            padding-top: 10px;
+            background: var(--bg-card);
+        }
+
+        .re-am-table td { padding: 8px; }
+
+        .re-am-year-row td {
+            padding: 10px 8px;
+            cursor: pointer;
+            color: var(--text-primary);
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.025);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .re-am-year-row:hover td { background: rgba(255, 255, 255, 0.05); }
+        .re-am-year-row td:first-child { padding-left: 8px; }
+        .re-am-year-row .re-badge { margin-left: 6px; }
+
+        .re-am-year-row .ph-caret-right {
+            display: inline-block;
+            margin-right: 4px;
+            font-size: 12px;
+            transition: transform 0.15s ease;
+        }
+
+        .re-am-year.is-open .ph-caret-right { transform: rotate(90deg); }
+
+        .re-am-row { display: none; }
+        .re-am-year.is-open .re-am-row { display: table-row; }
+
+        .re-am-row td:first-child { padding-left: 26px; }
+        .re-am-row.is-paid td { opacity: 0.5; }
+        .re-am-row.is-next td { background: rgba(59, 130, 246, 0.1); color: var(--text-primary); }
+
+        .re-am-num {
+            display: inline-block;
+            min-width: 28px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .re-am-table tbody tr:last-child td { border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+
+        @media (max-width: 700px) {
+            .re-am-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .re-am-table th:nth-child(5), .re-am-table td:nth-child(5) { display: none; }
+            .re-am-body { padding: 16px; }
+        }
 
         .re-schedule-legend {
             display: inline-flex;
@@ -700,6 +847,23 @@
                         <button type="submit" class="btn-primary">Enregistrer</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="amortization-modal" style="display: none;"
+        onclick="if (event.target === this) window.realEstateApp.closeAmortizationModal()">
+        <div class="modal-content re-am-modal" role="dialog" aria-modal="true" aria-labelledby="amortization-title">
+            <div class="modal-header">
+                <h3 id="amortization-title"><i class="ph ph-table" aria-hidden="true"></i> Tableau d'amortissement</h3>
+                <button class="modal-close" aria-label="Fermer" onclick="window.realEstateApp.closeAmortizationModal()">×</button>
+            </div>
+            <div class="modal-body re-am-body">
+                <div id="amortization-tabs" class="re-am-tabs"></div>
+                <div id="amortization-summary" class="re-am-summary"></div>
+                <div id="amortization-table-wrap" class="re-am-table-wrap">
+                    <table id="amortization-table" class="re-schedule-table re-am-table"></table>
+                </div>
             </div>
         </div>
     </div>
