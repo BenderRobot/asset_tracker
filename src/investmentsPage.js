@@ -483,7 +483,7 @@ export class InvestmentsPage {
       const icon = this.currentAssetTypeFilter === 'Crypto' ? 'currency-btc' : (this.currentBrokerFilter ? 'bank' : 'chart-bar');
       return { mode: 'filter', label: context.join(' • '), icon };
     }
-    return { mode: 'global', label: 'Portfolio Global', icon: 'chart-line-up' };
+    return { mode: 'global', label: 'Portefeuille global', icon: 'chart-line-up' };
   }
 
   attachRowClickListeners() {

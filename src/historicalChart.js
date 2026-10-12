@@ -95,14 +95,11 @@ export class HistoricalChart {
         this.currentBenchmark = null;
         this.customTitle = null;
 
-        // Reference-line visibility (Clôture Hier / PRU / ATH) — a per-viewer display
+        // Reference-line visibility (Clôture hier / PRU / ATH) — a per-viewer display
         // preference, so it's persisted in localStorage rather than app state.
         this.refLineVisibility = {
-            // No toggle is ever offered on the Dashboard (this.ui is null there
-            // — see _syncReferenceLineToggles), so its line must not be
-            // silently turned off by a preference set on the Investments page:
-            // both pages share the same origin/localStorage key.
-            close: this.ui ? this._loadRefLinePref('close') : true,
+            // Always drawn in 1D: neither page offers a toggle for it any more.
+            close: true,
             pru: this._loadRefLinePref('pru'),
             ath: this._loadRefLinePref('ath')
         };
@@ -1315,12 +1312,11 @@ export class HistoricalChart {
             container.id = 'ref-lines-toggle';
             container.className = 'chart-chip-group';
             anchor.parentNode.insertBefore(container, anchor.nextSibling);
-            // The Dashboard does not expose Clôture/PRU, but it does expose ATH
-            // for the global portfolio. Investments adds all three controls.
+            // ATH on both pages; Investments adds PRU (its single-asset view).
             // Each chip carries a dashed swatch in its line's colour (see
             // css/chart-toolbar.css), so the chips also act as the legend.
             const lines = this.ui
-                ? [['close', 'Clôture', 'Clôture de la veille (vue 1J)'], ['pru', 'PRU', 'Prix de revient unitaire moyen'], ['ath', 'ATH', '']]
+                ? [['pru', 'PRU', 'Prix de revient unitaire moyen'], ['ath', 'ATH', '']]
                 : [['ath', 'ATH', '']];
             lines.forEach(([key, label, title]) => {
                 const btn = document.createElement('button');
@@ -1343,13 +1339,10 @@ export class HistoricalChart {
                 container.appendChild(btn);
             });
         }
-        const closeBtn = container.querySelector('[data-refline="close"]');
         const pruBtn = container.querySelector('[data-refline="pru"]');
         const athBtn = container.querySelector('[data-refline="ath"]');
-        const showClose = !!closeBtn && this.currentPeriod === 1;
         const showPru = !!pruBtn && isSingleAssetMode;
         const showAth = !!athBtn && athKind !== null;
-        if (closeBtn) closeBtn.style.display = showClose ? '' : 'none';
         if (pruBtn) pruBtn.style.display = showPru ? '' : 'none';
         if (athBtn) {
             athBtn.style.display = showAth ? '' : 'none';
@@ -1357,7 +1350,7 @@ export class HistoricalChart {
                 ? 'Plus haut prix unitaire depuis le premier achat'
                 : 'Plus haut historique de la performance (TWR), dans le repère de la période affichée';
         }
-        container.style.display = (showClose || showPru || showAth) ? '' : 'none';
+        container.style.display = (showPru || showAth) ? '' : 'none';
     }
 
     // Toolbar state that is not a button of its own: the benchmark chip tint
@@ -1497,25 +1490,8 @@ export class HistoricalChart {
         let referenceClose = referenceCloseIn ?? graphData.yesterdayClose ?? priceStart;
         if (!referenceClose || isNaN(referenceClose)) referenceClose = priceStart;
 
-        // VAR TODAY : dérivé de kpiData.varTodayAbs, lui-même calculé (voir
-        // historicalChart::_computeAggregateKPIs) à partir de graphData —
-        // et graphData EST désormais le snapshot unique construit par
-        // dataManager.buildTodaySnapshot() (voir update()) : priceEnd
-        // (displayValues[lastIndex]) et referenceClose (graphData.yesterdayClose)
-        // ci-dessus proviennent DÉJÀ des mêmes prix/taux que kpiData.totalValue —
-        // il n'y a plus deux snapshots à réconcilier après coup. PÉRIODE (perfAbs/
-        // perfPct, lu plus haut depuis graphData.twr) reste volontairement
-        // indépendant de Var Today : sur l'onglet 1D les deux coïncident parce que
-        // periodDenominator == dayDenominator pour une fenêtre d'un seul jour, pas
-        // parce que l'un écrase l'autre.
-        let vsYesterdayAbs = null, vsYesterdayPct = null;
-        if (!isIndexMode && kpiData?.varTodayAbs !== null && kpiData?.varTodayAbs !== undefined && !isNaN(kpiData.varTodayAbs)) {
-            vsYesterdayAbs = kpiData.varTodayAbs;
-            vsYesterdayPct = kpiData.varTodayPct || 0;
-        } else if (priceEnd !== null && referenceClose) {
-            vsYesterdayAbs = priceEnd - referenceClose;
-            vsYesterdayPct = referenceClose !== 0 ? (vsYesterdayAbs / referenceClose) * 100 : 0;
-        }
+        // The stats bar no longer shows a separate Var Today: in 1D it equals
+        // Période, and the headline Var Today card reads portfolioKPIs.
 
         // "Fin" est le dernier point RÉEL du graphique — jamais substitué par
         // kpiData.totalValue après coup (voir audit : ce genre de substitution
@@ -1545,8 +1521,6 @@ export class HistoricalChart {
         this.kpiManager.updateKPIs({
             isIndexMode, isSingleAsset: isSingleAssetMode, isUnitView, currentPeriod: this.currentPeriod,
             perfAbs, perfPct, isPositive,
-            vsYesterdayAbs, vsYesterdayPct, useTodayVar: vsYesterdayAbs !== null,
-            referenceClose, finalYesterdayClose: this.lastYesterdayClose,
             priceStart, priceEnd: displayPriceEnd, priceHigh, priceLow, avgPrice, decimals
         });
 
@@ -1570,7 +1544,6 @@ export class HistoricalChart {
             });
         }
 
-        return { historicalDayChange: vsYesterdayAbs, historicalDayChangePct: vsYesterdayPct };
     }
 
     // ATH reference line — pure selector + formatting. The calculation lives
@@ -1830,10 +1803,7 @@ export class HistoricalChart {
         // En vue 1D, HistoryCalculator fournit une Var Today explicite pour
         // chaque point, déjà neutralisée des flux par sa référence quotidienne.
         // Cette vue ne fait que lire et formater ces deux séries canoniques.
-        if (this.currentPeriod === 1 && this.investmentsPage?.showDayPnlInTooltip !== false) {
-            this._pushDayPnlRow(rows, idx, graphData, eurFmt, pctFmt);
-        }
-
+        // No "Var Today" row for the portfolio: in 1D it equals "Période".
         this._pushBenchmarkRows(rows, idx, pct, opts);
         return rows;
     }

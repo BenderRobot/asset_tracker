@@ -125,8 +125,6 @@ export class DashboardApp {
             currentAssetTypeFilter: '',
             currentBrokerFilter: '',
             getChartTitleConfig: () => ({ mode: 'global', label: 'Portefeuille global', icon: 'chart-line-up' }),
-            // In 1D, "Var Today" equals "Période": the dashboard shows Période only.
-            showDayPnlInTooltip: false,
             // Dashboard n'a pas de filtres ticker/type/courtier (toujours portefeuille
             // global) — historicalChart.js délègue maintenant à getFilteredPurchasesFromPage
             // de la "page" pour éviter un doublon avec investmentsPage.js ; ce mock doit donc
@@ -777,31 +775,8 @@ export class DashboardApp {
 
             this.chart = new HistoricalChart(this.storage, this.dataManager, null, mockInvestmentsPage);
 
-            // Bind events for BOTH desktop and mobile buttons
-            const allPeriodBtns = document.querySelectorAll('.chart-controls-inline .period-btn, .chart-controls-bottom-mobile .period-btn');
-            if (allPeriodBtns.length > 0) {
-                allPeriodBtns.forEach(btn => {
-                    const newBtn = btn.cloneNode(true);
-                    btn.parentNode.replaceChild(newBtn, btn);
-                    newBtn.addEventListener('click', async (e) => {
-                        if (newBtn.classList.contains('period-disabled')) return;
-                        // Update active state on ALL buttons (desktop & mobile) to keep them in sync
-                        document.querySelectorAll('.period-btn').forEach(b => {
-                            if (b.dataset.period === e.target.dataset.period) {
-                                b.classList.add('active');
-                            } else {
-                                b.classList.remove('active');
-                            }
-                        });
-
-                        const rawPeriod = e.target.dataset.period;
-                        const period = (rawPeriod === 'all' || rawPeriod === 'ytd') ? rawPeriod : parseInt(rawPeriod);
-                        await this.chart.changePeriod(period);
-                    });
-                });
-            }
-
-            this.chart.updatePeriodButtonsAvailability();
+            // Same period bar, under the chart, as the Investments page.
+            this.chart.setupPeriodButtons();
 
             const benchmarkSelect = document.getElementById('benchmark-select');
             if (benchmarkSelect) {

@@ -282,35 +282,7 @@
     min-width: 280px;
 }
 
-.chart-title {
-    font-size: 1.25rem;
-    font-weight: 600;
-    display: flex;
-    color: var(--text-primary);
-    /* Changé de #ecf0f1 */
-    align-items: center;
-    gap: 12px;
-    background: rgba(255, 255, 255, 0.08);
-    padding: 10px 24px;
-    border-radius: 14px;
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--border-color);
-    /* Changé de rgba(255, 255, 255, 0.15) */
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
-    transition: all 0.3s ease;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-}
-
-.title-icon {
-    font-size: 1.8rem;
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
-}
-
-#chart-title-text {
-    color: #fff;
-    opacity: 0.95;
-}
-
+/* Chart title: css/chart-toolbar.css (same as the dashboard). */
 .header-controls {
     display: flex;
     align-items: center;
@@ -355,21 +327,7 @@
     opacity: 0.9;
 }
 
-/* Boutons période (style identique au dashboard, pleine largeur) */
-.chart-controls {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 0;
-    background: var(--bg-secondary);
-    padding: 2px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    height: 32px;
-    box-sizing: border-box;
-    margin-top: 12px;
-}
-
+/* Period bar: css/chart-toolbar.css (same as the dashboard). */
 .period-btn {
     padding: 0 12px;
     height: 100%;
@@ -399,125 +357,13 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-.period-btn.period-disabled {
-    display: none;
-}
-
-/* === BARRE DE STATS GRAPHIQUE (3 GROUPES) === */
+/* === BARRE DE STATS : cadre propre à la page ; disposition et typographie
+   communes dans css/chart-toolbar.css === */
 .chart-stats-bar {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 16px;
-    align-items: stretch;
     background: var(--bg-secondary);
     border-radius: 10px;
     border: 1px solid var(--border-color);
-    padding: 16px 20px;
     margin-top: 12px;
-}
-
-.chart-stats-bar .stat {
-    display: flex;
-    flex-direction: column;
-    min-width: auto;
-}
-
-.chart-stats-bar .label {
-    color: var(--text-muted);
-    font-size: 11px;
-    letter-spacing: 0.4px;
-    margin-bottom: 4px;
-    text-transform: uppercase;
-}
-
-.chart-stats-bar .value {
-    font-weight: 600;
-    margin-top: 0;
-    color: var(--text-primary);
-}
-
-.chart-stats-bar .pct {
-    font-size: 13px;
-    color: var(--text-secondary);
-}
-
-.stat-group-1,
-.stat-group-2 {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 16px;
-    border-right: 1px solid var(--border-color);
-    padding-right: 16px;
-}
-
-.stat-group-1 .stat,
-.stat-group-2 .stat {
-    align-items: center;
-}
-
-.stat-group-1 .value,
-.stat-group-2 #stat-day-var .value {
-    font-size: 20px;
-    font-weight: 700;
-    margin-bottom: 2px;
-}
-
-.stat-group-1 .pct,
-.stat-group-2 #stat-day-var .pct {
-    font-size: 14px;
-}
-
-.stat-group-2 #stat-yesterday-close .value {
-    font-size: 16px;
-    font-weight: 600;
-}
-
-.stat-group-3 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px 16px;
-    padding-left: 16px;
-    border-right: none;
-}
-
-.stat-group-3 .stat {
-    align-items: flex-start;
-}
-
-.stat-group-3 .value {
-    font-size: 16px;
-}
-
-@media (max-width: 820px) {
-    .chart-stats-bar {
-        grid-template-columns: 1fr;
-        gap: 16px;
-    }
-
-    .stat-group {
-        border-right: none;
-        border-bottom: 1px solid var(--border-color);
-        padding-right: 0;
-        padding-bottom: 16px;
-    }
-
-    .stat-group-2 {
-        flex-direction: row;
-        justify-content: space-around;
-        align-items: flex-start;
-    }
-
-    .stat-group-2 .stat {
-        align-items: center;
-    }
-
-    .stat-group-3 {
-        grid-template-columns: 1fr 1fr;
-        padding-left: 0;
-        border-bottom: none;
-        padding-bottom: 0;
-    }
 }
 
 /* === LOADER SVG === */

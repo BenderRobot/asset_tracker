@@ -131,7 +131,7 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
     // La vue 1D expose maintenant une Var Today calculée explicitement par le
     // moteur pour chaque point. Le tooltip reste un lecteur pur : il ne la
     // reconstruit ni depuis le TWR ni depuis la valeur du portefeuille.
-    it('le tooltip 1D affiche la Var Today canonique du point survolé', () => {
+    it('le tooltip 1D de la vue prix unitaire affiche la Var Today canonique du point survolé', () => {
         const storage = createFakeStorage({});
         const dataManager = new DataManager(storage, createFakeApi());
         const investmentsPage = { filterManager: { getSelectedTickers: () => new Set() }, getChartTitleConfig: () => ({ mode: 'global' }), getFilteredPurchasesFromPage: () => [], renderData: () => {} };
@@ -151,17 +151,19 @@ describe('Invariant — KPI Var Today = Σ DAY P&L du tableau (jamais un ratio T
             displayValues: graphData.values
         };
 
-        const rowAtLast = chart._buildKpiRows(1, opts).find(r => r.label === 'Var Today');
-        expect(rowAtLast).toMatchObject({ eur: 10.25, pct: 0.51, positive: true });
+        // Portfolio view: in 1D "Var Today" equals "Période", so only Période is shown.
+        expect(chart._buildKpiRows(1, opts).find(r => r.label === 'Var Today')).toBeUndefined();
+        expect(chart._buildKpiRows(1, opts).some(r => r.label === 'Total Value')).toBe(true);
 
-        const rowAtFirst = chart._buildKpiRows(0, opts).find(r => r.label === 'Var Today');
+        // Unit-price view: the day's P&L of the position is the only € figure.
+        const rowAtFirst = chart._buildKpiRows(0, { ...opts, isUnitView: true, displayValues: [100, 101] }).find(r => r.label === 'Var Today');
         expect(rowAtFirst).toMatchObject({ eur: 0, pct: 0, positive: true });
 
         const unitRows = chart._buildKpiRows(1, { ...opts, isUnitView: true, displayValues: [100, 101] });
         expect(unitRows.find(r => r.label === 'Var Today')).toMatchObject({ eur: 10.25, pct: 0.51 });
 
         chart.currentPeriod = 7;
-        expect(chart._buildKpiRows(1, opts).find(r => r.label === 'Var Today')).toBeUndefined();
+        expect(chart._buildKpiRows(1, { ...opts, isUnitView: true, displayValues: [100, 101] }).find(r => r.label === 'Var Today')).toBeUndefined();
     });
 
     it('Invariants D/E/F bout-en-bout : KPI, tableau et graphique lisent le MÊME PortfolioSnapshot (même snapshotId)', async () => {

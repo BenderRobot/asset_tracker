@@ -4,7 +4,7 @@
     {
       "width": 1920,
       "documentWidth": 1920,
-      "firstPositionY": 1287,
+      "firstPositionY": 1263,
       "tableWidth": 1352,
       "visibleFirstRowCells": [
         "AAPL",
@@ -96,7 +96,7 @@
     {
       "width": 1601,
       "documentWidth": 1601,
-      "firstPositionY": 1305,
+      "firstPositionY": 1281,
       "tableWidth": 1313,
       "visibleFirstRowCells": [
         "AAPL",
@@ -188,7 +188,7 @@
     {
       "width": 1600,
       "documentWidth": 1600,
-      "firstPositionY": 1366,
+      "firstPositionY": 1342,
       "tableWidth": 1312,
       "visibleFirstRowCells": [
         "AAPL",
@@ -280,7 +280,7 @@
     {
       "width": 1366,
       "documentWidth": 1366,
-      "firstPositionY": 1360,
+      "firstPositionY": 1335,
       "tableWidth": 1078,
       "visibleFirstRowCells": [
         "AAPL",
@@ -372,7 +372,7 @@
     {
       "width": 1301,
       "documentWidth": 1301,
-      "firstPositionY": 1364,
+      "firstPositionY": 1340,
       "tableWidth": 1013,
       "visibleFirstRowCells": [
         "AAPL",
@@ -464,7 +464,7 @@
     {
       "width": 1300,
       "documentWidth": 1300,
-      "firstPositionY": 1364,
+      "firstPositionY": 1340,
       "tableWidth": 1012,
       "visibleFirstRowCells": [
         "AAPL",
@@ -556,7 +556,7 @@
     {
       "width": 1251,
       "documentWidth": 1251,
-      "firstPositionY": 1408,
+      "firstPositionY": 1373,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -648,7 +648,7 @@
     {
       "width": 1250,
       "documentWidth": 1251,
-      "firstPositionY": 1408,
+      "firstPositionY": 1373,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -740,7 +740,7 @@
     {
       "width": 1152,
       "documentWidth": 1251,
-      "firstPositionY": 1512,
+      "firstPositionY": 1442,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -832,7 +832,7 @@
     {
       "width": 1024,
       "documentWidth": 1251,
-      "firstPositionY": 2029,
+      "firstPositionY": 1837,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -924,8 +924,8 @@
     {
       "width": 768,
       "documentWidth": 768,
-      "firstPositionY": 2305,
-      "tableWidth": 729,
+      "firstPositionY": 2256,
+      "tableWidth": 724,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
         "6 300,00 €",
@@ -964,7 +964,7 @@
         20,
         20
       ],
-      "primaryGridWidth": 729,
+      "primaryGridWidth": 724,
       "secondaryCardTops": [
         299,
         537,
@@ -973,11 +973,11 @@
         1249
       ],
       "secondaryCardWidths": [
-        729,
-        729,
-        729,
-        729,
-        729
+        724,
+        724,
+        724,
+        724,
+        724
       ],
       "secondaryCardHeights": [
         226,
@@ -989,16 +989,16 @@
       "cashCardContentHeight": 229,
       "rankingCardContentHeight": 209,
       "primaryGridEdges": [
-        23,
+        28,
         752
       ],
       "secondaryGridEdges": [
-        23,
+        28,
         752
       ],
       "chartTop": 1520,
       "cashInInsightsGrid": true,
-      "summaryGridWidth": 729,
+      "summaryGridWidth": 724,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
       "clearButtonSize": [
@@ -1009,7 +1009,7 @@
     {
       "width": 390,
       "documentWidth": 390,
-      "firstPositionY": 2304,
+      "firstPositionY": 2307,
       "tableWidth": 358,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -1094,7 +1094,7 @@
     {
       "width": 360,
       "documentWidth": 360,
-      "firstPositionY": 2322,
+      "firstPositionY": 2307,
       "tableWidth": 328,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",

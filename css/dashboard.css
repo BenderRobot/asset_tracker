@@ -386,131 +386,14 @@
     gap: 16px;
 }
 
-/* Contrôles Période */
-.chart-controls-inline {
-    display: inline-flex;
-    align-items: center;
-    gap: 0;
-    /* Plus de gap, géré par buttons */
-    background: var(--bg-secondary);
-    padding: 2px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    height: 32px;
-    box-sizing: border-box;
-}
-
-.chart-controls-inline .period-btn {
-    padding: 0 12px;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    font-weight: 600;
-    border: none;
-    background: transparent;
-    color: var(--text-secondary);
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-}
-
-.chart-controls-inline .period-btn:hover {
-    color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.chart-controls-inline .period-btn.active {
-    background: var(--accent-blue);
-    color: white;
-    font-weight: 600;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-.chart-controls-inline .period-btn.period-disabled,
-.chart-controls-bottom-mobile .period-btn.period-disabled {
-    display: none;
-}
-
-/* --- BARRE DE STATS CORRIGÉE (GRID) --- */
+/* --- BARRE DE STATS : cadre propre au dashboard ; disposition et typographie
+   communes dans css/chart-toolbar.css --- */
 .chart-stats-bar {
-    display: grid;
-    /* MODIF : Grid adaptative pour éviter que ça dépasse */
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 16px;
-    align-items: start;
-
     margin: 0;
     border: none;
     border-top: 1px solid var(--border-color);
     background: var(--bg-secondary);
-    /* Uniformisation du fond */
-    padding: 16px 24px;
 }
-
-/* Groupes de stats */
-.stat-group-1,
-.stat-group-2 {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 8px;
-    border-right: 1px solid var(--border-color);
-    padding-right: 16px;
-    min-width: auto;
-    /* Supprime la largeur forcée */
-}
-
-.stat-group-3 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px 16px;
-    padding-left: 16px;
-    border-right: none;
-    justify-content: start;
-}
-
-/* Styles individuels stats */
-.stat {
-    display: flex;
-    flex-direction: column;
-    white-space: nowrap;
-}
-
-.stat .label {
-    font-size: 10px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    margin-bottom: 4px;
-    letter-spacing: 0.5px;
-    font-weight: 600;
-}
-
-.stat .value {
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--text-primary);
-    font-family: 'Inter', monospace;
-}
-
-.stat .pct {
-    font-size: 12px;
-    margin-left: 4px;
-    opacity: 0.9;
-}
-
-.stat-group-1 .value {
-    font-size: 22px;
-    margin-bottom: 2px;
-}
-
-.stat-group-1 .pct {
-    font-size: 14px;
-    font-weight: 500;
-}
-
 
 /* === ELEMENTS INDICES LISTE === */
 .market-card {
@@ -868,31 +751,6 @@
 }
 
 /* === RESPONSIVE === */
-@media (max-width: 1400px) {
-
-    /* Passage en 2 colonnes pour les stats graph sur écran moyen */
-    .chart-stats-bar {
-        grid-template-columns: 1fr 1fr;
-    }
-
-    .stat-group-1,
-    .stat-group-2 {
-        border-right: none;
-        border-bottom: 1px solid var(--border-color);
-        padding-bottom: 12px;
-        flex-direction: row;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .stat-group-3 {
-        grid-column: span 2;
-        padding-left: 0;
-        padding-top: 12px;
-        grid-template-columns: repeat(4, 1fr);
-    }
-}
-
 @media (max-width: 1200px) {
 
     /* 1. Force l'empilement vertical 1x1 */
@@ -919,13 +777,6 @@
         overflow-x: auto;
         /* Permet le scroll horizontal si trop d'indices */
         padding-bottom: 12px;
-    }
-}
-
-@media (max-width: 768px) {
-    .stat-group-3 {
-        grid-template-columns: 1fr 1fr;
-        /* Retour sur 2 lignes mobile */
     }
 }
 

@@ -14,10 +14,10 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=4">
-    <link rel="stylesheet" href="css/dashboard.css?v=102">
-    <link rel="stylesheet" href="css/dashboard-mobile.css?v=6">
-    <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
-    <link rel="stylesheet" href="css/dashboard-premium.css?v=16">
+    <link rel="stylesheet" href="css/dashboard.css?v=103">
+    <link rel="stylesheet" href="css/dashboard-mobile.css?v=7">
+    <link rel="stylesheet" href="css/chart-toolbar.css?v=8">
+    <link rel="stylesheet" href="css/dashboard-premium.css?v=17">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -156,14 +156,12 @@
                                 <h3 class="chart-title"><span class="title-icon"><i class="ph ph-chart-line-up" aria-hidden="true"></i></span><span
                                         id="chart-title-text">Portefeuille global</span></h3>
                                 <span id="chart-title-icon" style="display:none"></span>
-                                <div id="last-update" class="chart-status"></div>
                                 <button id="dashboard-back-portfolio" class="dashboard-text-button" type="button" hidden>← Mon portefeuille</button>
 
                             </div>
                             <!-- Chart toolbar: view → options/reference lines (injected by
-                                 historicalChart.js right after #view-toggle) → benchmark. The period
-                                 bar below is its own area of the .chart-header grid.
-                                 Styling: css/chart-toolbar.css. -->
+                                 historicalChart.js right after #view-toggle) → benchmark → status.
+                                 Same markup as investments.html; styling: css/chart-toolbar.css. -->
                             <div class="header-controls chart-toolbar" role="toolbar" aria-label="Options du graphique">
                                 <div id="view-toggle" style="display:none;"></div>
                                 <div id="benchmark-wrapper" class="benchmark-wrapper chart-benchmark">
@@ -178,18 +176,7 @@
                                     </select>
                                 </div>
                                 <div id="chart-info" style="display:none; font-size:12px;"></div>
-                            </div>
-                            <div class="chart-controls-inline">
-                                <button class="period-btn active" data-period="1">1J</button>
-                                <button class="period-btn" data-period="7">1S</button>
-                                <button class="period-btn" data-period="30">1M</button>
-                                <button class="period-btn" data-period="90">3M</button>
-                                <button class="period-btn" data-period="180">6M</button>
-                                <button class="period-btn" data-period="ytd">YTD</button>
-                                <button class="period-btn" data-period="365">1A</button>
-                                <button class="period-btn" data-period="730">2A</button>
-                                <button class="period-btn period-disabled" data-period="1095">3A</button>
-                                <button class="period-btn" data-period="all">Tout</button>
+                                <div id="last-update" class="chart-status"></div>
                             </div>
                         </div>
                         <div class="chart-wrapper tall">
@@ -237,14 +224,15 @@
                                 <div class="stat"><span class="label">Écart / ATH</span><span id="ath-gap" class="value">—</span></div>
                             </div>
                         </div>
-                        <div class="chart-controls-bottom-mobile" style="display:none;">
+                        <div class="chart-controls">
                             <button class="period-btn active" data-period="1">1J</button>
+                            <button class="period-btn" data-period="2">2J</button>
                             <button class="period-btn" data-period="7">1S</button>
                             <button class="period-btn" data-period="30">1M</button>
                             <button class="period-btn" data-period="90">3M</button>
                             <button class="period-btn" data-period="180">6M</button>
-                            <button class="period-btn" data-period="365">1A</button>
                             <button class="period-btn" data-period="ytd">YTD</button>
+                            <button class="period-btn" data-period="365">1A</button>
                             <button class="period-btn" data-period="730">2A</button>
                             <button class="period-btn period-disabled" data-period="1095">3A</button>
                             <button class="period-btn" data-period="all">Tout</button>

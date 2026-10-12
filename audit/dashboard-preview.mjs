@@ -115,10 +115,15 @@ try {
             panelHeight: Math.round(document.querySelector('.dashboard-indices-panel-full').getBoundingClientRect().height),
             leftHeight: Math.round(document.querySelector('.dashboard-left-column').getBoundingClientRect().height),
             sparklines: document.querySelectorAll('.market-card-spark svg').length,
-            titleLine: (() => {
-                const title = document.querySelector('.chart-title').getBoundingClientRect();
+            badgeAtRight: (() => {
+                const header = document.querySelector('.dashboard-chart-section .chart-header').getBoundingClientRect();
                 const badge = document.getElementById('last-update').getBoundingClientRect();
-                return Math.abs((title.top + title.bottom) / 2 - (badge.top + badge.bottom) / 2) < 4;
+                const style = getComputedStyle(document.querySelector('.dashboard-chart-section .chart-header'));
+                return badge.width > 0 && Math.abs(header.right - parseFloat(style.paddingRight) - badge.right) < 4;
+            })(),
+            periodsUnderStats: (() => {
+                const bar = document.querySelector('.dashboard-chart-section .chart-controls');
+                return !!bar && bar.getBoundingClientRect().top >= document.querySelector('.dashboard-chart-section .chart-stats-bar').getBoundingClientRect().bottom - 1;
             })(),
             dayVarShown: !!document.getElementById('stat-day-var'),
             emptyGroupShown: getComputedStyle(document.querySelector('.stat-group-2')).display !== 'none',
@@ -136,7 +141,8 @@ try {
         assert.equal(size.startVisible, true, `period stats hidden at ${width}`);
         assert.equal(size.dayVarShown, false, 'VAR. JOUR duplicates Période on the dashboard');
         assert.equal(size.emptyGroupShown, false, `empty stats group takes a column at ${width}`);
-        if (width >= 1200) assert.equal(size.titleLine, true, `freshness badge not on the title line at ${width}`);
+        if (width > 768) assert.equal(size.badgeAtRight, true, `freshness badge not at the right end of the chart header at ${width}`);
+        assert.equal(size.periodsUnderStats, true, `period bar not under the stats bar at ${width}`);
         assert.equal(size.contributionsVisible, true, `daily contributions hidden at ${width}`);
         assert.equal(size.contributionsStatus, 'complete', `daily contributions do not reconcile at ${width}`);
         assert.equal(size.highlights, 3, `daily top/worst preview missing at ${width}`);
