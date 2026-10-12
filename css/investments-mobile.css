@@ -76,7 +76,9 @@
 
     /* Bigger font specifically for Total Value (1st card) */
     .summary-card:nth-child(1) .summary-card-value {
-        font-size: 26px !important;
+        font-size: clamp(18px, 5.1vw, 26px) !important;
+        white-space: nowrap;
+        letter-spacing: -0.02em;
         /* Larger font */
         margin-bottom: 8px;
         /* Space */
@@ -95,13 +97,14 @@
     /* --- PERFORMANCE STATS GRID (Best/Worst Performer) --- */
     .summary-stats {
         display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
         gap: 12px !important;
     }
 
     .summary-stats .stat-item {
-        min-width: auto !important;
+        min-width: 0 !important;
         width: auto !important;
+        overflow: hidden;
     }
 
     /* Cash Reserve (Last Item) - SPAN FULL WIDTH */

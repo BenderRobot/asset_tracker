@@ -14,9 +14,9 @@
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css?v=51">
     <link rel="stylesheet" href="css/components.css?v=3">
-    <link rel="stylesheet" href="css/investments.css?v=56">
-    <link rel="stylesheet" href="css/investments-mobile.css?v=4">
-    <link rel="stylesheet" href="css/investments-table-compact.css?v=6">
+    <link rel="stylesheet" href="css/investments.css?v=57">
+    <link rel="stylesheet" href="css/investments-mobile.css?v=5">
+    <link rel="stylesheet" href="css/investments-table-compact.css?v=7">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -57,38 +57,37 @@
                 <div class="summary-grid">
                     <div class="summary-card summary-card-primary">
                         <div class="summary-card-label">Total Value</div>
-                        <div id="total-current" class="summary-card-value">€0.00</div>
+                        <div id="total-current" class="summary-card-value">—</div>
                         <div class="kpi-meta">
-                            <span id="invested" class="meta-info" style="font-size: 12px; opacity: 0.7;">Invested:
-                                €0.00</span>
+                            <span id="invested" class="meta-info" style="font-size: 12px; opacity: 0.7;">Invested : —</span>
                         </div>
                     </div>
 
                     <div class="summary-card">
                         <div class="summary-card-label">Total Return</div>
-                        <div id="total-gain-loss" class="summary-card-value">€0.00</div>
+                        <div id="total-gain-loss" class="summary-card-value">—</div>
                         <div class="summary-card-meta">
-                            <span id="total-gain-pct" class="meta-large">0.00%</span>
+                            <span id="total-gain-pct" class="meta-large">—</span>
                         </div>
                     </div>
 
                     <div class="summary-card">
                         <div class="summary-card-label">Var Today</div>
-                        <div id="total-invested" class="summary-card-value">€0.00</div>
+                        <div id="total-invested" class="summary-card-value">—</div>
                         <div class="summary-card-meta">
-                            <span id="avg-cost-per-share" class="meta-info">Avg: €0.00</span>
+                            <span id="avg-cost-per-share" class="meta-info">—</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="summary-stats">
                     <div class="stat-item">
-                        <div class="stat-label">Best Performer (Day)</div>
+                        <div class="stat-label" id="best-day-label">Meilleure variation du jour</div>
                         <div id="best-day-asset" class="stat-value stat-positive">-</div>
                     </div>
 
                     <div class="stat-item">
-                        <div class="stat-label">Worst Performer (Day)</div>
+                        <div class="stat-label" id="worst-day-label">Pire variation du jour</div>
                         <div id="worst-day-asset" class="stat-value stat-negative">-</div>
                     </div>
 
@@ -102,7 +101,7 @@
                     </div>
                     <div class="stat-item">
                         <div id="cash-reserve-label" class="stat-label">Cash Reserve</div>
-                        <div id="cash-reserve" class="stat-value">€0.00</div>
+                        <div id="cash-reserve" class="stat-value">—</div>
                     </div>
                 </div>
             </div>
@@ -130,7 +129,7 @@
                                 title="Comparer la performance à un indice">
                                 <option value="">Comparer</option>
                                 <option value="^GSPC">S&P 500</option>
-                                <option value="^IXIC">Nasdaq 100</option>
+                                <option value="^NDX">Nasdaq 100</option>
                                 <option value="^STOXX50E">Eurostoxx 50</option>
                                 <option value="BTC-EUR">Bitcoin</option>
                             </select>
@@ -229,28 +228,29 @@
 
             <div class="filters-container">
                 <div class="search-row">
-                    <input type="text" id="search-input" placeholder="Search ticker, name or date...">
+                    <input type="search" id="search-input" aria-label="Rechercher un nom ou un ticker" placeholder="Rechercher un nom ou un ticker…">
 
                 </div>
 
                 <div class="filter-row">
                     <div id="ticker-filter-dropdown"></div>
 
-                    <select id="filter-asset-type">
-                        <option value="">All Types</option>
+                    <select id="filter-asset-type" aria-label="Filtrer par type d’actif">
+                        <option value="">Tous les types</option>
                         <option value="Stock">Stock</option>
                         <option value="ETF">ETF</option>
                         <option value="Crypto">Crypto</option>
                     </select>
 
-                    <select id="filter-broker">
-                        <option value="">All Brokers</option>
+                    <select id="filter-broker" aria-label="Filtrer par courtier">
+                        <option value="">Tous les courtiers</option>
                     </select>
 
-                    <button id="clear-filters" class="btn-secondary" title="Clear Filters" style="margin-left: auto;">
+                    <button id="clear-filters" class="btn-secondary" title="Effacer les filtres" aria-label="Effacer les filtres" style="margin-left: auto;">
                         <i class="ph ph-x"></i>
                     </button>
                 </div>
+                <div id="investment-filter-context" class="investment-filter-context" hidden></div>
             </div>
 
             <table id="investments-table">
@@ -265,8 +265,8 @@
                         <th data-sort="currentValue">VALUE</th>
                         <th data-sort="gainEUR">P&L</th>
                         <th data-sort="gainPct">RT %</th>
-                        <th data-sort="dayChange">DAY P&L</th>
-                        <th data-sort="dayPct">DAY %</th>
+                        <th data-sort="dayChange" id="day-change-label">VAR. AFFICHÉE</th>
+                        <th data-sort="dayPct" id="day-percent-label" data-mobile-label="VAR. AFFICHÉE">VAR. %</th>
                     </tr>
                 </thead>
                 <tbody></tbody>

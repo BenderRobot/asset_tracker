@@ -792,3 +792,51 @@
     box-shadow: 0 0 8px rgba(231, 76, 60, 0.4) !important;
     transition: background-color 0.2s, box-shadow 0.2s;
 }
+/* Investment table states and the shared asset identity. */
+#investments-table .investments-table-state {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-secondary);
+}
+
+.investment-asset-identity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.investment-asset-identity .company-logo-wrapper,
+.investment-asset-identity .ticker-badge {
+    flex: none;
+}
+
+.company-logo-wrapper .ticker-badge[hidden] { display: none !important; }
+
+.purchases-scroll-hint { display: none; }
+
+@media (max-width: 768px) {
+    .purchases-scroll-hint {
+        display: block;
+        margin: 4px 8px;
+        color: var(--text-secondary);
+        font-size: 11px;
+    }
+}
+
+.investment-asset-text {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.investment-asset-text small { display: none; }
+
+.investment-filter-context {
+    color: var(--text-secondary);
+    font-size: 12px;
+    padding: 0 4px 8px;
+}
+
+.investment-filter-context[hidden] { display: none; }

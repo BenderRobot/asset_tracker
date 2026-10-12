@@ -235,7 +235,7 @@ class App {
     if (this.isAchatsPage()) {
       await this.achatsPage.render(this.searchQuery, fetchPrices);
     } else if (this.isInvestmentsPage()) {
-      await this.investmentsPage.render(this.searchQuery, fetchPrices);
+      await this.investmentsPage.render(this.investmentsPage.currentSearchQuery, fetchPrices);
     }
   }
 
@@ -593,6 +593,7 @@ class App {
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         this.searchQuery = e.target.value;
+        this.investmentsPage.currentPage = 1;
         this.investmentsPage.render(this.searchQuery);
       });
     }

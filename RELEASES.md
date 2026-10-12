@@ -39,6 +39,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.12` | 2026-10-12 | fix hoover | — |
 | `1.17.13` | 2026-10-12 | fix news | — |
 | `1.17.14` | 2026-10-12 | fix perf indices | — |
+| `1.17.15` | 2026-10-12 | audit investments | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les

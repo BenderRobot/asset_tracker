@@ -5,9 +5,11 @@ import { createServer } from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import assert from 'node:assert/strict';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.argv[2] || 'playwright');
 const root = path.resolve(import.meta.dirname, '..');
+const outputSuffix = process.argv[3] || '';
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.json': 'application/json', '.svg': 'image/svg+xml' };
 const server = createServer(async (req, res) => {
     try {
@@ -100,11 +102,19 @@ try {
             };
         }));
         if ([1366, 390].includes(width)) {
-            await page.screenshot({ path: path.join(root, `audit/investments-preview-${width}.png`), fullPage: true });
+            await page.screenshot({ path: path.join(root, `audit/investments-preview-${width}${outputSuffix}.png`), fullPage: true });
             await page.locator('.asset-row').first().click();
             await page.evaluate(() => scrollTo(0, 0));
             await page.waitForTimeout(300);
-            await page.screenshot({ path: path.join(root, `audit/investments-detail-${width}.png`), fullPage: true });
+            await page.screenshot({ path: path.join(root, `audit/investments-detail-${width}${outputSuffix}.png`), fullPage: true });
+            if (width === 390) results.checks.mobileDetailScroll = await page.evaluate(() => {
+                const container = document.querySelector('.purchases-expand');
+                container.scrollLeft = container.scrollWidth;
+                const amount = document.querySelector('.purchase-detail-row td:last-child').getBoundingClientRect();
+                const frame = container.getBoundingClientRect();
+                return { scrollable: container.scrollWidth > container.clientWidth,
+                    amountVisibleAfterScroll: amount.left >= frame.left - 1 && amount.right <= frame.right + 1 };
+            });
             await page.locator('.asset-row').first().click();
         }
     }
@@ -136,7 +146,7 @@ try {
         const weekendState = { card: document.getElementById('best-day-asset').innerText, firstRow: document.querySelector('.asset-row').dataset.ticker, firstDayPct: document.querySelector('.asset-row').cells[10].innerText };
         const ordered = [{ ...holdings[0], purchases: [{ ...holdings[0].purchases[0], date: '2026-09-01' }, { ...holdings[0].purchases[0], date: '2024-01-01' }] }];
         view.renderData(ordered, summary, 0);
-        const purchaseDateOrder = [...document.querySelectorAll('.purchase-detail-row')].map(el => el.cells[0].innerText);
+        const purchaseDateOrder = [...document.querySelectorAll('.purchase-detail-row')].map(el => el.cells[1].innerText);
         const transactions = [{ ...holdings[0].purchases[0], quantity: 10, price: 100, date: '2025-01-01' }, { ...holdings[0].purchases[0], quantity: -5, price: 150, date: '2025-02-01' }];
         const saleHolding = { ...holdings[0], quantity: 5, currentPrice: 200, currentValue: 1000, invested: 500, avgPrice: 100, gainEUR: 500, gainPct: 100, purchases: transactions };
         view.renderData([saleHolding], summary, 0);
@@ -163,7 +173,21 @@ try {
         const invalidHistoryState = { table: document.querySelector('#investments-table > tbody').innerText, chartMessage: document.getElementById('chart-info').innerText };
         return { searchTitle, dateResults, weekendState, purchaseDateOrder, partialSale, insertedMarkup, clearState, invalidHistoryState };
     });
-    await writeFile(path.join(root, 'audit/investments-preview-results.json'), JSON.stringify(results, null, 2) + '\n');
+    if (outputSuffix === '-lot1') {
+        assert.equal(results.errors.length, 0);
+        for (const size of results.viewports.filter(item => item.width <= 768)) {
+            assert.deepEqual(size.clippedSummaryCards, [], `summary cards clipped at ${size.width}px`);
+            assert.match(size.visibleFirstRowCells[0], /AAPL[\s\S]*Apple[\s\S]*30 titres/);
+        }
+        assert.deepEqual(results.checks.logic.searchTitle.mode, 'filter');
+        assert.equal(results.checks.logic.insertedMarkup, false);
+        assert.equal(results.checks.logic.partialSale.rows[1][0], 'Vente · TR');
+        assert.equal(results.checks.logic.partialSale.rows[1][4].replace(/[\u00a0\u202f]/g, ' '), '750,00 €');
+        assert.ok(!results.checks.logic.invalidHistoryState.table.includes('Loading'));
+        assert.deepEqual(results.checks.logic.purchaseDateOrder, ['1 janv. 2024', '1 sept. 2026']);
+        assert.deepEqual(results.checks.mobileDetailScroll, { scrollable: true, amountVisibleAfterScroll: true });
+    }
+    await writeFile(path.join(root, `audit/investments-preview-results${outputSuffix}.json`), JSON.stringify(results, null, 2) + '\n');
     console.log(JSON.stringify(results, null, 2));
 } finally {
     await browser.close();

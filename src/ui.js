@@ -329,7 +329,7 @@ export class UIComponents {
     // Tout ce qui n'est PAS les 5 KPI du haut : best/worst asset (total + jour),
     // cash reserve, compteurs. Appelé sur Dashboard/Investments (à la place de
     // updatePortfolioSummary) ET sur Achats (via le wrapper).
-    updateSecondaryKPIs(summary, movementsCount, cashReserveTotal = 0) {
+    updateSecondaryKPIs(summary, movementsCount, cashReserveTotal = 0, { displayDayHoldings = null } = {}) {
         const formatSimple = (value) => {
             if (value === null || value === undefined || isNaN(value)) return '-';
             return value.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
@@ -337,7 +337,7 @@ export class UIComponents {
         const formatPctSimple = (value) => {
             if (value === null || isNaN(value)) return '-';
             const sign = value >= 0 ? '+' : '';
-            return sign + value.toFixed(2) + ' %';
+            return sign + value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %';
         };
         const updateHTML = (id, html) => {
             const el = document.getElementById(id);
@@ -372,26 +372,41 @@ export class UIComponents {
 			`);
 		} else { updateHTML('worst-asset', '-'); }
 		
-		if (summary.bestDayAsset) {
-			const bestDayColor = summary.bestDayAsset.dayPct >= 0 ? '#10b981' : '#ef4444';
+		const displayDay = displayDayHoldings?.map(asset => ({
+			name: asset.name, dayPct: asset.displayDayPct ?? asset.displayDayPnlPct ?? asset.dayPct
+		})).filter(asset => Number.isFinite(asset.dayPct)).sort((a, b) => b.dayPct - a.dayPct);
+		const bestDay = displayDay ? displayDay[0] : summary.bestDayAsset;
+		const worstDay = displayDay ? displayDay[displayDay.length - 1] : summary.worstDayAsset;
+		const hasLastSessionValues = displayDayHoldings?.some(asset => {
+			const displayed = asset.displayDayPct ?? asset.displayDayPnlPct;
+			return Number.isFinite(displayed) &&
+			(!Number.isFinite(asset.dayPct) || Math.abs(displayed - asset.dayPct) > 0.000001);
+		});
+		const bestLabel = document.getElementById('best-day-label');
+		const worstLabel = document.getElementById('worst-day-label');
+		if (bestLabel) bestLabel.textContent = hasLastSessionValues ? 'Meilleure variation affichée' : 'Meilleure variation du jour';
+		if (worstLabel) worstLabel.textContent = hasLastSessionValues ? 'Pire variation affichée' : 'Pire variation du jour';
+
+		if (bestDay) {
+			const bestDayColor = bestDay.dayPct >= 0 ? '#10b981' : '#ef4444';
 			updateHTML('best-day-asset', `
-				<div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.bestDayAsset.name}">
-					${summary.bestDayAsset.name}
+				<div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escHtml(bestDay.name)}">
+					${escHtml(bestDay.name)}
 				</div>
 				<div style="font-size: 12px; color: ${bestDayColor}; margin-top: 2px;">
-					${formatPctSimple(summary.bestDayAsset.dayPct)}
+					${formatPctSimple(bestDay.dayPct)}
 				</div>
 			`);
 		} else { updateHTML('best-day-asset', '-'); }
 
-		if (summary.worstDayAsset) {
-			const worstDayColor = summary.worstDayAsset.dayPct >= 0 ? '#10b981' : '#ef4444';
+		if (worstDay) {
+			const worstDayColor = worstDay.dayPct >= 0 ? '#10b981' : '#ef4444';
 			updateHTML('worst-day-asset', `
-				<div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${summary.worstDayAsset.name}">
-					${summary.worstDayAsset.name}
+				<div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escHtml(worstDay.name)}">
+					${escHtml(worstDay.name)}
 				</div>
 				<div style="font-size: 12px; color: ${worstDayColor}; margin-top: 2px;">
-					${formatPctSimple(summary.worstDayAsset.dayPct)}
+					${formatPctSimple(worstDay.dayPct)}
 				</div>
 			`);
 		} else { updateHTML('worst-day-asset', '-'); }

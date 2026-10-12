@@ -876,6 +876,7 @@ export class HistoricalChart {
     // ========================================================
     async update(showLoading = true, forceApi = true, refreshAth = forceApi) {
         const requestId = ++this._updateRequestId;
+        this.investmentsPage?.beginScopeRender?.();
         if (this.isLoading) {
             const pending = this._pendingUpdate;
             this._pendingUpdate = {
@@ -1170,7 +1171,22 @@ export class HistoricalChart {
             // flight owns the next paint. Never expose this superseded result.
             if (requestId !== this._updateRequestId || this._pendingPeriod !== undefined) return;
 
+            // The positions belong to the canonical snapshot and remain usable
+            // when only the requested historical chart series is unavailable.
+            if (!isIndexMode && portfolioSnapshot) {
+                this.investmentsPage.renderData?.(targetHoldings, targetSummary, targetCashReserve.total,
+                    { dividendsOnly: isSingleAsset });
+            }
+
             if (!this._isValidHistoryData(graphData)) {
+                // A usable live snapshot still owns the portfolio KPIs even if
+                // the requested historical series cannot be drawn.
+                if (!isIndexMode && portfolioSnapshot?.status === 'valid') {
+                    const periodMap = { 1: '1d', 2: '2d', 7: '1w', 30: '1m', 90: '3m', 180: '6m', 365: '1y', 730: '2y' };
+                    portfolioKPIs.updateFromSnapshot(portfolioSnapshot, {
+                        period: periodMap[this.currentPeriod] || String(this.currentPeriod), snapshotStartedAt
+                    });
+                }
                 const hasPreviousChart = !!this.chart;
                 this.showMessage(graphData?.dataQuality?.valid === false
                     ? (hasPreviousChart
@@ -1184,24 +1200,13 @@ export class HistoricalChart {
                 if (info) info.style.display = 'none';
                 this._syncToolbarState(isSingleAsset || isIndexMode ? null : this.snapshotFreshness);
 
-                if (!isIndexMode) {
-                    // Le tableau Investments existe aussi en mode actif unique :
-                    // targetHoldings contient alors uniquement la position filtrée.
-                    // L'ancienne garde `!isSingleAsset` sautait ce rendu et laissait
-                    // le placeholder "Loading…" indéfiniment, alors que les KPI et
-                    // le graphique avaient déjà terminé leur calcul.
-                    // SSOT : renderData reçoit toujours les positions/résumé/cash
-                    // canoniques, jamais une valeur recalculée depuis la courbe.
-                    // Sur un actif seul, ce "cash" n'est que ses dividendes perçus
-                    // (déjà réinvestis ailleurs) — libellé adapté par renderData.
-                    this.investmentsPage.renderData(targetHoldings, targetSummary, targetCashReserve.total, { dividendsOnly: isSingleAsset });
-                }
             }
 
         } catch (err) {
             if (requestId !== this._updateRequestId) return;
             console.error('[HistoricalChart] update failed:', err);
             this.showMessage('Erreur lors du calcul');
+            this.investmentsPage?.showDataError?.();
         } finally {
             this.isLoading = false;
             if (this._pendingPeriod !== undefined) {

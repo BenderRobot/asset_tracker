@@ -5,11 +5,20 @@
 // ========================================
 
 import { PAGE_SIZE } from './config.js';
-import { formatCurrency, formatPercent, formatQuantity } from './utils.js';
+import { formatCurrency, formatQuantity } from './utils.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
-import { resolveHistoricalUsdToEurRate } from './MarketUtils.js';
 import { mountViewToggle } from './chartViewToggle.js';
+
+const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const formatMovementAmount = (price, quantity, currency) =>
+  price != null && quantity != null && Number.isFinite(Number(price)) && Number.isFinite(Number(quantity))
+    ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: currency === 'USD' ? 'USD' : 'EUR' }).format(Math.abs(Number(price) * Number(quantity)))
+    : '—';
+const formatInvestmentPercent = value => Number.isFinite(value)
+  ? `<strong>${value > 0 ? '+' : ''}${value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %</strong>`
+  : '—';
 
 // Pour les stocks US cotés en EU (Xetra/Frankfurt), on redirige vers le ticker US primaire
 // afin que le screener trouve les données Yahoo Finance correctement.
@@ -87,7 +96,9 @@ export class InvestmentsPage {
         cash: kpis.cash,
         hasActiveFilter
       };
-      this.ui.updateTopKPIs(adaptedSummary, kpis.cash, this.marketStatus);
+      // The global hour-based badge cannot certify a filtered asset's session
+      // or quote freshness. The chart has the actual data freshness indicator.
+      this.ui.updateTopKPIs(adaptedSummary, kpis.cash, null);
 
       console.log('[Investments] ✅ KPIs displayed successfully via IDs');
     };
@@ -129,7 +140,7 @@ export class InvestmentsPage {
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;">Loading...</td></tr>';
+    this.beginScopeRender();
 
     if (fetchPrices) {
       if (this.historicalChart) {
@@ -160,6 +171,68 @@ export class InvestmentsPage {
     // the curve sits below 0%". Removed: there is now exactly one render path
     // (via historicalChart.update()), so there is nothing left to warm up
     // separately or to race against.
+  }
+
+  getScopeKey() {
+    return JSON.stringify({
+      search: this.currentSearchQuery || '', type: this.currentAssetTypeFilter || '',
+      broker: this.currentBrokerFilter || '',
+      tickers: [...(this.filterManager?.getSelectedTickers() || [])].sort(),
+      mode: this.historicalChart?.currentMode || 'portfolio',
+      selectedAssets: this.historicalChart?.selectedAssets || []
+    });
+  }
+
+  beginScopeRender() {
+    const tbody = document.querySelector('#investments-table tbody');
+    if (!tbody) return;
+    if (this.lastRenderedScope !== this.getScopeKey()) {
+      this.hasRenderedData = false;
+      this.expandedTicker = null;
+      for (const id of ['total-current', 'invested', 'total-gain-loss', 'total-gain-pct',
+        'total-invested', 'avg-cost-per-share', 'best-day-asset', 'worst-day-asset',
+        'best-asset', 'worst-asset', 'cash-reserve']) {
+        const element = document.getElementById(id);
+        if (element) element.textContent = '—';
+      }
+      const context = document.getElementById('investment-filter-context');
+      if (context) {
+        context.hidden = false;
+        context.textContent = `Chargement · ${this.getChartTitleConfig().label}`;
+      }
+    }
+    if (!this.hasRenderedData) {
+      tbody.innerHTML = '<tr><td colspan="11" class="investments-table-state">Chargement des positions…</td></tr>';
+    }
+  }
+
+  showDataError() {
+    if (this.hasRenderedData) {
+      const context = document.getElementById('investment-filter-context');
+      if (context) {
+        context.hidden = false;
+        context.textContent = `Dernières positions connues · ${this.getChartTitleConfig().label}`;
+      }
+      return;
+    }
+    const tbody = document.querySelector('#investments-table tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="11" class="investments-table-state">Positions indisponibles. <button type="button" class="investments-retry">Réessayer</button></td></tr>';
+    const context = document.getElementById('investment-filter-context');
+    if (context) {
+      context.hidden = false;
+      context.textContent = `Sélection indisponible · ${this.getChartTitleConfig().label}`;
+    }
+    const retry = tbody.querySelector('.investments-retry');
+    retry.addEventListener('click', async () => {
+      retry.disabled = true;
+      try {
+        if (this.historicalChart) await this.historicalChart.update(true, true);
+        else await this.render(this.currentSearchQuery, false);
+      } finally {
+        if (retry.isConnected) retry.disabled = false;
+      }
+    });
   }
 
   getFilteredPurchasesFromPage(ignoreTickerFilter = false) {
@@ -212,6 +285,8 @@ export class InvestmentsPage {
     if (cashLabel) cashLabel.textContent = dividendsOnly ? 'Dividendes' : 'Cash Reserve';
     const tbody = document.querySelector('#investments-table tbody');
     if (!tbody) return;
+    this.hasRenderedData = true;
+    this.lastRenderedScope = this.getScopeKey();
 
     const selectedTickers = this.filterManager.getSelectedTickers();
     let filteredHoldings = this.filterVisibleHoldings(this.currentHoldings);
@@ -230,6 +305,19 @@ export class InvestmentsPage {
       return order * (this.sortDirection === 'asc' ? 1 : -1);
     });
 
+    const hasLastSessionValues = filteredHoldings.some(position => {
+      const displayed = position.displayDayPct ?? position.displayDayPnlPct;
+      return Number.isFinite(displayed) &&
+        (!Number.isFinite(position.dayPct) || Math.abs(displayed - position.dayPct) > 0.000001);
+    });
+    const dayChangeLabel = document.getElementById('day-change-label');
+    const dayPercentLabel = document.getElementById('day-percent-label');
+    if (dayChangeLabel) dayChangeLabel.textContent = hasLastSessionValues ? 'VAR. AFFICHÉE' : 'VAR. JOUR';
+    if (dayPercentLabel) {
+      dayPercentLabel.textContent = hasLastSessionValues ? 'VAR. AFFICHÉE %' : 'VAR. JOUR %';
+      dayPercentLabel.dataset.mobileLabel = hasLastSessionValues ? 'VAR. AFFICHÉE' : 'VAR. JOUR';
+    }
+
     const totalPages = Math.max(1, Math.ceil(filteredHoldings.length / PAGE_SIZE));
     if (this.currentPage > totalPages) this.currentPage = totalPages;
     const pageItems = filteredHoldings.slice((this.currentPage - 1) * PAGE_SIZE, this.currentPage * PAGE_SIZE);
@@ -240,65 +328,24 @@ export class InvestmentsPage {
       const logoInfo = renderCompanyLogo(p.ticker, p.name);
 
       // Generate purchases sub-rows
-      const sortedPurchases = [...p.purchases].sort((a, b) => a.date - b.date);
+      const sortedPurchases = [...p.purchases].sort((a, b) => new Date(a.date) - new Date(b.date));
       const purchaseRows = sortedPurchases.map(purchase => {
         const buyDate = purchase.date instanceof Date ? purchase.date : new Date(purchase.date);
-        const dateStr = buyDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+        const dateStr = Number.isNaN(+buyDate) ? '—' : buyDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
         const buyCurrency = purchase.currency || 'EUR';
-        const buyPriceFormatted = purchase.price != null
-          ? `${purchase.price.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${buyCurrency === 'USD' ? '$' : '€'}`
-          : '-';
-        const qty = purchase.quantity != null ? formatQuantity(purchase.quantity) : '-';
-
-        // Gain total de cet achat — délègue au même calcul que calculateHoldings
-        // (dataManager) au lieu d'une 2e formule indépendante. Deux points
-        // corrigés ici :
-        // 1. Le coût de cet achat est figé au taux DU JOUR DE L'ACHAT (invariant 9),
-        //    jamais au taux courant.
-        // 2. p.currentPrice (sur la position déjà agrégée) est DÉJÀ converti en EUR
-        //    par calculateHoldings — le multiplier une 2e fois par un taux USD/EUR
-        //    (comme le faisait l'ancien code) double-convertissait la valeur
-        //    actuelle de toute ligne USD (ex: ~150$ affichés comme si le prix EUR
-        //    lui-même était encore en dollars).
-        const buyRate = buyCurrency === 'USD'
-          ? resolveHistoricalUsdToEurRate(
-              purchase.date,
-              this.dataManager.getCachedHistoricalFxMap(),
-              this.storage.getConversionRate('USD_TO_EUR'),
-              { ticker: p.ticker, broker: purchase.broker }
-            )
-          : 1;
-        // FAIL-CLOSED : pas de coût inventé si FX USD→EUR indisponible.
-        const purchaseCostEUR = (buyCurrency === 'USD' && !(buyRate > 0))
-          ? null
-          : (purchase.price || 0) * (purchase.quantity || 0) * buyRate;
-        const purchaseCurrentValue = p.currentPrice != null ? p.currentPrice * (purchase.quantity || 0) : null;
-        const purchaseGainEUR = (purchaseCurrentValue !== null && purchaseCostEUR !== null)
-          ? purchaseCurrentValue - purchaseCostEUR
-          : null;
-        const purchaseGainPct = purchaseCostEUR && purchaseGainEUR !== null
-          ? (purchaseGainEUR / purchaseCostEUR) * 100
-          : null;
-
-        const gainClass = purchaseGainEUR > 0 ? 'positive' : purchaseGainEUR < 0 ? 'negative' : '';
-        const gainArrow = purchaseGainEUR > 0 ? '↑' : purchaseGainEUR < 0 ? '↓' : '';
-        const gainStr = purchaseGainEUR !== null
-          ? `<span class="${gainClass}">${purchaseGainEUR >= 0 ? '+' : ''}${purchaseGainEUR.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>`
-          : '-';
-        const gainPctStr = purchaseGainPct !== null
-          ? `<span class="badge ${purchaseGainPct > 0 ? 'badge-positive' : purchaseGainPct < 0 ? 'badge-negative' : 'badge-neutral'}">${gainArrow}${Math.abs(purchaseGainPct).toFixed(2)} %</span>`
-          : '';
-        const currentValStr = purchaseCurrentValue !== null
-          ? purchaseCurrentValue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
-          : '-';
+        const isSale = Number(purchase.quantity) < 0;
+        const unitPrice = purchase.price == null ? '—' : new Intl.NumberFormat('fr-FR', {
+          style: 'currency', currency: buyCurrency === 'USD' ? 'USD' : 'EUR'
+        }).format(Number(purchase.price));
+        const qty = purchase.quantity != null ? formatQuantity(Math.abs(Number(purchase.quantity))) : '—';
 
         return `
           <tr class="purchase-detail-row">
+            <td>${isSale ? 'Vente' : 'Achat'} · ${escapeHtml(purchase.broker || 'Courtier inconnu')}</td>
             <td>${dateStr}</td>
-            <td>${buyPriceFormatted}</td>
+            <td>${unitPrice}</td>
             <td>${qty}</td>
-            <td>${gainStr} ${gainPctStr}</td>
-            <td>${currentValStr}</td>
+            <td>${formatMovementAmount(purchase.price, purchase.quantity, buyCurrency)}</td>
           </tr>
         `;
       }).join('');
@@ -310,17 +357,18 @@ export class InvestmentsPage {
       const displayedDayPct = p.displayDayPct ?? p.displayDayPnlPct ?? p.dayPct;
 
       const purchasesTable = `
-        <tr class="purchases-row ${purchasesOpenClass}" data-ticker="${p.ticker}">
+        <tr class="purchases-row ${purchasesOpenClass}" data-ticker="${escapeHtml(p.ticker)}">
           <td colspan="11" class="purchases-cell">
             <div class="purchases-expand">
+              <p class="purchases-scroll-hint">Faites glisser pour voir tous les montants.</p>
               <table class="purchases-sub-table">
                 <thead>
                   <tr>
-                    <th>DATE D'ACHAT</th>
-                    <th>PRIX D'ACHAT</th>
+                    <th>TYPE · COURTIER</th>
+                    <th>DATE</th>
+                    <th>PRIX UNITAIRE</th>
                     <th>QUANTITÉ</th>
-                    <th>GAIN TOTAL</th>
-                    <th>VALEUR</th>
+                    <th>MONTANT BRUT</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -328,10 +376,10 @@ export class InvestmentsPage {
                 </tbody>
               </table>
               <div class="detail-action-buttons">
-                <button class="detail-btn detail-btn-chart" data-ticker="${p.ticker}">
+                <button class="detail-btn detail-btn-chart" data-ticker="${escapeHtml(p.ticker)}">
                   <i class="ph ph-chart-line"></i> Graphique
                 </button>
-                <button class="detail-btn detail-btn-screener" data-ticker="${p.ticker}">
+                <button class="detail-btn detail-btn-screener" data-ticker="${escapeHtml(p.ticker)}">
                   <i class="ph ph-magnifying-glass"></i> Screener
                 </button>
               </div>
@@ -341,27 +389,27 @@ export class InvestmentsPage {
       `;
 
       return `
-            <tr class="asset-row ${selectedClass} ${rowExpandedClass}" data-ticker="${p.ticker}" data-avgprice="${p.avgPrice}">
+            <tr class="asset-row ${selectedClass} ${rowExpandedClass}" data-ticker="${escapeHtml(p.ticker)}" data-avgprice="${escapeHtml(p.avgPrice)}">
                 <td>
-                    <div style="display: flex; align-items: center; gap: 10px;">
+                    <div class="investment-asset-identity">
                         ${logoInfo.html}
-                        ${logoInfo.hasLogo ? '' : `<strong>${p.ticker}</strong>`}
+                        <span class="investment-asset-text"><strong>${escapeHtml(p.ticker)}</strong><small>${escapeHtml(p.name)}</small><small>${escapeHtml(formatQuantity(p.quantity))} titres</small></span>
                     </div>
                 </td>
-                <td>${p.name}</td>
+                <td>${escapeHtml(p.name)}</td>
                 <td>${formatQuantity(p.quantity)}</td>
                 <td>${formatCurrency(p.avgPrice, 'EUR')}</td>
                 <td>${formatCurrency(p.invested, 'EUR')}</td>
                 <td>${formatCurrency(p.currentPrice, 'EUR')}</td>
                 <td>${formatCurrency(p.currentValue, 'EUR')}</td>
                 <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatCurrency(p.gainEUR, 'EUR')}</td>
-                <td><span class="badge ${p.gainPct > 0 ? 'badge-positive' : p.gainPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatPercent(p.gainPct)}</span></td>
+                <td><span class="badge ${p.gainPct > 0 ? 'badge-positive' : p.gainPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatInvestmentPercent(p.gainPct)}</span></td>
                 <td class="${displayedDayChange > 0 ? 'positive' : displayedDayChange < 0 ? 'negative' : ''}">${formatCurrency(displayedDayChange, 'EUR')}</td>
-                <td><span class="badge ${displayedDayPct > 0 ? 'badge-positive' : displayedDayPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatPercent(displayedDayPct)}</span></td>
+                <td><span class="badge ${displayedDayPct > 0 ? 'badge-positive' : displayedDayPct < 0 ? 'badge-negative' : 'badge-neutral'}">${formatInvestmentPercent(displayedDayPct)}</span></td>
             </tr>
             ${purchasesTable}
         `;
-    }).join('') || '<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text-secondary);">Aucun investissement correspondant.</td></tr>';
+    }).join('') || '<tr><td colspan="11" class="investments-table-state">Aucune position pour cette sélection.</td></tr>';
 
     // SSOT (audit architecture) : le résumé affiché ici est TOUJOURS dérivé
     // des positions canoniques déjà filtrées (filteredHoldings — elles-mêmes
@@ -387,7 +435,15 @@ export class InvestmentsPage {
     // === MODIF : Passage de marketStatus (utilise finalSummary) ===
     // Les 5 KPI du haut sont écrits UNIQUEMENT par le listener portfolioKPIs
     // (subscribeToKPIs ci-dessus) — plus de double écriture ici.
-    this.ui.updateSecondaryKPIs(finalSummary, filteredSummary.movementsCount, cashReserveTotal);
+    this.ui.updateSecondaryKPIs(finalSummary, filteredSummary.movementsCount, cashReserveTotal,
+      { displayDayHoldings: filteredHoldings });
+
+    const filterContext = document.getElementById('investment-filter-context');
+    if (filterContext) {
+      const active = !!(this.currentSearchQuery || this.currentAssetTypeFilter || this.currentBrokerFilter || selectedTickers.size);
+      filterContext.hidden = !active;
+      if (active) filterContext.textContent = `${filteredHoldings.length} position${filteredHoldings.length > 1 ? 's' : ''} · ${this.getChartTitleConfig().label}`;
+    }
 
     this.ui.renderPagination(this.currentPage, totalPages, (page) => {
       this.currentPage = page;
@@ -412,6 +468,7 @@ export class InvestmentsPage {
       context.push(brokerLabel);
     }
     if (this.currentAssetTypeFilter) context.push(this.currentAssetTypeFilter);
+    if (this.currentSearchQuery?.trim()) context.push(`Recherche : ${this.currentSearchQuery.trim()}`);
 
     if (tickers.length === 1) {
       const ticker = tickers[0];
@@ -507,6 +564,8 @@ export class InvestmentsPage {
         const searchInput = document.getElementById('search-input');
         if (searchInput) searchInput.value = '';
         this.currentSearchQuery = '';
+        const filterContext = document.getElementById('investment-filter-context');
+        if (filterContext) filterContext.hidden = true;
         if (this.filterManager) {
           this.filterManager.clearAllFilters();
         }

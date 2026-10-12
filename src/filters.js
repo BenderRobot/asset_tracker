@@ -6,6 +6,9 @@
 
 import { eventBus } from './eventBus.js'; // <-- AJOUTÉ
 
+const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 export class FilterManager {
   constructor(storage) {
     this.storage = storage;
@@ -58,8 +61,8 @@ export class FilterManager {
           <div class="dropdown-list">
             ${sorted.map(([t, n]) => `
               <label class="dropdown-item">
-                <input type="checkbox" class="ticker-checkbox" value="${t}" ${this.selectedTickers.has(t) ? 'checked' : ''}>
-                <span><strong>${t}</strong> - ${n}</span>
+                <input type="checkbox" class="ticker-checkbox" value="${escapeHtml(t)}" ${this.selectedTickers.has(t) ? 'checked' : ''}>
+                <span><strong>${escapeHtml(t)}</strong> - ${escapeHtml(n)}</span>
               </label>
             `).join('')}
           </div>

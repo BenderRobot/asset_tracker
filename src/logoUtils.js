@@ -189,6 +189,9 @@ function generateColor(ticker) {
  */
 export function renderCompanyLogo(ticker, name) {
     const logo = getCompanyLogo(ticker, name);
+    const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const safeTicker = escapeHtml(ticker);
 
     if (logo.hasLogo) {
         // Return logo HTML
@@ -196,12 +199,13 @@ export function renderCompanyLogo(ticker, name) {
             html: `
                 <div class="company-logo-wrapper" style="width: 32px; height: 32px; border-radius: 6px; overflow: hidden; background: #f5f5f5; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                     <img 
-                        src="${logo.url}" 
-                        alt="${name}"
+                        src="${escapeHtml(logo.url)}"
+                        alt=""
                         class="company-logo"
                         style="width: 24px; height: 24px; object-fit: contain;"
-                        onerror="this.parentElement.innerHTML='<div style=\\'width:32px;height:32px;border-radius:6px;background:${logo.badgeColor};color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;\\'>${ticker}</div>'"
+                        onerror="this.hidden=true;this.nextElementSibling.hidden=false;this.onerror=null"
                     />
+                    <span hidden class="ticker-badge" style="background:${logo.badgeColor};color:white;font-size:11px;font-weight:600;">${safeTicker}</span>
                 </div>
             `,
             hasLogo: true
@@ -211,7 +215,7 @@ export function renderCompanyLogo(ticker, name) {
         return {
             html: `
                 <div class="ticker-badge" style="width: 32px; height: 32px; border-radius: 6px; background: ${logo.badgeColor}; color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                    ${ticker}
+                    ${safeTicker}
                 </div>
             `,
             hasLogo: false

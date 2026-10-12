@@ -2,6 +2,22 @@
 
 Date : 12 octobre 2026. Page : `investments.html`, intitulée « Assets » dans la navigation.
 
+## Suivi — premier lot livré localement
+
+Le premier lot recommandé à la fin de cet audit est implémenté dans le dépôt, avec l’identité mobile et la correction des cartes coupées à 360/390 px. **Aucun déploiement.** Les constats ci-dessous décrivent l’état observé *avant* cette livraison ; le présent suivi fait foi lorsque les deux se contredisent.
+
+- **I01 — états de données :** le tableau est maintenant rendu depuis le snapshot canonique même quand la série historique du graphique échoue. Les dernières positions restent affichées pendant une actualisation du même périmètre. Un changement de filtre efface les anciennes lignes et KPI pour éviter d’attribuer leurs montants à la nouvelle sélection ; un échec affiche « Positions indisponibles » et un bouton Réessayer. Les KPI initiaux affichent « — » ; si le snapshot est valide mais l’historique invalide, les KPI sont alimentés par ce snapshot.
+- **I02 — détail des ventes :** les sous-lignes décrivent Achat/Vente, courtier, date, prix unitaire, quantité absolue et montant brut dans la devise de la transaction. L’ancien « gain total » par mouvement, qui inventait une valeur pour des titres déjà vendus, est supprimé. Le gain latent de la position reste celui du moteur.
+- **I05 — séance et classement :** les cartes de meilleure/pire variation lisent désormais la même variation de présentation que le tableau. Quand elle diffère de la variation financière du jour, les labels indiquent « variation affichée ». Le badge global fondé uniquement sur l’heure locale n’est plus montré sur Investment ; le statut de fraîcheur du graphique demeure. Le P&L canonique n’est pas modifié.
+- **I06 — indice :** le benchmark Nasdaq 100 utilise `^NDX` comme sur le dashboard. La centralisation définitive du catalogue entre pages reste à faire.
+- **I07 — filtre :** la recherche nom/ticker apparaît dans le titre du graphique et dans un contexte visible avec le nombre de positions. Les actualisations Investment relisent l’état de recherche de la page, donc l’ancien texte ne revient plus après effacement. Le placeholder ne promet plus la recherche par date.
+- **I08 — texte non fiable :** nom/ticker sont échappés dans le tableau, les logos, la liste de filtres et les cartes du jour. Le rendu du logo n’insère plus un nom ou un ticker dans un gestionnaire d’erreur construit dynamiquement. Ce correctif cible les surfaces auditées, pas un audit de sécurité de toutes les pages.
+- **I03 et mobile immédiat :** ticker, nom et quantité sont visibles dans la première cellule même lorsqu’un logo charge ; les cartes secondaires ne sortent plus de l’écran à 360/390 px. Le détail des mouvements se parcourt horizontalement avec une indication visible. Le KPI principal reste sur une ligne pour le montant du jeu de démonstration.
+
+Validation du lot : tests ciblés du rendu des ventes, de l’injection HTML, du contexte de filtre et du snapshot malgré un historique invalide ; contrôle Chrome isolé sur six largeurs, capture mobile avec détail ouvert. La suite complète et les artefacts mis à jour sont indiqués dans le suivi de validation en fin de document.
+
+**Restent ouverts :** à 1 024 px, le tableau déborde encore ; le tableau arrive encore sous le graphique ; certaines fenêtres, entêtes de tri et filtres ne sont pas accessibles au clavier ; le détail mobile reste dense. Ces points appartiennent aux lots 2 et 3. La vérification avec un portefeuille connecté reste nécessaire.
+
 ## Diagnostic
 
 **La priorité est de faire d’Investment une excellente page de consultation des positions.** Elle dispose déjà d’un moteur partagé, d’un graphique riche, de filtres combinables et d’un accès aux achats. Mais elle reprend une grande partie du dashboard avant de montrer le portefeuille détaillé. La densité du tableau, le mobile et les états d’erreur rendent l’ensemble moins abouti que ses fonctionnalités.
@@ -229,3 +245,11 @@ npm test -- --reporter=dot
 ```
 
 Le script exige Chrome et une installation existante de Playwright ; aucune dépendance ajoutée au projet. Il ne charge pas les scripts d’authentification ou d’initialisation de l’application, utilise des données fictives et n’écrit pas dans Firebase. Les polices, icônes, logos et Chart.js sont chargés depuis leurs CDN. Les captures et le JSON sont régénérés à chaque exécution.
+
+## Validation après le premier lot
+
+- Suite complète après les changements principaux : **749 tests réussis sur 749, 93 fichiers réussis sur 93**. Après ce passage, deux petits ajustements du détail des mouvements et du message de données conservées ont été vérifiés par **8 tests ciblés réussis sur 8**. Les règles Firestore avec émulateur n’ont pas été rejouées.
+- Chrome isolé sur les six largeurs de l’audit. À 360 et 390 px, toutes les cinq cartes secondaires sont dans la fenêtre ; la première ligne contient AAPL, Apple et la quantité. Le détail mobile défile jusqu’au montant brut. À 1 024 px, le débordement subsiste et reste au lot 2.
+- Reproductions automatisées : titre de recherche filtrée, vente partielle, noms HTML affichés comme texte, positions conservées si l’historique seul échoue. Aucun événement `pageerror` dans ce parcours isolé.
+- [Capture bureau après le lot](investments-preview-1366-lot1.png), [capture mobile après le lot](investments-preview-390-lot1.png), [détail mobile après le lot](investments-detail-390-lot1.png), [mesures JSON après le lot](investments-preview-results-lot1.json). Les fichiers sans suffixe `-lot1` restent les preuves de l’état avant correction.
+- Le portefeuille connecté et le cycle complet Firebase restent à vérifier dans l’application. Le contrôle navigateur utilise des données de démonstration.

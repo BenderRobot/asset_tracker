@@ -135,7 +135,7 @@
 
     /* Toggleable Header */
     #investments-table thead th:nth-child(11)::before {
-        content: 'GAIN DU JOUR';
+        content: attr(data-mobile-label);
         font-size: 10px;
         display: block;
         white-space: nowrap;
@@ -149,6 +149,36 @@
         display: block;
         white-space: nowrap;
         text-decoration: underline dotted;
+    }
+
+    #investments-table tbody .investment-asset-identity {
+        gap: 6px;
+        max-width: 100%;
+    }
+
+    #investments-table tbody .investment-asset-text {
+        display: block;
+        font-size: 11px;
+        line-height: 1.25;
+    }
+
+    #investments-table tbody .investment-asset-text strong,
+    #investments-table tbody .investment-asset-text small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    #investments-table tbody .investment-asset-text small {
+        font-size: 9px;
+        font-weight: 400;
+        color: var(--text-secondary);
+    }
+
+    #investments-table tbody tr.purchases-row .purchases-sub-table {
+        display: table !important;
+        min-width: 520px !important;
     }
 
 
@@ -210,6 +240,11 @@
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
+    }
+
+    #investments-table tbody tr.purchases-row .purchases-sub-table thead th::before {
+        content: none !important;
+        display: none !important;
     }
 
     /* Largeurs fixes des colonnes (sur le header) */
