@@ -74,6 +74,15 @@
         grid-row: 3;
     }
 
+    .summary-grid > .investment-cash-insight .wallet-table th,
+    .summary-grid > .investment-cash-insight .wallet-table td {
+        height: 42px;
+        padding: 5px 0;
+    }
+    .summary-grid > .investment-cash-insight .wallet-table th { font-size: 14px; }
+    .summary-grid > .investment-cash-insight .wallet-table td { font-size: 15px; }
+    .summary-grid > .investment-cash-insight .wallet-table .wallet-share { font-size: 11px; }
+
     /* Adjust font sizes for compact 2-col view */
     .summary-card-value {
         font-size: 20px !important;

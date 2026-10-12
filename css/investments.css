@@ -855,25 +855,46 @@
     align-items: stretch;
 }
 
-.summary-grid > .investment-cash-insight { text-align: left; }
+.summary-grid > .investment-cash-insight {
+    padding: 16px 18px;
+    text-align: left;
+}
+.summary-grid > .investment-cash-insight .kpi-header {
+    min-height: 20px;
+    margin-bottom: 4px;
+}
 .summary-grid > .investment-cash-insight .stat-label {
     color: var(--text-muted);
     font-size: 12px;
     font-weight: 500;
     letter-spacing: 0.5px;
 }
-.summary-grid > .investment-cash-insight .cash-insight-total { font-size: 28px; }
+.summary-grid > .investment-cash-insight .cash-insight-total {
+    margin-bottom: 6px;
+    font-size: 24px;
+}
+.summary-grid > .investment-cash-insight .wallet-track {
+    height: 4px;
+    margin-bottom: 4px;
+}
 .summary-grid > .investment-cash-insight .wallet-table th,
 .summary-grid > .investment-cash-insight .wallet-table td {
-    height: 42px;
-    padding: 4px 0;
+    height: 32px;
+    padding: 2px 0;
+    line-height: 1;
+}
+.summary-grid > .investment-cash-insight .wallet-table th { font-size: clamp(12px, 0.75vw, 14px); }
+.summary-grid > .investment-cash-insight .wallet-table td { font-size: clamp(13px, 0.83vw, 15px); }
+.summary-grid > .investment-cash-insight .wallet-table .wallet-share {
+    margin-top: 2px;
+    font-size: clamp(10px, 0.62vw, 11px);
 }
 
 .investment-insights .investment-insight {
     min-width: 0;
     width: auto;
-    min-height: 236px;
-    padding: 18px 20px;
+    min-height: 212px;
+    padding: 14px 16px;
     text-align: left;
     overflow: hidden;
     display: flex;
@@ -949,6 +970,12 @@
     text-overflow: ellipsis;
     vertical-align: middle;
     border: 0;
+}
+
+.investment-insights .insight-table th,
+.investment-insights .insight-table td {
+    height: 48px;
+    padding: 5px 0;
 }
 
 .investment-insight .insight-table th {
@@ -1041,7 +1068,7 @@
 .wallet-color-3 { background: #f59e0b; }
 .wallet-color-4 { background: #f472b6; }
 
-@media (max-width: 1300px) {
+@media (max-width: 1250px) {
     .portfolio-summary-enhanced .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .investment-insights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

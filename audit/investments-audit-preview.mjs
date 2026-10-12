@@ -61,7 +61,7 @@ try {
         const ui = new UIComponents(storage, dm);
         const filters = new FilterManager(storage);
         const view = new InvestmentsPage(storage, { formatTicker: t => t }, ui, filters, dm,
-            [{ value: 'TR', label: 'Trade Republic' }, { value: 'BOURSO', label: 'Boursobank' }, { value: 'REV', label: 'Revolut' }], null);
+            [{ value: 'TR', label: 'Trade Republic' }, { value: 'BOURSO', label: 'Boursobank PEA' }, { value: 'REV', label: 'Revolut' }], null);
         filters.updateTickerFilter(() => {});
         view.setupFilters(); view.setupSorting();
         const summary = dm.calculateSummary(holdings);
@@ -83,7 +83,7 @@ try {
         const demoChart = new Chart(document.querySelector('canvas'), { type: 'line', data: { labels: values.map((_, i) => `${9 + Math.floor(i / 6)}:${String(i % 6 * 10).padStart(2, '0')}`), datasets: [{ data: values, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.07)', fill: true, pointRadius: 0, borderWidth: 2 }] }, options: { animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8, color: '#a6b2ca' } }, y: { ticks: { color: '#a6b2ca' } } } } });
         window.audit = { view, ui, dm, storage, holdings, summary, HistoricalChart, demoChart };
     });
-    for (const width of [1920, 1601, 1600, 1366, 1301, 1300, 1251, 1152, 1024, 768, 390, 360]) {
+    for (const width of [1920, 1601, 1600, 1366, 1301, 1300, 1251, 1250, 1152, 1024, 768, 390, 360]) {
         await page.setViewportSize({ width, height: 900 });
         await page.mouse.move(1, 1);
         await page.waitForTimeout(200);
@@ -107,8 +107,11 @@ try {
                     .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent),
                 primaryCardTops: [...document.querySelectorAll('.summary-grid > .summary-card')]
                     .map(card => Math.round(card.getBoundingClientRect().top + scrollY)),
+                primaryCardHeights: [...document.querySelectorAll('.summary-grid > .summary-card')]
+                    .map(card => Math.round(card.getBoundingClientRect().height)),
                 secondaryCardTops: [...document.querySelectorAll('.investment-insights > .investment-insight')]
                     .map(card => Math.round(card.getBoundingClientRect().top + scrollY)),
+                chartTop: Math.round(document.querySelector('.historical-chart-container').getBoundingClientRect().top + scrollY),
                 cashInPrimaryGrid: !!document.querySelector('.summary-grid > .investment-cash-insight'),
                 summaryGridWidth: Math.round(document.querySelector('.summary-stats').getBoundingClientRect().width),
                 rowFocusable: first.tabIndex >= 0,
@@ -211,11 +214,14 @@ try {
                 assert.equal(size.cashInPrimaryGrid, true);
                 assert.equal(size.primaryCardTops.length, 4);
                 assert.equal(size.secondaryCardTops.length, 4);
-                if (size.width > 1300) {
+                if (size.width > 1250) {
                     assert.ok(size.primaryCardTops.every(top => Math.abs(top - size.primaryCardTops[0]) <= 1),
                         `four primary cards should share a row at ${size.width}px: ${size.primaryCardTops.join(', ')}`);
                     assert.ok(size.secondaryCardTops.every(top => Math.abs(top - size.secondaryCardTops[0]) <= 1),
                         `four ranking cards should share a row at ${size.width}px: ${size.secondaryCardTops.join(', ')}`);
+                    assert.ok(Math.max(...size.primaryCardHeights) <= 220,
+                        `the first KPI row is too tall at ${size.width}px`);
+                    assert.ok(size.chartTop <= 560, `chart starts too low at ${size.width}px`);
                 }
             }
         }

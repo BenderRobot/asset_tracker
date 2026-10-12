@@ -4,7 +4,7 @@
     {
       "width": 1920,
       "documentWidth": 1920,
-      "firstPositionY": 1465,
+      "firstPositionY": 1348,
       "tableWidth": 1352,
       "visibleFirstRowCells": [
         "AAPL",
@@ -31,7 +31,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -42,12 +42,19 @@
         48,
         48
       ],
-      "secondaryCardTops": [
-        364,
-        364,
-        364,
-        364
+      "primaryCardHeights": [
+        208,
+        208,
+        208,
+        208
       ],
+      "secondaryCardTops": [
+        272,
+        272,
+        272,
+        272
+      ],
+      "chartTop": 523,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 1352,
       "rowFocusable": false,
@@ -60,7 +67,7 @@
     {
       "width": 1601,
       "documentWidth": 1601,
-      "firstPositionY": 1492,
+      "firstPositionY": 1365,
       "tableWidth": 1313,
       "visibleFirstRowCells": [
         "AAPL",
@@ -87,7 +94,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -98,12 +105,19 @@
         48,
         48
       ],
-      "secondaryCardTops": [
-        364,
-        364,
-        364,
-        364
+      "primaryCardHeights": [
+        206,
+        206,
+        206,
+        206
       ],
+      "secondaryCardTops": [
+        270,
+        270,
+        270,
+        270
+      ],
+      "chartTop": 521,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 1313,
       "rowFocusable": false,
@@ -116,7 +130,7 @@
     {
       "width": 1600,
       "documentWidth": 1600,
-      "firstPositionY": 1492,
+      "firstPositionY": 1365,
       "tableWidth": 1312,
       "visibleFirstRowCells": [
         "AAPL",
@@ -143,7 +157,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -154,12 +168,19 @@
         48,
         48
       ],
-      "secondaryCardTops": [
-        364,
-        364,
-        364,
-        364
+      "primaryCardHeights": [
+        206,
+        206,
+        206,
+        206
       ],
+      "secondaryCardTops": [
+        270,
+        270,
+        270,
+        270
+      ],
+      "chartTop": 521,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 1312,
       "rowFocusable": false,
@@ -172,7 +193,7 @@
     {
       "width": 1366,
       "documentWidth": 1366,
-      "firstPositionY": 1492,
+      "firstPositionY": 1372,
       "tableWidth": 1078,
       "visibleFirstRowCells": [
         "AAPL",
@@ -199,7 +220,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -210,12 +231,19 @@
         48,
         48
       ],
-      "secondaryCardTops": [
-        364,
-        364,
-        364,
-        364
+      "primaryCardHeights": [
+        206,
+        206,
+        206,
+        206
       ],
+      "secondaryCardTops": [
+        270,
+        270,
+        270,
+        270
+      ],
+      "chartTop": 528,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 1078,
       "rowFocusable": false,
@@ -228,7 +256,7 @@
     {
       "width": 1301,
       "documentWidth": 1301,
-      "firstPositionY": 1492,
+      "firstPositionY": 1372,
       "tableWidth": 1013,
       "visibleFirstRowCells": [
         "AAPL",
@@ -255,7 +283,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -266,12 +294,19 @@
         48,
         48
       ],
-      "secondaryCardTops": [
-        364,
-        364,
-        364,
-        364
+      "primaryCardHeights": [
+        206,
+        206,
+        206,
+        206
       ],
+      "secondaryCardTops": [
+        270,
+        270,
+        270,
+        270
+      ],
+      "chartTop": 528,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 1013,
       "rowFocusable": false,
@@ -284,7 +319,7 @@
     {
       "width": 1300,
       "documentWidth": 1300,
-      "firstPositionY": 1920,
+      "firstPositionY": 1372,
       "tableWidth": 1012,
       "visibleFirstRowCells": [
         "AAPL",
@@ -311,7 +346,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -319,15 +354,22 @@
       "primaryCardTops": [
         48,
         48,
-        215,
-        215
+        48,
+        48
+      ],
+      "primaryCardHeights": [
+        206,
+        206,
+        206,
+        206
       ],
       "secondaryCardTops": [
-        530,
-        530,
-        799,
-        799
+        270,
+        270,
+        270,
+        270
       ],
+      "chartTop": 528,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 1012,
       "rowFocusable": false,
@@ -340,7 +382,7 @@
     {
       "width": 1251,
       "documentWidth": 1251,
-      "firstPositionY": 1964,
+      "firstPositionY": 1416,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -367,7 +409,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -375,15 +417,22 @@
       "primaryCardTops": [
         48,
         48,
-        215,
-        215
+        48,
+        48
+      ],
+      "primaryCardHeights": [
+        206,
+        206,
+        206,
+        206
       ],
       "secondaryCardTops": [
-        530,
-        530,
-        799,
-        799
+        270,
+        270,
+        270,
+        270
       ],
+      "chartTop": 528,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 963,
       "rowFocusable": false,
@@ -394,9 +443,9 @@
       ]
     },
     {
-      "width": 1152,
+      "width": 1250,
       "documentWidth": 1251,
-      "firstPositionY": 2051,
+      "firstPositionY": 1818,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -423,7 +472,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -434,12 +483,82 @@
         215,
         215
       ],
-      "secondaryCardTops": [
-        530,
-        530,
-        799,
-        799
+      "primaryCardHeights": [
+        151,
+        151,
+        206,
+        206
       ],
+      "secondaryCardTops": [
+        437,
+        437,
+        680,
+        680
+      ],
+      "chartTop": 930,
+      "cashInPrimaryGrid": true,
+      "summaryGridWidth": 962,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        48,
+        45
+      ]
+    },
+    {
+      "width": 1152,
+      "documentWidth": 1251,
+      "firstPositionY": 1905,
+      "tableWidth": 987,
+      "visibleFirstRowCells": [
+        "AAPL",
+        "Apple",
+        "30",
+        "170,00 €",
+        "5 100,00 €",
+        "210,00 €",
+        "6 300,00 €",
+        "1 200,00 €",
+        "+23,53 %",
+        "88,20 €",
+        "+1,40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "rankingRows": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "clippedRankingValues": [],
+      "wallets": [
+        "Trade Republic\t900,00 €\n69,23 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
+        "Revolut\t50,00 €\n3,85 %"
+      ],
+      "walletNameClips": [],
+      "walletValueClips": [],
+      "primaryCardTops": [
+        48,
+        48,
+        215,
+        215
+      ],
+      "primaryCardHeights": [
+        151,
+        151,
+        206,
+        206
+      ],
+      "secondaryCardTops": [
+        437,
+        437,
+        680,
+        680
+      ],
+      "chartTop": 930,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 864,
       "rowFocusable": false,
@@ -452,7 +571,7 @@
     {
       "width": 1024,
       "documentWidth": 1251,
-      "firstPositionY": 2173,
+      "firstPositionY": 2028,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -479,7 +598,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -490,12 +609,19 @@
         215,
         215
       ],
-      "secondaryCardTops": [
-        530,
-        530,
-        799,
-        799
+      "primaryCardHeights": [
+        151,
+        151,
+        206,
+        206
       ],
+      "secondaryCardTops": [
+        437,
+        437,
+        680,
+        680
+      ],
+      "chartTop": 930,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 736,
       "rowFocusable": false,
@@ -508,7 +634,7 @@
     {
       "width": 768,
       "documentWidth": 768,
-      "firstPositionY": 2434,
+      "firstPositionY": 2315,
       "tableWidth": 729,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -528,7 +654,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -539,12 +665,19 @@
         192,
         307
       ],
-      "secondaryCardTops": [
-        615,
-        870,
-        1126,
-        1381
+      "primaryCardHeights": [
+        219,
+        104,
+        104,
+        236
       ],
+      "secondaryCardTops": [
+        568,
+        805,
+        1043,
+        1280
+      ],
+      "chartTop": 1530,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 729,
       "rowFocusable": false,
@@ -557,7 +690,7 @@
     {
       "width": 390,
       "documentWidth": 390,
-      "firstPositionY": 2433,
+      "firstPositionY": 2314,
       "tableWidth": 358,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -577,7 +710,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -588,12 +721,19 @@
         192,
         307
       ],
-      "secondaryCardTops": [
-        615,
-        870,
-        1126,
-        1381
+      "primaryCardHeights": [
+        219,
+        104,
+        104,
+        236
       ],
+      "secondaryCardTops": [
+        568,
+        805,
+        1043,
+        1280
+      ],
+      "chartTop": 1530,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 358,
       "rowFocusable": false,
@@ -606,7 +746,7 @@
     {
       "width": 360,
       "documentWidth": 360,
-      "firstPositionY": 2451,
+      "firstPositionY": 2332,
       "tableWidth": 328,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -626,7 +766,7 @@
       "clippedRankingValues": [],
       "wallets": [
         "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank\t350,00 €\n26,92 %",
+        "Boursobank PEA\t350,00 €\n26,92 %",
         "Revolut\t50,00 €\n3,85 %"
       ],
       "walletNameClips": [],
@@ -637,12 +777,19 @@
         192,
         307
       ],
-      "secondaryCardTops": [
-        615,
-        870,
-        1126,
-        1381
+      "primaryCardHeights": [
+        219,
+        104,
+        104,
+        236
       ],
+      "secondaryCardTops": [
+        568,
+        805,
+        1043,
+        1280
+      ],
+      "chartTop": 1530,
       "cashInPrimaryGrid": true,
       "summaryGridWidth": 328,
       "rowFocusable": false,
