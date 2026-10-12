@@ -142,7 +142,7 @@
 }
 .dashboard-premium .market-card.stat-positive { border-color: rgba(16, 185, 129, .45); border-left-color: #10b981; box-shadow: 0 0 12px rgba(16, 185, 129, .1); }
 .dashboard-premium .market-card.stat-negative { border-color: rgba(239, 68, 68, .45); border-left-color: #ef4444; box-shadow: 0 0 12px rgba(239, 68, 68, .1); }
-.dashboard-premium .market-card:hover { transform: none; border-color: var(--accent-blue); }
+.dashboard-premium .market-card:hover { transform: none; }
 .dashboard-premium .market-card.market-card-future,
 .dashboard-premium .market-card.market-card-future.active-index { background: #0f172a !important; border-color: var(--border-color) !important; border-left-color: #64748b !important; box-shadow: none !important; }
 .dashboard-premium .market-card.market-card-future.stat-positive { border-color: rgba(16, 185, 129, .45) !important; border-left-color: #10b981 !important; box-shadow: 0 0 12px rgba(16, 185, 129, .1) !important; }
@@ -174,11 +174,28 @@
 .dashboard-premium .market-card-time { grid-area: time; align-self: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--dashboard-muted); }
 .dashboard-premium .market-source-badge { grid-area: badge; justify-self: start; font-size: 9px; }
 .dashboard-premium .market-source-badge[hidden] { display: none; }
-.dashboard-premium .market-card-actions { position: absolute; top: 5px; right: 5px; z-index: 2; display: flex; gap: 1px; opacity: 0; }
+/* The card is a <button>: neutralise the global blue button hover
+   (components.css) and keep the app's card language instead — accent
+   border plus a faint lift of the surface. */
+.dashboard-premium .market-card-open:hover:not(:disabled) { background: rgba(148, 163, 184, .05); transform: none; }
+.dashboard-premium .market-card:hover { border-top-color: rgba(59, 130, 246, .6); border-right-color: rgba(59, 130, 246, .6); border-bottom-color: rgba(59, 130, 246, .6); }
+
+/* Management tools: one compact group aligned on the title row. */
+.dashboard-premium .market-card-actions {
+    position: absolute; top: 7px; right: 7px; z-index: 2; display: flex; align-items: center; gap: 2px; padding: 2px;
+    border: 1px solid var(--border-color); border-radius: 7px; background: rgba(15, 23, 42, .92);
+    opacity: 0; transition: opacity .15s;
+}
 .dashboard-premium .market-card:hover .market-card-actions, .dashboard-premium .market-card:focus-within .market-card-actions { opacity: 1; }
-.dashboard-premium .market-card-actions button { width: 22px; height: 24px; padding: 0; display: grid; place-items: center; background: #17243b; border: none; border-radius: 5px; color: #b8c5dc; cursor: pointer; }
-.dashboard-premium .market-card-actions button:hover { color: #fff; background: #263653; }
-.dashboard-premium .market-card-actions button:disabled { opacity: .35; cursor: default; }
+.dashboard-premium .market-card-actions button,
+.dashboard-premium .market-card-actions .market-card-delete {
+    position: static; display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
+    border: 0; border-radius: 5px; background: transparent; color: #a6b2ca; font-size: 12px; cursor: pointer; transform: none;
+}
+.dashboard-premium .market-card-actions button i { font-size: 12px; pointer-events: none; }
+.dashboard-premium .market-card-actions button:hover:not(:disabled) { background: #263653; color: #fff; transform: none; }
+.dashboard-premium .market-card-actions .market-card-delete:hover:not(:disabled) { background: rgba(239, 68, 68, .16); color: #f87171; }
+.dashboard-premium .market-card-actions button:disabled { opacity: .3; cursor: default; }
 .stat-neutral { color: var(--dashboard-muted); }
 .news-feed-state { padding: 16px; font-size: 13px; color: var(--dashboard-muted); display: flex; align-items: center; gap: 12px; justify-content: space-between; }
 .dashboard-premium .dashboard-feeds-grid { height: auto; align-items: start; }

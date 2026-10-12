@@ -173,6 +173,20 @@ try {
         results.push(size);
         if ([1920, 1366, 390].includes(width)) await page.screenshot({ path: path.join(root, `audit/dashboard-preview-${width}.png`), fullPage: true });
     }
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    // Hovered market card: no blue fill, tools in one row inside the card.
+    await page.locator('.market-card').nth(3).hover();
+    await page.waitForTimeout(250);
+    const hovered = await page.locator('.market-card').nth(3).evaluate(card => {
+        const tools = [...card.querySelectorAll('.market-card-actions button')].map(b => b.getBoundingClientRect());
+        const box = card.getBoundingClientRect();
+        return { fill: getComputedStyle(card.querySelector('.market-card-open')).backgroundColor,
+            sameRow: new Set(tools.map(r => Math.round(r.top))).size === 1,
+            inside: tools.every(r => r.right <= box.right && r.top >= box.top) };
+    });
+    assert.notEqual(hovered.fill, 'rgb(37, 99, 235)', 'market card turns blue on hover');
+    assert.ok(hovered.sameRow && hovered.inside, 'market card tools are misplaced');
+    await page.locator('.dashboard-indices-panel-full').screenshot({ path: path.join(root, 'audit/dashboard-preview-market-hover.png') });
     await page.setViewportSize({ width: 1366, height: 1080 });
     await page.mouse.move(0, 0);
     // Ticker: auto-scroll, pause, click-and-drag and trackpad scrolling all
