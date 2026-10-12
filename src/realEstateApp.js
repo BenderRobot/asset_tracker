@@ -49,6 +49,8 @@ export class RealEstateApp {
         this.dataManager = new DataManager(this.storage, null);
         this.chart = null;
         this.debtChart = null;
+        // Scénario de remboursement anticipé / renégociation (simulation uniquement, non sauvegardé)
+        this.debtScenario = { creditIndex: null, rate: '', extraMonthly: '', lumpSum: '', lumpMonth: '', mode: 'duration' };
     }
 
     async init() {
@@ -598,7 +600,15 @@ export class RealEstateApp {
 
                     ${details.length ? `
                     <div class="re-panel re-panel--grow">
-                        <div class="re-subtitle"><span>Évolution de la dette</span></div>
+                        <div class="re-subtitle">
+                            <span>Évolution de la dette</span>
+                            <button type="button" id="debt-scenario-reset" class="re-link-btn" hidden
+                                onclick="window.realEstateApp.resetDebtScenario()">
+                                <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i> Réinitialiser
+                            </button>
+                        </div>
+                        ${this.renderScenarioControls(details)}
+                        <div id="debt-scenario-result" class="re-scenario-result"></div>
                         <div class="re-chart-small"><canvas id="debt-chart"></canvas></div>
                         <div class="re-chart-note">Valeur nette calculée à valeur du bien constante.</div>
                     </div>` : ''}
@@ -914,6 +924,200 @@ export class RealEstateApp {
         `;
     }
 
+    // ========== SIMULATEUR DE SCÉNARIOS ==========
+
+    renderScenarioControls(details) {
+        const s = this.debtScenario;
+        // Par défaut : premier crédit encore en cours avec intérêts (là où un scénario a un effet)
+        if (s.creditIndex === null || !details[s.creditIndex]) {
+            const idx = details.findIndex(d => d.status !== 'repaid' && d.credit.rate > 0);
+            s.creditIndex = idx === -1 ? Math.max(0, details.findIndex(d => d.status !== 'repaid')) : idx;
+        }
+        if (!s.lumpMonth) {
+            const next = new Date();
+            next.setMonth(next.getMonth() + 1, 1);
+            s.lumpMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+        }
+        const credit = details[s.creditIndex].credit;
+        const onInput = 'oninput="window.realEstateApp.onScenarioInput(this)"';
+
+        return `
+            <div class="re-scenario" id="debt-scenario">
+                <label class="re-field">
+                    <span>Crédit</span>
+                    <select name="creditIndex" onchange="window.realEstateApp.onScenarioInput(this)">
+                        ${details.map((d, i) => `<option value="${i}" ${i === s.creditIndex ? 'selected' : ''} ${d.status === 'repaid' ? 'disabled' : ''}>${escapeHtml(d.credit.name || `Crédit ${i + 1}`)}</option>`).join('')}
+                    </select>
+                </label>
+                <label class="re-field">
+                    <span>Nouveau taux</span>
+                    <div class="re-input-unit">
+                        <input type="number" name="rate" min="0" max="20" step="0.05" inputmode="decimal"
+                            placeholder="${credit.rate}" value="${escapeHtml(s.rate)}" ${onInput}><em>%</em>
+                    </div>
+                </label>
+                <label class="re-field">
+                    <span>Versement en plus</span>
+                    <div class="re-input-unit">
+                        <input type="number" name="extraMonthly" min="0" step="10" inputmode="decimal"
+                            placeholder="0" value="${escapeHtml(s.extraMonthly)}" ${onInput}><em>€/mois</em>
+                    </div>
+                </label>
+                <label class="re-field">
+                    <span>Remb. anticipé</span>
+                    <div class="re-input-unit">
+                        <input type="number" name="lumpSum" min="0" step="1000" inputmode="decimal"
+                            placeholder="0" value="${escapeHtml(s.lumpSum)}" ${onInput}><em>€</em>
+                    </div>
+                </label>
+                <label class="re-field">
+                    <span>En</span>
+                    <input type="month" name="lumpMonth" value="${escapeHtml(s.lumpMonth)}" ${onInput}>
+                </label>
+                <div class="re-field">
+                    <span>Après le remboursement</span>
+                    <div class="re-segmented" role="radiogroup">
+                        <button type="button" class="${s.mode === 'duration' ? 'is-active' : ''}" aria-pressed="${s.mode === 'duration'}"
+                            onclick="window.realEstateApp.setScenarioMode('duration')">Durée ↓</button>
+                        <button type="button" class="${s.mode === 'payment' ? 'is-active' : ''}" aria-pressed="${s.mode === 'payment'}"
+                            onclick="window.realEstateApp.setScenarioMode('payment')">Mensualité ↓</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    onScenarioInput(input) {
+        const s = this.debtScenario;
+        if (input.name === 'creditIndex') {
+            s.creditIndex = Number(input.value);
+            // Le placeholder du taux suit le crédit sélectionné
+            const rateInput = document.querySelector('#debt-scenario input[name="rate"]');
+            const credit = this.residenceDetails?.[s.creditIndex]?.credit;
+            if (rateInput && credit) rateInput.placeholder = credit.rate;
+        } else {
+            s[input.name] = input.value;
+        }
+        this.updateDebtScenario();
+    }
+
+    setScenarioMode(mode) {
+        this.debtScenario.mode = mode;
+        document.querySelectorAll('#debt-scenario .re-segmented button').forEach((b, i) => {
+            const active = (i === 0) === (mode === 'duration');
+            b.classList.toggle('is-active', active);
+            b.setAttribute('aria-pressed', active);
+        });
+        this.updateDebtScenario();
+    }
+
+    resetDebtScenario() {
+        Object.assign(this.debtScenario, { rate: '', extraMonthly: '', lumpSum: '' });
+        document.querySelectorAll('#debt-scenario input[type="number"]').forEach(i => { i.value = ''; });
+        this.updateDebtScenario();
+    }
+
+    // Paramètres de simulation (null si aucun levier n'est renseigné)
+    getScenarioParams(credit, today) {
+        const s = this.debtScenario;
+        const rate = s.rate === '' ? null : toNumber(s.rate, null);
+        const extraMonthly = Math.max(0, toNumber(s.extraMonthly));
+        const lumpSum = Math.max(0, toNumber(s.lumpSum));
+        const hasRate = rate !== null && rate >= 0 && Math.abs(rate - credit.rate) > 1e-9;
+        if (!hasRate && !extraMonthly && !lumpSum) return null;
+
+        // Le mois en cours est considéré réglé (cohérent avec calculateRemainingCapital)
+        const fromKey = MortgageCalculator.monthKey(today) + 1;
+        const [y, m] = (s.lumpMonth || '').split('-').map(Number);
+        const lumpKey = y && m ? Math.max(fromKey, y * 12 + (m - 1)) : fromKey;
+
+        return { fromKey, rate: hasRate ? rate : null, extraMonthly, lumpSum, lumpKey, mode: s.mode };
+    }
+
+    // Recalcule le scénario, met à jour le résumé et la courbe sans re-rendre la page (garde le focus)
+    updateDebtScenario() {
+        const details = this.residenceDetails;
+        const today = this.residenceToday || new Date();
+        const resultEl = document.getElementById('debt-scenario-result');
+        const resetBtn = document.getElementById('debt-scenario-reset');
+        if (!details?.length || !resultEl) return;
+
+        const d = details[this.debtScenario.creditIndex];
+        const params = d ? this.getScenarioParams(d.credit, today) : null;
+        if (resetBtn) resetBtn.hidden = !params;
+
+        let scenarioSim = null;
+        if (!params) {
+            resultEl.innerHTML = '<span class="re-scenario-hint"><i class="ph ph-lightbulb" aria-hidden="true"></i> Modifiez un paramètre pour comparer un scénario à votre plan actuel.</span>';
+        } else {
+            const base = MortgageCalculator.simulateScenario(d.credit);
+            scenarioSim = MortgageCalculator.simulateScenario(d.credit, params);
+
+            const saved = base.totalInterest - scenarioSim.totalInterest;
+            const monthsSaved = base.endKey - scenarioSim.endKey;
+            const keyToDate = key => new Date(Math.floor(key / 12), key % 12, 1);
+            // IRA : plafond légal = min(6 mois d'intérêts sur la somme remboursée, 3 % du capital remboursé). Pas d'IRA sur un PTZ.
+            const ira = scenarioSim.lumpApplied * Math.min(0.03, d.credit.rate / 100 / 2);
+            const basePayment = MortgageCalculator.calculateMonthlyPayment(d.credit);
+            const paymentDelta = scenarioSim.payment - basePayment;
+
+            const chips = [
+                `<div><span>${saved >= 0 ? 'Intérêts économisés' : "Surcoût d'intérêts"}</span><strong class="${saved >= 0 ? 'is-positive' : 'is-negative'}">${this.formatEUR(Math.abs(saved))}</strong></div>`,
+                `<div><span>Fin du crédit</span><strong>${formatMonthYear(keyToDate(scenarioSim.endKey))}</strong>
+                    <small>${monthsSaved > 0 ? `${formatDuration(monthsSaved)} plus tôt` : monthsSaved < 0 ? `${formatDuration(-monthsSaved)} plus tard` : 'inchangée'}</small></div>`,
+                `<div><span>Mensualité</span><strong>${this.formatEUR(scenarioSim.payment + params.extraMonthly)}</strong>
+                    <small>${Math.abs(paymentDelta + params.extraMonthly) < 0.5 ? 'inchangée' : `${paymentDelta + params.extraMonthly > 0 ? '+' : '−'}${this.formatEUR(Math.abs(paymentDelta + params.extraMonthly))}/mois`}</small></div>`
+            ];
+            if (ira > 0) {
+                chips.push(`<div><span>IRA max. · gain net</span><strong class="is-warning">${this.formatEUR(ira)}</strong>
+                    <small>net ${this.formatEUR(saved - ira)}</small></div>`);
+            }
+            resultEl.innerHTML = chips.join('');
+        }
+
+        this.setDebtChartScenario(d, scenarioSim);
+    }
+
+    // Ajoute / met à jour / retire la courbe « Scénario » (dette totale) sur le graphique
+    setDebtChartScenario(d, simulation) {
+        const chart = this.debtChart;
+        if (!chart) return;
+        const datasets = chart.data.datasets;
+        const idx = datasets.findIndex(ds => ds.id === 'scenario');
+
+        if (!simulation) {
+            if (idx !== -1) datasets.splice(idx, 1);
+            datasets.forEach(ds => { if (ds.stack === 'debt') ds.backgroundColor = ds.baseBackground; });
+            chart.update('none');
+            return;
+        }
+
+        const details = this.residenceDetails;
+        const data = this.debtChartTimestamps.map(t => {
+            const key = MortgageCalculator.monthKey(t);
+            const total = details.reduce((s, other) => s + (other === d
+                ? MortgageCalculator.balanceAt(simulation, d.credit, key)
+                : MortgageCalculator.calculateRemainingCapital(other.credit, new Date(t))), 0);
+            return { x: t, y: total };
+        });
+
+        const dataset = {
+            id: 'scenario',
+            label: 'Scénario',
+            data,
+            borderColor: '#f59e0b',
+            borderWidth: 2.5,
+            fill: false,
+            stack: 'scenario',
+            pointRadius: 0,
+            tension: 0.2
+        };
+        if (idx === -1) datasets.push(dataset); else datasets[idx] = dataset;
+        // Plan actuel atténué pour faire ressortir le scénario
+        datasets.forEach(ds => { if (ds.stack === 'debt') ds.backgroundColor = `${ds.borderColor}14`; });
+        chart.update('none');
+    }
+
     renderDebtChart(details, currentValue, today) {
         if (this.debtChart) { this.debtChart.destroy(); this.debtChart = null; }
         const canvas = document.getElementById('debt-chart');
@@ -932,6 +1136,7 @@ export class RealEstateApp {
         timestamps.push(maxDate.getTime());
         if (today > minDate && today < maxDate) timestamps.push(today.getTime());
         timestamps.sort((a, b) => a - b);
+        this.debtChartTimestamps = timestamps;
 
         const datasets = details.map((d, i) => {
             const color = CREDIT_COLORS[i % CREDIT_COLORS.length];
@@ -940,6 +1145,7 @@ export class RealEstateApp {
                 data: timestamps.map(t => ({ x: t, y: MortgageCalculator.calculateRemainingCapital(d.credit, new Date(t)) })),
                 borderColor: color,
                 backgroundColor: `${color}33`,
+                baseBackground: `${color}33`,
                 borderWidth: 1.5,
                 fill: i === 0 ? 'origin' : '-1',
                 stack: 'debt',
@@ -974,6 +1180,8 @@ export class RealEstateApp {
                 tooltipLabel: ctx => `${ctx.dataset.label} : ${this.formatEUR(ctx.parsed.y)}`
             })
         });
+
+        this.updateDebtScenario();
     }
 
     setupEventListeners() {

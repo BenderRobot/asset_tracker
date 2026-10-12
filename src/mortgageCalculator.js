@@ -180,6 +180,83 @@ export class MortgageCalculator {
     }
 
     /**
+     * Simule un crédit mois par mois avec un scénario de renégociation / remboursement anticipé.
+     * Les mois sont repérés par une clé `année * 12 + mois` (cf. monthKey).
+     * @param {Object} credit
+     * @param {Object} scenario
+     * @param {number} [scenario.fromKey] - Première échéance concernée par le scénario
+     * @param {number|null} [scenario.rate] - Nouveau taux annuel (%) à partir de fromKey, mensualité recalculée sur la durée restante
+     * @param {number} [scenario.extraMonthly] - Capital supplémentaire versé chaque mois à partir de fromKey
+     * @param {number} [scenario.lumpSum] - Remboursement anticipé ponctuel
+     * @param {number} [scenario.lumpKey] - Mois du remboursement anticipé (appliqué après l'échéance du mois)
+     * @param {'duration'|'payment'} [scenario.mode] - Après le remboursement anticipé : réduire la durée ou la mensualité
+     * @returns {{ balances: Map<number, number>, totalInterest: number, endKey: number, payment: number, lumpApplied: number }}
+     *          balances = capital restant dû après l'échéance de chaque mois ; payment = mensualité finale du scénario
+     */
+    static simulateScenario(credit, scenario = {}) {
+        const { fromKey = Infinity, rate = null, extraMonthly = 0, lumpSum = 0, lumpKey = Infinity, mode = 'duration' } = scenario;
+        const annuity = (capital, annualRate, months) => {
+            if (months <= 0) return capital;
+            if (annualRate === 0) return capital / months;
+            const i = annualRate / 100 / 12;
+            return capital * i / (1 - Math.pow(1 + i, -months));
+        };
+
+        const start = new Date(credit.startDate);
+        const startKey = this.monthKey(start);
+        const balances = new Map();
+        let balance = credit.initialAmount;
+        let payment = this.calculateMonthlyPayment(credit);
+        let annualRate = credit.rate;
+        let totalInterest = 0;
+        let rateApplied = false;
+        let lumpApplied = 0;
+        let k = 0;
+
+        while (balance > 0.005 && k < credit.duration + 600) {
+            k++;
+            const key = startKey + k;
+            const remainingMonths = credit.duration - (k - 1);
+
+            if (!rateApplied && rate !== null && key >= fromKey) {
+                rateApplied = true;
+                annualRate = rate;
+                payment = annuity(balance, annualRate, remainingMonths);
+            }
+
+            const interest = balance * annualRate / 100 / 12;
+            const extra = key >= fromKey ? extraMonthly : 0;
+            const capital = Math.min(balance, Math.max(0, payment - interest) + extra);
+            totalInterest += interest;
+            balance -= capital;
+
+            if (!lumpApplied && lumpSum > 0 && key >= lumpKey && balance > 0) {
+                lumpApplied = Math.min(lumpSum, balance);
+                balance -= lumpApplied;
+                if (mode === 'payment') payment = annuity(balance, annualRate, remainingMonths - 1);
+            }
+
+            balances.set(key, Math.max(0, balance));
+        }
+
+        return { balances, totalInterest, endKey: startKey + k, payment, lumpApplied };
+    }
+
+    /** Clé de mois (année * 12 + mois) utilisée par simulateScenario */
+    static monthKey(date) {
+        const d = new Date(date);
+        return d.getFullYear() * 12 + d.getMonth();
+    }
+
+    /** Capital restant dû d'une simulation à un mois donné */
+    static balanceAt(simulation, credit, key) {
+        const startKey = this.monthKey(credit.startDate);
+        if (key <= startKey) return credit.initialAmount;
+        if (key >= simulation.endKey) return 0;
+        return simulation.balances.get(key) ?? credit.initialAmount;
+    }
+
+    /**
      * Génère un tableau d'amortissement pour un crédit
      * @param {Object} credit
      * @param {number} maxMonths - Nombre de mois à générer (défaut: toute la durée)
