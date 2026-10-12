@@ -64,11 +64,12 @@ function ensureInsightMarkup() {
             card.setAttribute('aria-describedby', contextId);
         }
         if (id === 'cash-reserve') {
-            const summaryGrid = document.querySelector('.portfolio-summary-enhanced .summary-grid');
-            if (summaryGrid) {
-                card.classList.remove('stat-item');
-                card.classList.add('summary-card');
-                if (card.parentElement !== summaryGrid) summaryGrid.append(card);
+            const insightsGrid = document.querySelector('.portfolio-summary-enhanced .summary-stats') ||
+                document.querySelector('.summary-stats');
+            if (insightsGrid) {
+                card.classList.remove('summary-card');
+                card.classList.add('stat-item');
+                if (card.parentElement !== insightsGrid) insightsGrid.append(card);
             }
             host.classList.remove('stat-value', 'stat-positive', 'stat-negative');
             host.classList.add('cash-insight-total');

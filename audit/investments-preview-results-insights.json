@@ -4,7 +4,7 @@
     {
       "width": 1920,
       "documentWidth": 1920,
-      "firstPositionY": 1348,
+      "firstPositionY": 1355,
       "tableWidth": 1352,
       "visibleFirstRowCells": [
         "AAPL",
@@ -39,23 +39,28 @@
       "primaryCardTops": [
         48,
         48,
-        48,
         48
       ],
       "primaryCardHeights": [
-        208,
-        208,
-        208,
-        208
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        50,
+        50,
+        50
+      ],
+      "primaryGridWidth": 1280,
       "secondaryCardTops": [
-        272,
-        272,
-        272,
-        272
+        222,
+        222,
+        222,
+        222,
+        222
       ],
-      "chartTop": 523,
-      "cashInPrimaryGrid": true,
+      "chartTop": 530,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 1352,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -67,7 +72,7 @@
     {
       "width": 1601,
       "documentWidth": 1601,
-      "firstPositionY": 1365,
+      "firstPositionY": 1375,
       "tableWidth": 1313,
       "visibleFirstRowCells": [
         "AAPL",
@@ -102,23 +107,28 @@
       "primaryCardTops": [
         48,
         48,
-        48,
         48
       ],
       "primaryCardHeights": [
-        206,
-        206,
-        206,
-        206
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        50,
+        50,
+        50
+      ],
+      "primaryGridWidth": 1280,
       "secondaryCardTops": [
-        270,
-        270,
-        270,
-        270
+        222,
+        222,
+        222,
+        222,
+        222
       ],
-      "chartTop": 521,
-      "cashInPrimaryGrid": true,
+      "chartTop": 530,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 1313,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -130,7 +140,7 @@
     {
       "width": 1600,
       "documentWidth": 1600,
-      "firstPositionY": 1365,
+      "firstPositionY": 1410,
       "tableWidth": 1312,
       "visibleFirstRowCells": [
         "AAPL",
@@ -156,32 +166,37 @@
       ],
       "clippedRankingValues": [],
       "wallets": [
-        "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank PEA\t350,00 €\n26,92 %",
-        "Revolut\t50,00 €\n3,85 %"
+        "Trade Republic\n900,00 €69,23 %",
+        "Boursobank PEA\n350,00 €26,92 %",
+        "Revolut\n50,00 €3,85 %"
       ],
       "walletNameClips": [],
       "walletValueClips": [],
       "primaryCardTops": [
         48,
         48,
-        48,
         48
       ],
       "primaryCardHeights": [
-        206,
-        206,
-        206,
-        206
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        50,
+        50,
+        50
+      ],
+      "primaryGridWidth": 1280,
       "secondaryCardTops": [
-        270,
-        270,
-        270,
-        270
+        222,
+        222,
+        222,
+        222,
+        222
       ],
-      "chartTop": 521,
-      "cashInPrimaryGrid": true,
+      "chartTop": 566,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 1312,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -193,7 +208,7 @@
     {
       "width": 1366,
       "documentWidth": 1366,
-      "firstPositionY": 1372,
+      "firstPositionY": 1410,
       "tableWidth": 1078,
       "visibleFirstRowCells": [
         "AAPL",
@@ -219,32 +234,37 @@
       ],
       "clippedRankingValues": [],
       "wallets": [
-        "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank PEA\t350,00 €\n26,92 %",
-        "Revolut\t50,00 €\n3,85 %"
+        "Trade Republic\n900,00 €69,23 %",
+        "Boursobank PEA\n350,00 €26,92 %",
+        "Revolut\n50,00 €3,85 %"
       ],
       "walletNameClips": [],
       "walletValueClips": [],
       "primaryCardTops": [
         48,
         48,
-        48,
         48
       ],
       "primaryCardHeights": [
-        206,
-        206,
-        206,
-        206
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        42,
+        42,
+        42
+      ],
+      "primaryGridWidth": 1078,
       "secondaryCardTops": [
-        270,
-        270,
-        270,
-        270
+        222,
+        222,
+        222,
+        222,
+        222
       ],
-      "chartTop": 528,
-      "cashInPrimaryGrid": true,
+      "chartTop": 566,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 1078,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -256,7 +276,7 @@
     {
       "width": 1301,
       "documentWidth": 1301,
-      "firstPositionY": 1372,
+      "firstPositionY": 1410,
       "tableWidth": 1013,
       "visibleFirstRowCells": [
         "AAPL",
@@ -282,32 +302,37 @@
       ],
       "clippedRankingValues": [],
       "wallets": [
-        "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank PEA\t350,00 €\n26,92 %",
-        "Revolut\t50,00 €\n3,85 %"
+        "Trade Republic\n900,00 €69,23 %",
+        "Boursobank PEA\n350,00 €26,92 %",
+        "Revolut\n50,00 €3,85 %"
       ],
       "walletNameClips": [],
       "walletValueClips": [],
       "primaryCardTops": [
         48,
         48,
-        48,
         48
       ],
       "primaryCardHeights": [
-        206,
-        206,
-        206,
-        206
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        39,
+        39,
+        39
+      ],
+      "primaryGridWidth": 1013,
       "secondaryCardTops": [
-        270,
-        270,
-        270,
-        270
+        222,
+        222,
+        222,
+        222,
+        222
       ],
-      "chartTop": 528,
-      "cashInPrimaryGrid": true,
+      "chartTop": 566,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 1013,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -319,7 +344,7 @@
     {
       "width": 1300,
       "documentWidth": 1300,
-      "firstPositionY": 1372,
+      "firstPositionY": 1410,
       "tableWidth": 1012,
       "visibleFirstRowCells": [
         "AAPL",
@@ -345,32 +370,37 @@
       ],
       "clippedRankingValues": [],
       "wallets": [
-        "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank PEA\t350,00 €\n26,92 %",
-        "Revolut\t50,00 €\n3,85 %"
+        "Trade Republic\n900,00 €69,23 %",
+        "Boursobank PEA\n350,00 €26,92 %",
+        "Revolut\n50,00 €3,85 %"
       ],
       "walletNameClips": [],
       "walletValueClips": [],
       "primaryCardTops": [
         48,
         48,
-        48,
         48
       ],
       "primaryCardHeights": [
-        206,
-        206,
-        206,
-        206
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        39,
+        39,
+        39
+      ],
+      "primaryGridWidth": 1012,
       "secondaryCardTops": [
-        270,
-        270,
-        270,
-        270
+        222,
+        222,
+        222,
+        222,
+        222
       ],
-      "chartTop": 528,
-      "cashInPrimaryGrid": true,
+      "chartTop": 566,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 1012,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -382,7 +412,7 @@
     {
       "width": 1251,
       "documentWidth": 1251,
-      "firstPositionY": 1416,
+      "firstPositionY": 1454,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -408,32 +438,37 @@
       ],
       "clippedRankingValues": [],
       "wallets": [
-        "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank PEA\t350,00 €\n26,92 %",
-        "Revolut\t50,00 €\n3,85 %"
+        "Trade Republic\n900,00 €69,23 %",
+        "Boursobank PEA\n350,00 €26,92 %",
+        "Revolut\n50,00 €3,85 %"
       ],
       "walletNameClips": [],
       "walletValueClips": [],
       "primaryCardTops": [
         48,
         48,
-        48,
         48
       ],
       "primaryCardHeights": [
-        206,
-        206,
-        206,
-        206
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        37,
+        37,
+        37
+      ],
+      "primaryGridWidth": 963,
       "secondaryCardTops": [
-        270,
-        270,
-        270,
-        270
+        222,
+        222,
+        222,
+        222,
+        222
       ],
-      "chartTop": 528,
-      "cashInPrimaryGrid": true,
+      "chartTop": 566,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 963,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -445,7 +480,7 @@
     {
       "width": 1250,
       "documentWidth": 1251,
-      "firstPositionY": 1818,
+      "firstPositionY": 1454,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -471,32 +506,37 @@
       ],
       "clippedRankingValues": [],
       "wallets": [
-        "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank PEA\t350,00 €\n26,92 %",
-        "Revolut\t50,00 €\n3,85 %"
+        "Trade Republic\n900,00 €69,23 %",
+        "Boursobank PEA\n350,00 €26,92 %",
+        "Revolut\n50,00 €3,85 %"
       ],
       "walletNameClips": [],
       "walletValueClips": [],
       "primaryCardTops": [
         48,
         48,
-        215,
-        215
+        48
       ],
       "primaryCardHeights": [
-        151,
-        151,
-        206,
-        206
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        37,
+        37,
+        37
+      ],
+      "primaryGridWidth": 962,
       "secondaryCardTops": [
-        437,
-        437,
-        680,
-        680
+        222,
+        222,
+        222,
+        222,
+        222
       ],
-      "chartTop": 930,
-      "cashInPrimaryGrid": true,
+      "chartTop": 566,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 962,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -508,7 +548,7 @@
     {
       "width": 1152,
       "documentWidth": 1251,
-      "firstPositionY": 1905,
+      "firstPositionY": 1549,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -534,32 +574,37 @@
       ],
       "clippedRankingValues": [],
       "wallets": [
-        "Trade Republic\t900,00 €\n69,23 %",
-        "Boursobank PEA\t350,00 €\n26,92 %",
-        "Revolut\t50,00 €\n3,85 %"
+        "Trade Republic\n900,00 €69,23 %",
+        "Boursobank PEA\n350,00 €26,92 %",
+        "Revolut\n50,00 €3,85 %"
       ],
       "walletNameClips": [],
       "walletValueClips": [],
       "primaryCardTops": [
         48,
         48,
-        215,
-        215
+        48
       ],
       "primaryCardHeights": [
-        151,
-        151,
-        206,
-        206
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        32,
+        32,
+        32
+      ],
+      "primaryGridWidth": 864,
       "secondaryCardTops": [
-        437,
-        437,
-        680,
-        680
+        222,
+        222,
+        222,
+        222,
+        222
       ],
-      "chartTop": 930,
-      "cashInPrimaryGrid": true,
+      "chartTop": 573,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 864,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -571,7 +616,7 @@
     {
       "width": 1024,
       "documentWidth": 1251,
-      "firstPositionY": 2028,
+      "firstPositionY": 2113,
       "tableWidth": 987,
       "visibleFirstRowCells": [
         "AAPL",
@@ -606,23 +651,28 @@
       "primaryCardTops": [
         48,
         48,
-        215,
-        215
+        48
       ],
       "primaryCardHeights": [
-        151,
-        151,
-        206,
-        206
+        158,
+        158,
+        158
       ],
+      "primaryValueFontSizes": [
+        32,
+        32,
+        32
+      ],
+      "primaryGridWidth": 736,
       "secondaryCardTops": [
-        437,
-        437,
-        680,
-        680
+        222,
+        222,
+        464,
+        464,
+        707
       ],
-      "chartTop": 930,
-      "cashInPrimaryGrid": true,
+      "chartTop": 1015,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 736,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -634,7 +684,7 @@
     {
       "width": 768,
       "documentWidth": 768,
-      "firstPositionY": 2315,
+      "firstPositionY": 2351,
       "tableWidth": 729,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -662,23 +712,28 @@
       "primaryCardTops": [
         76,
         76,
-        192,
-        307
+        182
       ],
       "primaryCardHeights": [
-        219,
-        104,
-        104,
-        236
+        199,
+        94,
+        94
       ],
+      "primaryValueFontSizes": [
+        26,
+        20,
+        20
+      ],
+      "primaryGridWidth": 729,
       "secondaryCardTops": [
-        568,
-        805,
-        1043,
-        1280
+        299,
+        537,
+        774,
+        1012,
+        1249
       ],
-      "chartTop": 1530,
-      "cashInPrimaryGrid": true,
+      "chartTop": 1566,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 729,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -690,7 +745,7 @@
     {
       "width": 390,
       "documentWidth": 390,
-      "firstPositionY": 2314,
+      "firstPositionY": 2351,
       "tableWidth": 358,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -718,23 +773,28 @@
       "primaryCardTops": [
         76,
         76,
-        192,
-        307
+        182
       ],
       "primaryCardHeights": [
-        219,
-        104,
-        104,
-        236
+        199,
+        94,
+        94
       ],
+      "primaryValueFontSizes": [
+        20,
+        20,
+        20
+      ],
+      "primaryGridWidth": 358,
       "secondaryCardTops": [
-        568,
-        805,
-        1043,
-        1280
+        299,
+        537,
+        774,
+        1012,
+        1249
       ],
-      "chartTop": 1530,
-      "cashInPrimaryGrid": true,
+      "chartTop": 1566,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 358,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -746,7 +806,7 @@
     {
       "width": 360,
       "documentWidth": 360,
-      "firstPositionY": 2332,
+      "firstPositionY": 2368,
       "tableWidth": 328,
       "visibleFirstRowCells": [
         "AAPL\nApple\n30 titres",
@@ -774,23 +834,28 @@
       "primaryCardTops": [
         76,
         76,
-        192,
-        307
+        182
       ],
       "primaryCardHeights": [
-        219,
-        104,
-        104,
-        236
+        199,
+        94,
+        94
       ],
+      "primaryValueFontSizes": [
+        18,
+        20,
+        20
+      ],
+      "primaryGridWidth": 328,
       "secondaryCardTops": [
-        568,
-        805,
-        1043,
-        1280
+        299,
+        537,
+        774,
+        1012,
+        1249
       ],
-      "chartTop": 1530,
-      "cashInPrimaryGrid": true,
+      "chartTop": 1566,
+      "cashInInsightsGrid": true,
       "summaryGridWidth": 328,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
@@ -827,7 +892,7 @@
       },
       "dateResults": 0,
       "weekendState": {
-        "card": "Apple\t+1,40 %\n+88,20 €\n\nBitcoin\t+0,80 %\n+40,80 €\n\niShares Core S&P 500 UCITS ETF USD (Acc)\t+0,70 %\n+64,26 €",
+        "card": "Apple\n+1,40 %\n+88,20 €\nBitcoin\n+0,80 %\n+40,80 €\niShares Core S&P 500 UCITS ETF USD (Acc)\n+0,70 %\n+64,26 €",
         "firstRow": "AAPL",
         "firstDayPct": "+1,40 %"
       },

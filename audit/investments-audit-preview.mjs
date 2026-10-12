@@ -109,17 +109,20 @@ try {
                     .map(card => Math.round(card.getBoundingClientRect().top + scrollY)),
                 primaryCardHeights: [...document.querySelectorAll('.summary-grid > .summary-card')]
                     .map(card => Math.round(card.getBoundingClientRect().height)),
+                primaryValueFontSizes: [...document.querySelectorAll('.summary-grid .summary-card-value')]
+                    .map(value => Math.round(parseFloat(getComputedStyle(value).fontSize))),
+                primaryGridWidth: Math.round(document.querySelector('.summary-grid').getBoundingClientRect().width),
                 secondaryCardTops: [...document.querySelectorAll('.investment-insights > .investment-insight')]
                     .map(card => Math.round(card.getBoundingClientRect().top + scrollY)),
                 chartTop: Math.round(document.querySelector('.historical-chart-container').getBoundingClientRect().top + scrollY),
-                cashInPrimaryGrid: !!document.querySelector('.summary-grid > .investment-cash-insight'),
+                cashInInsightsGrid: !!document.querySelector('.investment-insights > .investment-cash-insight'),
                 summaryGridWidth: Math.round(document.querySelector('.summary-stats').getBoundingClientRect().width),
                 rowFocusable: first.tabIndex >= 0,
                 sortableHeadersFocusable: [...document.querySelectorAll('th[data-sort]')].every(el => el.tabIndex >= 0 || el.querySelector('button')),
                 clearButtonSize: (() => { const r = document.getElementById('clear-filters').getBoundingClientRect(); return [r.width, r.height]; })()
             };
         }));
-        if ([1920, 1366, 390].includes(width)) {
+        if ([1920, 1366, 1152, 390].includes(width)) {
             await page.screenshot({ path: path.join(root, `audit/investments-preview-${width}${outputSuffix}.png`), fullPage: true });
             await page.locator('.asset-row').first().click();
             await page.evaluate(() => scrollTo(0, 0));
@@ -211,17 +214,21 @@ try {
                 assert.deepEqual(size.clippedRankingValues, [], `ranking values clipped at ${size.width}px`);
                 assert.deepEqual(size.walletNameClips, [], `wallet names clipped at ${size.width}px`);
                 assert.deepEqual(size.walletValueClips, [], `wallet values clipped at ${size.width}px`);
-                assert.equal(size.cashInPrimaryGrid, true);
-                assert.equal(size.primaryCardTops.length, 4);
-                assert.equal(size.secondaryCardTops.length, 4);
-                if (size.width > 1250) {
+                assert.equal(size.cashInInsightsGrid, true);
+                assert.equal(size.primaryCardTops.length, 3);
+                assert.equal(size.secondaryCardTops.length, 5);
+                if (size.width > 1150) {
                     assert.ok(size.primaryCardTops.every(top => Math.abs(top - size.primaryCardTops[0]) <= 1),
-                        `four primary cards should share a row at ${size.width}px: ${size.primaryCardTops.join(', ')}`);
+                        `three primary cards should share a row at ${size.width}px: ${size.primaryCardTops.join(', ')}`);
                     assert.ok(size.secondaryCardTops.every(top => Math.abs(top - size.secondaryCardTops[0]) <= 1),
-                        `four ranking cards should share a row at ${size.width}px: ${size.secondaryCardTops.join(', ')}`);
-                    assert.ok(Math.max(...size.primaryCardHeights) <= 220,
+                        `five insight cards should share a row at ${size.width}px: ${size.secondaryCardTops.join(', ')}`);
+                    assert.ok(Math.max(...size.primaryCardHeights) <= 190,
                         `the first KPI row is too tall at ${size.width}px`);
-                    assert.ok(size.chartTop <= 560, `chart starts too low at ${size.width}px`);
+                    assert.ok(size.primaryValueFontSizes.every(fontSize => fontSize >= 30),
+                        `primary values should be prominent at ${size.width}px`);
+                    assert.ok(size.primaryGridWidth <= 1281,
+                        `the three primary KPI cards should remain narrower at ${size.width}px`);
+                    assert.ok(size.chartTop <= 620, `chart starts too low at ${size.width}px`);
                 }
             }
         }
