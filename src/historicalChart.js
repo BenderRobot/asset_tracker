@@ -1817,7 +1817,7 @@ export class HistoricalChart {
         // En vue 1D, HistoryCalculator fournit une Var Today explicite pour
         // chaque point, déjà neutralisée des flux par sa référence quotidienne.
         // Cette vue ne fait que lire et formater ces deux séries canoniques.
-        if (this.currentPeriod === 1) {
+        if (this.currentPeriod === 1 && this.investmentsPage?.showDayPnlInTooltip !== false) {
             this._pushDayPnlRow(rows, idx, graphData, eurFmt, pctFmt);
         }
 

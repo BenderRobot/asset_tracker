@@ -76,11 +76,13 @@ try {
         const ui = new UIComponents(app.storage, {});
         ui._updateTotalValueModal = () => {};
         ui.updateTopKPIs({ totalCurrentEUR: 37865, totalInvestedEUR: 28000, gainTotal: 9865, gainPct: 35.23, totalDayChangeEUR: 142.8, dayChangePct: .38 }, 389, null);
-        document.querySelector('.stat-group-2').style.display = '';
-        document.getElementById('day-var-label').textContent = '+142,80 €';
-        document.getElementById('day-var-percent').textContent = '+0,40 %';
-        document.getElementById('yesterday-close-value').textContent = '37 722,20 €';
+        // Portfolio 1D, as chartKPIManager leaves it: group 2 shown but empty.
+        document.querySelector('.stat-group-2').style.display = 'flex';
         document.getElementById('unit-price-row').style.display = 'none';
+        document.getElementById('last-update').className = 'chart-status is-fresh is-live';
+        document.getElementById('last-update').innerHTML = '<span class="chart-status-dot" aria-hidden="true"></span><span class="chart-status-text">À jour · 13:49</span>';
+        document.getElementById('stat-group-ath').hidden = false;
+        for (const [id, value] of Object.entries({ 'ath-total-value': '38 008,70 €', 'ath-total-return': '+8 972,05 €', 'ath-total-return-pct': '+31,32 %', 'ath-date': '6 oct. · 09:00', 'ath-gap': '-1,39 %' })) document.getElementById(id).textContent = value;
         document.getElementById('chart-loading').style.display = 'none';
         document.getElementById('performance-label').textContent = '+142,80 €';
         document.getElementById('performance-percent').textContent = '+0,40 %';
@@ -113,6 +115,13 @@ try {
             panelHeight: Math.round(document.querySelector('.dashboard-indices-panel-full').getBoundingClientRect().height),
             leftHeight: Math.round(document.querySelector('.dashboard-left-column').getBoundingClientRect().height),
             sparklines: document.querySelectorAll('.market-card-spark svg').length,
+            titleLine: (() => {
+                const title = document.querySelector('.chart-title').getBoundingClientRect();
+                const badge = document.getElementById('last-update').getBoundingClientRect();
+                return Math.abs((title.top + title.bottom) / 2 - (badge.top + badge.bottom) / 2) < 4;
+            })(),
+            dayVarShown: !!document.getElementById('stat-day-var'),
+            emptyGroupShown: getComputedStyle(document.querySelector('.stat-group-2')).display !== 'none',
             loopCopy: getComputedStyle(document.querySelector('.market-ticker-copy')).display,
             panelEdges: (r => [Math.round(r.left), Math.round(r.right)])(document.querySelector('.dashboard-indices-panel-full').getBoundingClientRect()),
             lastCardEdges: (r => [Math.round(r.left), Math.round(r.right)])(document.querySelector('.dashboard-kpi-grid-v2 > .kpi-card:last-child').getBoundingClientRect()),
@@ -125,6 +134,9 @@ try {
         // Small screens: manual swipe only, no looping copy.
         if (width <= 768) assert.equal(size.loopCopy, 'none');
         assert.equal(size.startVisible, true, `period stats hidden at ${width}`);
+        assert.equal(size.dayVarShown, false, 'VAR. JOUR duplicates Période on the dashboard');
+        assert.equal(size.emptyGroupShown, false, `empty stats group takes a column at ${width}`);
+        if (width >= 1200) assert.equal(size.titleLine, true, `freshness badge not on the title line at ${width}`);
         assert.equal(size.contributionsVisible, true, `daily contributions hidden at ${width}`);
         assert.equal(size.contributionsStatus, 'complete', `daily contributions do not reconcile at ${width}`);
         assert.equal(size.highlights, 3, `daily top/worst preview missing at ${width}`);

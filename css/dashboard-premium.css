@@ -13,7 +13,54 @@
 .dashboard-premium .summary-card-primary { background: linear-gradient(130deg, #1a2c4b, #15203a); border-color: #2d4875; }
 .dashboard-premium .dashboard-chart-section { min-width: 0; overflow: hidden; }
 .dashboard-premium .chart-wrapper.tall { flex: none; height: 340px; min-height: 340px; }
-.dashboard-premium .chart-header .title-mini { flex-wrap: wrap; gap: 9px; }
+.dashboard-premium .chart-header .title-mini { display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; }
+.dashboard-premium .chart-header .chart-title { margin: 0; white-space: nowrap; }
+/* Freshness badge next to the title (green fresh, amber stale, red partial). */
+.dashboard-premium .title-mini .chart-status {
+    display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px;
+    border: 1px solid rgba(16, 185, 129, .45); background: rgba(16, 185, 129, .1); color: #6ee7b7;
+    font: 600 11px/1 'Inter', sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.dashboard-premium .title-mini .chart-status:empty { display: none; }
+.dashboard-premium .title-mini .chart-status.is-stale { border-color: rgba(245, 158, 11, .5); background: rgba(245, 158, 11, .1); color: #fbbf24; }
+.dashboard-premium .title-mini .chart-status.is-degraded { border-color: rgba(239, 68, 68, .5); background: rgba(239, 68, 68, .1); color: #f87171; }
+.dashboard-premium .title-mini .chart-status .chart-status-dot { width: 6px; height: 6px; }
+
+/* Stats bar: one even table. Every cell gets the same width (groups grow
+   with their column count), labels/values left-aligned, thin separators
+   between groups — no large empty gaps whatever groups are visible. */
+@container chart-card (min-width: 861px) {
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar { display: flex !important; align-items: stretch !important; padding: 18px 0 !important; }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar > .stat-group:not([hidden]):not([style*="none"]) {
+        flex: 1 1 0; display: grid !important; grid-template-rows: auto auto; grid-template-columns: minmax(0, 1fr) !important;
+        grid-auto-flow: row; justify-content: stretch; align-content: start; row-gap: 14px; column-gap: 20px;
+        padding: 0 26px !important;
+    }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar > :is(.stat-group-3, .stat-group-ath):not([hidden]):not([style*="none"]) {
+        flex-grow: 2; grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar > .stat-group:not([hidden]):not([style*="none"]) ~ .stat-group { border-left: 1px solid var(--border-color) !important; }
+}
+/* Narrower chart card: the same cells on a 4-column grid (2 on phones),
+   Période/Performance sharing one full row, every value at one size. */
+@container chart-card (max-width: 860px) {
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar {
+        display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        gap: 14px 16px !important; padding: 16px 20px !important; align-items: start !important;
+    }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar > .stat-group:not([hidden]):not([style*="none"]) { display: contents !important; }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar > .stat-group-1 > .stat { grid-column: span 2; }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar .stat { display: flex !important; flex-direction: column; align-items: flex-start !important; gap: 4px; min-width: 0; margin: 0 !important; padding: 0 !important; border: 0 !important; }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar .label { margin: 0 !important; font-size: 10.5px !important; letter-spacing: .06em; }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar .value { margin: 0 !important; font-size: 16px !important; font-weight: 700 !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar .pct { font-size: 12.5px !important; }
+}
+@container chart-card (max-width: 560px) {
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    .dashboard-premium .dashboard-chart-section .chart-stats-bar > .stat-group-1 > .stat { grid-column: span 1; }
+}
+/* Asset/index views fill this group (prix, PRU); empty in portfolio mode. */
+.dashboard-premium .dashboard-chart-section .chart-stats-bar > .stat-group-2:not(:has(> .stat:not([style*="none"]))) { display: none !important; }
 /* Stats bar: the shared one-row table of css/chart-toolbar.css, every group
    visible (période · jour · début/fin/haut/bas · ATH). */
 .dashboard-text-button { border: 1px solid #3b527a; background: #172743; color: #b8d1ff; border-radius: 7px; padding: 7px 10px; cursor: pointer; font: inherit; font-size: 12px; }

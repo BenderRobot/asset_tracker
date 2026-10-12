@@ -81,6 +81,8 @@ export class DashboardApp {
             currentAssetTypeFilter: '',
             currentBrokerFilter: '',
             getChartTitleConfig: () => ({ mode: 'global', label: 'Portefeuille global', icon: 'chart-line-up' }),
+            // In 1D, "Var Today" equals "Période": the dashboard shows Période only.
+            showDayPnlInTooltip: false,
             // Dashboard n'a pas de filtres ticker/type/courtier (toujours portefeuille
             // global) — historicalChart.js délègue maintenant à getFilteredPurchasesFromPage
             // de la "page" pour éviter un doublon avec investmentsPage.js ; ce mock doit donc
