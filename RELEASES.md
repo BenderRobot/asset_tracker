@@ -37,6 +37,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.10` | 2026-10-12 | fix chart infos / boutons | — |
 | `1.17.11` | 2026-10-12 | fix chart news modal link | — |
 | `1.17.12` | 2026-10-12 | fix hoover | — |
+| `1.17.13` | 2026-10-12 | fix news | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les

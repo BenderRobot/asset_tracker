@@ -436,6 +436,85 @@ function parseAllowedRssUrl(raw) {
     return url;
 }
 
+// Reliability (Google News answers 503 to bursts from Cloud IPs):
+// Firestore cache shared by all instances, one spaced retry, Bing News as a
+// fallback for the same query, and the last good copy when everything fails.
+const crypto = require("crypto");
+const RSS_FRESH_MS = 10 * 60 * 1000;
+const RSS_STALE_MAX_MS = 48 * 60 * 60 * 1000;
+const RSS_CACHE_MAX_BYTES = 900 * 1024;
+const RSS_FALLBACK_HOST = "www.bing.com";
+const RSS_HEADERS = {
+    // A plain browser identity: impersonating Googlebot from a non-Google IP
+    // is exactly what gets throttled.
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36",
+    "Accept": "application/rss+xml, application/xml, text/xml, */*; q=0.01",
+    "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+};
+const rssInFlight = new Map();
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function fetchRssText(url, allowedHosts) {
+    const response = await axios.get(url, {
+        timeout: 8000,
+        responseType: "text",
+        maxContentLength: RSS_MAX_BYTES,
+        maxRedirects: 3,
+        // A redirect never leaves the allow-list.
+        beforeRedirect: (options) => {
+            if (options.protocol !== "https:" || !allowedHosts.has(String(options.hostname).toLowerCase())) {
+                throw new Error(`Redirection refusée vers ${options.hostname}`);
+            }
+        },
+        headers: RSS_HEADERS
+    });
+    const body = String(response.data || "");
+    if (!/<rss[\s>]|<feed[\s>]/i.test(body.slice(0, 2000))) throw new Error("Réponse non RSS");
+    return body;
+}
+
+// Same search on Bing News; the host is fixed here, never taken from the request.
+function bingRssUrl(target) {
+    const query = target.searchParams.get("q");
+    if (!query) return null;
+    const url = new URL(`https://${RSS_FALLBACK_HOST}/news/search`);
+    url.search = new URLSearchParams({ q: query, format: "rss", setlang: "fr-FR", cc: "FR" }).toString();
+    return url.href;
+}
+
+async function fetchRssWithFallback(target) {
+    let lastError;
+    for (const delay of [0, 900 + Math.floor(Math.random() * 600)]) {
+        if (delay) await sleep(delay);
+        try {
+            return { body: await fetchRssText(target.href, RSS_ALLOWED_HOSTS), source: "google" };
+        } catch (error) {
+            lastError = error;
+            const status = error.response?.status;
+            // Only throttling/unavailability is worth a second attempt.
+            if (status && status !== 429 && status !== 503 && status < 500) break;
+        }
+    }
+    const fallback = bingRssUrl(target);
+    if (fallback) {
+        try {
+            return { body: await fetchRssText(fallback, new Set([RSS_FALLBACK_HOST])), source: "bing" };
+        } catch (error) {
+            lastError = new Error(`google: ${lastError?.message}; bing: ${error.message}`);
+        }
+    }
+    throw lastError;
+}
+
+function sendRss(res, body, source, fetchedAt) {
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    res.set("Cache-Control", "private, max-age=300");
+    res.set("Access-Control-Expose-Headers", "X-RSS-Source, X-RSS-Fetched-At");
+    res.set("X-RSS-Source", source);
+    res.set("X-RSS-Fetched-At", String(fetchedAt));
+    res.status(200).send(body);
+}
+
 /**
  * Cloud Function : fetchRSS
  * Récupère un flux RSS Google News côté serveur (contournement CORS).
@@ -465,28 +544,42 @@ exports.fetchRSS = onRequest({ cors: APP_ORIGINS }, async (req, res) => {
         return;
     }
 
+    const key = crypto.createHash("sha256").update(target.href).digest("hex");
+    const cacheRef = admin.firestore().collection("rssCache").doc(key);
+    let cached = null;
     try {
-        const response = await axios.get(target.href, {
-            timeout: 10000,
-            responseType: "text",
-            maxContentLength: RSS_MAX_BYTES,
-            maxRedirects: 3,
-            // Une redirection ne doit jamais sortir de la liste blanche
-            beforeRedirect: (options) => {
-                if (options.protocol !== "https:" || !isAllowedRssHost(options.hostname)) {
-                    throw new Error(`Redirection refusée vers ${options.hostname}`);
-                }
-            },
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-                'Accept': 'application/rss+xml, application/xml, text/xml, */*; q=0.01',
-                'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7'
-            }
-        });
-
-        res.set('Content-Type', 'text/xml; charset=utf-8');
-        res.status(200).send(response.data);
+        const snap = await cacheRef.get();
+        cached = snap.exists ? snap.data() : null;
     } catch (error) {
+        logger.warn("RSS cache read failed", { error: error.message });
+    }
+    const age = cached ? Date.now() - cached.fetchedAt : Infinity;
+    if (cached && age < RSS_FRESH_MS) {
+        sendRss(res, cached.body, `cache-${cached.source}`, cached.fetchedAt);
+        return;
+    }
+
+    try {
+        // Concurrent identical requests share one upstream fetch.
+        let pending = rssInFlight.get(key);
+        if (!pending) {
+            pending = fetchRssWithFallback(target).finally(() => rssInFlight.delete(key));
+            rssInFlight.set(key, pending);
+        }
+        const { body, source } = await pending;
+        const fetchedAt = Date.now();
+        if (Buffer.byteLength(body) < RSS_CACHE_MAX_BYTES) {
+            cacheRef.set({ url: target.href, body, source, fetchedAt }).catch(error =>
+                logger.warn("RSS cache write failed", { error: error.message }));
+        }
+        sendRss(res, body, source, fetchedAt);
+    } catch (error) {
+        // Last good copy rather than an empty panel: the client shows its date.
+        if (cached && age < RSS_STALE_MAX_MS) {
+            logger.warn("RSS upstream failed, serving stale copy", { error: error.message, url: target.href, ageMin: Math.round(age / 60000) });
+            sendRss(res, cached.body, `stale-${cached.source}`, cached.fetchedAt);
+            return;
+        }
         logger.error("Error fetching RSS feed", { error: error.message, url: target.href, uid: decoded.uid });
         res.status(502).send({ error: "Flux RSS indisponible" });
     }

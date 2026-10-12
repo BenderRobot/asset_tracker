@@ -23,7 +23,7 @@ import { marketDataMetrics } from './marketDataMetrics.js';
 import { mountPerformerTable } from './performerTable.js';
 import { selectIndexDisplayInstrument } from './indexFutures.js';
 import { ALLOCATION_TYPES, buildAllocationTimeline, calculateCurrentAllocation } from './allocation.js';
-import { buildNewsHoldingDetails, getHeldAssetNames } from './newsHoldingMatcher.js';
+import { assignNewsToNames, buildNewsHoldingDetails, getHeldAssetNames, newsSearchTerm } from './newsHoldingMatcher.js';
 import { buildWatchlistContext } from './watchlistContext.js';
 import { DEFAULT_DASHBOARD_INDICES } from './appDataContext.js';
 import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus } from './dashboardMarketData.js';
@@ -35,6 +35,50 @@ const marketCardStateClass = view => {
     if (view.status === 'Cours ancien' || view.status === 'Actualisation indisponible') return 'is-stale';
     return { OPEN: 'is-open', CONTINUOUS: 'is-continuous', CLOSED: 'is-closed' }[view.session] || 'is-unknown';
 };
+
+// --- ACTUALITÉS : requêtes groupées, débit limité, derniers articles conservés ---
+// Measured on real results: groups of 3 cover nearly every stock that has
+// news; larger groups let very covered names (Apple, Tesla) crowd others out.
+const NEWS_BATCH_SIZE = 3;
+const NEWS_MAX_CONCURRENT = 3;
+const NEWS_STORAGE_PREFIX = 'dashboard_news_v1:';
+const NEWS_STORAGE_MAX_AGE_MS = 48 * 3600 * 1000;
+const chunk = (list, size) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
+
+// Promise.allSettled with at most `limit` requests in flight.
+async function runLimited(requests, limit) {
+    const results = new Array(requests.length);
+    let next = 0;
+    const worker = async () => {
+        while (next < requests.length) {
+            const i = next++;
+            try { results[i] = { status: 'fulfilled', value: await requests[i]() }; }
+            catch (reason) { results[i] = { status: 'rejected', reason }; }
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, requests.length) }, worker));
+    return results;
+}
+
+function readStoredNews(key) {
+    try {
+        const stored = JSON.parse(localStorage.getItem(key) || 'null');
+        return stored && Date.now() - stored.savedAt < NEWS_STORAGE_MAX_AGE_MS && Array.isArray(stored.articles) ? stored.articles : [];
+    } catch { return []; }
+}
+
+function writeStoredNews(key, articles) {
+    try { localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), articles })); } catch { /* storage optional */ }
+}
+
+// Bing News links go through bing.com/news/apiclick.aspx?url=<article>.
+function unwrapNewsLink(link) {
+    try {
+        const url = new URL(link);
+        if (/(^|\.)bing\.com$/.test(url.hostname) && url.searchParams.get('url')) return url.searchParams.get('url');
+    } catch { /* keep as is */ }
+    return link;
+}
 
 // --- OUTILS DE SYNCHRONISATION (PROXY & COULEURS) ---
 const PROXY_URL = 'https://fetchrss-ff7p645u3q-uc.a.run.app?url='; // Custom secure proxy (Node.js backend)
@@ -893,9 +937,18 @@ export class DashboardApp {
     }
 
     async loadPortfolioNews() {
-        const names = this.selectedAssetFilter ? [this.selectedAssetFilter] : getHeldAssetNames(this.storage.getPurchases());
-        const requests = names.map(name => () => this.fetchGoogleRSS(`${name} actualité financière`, this.selectedAssetFilter ? 8 : 2)
-            .then(items => items.map(item => ({ ...item, assetName: name }))));
+        // ETFs and real estate are almost never named in headlines: searching
+        // them by name only took room from the stocks.
+        const names = this.selectedAssetFilter ? [this.selectedAssetFilter]
+            : getHeldAssetNames(this.storage.getPurchases(), { excludeTypes: ['ETF', 'Real Estate'] });
+        // One request per asset (~25 at once) is what Google News throttles:
+        // assets are searched NEWS_BATCH_SIZE at a time ("A" OR "B" ...) and
+        // each article goes to the asset its headline names.
+        const requests = this.selectedAssetFilter
+            ? [() => this.fetchGoogleRSS(`${names[0]} actualité financière`, 8).then(items => items.map(item => ({ ...item, assetName: names[0] })))]
+            : chunk(names, NEWS_BATCH_SIZE).map(group => () => this.fetchGoogleRSS(
+                `(${group.map(name => `"${newsSearchTerm(name)}"`).join(' OR ')}) bourse`, 100)
+                .then(items => assignNewsToNames(items, group, 2)));
         return this.loadNewsFeed('portfolio', requests, names.join('|'), names.length ? 'Aucune actualité récente pour cette sélection.' : 'Ajoutez des actifs pour retrouver leurs actualités.');
     }
 
@@ -924,16 +977,29 @@ export class DashboardApp {
         }
         this._newsFeedSelection[type] = selection;
         this._newsFeedCache[type] ??= new Map();
+        const cache = this._newsFeedCache[type];
+        // Last good articles of this selection (previous visit): shown at once,
+        // and kept on screen if every source fails.
+        const storageKey = `${NEWS_STORAGE_PREFIX}${type}:${selection}`;
+        if (!cache.size) {
+            const stored = readStoredNews(storageKey);
+            if (stored.length) {
+                cache.set('stored', stored);
+                this[`${type}News`] = stored;
+                this.renderNewsList(container, stored, type);
+            }
+        }
         container.setAttribute('aria-busy', 'true');
         this.showNewsState(container, 'Actualisation des actualités…');
-        const results = await Promise.allSettled(requests.map(request => Promise.resolve().then(request)));
+        const results = await runLimited(requests, NEWS_MAX_CONCURRENT);
         if (ticket !== this._newsFeedGeneration[type]) return;
-        const cache = this._newsFeedCache[type];
         // Successful empty responses clear that source; failed responses keep
         // only their own last articles, visibly marked as potentially old.
         results.forEach((result, i) => { if (result.status === 'fulfilled') cache.set(i, result.value); });
         const failures = results.filter(result => result.status === 'rejected').length;
+        if (!failures) cache.delete('stored');
         const articles = this.deduplicateNews([...cache.values()].flat()).sort((a, b) => b.datetime - a.datetime).slice(0, 15);
+        if (failures < requests.length && articles.length) writeStoredNews(storageKey, articles);
         this[`${type}News`] = articles;
         this.renderNewsList(container, articles, type);
         container.setAttribute('aria-busy', 'false');
@@ -988,15 +1054,18 @@ export class DashboardApp {
                     const pubDate = item.querySelector("pubDate")?.textContent;
                     const fullTitle = item.querySelector("title")?.textContent || "";
                     const description = item.querySelector("description")?.textContent || "";
-                    const parts = fullTitle.split(" - ");
-                    const source = parts.length > 1 ? parts.pop() : "Google";
+                    // Bing (fallback) names the outlet in <News:Source> and wraps
+                    // the article URL in a redirect; Google suffixes the title.
+                    const bingSource = item.getElementsByTagName("News:Source")[0]?.textContent?.trim();
+                    const parts = bingSource ? [fullTitle] : fullTitle.split(" - ");
+                    const source = bingSource || (parts.length > 1 ? parts.pop() : "Google");
 
                     return {
                         ticker: fixedLabel || source,
                         name: query,
                         title: parts.length ? parts.join(" - ") : fullTitle,
                         source: source,
-                        url: item.querySelector("link")?.textContent,
+                        url: unwrapNewsLink(item.querySelector("link")?.textContent),
                         datetime: pubDate ? new Date(pubDate).getTime() / 1000 : Date.now() / 1000,
                         fullDescription: description,
                         label: fixedLabel || 'Macro Éco'
@@ -1283,8 +1352,6 @@ export class DashboardApp {
                 </div>`;
                 container.append(card);
             }
-            // Re-append existing nodes in the saved order, including after a refresh.
-            container.append(card);
             card.dataset.instrumentTicker = targetTicker;
             const isContract = targetTicker.endsWith('=F');
             card.dataset.instrumentType = isContract ? 'future' : 'cash';
@@ -1319,16 +1386,16 @@ export class DashboardApp {
             remove.setAttribute('aria-label', `Retirer ${idx.name} des marchés favoris`);
             remove.title = `Retirer ${idx.name}`;
             remove.onclick = () => this.removeIndex(idx.ticker);
-            const position = rows.indexOf(row);
             const up = card.querySelector('.market-card-move-up');
             const down = card.querySelector('.market-card-move-down');
-            up.disabled = position === 0;
-            down.disabled = position === rows.length - 1;
             up.setAttribute('aria-label', `Monter ${idx.name} dans la liste`);
             down.setAttribute('aria-label', `Descendre ${idx.name} dans la liste`);
             up.onclick = () => this.moveIndex(idx.ticker, -1);
             down.onclick = () => this.moveIndex(idx.ticker, 1);
         }
+        // Saved order, applied only where it differs: re-appending every card
+        // on each refresh dropped focus and could jump the list.
+        this.syncMarketCardOrder(rows.map(row => row.idx.ticker));
         let empty = container.querySelector('.markets-empty');
         if (!rows.length && !empty) {
             empty = document.createElement('p');
@@ -1440,6 +1507,8 @@ export class DashboardApp {
         this.loadMarketIndices();
     }
 
+    // Swaps two cards in place: no quote reload, scroll position and focus
+    // kept, so the arrows can be clicked repeatedly.
     moveIndex(ticker, direction) {
         const current = this.getCustomIndices();
         const from = current.findIndex(item => item.ticker === ticker);
@@ -1447,7 +1516,56 @@ export class DashboardApp {
         if (from < 0 || to < 0 || to >= current.length) return;
         [current[from], current[to]] = [current[to], current[from]];
         this.saveCustomIndices(current);
-        this.loadMarketIndices();
+        const order = current.map(item => item.ticker);
+        if (this._lastMarketRows) {
+            this._lastMarketRows = [...this._lastMarketRows].sort((a, b) => order.indexOf(a.idx.ticker) - order.indexOf(b.idx.ticker));
+        }
+        this.syncMarketCardOrder(order, { reveal: ticker });
+        if (this.tickerSource?.type === 'indices') this.refreshSelectedTicker?.();
+    }
+
+    syncMarketCardOrder(order, { reveal = null } = {}) {
+        const container = document.getElementById('market-overview-container');
+        if (!container) return;
+        const cardId = ticker => `market-card-${ticker.replace(/[^a-zA-Z0-9]/g, '-')}`;
+        const cards = order.map(ticker => document.getElementById(cardId(ticker))).filter(Boolean);
+        const current = [...container.querySelectorAll(':scope > .market-card')];
+        if (cards.some((card, i) => current[i] !== card)) {
+            const focused = document.activeElement;
+            const listScroll = container.scrollTop;
+            const pageScroll = window.scrollY;
+            // insertBefore only moves misplaced cards; the rest stay attached.
+            cards.forEach((card, i) => {
+                const at = container.querySelectorAll(':scope > .market-card')[i];
+                if (at !== card) container.insertBefore(card, at || null);
+            });
+            container.scrollTop = listScroll;
+            if (window.scrollY !== pageScroll) window.scrollTo({ top: pageScroll });
+            if (focused && container.contains(focused) && document.activeElement !== focused) focused.focus({ preventScroll: true });
+        }
+        cards.forEach((card, i) => {
+            const up = card.querySelector('.market-card-move-up');
+            const down = card.querySelector('.market-card-move-down');
+            if (up) up.disabled = i === 0;
+            if (down) down.disabled = i === cards.length - 1;
+        });
+        // A card that reached the top/bottom disables the clicked arrow:
+        // keep keyboard focus on the card's other arrow.
+        const active = document.activeElement;
+        if (active?.disabled && active.closest?.('.market-card-actions')) {
+            active.closest('.market-card-actions').querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
+        }
+        if (reveal) {
+            // Keep the moved card visible inside the list, never scroll the page.
+            const card = document.getElementById(cardId(reveal));
+            if (card) {
+                const top = card.offsetTop - container.offsetTop;
+                if (top < container.scrollTop) container.scrollTop = top;
+                else if (top + card.offsetHeight > container.scrollTop + container.clientHeight) {
+                    container.scrollTop = top + card.offsetHeight - container.clientHeight;
+                }
+            }
+        }
     }
 
     getIndicesCatalogue() {

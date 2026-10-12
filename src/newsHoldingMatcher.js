@@ -166,10 +166,10 @@ export function buildNewsHoldingDetails(newsItem, holdings = [], portfolioSnapsh
  * Les ventes étant stockées en quantité négative, un actif vendu en totalité
  * disparaît au lieu de continuer à remonter dans « Mes Actifs ».
  */
-export function getHeldAssetNames(purchases = []) {
+export function getHeldAssetNames(purchases = [], { excludeTypes = [] } = {}) {
     const positions = new Map();
     for (const p of purchases) {
-        if (p?.assetType === 'Cash') continue;
+        if (p?.assetType === 'Cash' || excludeTypes.includes(p?.assetType)) continue;
         const key = String(p?.ticker || p?.name || '').trim().toUpperCase();
         if (!key) continue;
         const position = positions.get(key) || { name: '', quantity: 0 };
@@ -180,4 +180,34 @@ export function getHeldAssetNames(purchases = []) {
     return [...new Set([...positions.values()]
         .filter(position => position.quantity > 0.0001 && position.name)
         .map(position => position.name))];
+}
+
+// Legal/corporate suffixes rarely written in headlines ("ASML Holding" is
+// "ASML" in the press).
+const NEWS_NAME_SUFFIXES = new Set(['holding', 'holdings', 'inc', 'corp', 'corporation', 'sa', 'se', 'nv', 'plc',
+    'ltd', 'ag', 'group', 'groupe', 'network', 'networks', 'co', 'company']);
+
+/** Short search term for an asset name, used for the query and the matching. */
+export function newsSearchTerm(name) {
+    const words = normalize(name).split(' ').filter(Boolean);
+    while (words.length > 1 && NEWS_NAME_SUFFIXES.has(words[words.length - 1])) words.pop();
+    return words.join(' ');
+}
+
+/**
+ * Splits the articles of a grouped search ("A" OR "B" ...) between the asset
+ * names they mention (whole words), at most `perName` articles per asset.
+ */
+export function assignNewsToNames(items = [], names = [], perName = 2) {
+    const terms = names.map(name => ({ name, term: newsSearchTerm(name) })).filter(entry => entry.term.length > 1);
+    const counts = new Map();
+    const assigned = [];
+    for (const item of items) {
+        const title = ` ${normalize(item?.title)} `;
+        const match = terms.find(entry => title.includes(` ${entry.term} `) && (counts.get(entry.name) || 0) < perName);
+        if (!match) continue;
+        counts.set(match.name, (counts.get(match.name) || 0) + 1);
+        assigned.push({ ...item, assetName: match.name });
+    }
+    return assigned;
 }

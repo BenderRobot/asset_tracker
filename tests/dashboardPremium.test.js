@@ -8,6 +8,7 @@ import { createFakeStorage } from './helpers.js';
 import { marketCalendarEngine } from '../src/MarketCalendarEngine.js';
 import { clearMarketTransportCache } from '../src/marketDataTransport.js';
 import { portfolioKPIs } from '../src/portfolioKPIs.js';
+import { assignNewsToNames, newsSearchTerm } from '../src/newsHoldingMatcher.js';
 
 let DashboardApp;
 beforeAll(async () => {
@@ -286,6 +287,53 @@ describe('Dashboard ticker and feeds', () => {
         expect(document.body.textContent).toContain('Aucun article pour le second actif');
         expect(app.portfolioNews).toEqual([]);
     });
+    it('searches assets in groups of five and gives each article to the asset it names', async () => {
+        document.body.innerHTML = '<div id="news-portfolio-container"></div>';
+        const app = Object.create(DashboardApp.prototype);
+        const names = ['ASML Holding', 'Arista Network', 'Soitec', 'Tesla', 'Riber', 'Apple', 'Nvidia', '2CRSI', 'Alphabet', 'Amazon', 'Microsoft', 'Bitcoin'];
+        Object.assign(app, {
+            renderAssetSelect: vi.fn(), selectedAssetFilter: '',
+            storage: { getPurchases: () => [...names.map(name => ({ name, ticker: name, quantity: 1, assetType: 'Stock' })),
+                { name: 'iShares S&P 500', ticker: 'SXR8', quantity: 1, assetType: 'ETF' }] },
+            fetchGoogleRSS: vi.fn(async query => query.includes('"asml"') ? [
+                { ...article, title: 'ASML relève ses prévisions' }, { ...article, title: 'Soitec s’envole en Bourse' },
+                { ...article, title: 'Le CAC 40 recule' }
+            ] : [])
+        });
+        await app.loadPortfolioNews();
+        expect(app.fetchGoogleRSS).toHaveBeenCalledTimes(4);
+        expect(app.fetchGoogleRSS.mock.calls[0][0]).toBe('("asml" OR "arista" OR "soitec") bourse');
+        expect(app.portfolioNews.map(item => item.assetName).sort()).toEqual(['ASML Holding', 'Soitec']);
+    });
+    it('shows the last stored articles when every news source fails', async () => {
+        const app = newsApp();
+        await app.loadNewsFeed('global', [() => Promise.resolve([article])], 'macro', 'Vide');
+        const fresh = newsApp();
+        await fresh.loadNewsFeed('global', [() => Promise.reject(Error('503'))], 'macro', 'Vide');
+        expect(fresh.globalNews).toHaveLength(1);
+        expect(document.body.textContent).toContain('Derniers articles conservés');
+    });
+    it('keeps at most three news requests in flight', async () => {
+        const app = newsApp(); let active = 0, peak = 0;
+        const request = () => async () => { active++; peak = Math.max(peak, active); await new Promise(r => setTimeout(r, 5)); active--; return []; };
+        await app.loadNewsFeed('global', Array.from({ length: 9 }, request), 'many', 'Vide');
+        expect(peak).toBe(3);
+    });
+    it('matches headline names without legal suffixes', () => {
+        expect(newsSearchTerm('ASML Holding')).toBe('asml');
+        expect(newsSearchTerm('Schneider Electric')).toBe('schneider electric');
+        const items = ['Arista bat le consensus', 'Aristocrates du dividende', 'Arista, encore', 'Arista, toujours'].map(title => ({ title }));
+        expect(assignNewsToNames(items, ['Arista Network'], 2).map(item => item.title)).toEqual(['Arista bat le consensus', 'Arista, encore']);
+    });
+    it('reads Bing fallback items: outlet and real article URL', async () => {
+        const app = Object.create(DashboardApp.prototype);
+        const xml = `<?xml version="1.0"?><rss xmlns:News="https://www.bing.com/news"><channel><item><title>Soitec s'envole</title>
+            <link>http://www.bing.com/news/apiclick.aspx?ref=FexRss&amp;url=https%3a%2f%2finvestir.lesechos.fr%2fsoitec</link>
+            <pubDate>Fri, 09 Oct 2026 05:14:00 GMT</pubDate><News:Source>Investir</News:Source></item></channel></rss>`;
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => xml }));
+        const [item] = await app.fetchGoogleRSS('Soitec', 1);
+        expect(item).toMatchObject({ title: "Soitec s'envole", source: 'Investir', url: 'https://investir.lesechos.fr/soitec' });
+    });
     it('refreshes secondary KPI rows after the initial render and keeps missing values unknown', () => {
         const app = Object.create(DashboardApp.prototype);
         document.body.innerHTML = '<div class="kpi-card"><div class="kpi-header"></div><div id="dashboard-top-gainer-name"></div></div>';
@@ -307,6 +355,28 @@ describe('Dashboard ticker and feeds', () => {
             app._kpiListener({ source: 'snapshot', totalValue: 35000, cash: 100, snapshotId: 'portfolio' });
             expect(app.ui.updateTopKPIs).toHaveBeenCalledWith(expect.objectContaining({ totalCurrentEUR: 35000 }), 100, null);
         } finally { portfolioKPIs.removeListener(app._kpiListener); }
+    });
+    it('moves a market card in place without reloading quotes or losing focus', () => {
+        const app = Object.create(DashboardApp.prototype);
+        const card = ticker => `<div class="market-card" id="market-card-${ticker}" data-followed-ticker="${ticker}"><div class="market-card-actions">
+            <button class="market-card-move-up"></button><button class="market-card-move-down"></button></div></div>`;
+        document.body.innerHTML = `<div id="market-overview-container">${['A', 'B', 'C'].map(card).join('')}</div>`;
+        let saved = [{ ticker: 'A', name: 'A' }, { ticker: 'B', name: 'B' }, { ticker: 'C', name: 'C' }];
+        Object.assign(app, { getCustomIndices: () => saved.map(item => ({ ...item })), saveCustomIndices: list => { saved = list; },
+            loadMarketIndices: vi.fn() });
+        const down = document.querySelector('#market-card-A .market-card-move-down');
+        down.focus();
+        app.moveIndex('A', 1);
+        const order = () => [...document.querySelectorAll('.market-card')].map(el => el.dataset.followedTicker);
+        expect(order()).toEqual(['B', 'A', 'C']);
+        expect(saved.map(item => item.ticker)).toEqual(['B', 'A', 'C']);
+        expect(app.loadMarketIndices).not.toHaveBeenCalled();
+        expect(document.activeElement).toBe(down);
+        app.moveIndex('A', 1);
+        // Last position: the disabled down arrow hands focus to the up arrow.
+        expect(order()).toEqual(['B', 'C', 'A']);
+        expect(down.disabled).toBe(true);
+        expect(document.activeElement).toBe(document.querySelector('#market-card-A .market-card-move-up'));
     });
     it('requests one quote per market and retains unavailable instruments', async () => {
         const app = Object.create(DashboardApp.prototype);

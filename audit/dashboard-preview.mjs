@@ -187,6 +187,19 @@ try {
     assert.notEqual(hovered.fill, 'rgb(37, 99, 235)', 'market card turns blue on hover');
     assert.ok(hovered.sameRow && hovered.inside, 'market card tools are misplaced');
     await page.locator('.dashboard-indices-panel-full').screenshot({ path: path.join(root, 'audit/dashboard-preview-market-hover.png') });
+    // Reordering keeps the list and page where they are, and the arrow focused.
+    const list = page.locator('#market-overview-container');
+    await list.evaluate(el => { el.scrollTop = 120; });
+    const beforeMove = await page.evaluate(() => ({ list: document.getElementById('market-overview-container').scrollTop, page: scrollY }));
+    const arrow = page.locator('.market-card').nth(2).locator('.market-card-move-down');
+    await page.locator('.market-card').nth(2).hover();
+    await arrow.click();
+    await arrow.click();
+    const after = await page.evaluate(() => ({ list: document.getElementById('market-overview-container').scrollTop, page: scrollY,
+        focused: document.activeElement?.classList.contains('market-card-move-down') }));
+    assert.equal(after.page, beforeMove.page, 'reordering scrolled the page');
+    assert.ok(Math.abs(after.list - beforeMove.list) < 300 && after.list > 0, `reordering jumped the list to ${after.list}`);
+    assert.equal(after.focused, true, 'reordering lost the arrow focus');
     await page.setViewportSize({ width: 1366, height: 1080 });
     await page.mouse.move(0, 0);
     // Ticker: auto-scroll, pause, click-and-drag and trackpad scrolling all
