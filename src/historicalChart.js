@@ -1459,6 +1459,14 @@ export class HistoricalChart {
         });
         if (priceHigh === -Infinity) priceHigh = priceEnd;
         if (priceLow === Infinity) priceLow = priceStart;
+        // An index's day starts at the previous session close — the reference
+        // of its market card and of the dashed line — not at the 09:00 opening
+        // print: otherwise a day opening with a gap showed a different sign
+        // from the card. Same convention as the portfolio, whose 1D "Début" is
+        // yesterday's close.
+        if (isIndexMode && this.currentPeriod === 1 && Number(referenceCloseIn) > 0) {
+            priceStart = Number(referenceCloseIn);
+        }
 
         // PÉRIODE follows the canonical security TWR shown by the curve.
         // Cash is excluded; dividends are included only when explicitly enabled.

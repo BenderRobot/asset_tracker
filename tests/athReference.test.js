@@ -960,3 +960,21 @@ describe('HistoricalChart ATH line', () => {
         expect(producer).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('Index 1D view matches its market card', () => {
+    it('measures Période and colour from the previous close, not the opening print', () => {
+        document.body.innerHTML = '<canvas></canvas>';
+        const chart = makeChart();
+        chart.currentPeriod = 1;
+        // CAC 40 gap-up: previous close 7 803.10, open 7 832.29, last 7 829.61.
+        const graphData = { labels: ['09:00', '12:00', '16:35'], timestamps: [1, 2, 3], values: [7832.29, 7809.21, 7829.61] };
+        chart.renderChart(document.querySelector('canvas'), graphData, {}, { mode: 'index', label: 'CAC 40' },
+            null, '^FCHI', 7803.10, null, null);
+        const kpis = chart.kpiManager.updateKPIs.mock.calls.at(-1)[0];
+        expect(kpis.priceStart).toBeCloseTo(7803.10, 6);
+        expect(kpis.perfAbs).toBeCloseTo(26.51, 6);
+        expect(kpis.perfPct).toBeCloseTo((7829.61 / 7803.10 - 1) * 100, 8);
+        expect(kpis.isPositive).toBe(true);
+        expect(chart._renderChartJs.mock.calls.at(-1)[8]).toBe('#2ecc71');
+    });
+});

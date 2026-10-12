@@ -1,0 +1,233 @@
+{
+  "scope": "Isolated demo: real renderers, mocked storage/API/chart data",
+  "viewports": [
+    {
+      "width": 1920,
+      "documentWidth": 1920,
+      "firstPositionY": 1164,
+      "tableWidth": 1352,
+      "visibleFirstRowCells": [
+        "",
+        "Apple",
+        "30",
+        "170,00 €",
+        "5 100,00 €",
+        "210,00 €",
+        "6 300,00 €",
+        "1 200,00 €",
+        "23.53 %",
+        "88,20 €",
+        "1.40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "summaryGridWidth": 1352,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        48,
+        45
+      ]
+    },
+    {
+      "width": 1366,
+      "documentWidth": 1366,
+      "firstPositionY": 1164,
+      "tableWidth": 1078,
+      "visibleFirstRowCells": [
+        "",
+        "Apple",
+        "30",
+        "170,00 €",
+        "5 100,00 €",
+        "210,00 €",
+        "6 300,00 €",
+        "1 200,00 €",
+        "23.53 %",
+        "88,20 €",
+        "1.40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "summaryGridWidth": 1078,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        48,
+        45
+      ]
+    },
+    {
+      "width": 1024,
+      "documentWidth": 1188,
+      "firstPositionY": 1718,
+      "tableWidth": 924,
+      "visibleFirstRowCells": [
+        "",
+        "Apple",
+        "30",
+        "170,00 €",
+        "5 100,00 €",
+        "210,00 €",
+        "6 300,00 €",
+        "1 200,00 €",
+        "23.53 %",
+        "88,20 €",
+        "1.40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "summaryGridWidth": 736,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        48,
+        45
+      ]
+    },
+    {
+      "width": 768,
+      "documentWidth": 768,
+      "firstPositionY": 1440,
+      "tableWidth": 736,
+      "visibleFirstRowCells": [
+        "",
+        "6 300,00 €",
+        "88,20 €",
+        "1.40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [],
+      "summaryGridWidth": 736,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        40,
+        36
+      ]
+    },
+    {
+      "width": 390,
+      "documentWidth": 390,
+      "firstPositionY": 1493,
+      "tableWidth": 358,
+      "visibleFirstRowCells": [
+        "",
+        "6 300,00 €",
+        "88,20 €",
+        "1.40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [
+        "WORST PERFORMER (DAY)",
+        "WORST PERFORMER",
+        "CASH RESERVE"
+      ],
+      "summaryGridWidth": 358,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        40,
+        36
+      ]
+    },
+    {
+      "width": 360,
+      "documentWidth": 360,
+      "firstPositionY": 1511,
+      "tableWidth": 328,
+      "visibleFirstRowCells": [
+        "",
+        "6 300,00 €",
+        "88,20 €",
+        "1.40 %"
+      ],
+      "quantityAttribute": null,
+      "kpiOverflows": [],
+      "clippedSummaryCards": [
+        "WORST PERFORMER (DAY)",
+        "WORST PERFORMER",
+        "CASH RESERVE"
+      ],
+      "summaryGridWidth": 328,
+      "rowFocusable": false,
+      "sortableHeadersFocusable": false,
+      "clearButtonSize": [
+        40,
+        36
+      ]
+    }
+  ],
+  "checks": {
+    "mobileToggle": {
+      "before": "dayPct",
+      "after": "dayPct",
+      "totalVisible": true
+    },
+    "modal": {
+      "remainsOpenAfterEscape": true,
+      "role": null,
+      "focusInside": false
+    },
+    "multiselect": {
+      "closesAfterOneCheck": true,
+      "focus": "BODY"
+    },
+    "logic": {
+      "searchTitle": {
+        "mode": "global",
+        "label": "Portfolio Global",
+        "icon": "chart-line-up"
+      },
+      "dateResults": 0,
+      "weekendState": {
+        "card": "Bitcoin\n+0.80 %",
+        "firstRow": "AAPL",
+        "firstDayPct": "1.40 %"
+      },
+      "purchaseDateOrder": [
+        "1 sept. 2026",
+        "1 janv. 2024"
+      ],
+      "partialSale": {
+        "expectedUnrealizedPnl": 500,
+        "rows": [
+          [
+            "1 janv. 2025",
+            "100,00 €",
+            "10",
+            "+1 000,00 € ↑100.00 %",
+            "2 000,00 €"
+          ],
+          [
+            "1 févr. 2025",
+            "150,00 €",
+            "-5",
+            "-250,00 € ↓33.33 %",
+            "-1 000,00 €"
+          ]
+        ]
+      },
+      "insertedMarkup": true,
+      "clearState": {
+        "calls": [
+          "filterCallback",
+          "showPortfolioChart",
+          "render"
+        ],
+        "periodAfter": 1,
+        "benchmarkAfter": null
+      },
+      "invalidHistoryState": {
+        "table": "Loading...",
+        "chartMessage": "Données de marché indisponibles pour cette période."
+      }
+    }
+  },
+  "errors": []
+}
