@@ -31,15 +31,15 @@
 .dashboard-premium .kpi-row-right { font-size: 13px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .dashboard-premium .kpi-row-right .kpi-sub-value { font-size: 11px; color: var(--dashboard-muted); }
 .dashboard-premium .contribution-kpi-card { display: flex; flex-direction: column; }
-.contribution-highlights { display: flex; flex-direction: column; gap: 9px; flex: 1; min-width: 0; }
+.contribution-highlights { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
 .contribution-kpi-group { min-width: 0; }
-.contribution-kpi-group-label { display: block; margin-bottom: 2px; color: var(--dashboard-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.contribution-kpi-row { display: flex; justify-content: space-between; align-items: baseline; gap: 5px; min-width: 0; padding: 1px 0; font-size: 11px; }
+.contribution-kpi-group-label { display: block; margin-bottom: 4px; color: var(--dashboard-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.contribution-kpi-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; padding: 3px 0; font-size: 14px; }
 .contribution-kpi-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
-.contribution-kpi-row strong { flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums; }
-.contribution-kpi-placeholder, .contribution-kpi-empty { color: var(--dashboard-muted); font-size: 11px; }
+.contribution-kpi-row strong { flex-shrink: 0; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.contribution-kpi-placeholder, .contribution-kpi-empty { color: var(--dashboard-muted); font-size: 13px; }
 .contribution-kpi-empty { margin: 18px 0 0; }
-.contribution-kpi-state { margin-top: 6px; color: #8ab7ff; font-size: 10px; }
+.contribution-kpi-state { margin-top: 8px; color: #8ab7ff; font-size: 11px; }
 .contribution-kpi-state:empty { display: none; }
 .contribution-kpi-card[data-status="partial"] .contribution-kpi-state,
 .contribution-kpi-card[data-status="mismatch"] .contribution-kpi-state { color: #fbbf24; }

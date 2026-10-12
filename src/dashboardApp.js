@@ -517,7 +517,9 @@ export class DashboardApp {
             }
         }
         if (state) {
-            state.textContent = data.status === 'partial' ? 'Décomposition partielle' : data.status === 'mismatch' ? 'Écart à vérifier' : stale && !['previous-session', 'unavailable'].includes(data.status) ? 'Dernier état connu' : '';
+            // A cached snapshot between two refreshes isn't worth a note here;
+            // only data problems are reported under the card.
+            state.textContent = data.status === 'partial' ? 'Décomposition partielle' : data.status === 'mismatch' ? 'Écart à vérifier' : '';
         }
         if (!panel) return;
         const summary = panel.querySelector('.contributions-summary');
