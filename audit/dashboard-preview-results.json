@@ -13,7 +13,7 @@
       "panelHeight": 707,
       "leftHeight": 707,
       "sparklines": 7,
-      "animation": "market-ticker-scroll",
+      "loopCopy": "flex",
       "main": 1680,
       "overflowingValues": 0
     },
@@ -29,7 +29,7 @@
       "panelHeight": 786,
       "leftHeight": 786,
       "sparklines": 7,
-      "animation": "market-ticker-scroll",
+      "loopCopy": "flex",
       "main": 1126,
       "overflowingValues": 0
     },
@@ -45,8 +45,8 @@
       "panelHeight": 608,
       "leftHeight": 799,
       "sparklines": 7,
-      "animation": "none",
-      "main": 764.0625,
+      "loopCopy": "none",
+      "main": 764.015625,
       "overflowingValues": 0
     },
     {
@@ -61,7 +61,7 @@
       "panelHeight": 655,
       "leftHeight": 856,
       "sparklines": 7,
-      "animation": "none",
+      "loopCopy": "none",
       "main": 390,
       "overflowingValues": 0
     },
@@ -77,7 +77,7 @@
       "panelHeight": 703,
       "leftHeight": 856,
       "sparklines": 7,
-      "animation": "none",
+      "loopCopy": "none",
       "main": 360,
       "overflowingValues": 0
     }
@@ -85,6 +85,7 @@
   "errors": [],
   "checks": [
     "pause control",
+    "ticker auto-scroll, drag and trackpad scroll",
     "reduced motion",
     "ticker asset selection and back",
     "period stats visible at all sizes",

@@ -31,6 +31,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.4` | 2026-10-12 | fix modal futures badges | — |
 | `1.17.5` | 2026-10-12 | fix kpi variation j | — |
 | `1.17.6` | 2026-10-12 | fix modal futures badges 1 | — |
+| `1.17.7` | 2026-10-12 | fix timesquare | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les

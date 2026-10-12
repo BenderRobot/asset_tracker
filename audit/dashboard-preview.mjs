@@ -113,13 +113,14 @@ try {
             panelHeight: Math.round(document.querySelector('.dashboard-indices-panel-full').getBoundingClientRect().height),
             leftHeight: Math.round(document.querySelector('.dashboard-left-column').getBoundingClientRect().height),
             sparklines: document.querySelectorAll('.market-card-spark svg').length,
-            animation: getComputedStyle(document.querySelector('.market-ticker-track')).animationName,
+            loopCopy: getComputedStyle(document.querySelector('.market-ticker-copy')).display,
             main: document.querySelector('.main-content').getBoundingClientRect().width,
             overflowingValues: [...document.querySelectorAll('.summary-card-value')].filter(el => el.scrollWidth > el.clientWidth + 1).length
         }));
         assert.equal(size.scroll, width, `page overflow at ${width}`);
         assert.equal(size.overflowingValues, 0, `KPI overflow at ${width}`);
-        if (width <= 768) assert.equal(size.animation, 'none');
+        // Small screens: manual swipe only, no looping copy.
+        if (width <= 768) assert.equal(size.loopCopy, 'none');
         assert.equal(size.startVisible, true, `period stats hidden at ${width}`);
         assert.equal(size.contributionsVisible, true, `daily contributions hidden at ${width}`);
         assert.equal(size.contributionsStatus, 'complete', `daily contributions do not reconcile at ${width}`);
@@ -159,11 +160,33 @@ try {
     }
     await page.setViewportSize({ width: 1366, height: 1080 });
     await page.mouse.move(0, 0);
+    // Ticker: auto-scroll, pause, click-and-drag and trackpad scrolling all
+    // move the same scroll position; a drag never opens an asset.
+    const tickerScroll = () => page.locator('.market-ticker-viewport').evaluate(el => el.scrollLeft);
+    let before = await tickerScroll();
+    await page.waitForTimeout(1500);
+    assert.ok(await tickerScroll() !== before, 'ticker does not auto-scroll');
     await page.locator('[data-ticker-pause]').click();
-    assert.equal(await page.locator('.market-ticker-track').evaluate(el => getComputedStyle(el).animationPlayState), 'paused');
+    await page.mouse.move(0, 0);
+    before = await tickerScroll();
+    await page.waitForTimeout(800);
+    assert.equal(await tickerScroll(), before, 'paused ticker still moves');
+    const box = await page.locator('.market-ticker-viewport').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 - 220, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+    assert.ok(Math.abs(await tickerScroll() - before) >= 200, 'click-and-drag does not scroll the ticker');
+    assert.equal(await page.locator('#chart-title-text').textContent(), 'Portefeuille global', 'a drag opened an asset');
+    before = await tickerScroll();
+    await page.mouse.wheel(180, 0);
+    await page.waitForTimeout(200);
+    assert.ok(await tickerScroll() !== before, 'horizontal trackpad scroll does not move the ticker');
+    await page.mouse.move(0, 0);
     await page.locator('[data-ticker-pause]').click();
+    await page.mouse.move(0, 0);
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    assert.equal(await page.locator('.market-ticker-track').evaluate(el => getComputedStyle(el).animationName), 'none');
+    assert.equal(await page.locator('.market-ticker-copy').evaluate(el => getComputedStyle(el).display), 'none');
     await page.locator('.market-ticker-group:not(.market-ticker-copy) button').first().click();
     await page.locator('#dashboard-back-portfolio').click();
     assert.equal(await page.locator('#chart-title-text').textContent(), 'Portefeuille global');
@@ -190,6 +213,6 @@ try {
     assert.equal(await page.locator('#contributions-modal').isVisible(), false);
     assert.equal(await page.evaluate(() => document.activeElement.classList.contains('contribution-kpi-card')), true);
     assert.deepEqual(errors, []);
-    await writeFile(path.join(root, 'audit/dashboard-preview-results.json'), JSON.stringify({ scope: 'Isolated deterministic UI, no authenticated session', sizes: results, errors, checks: ['pause control', 'reduced motion', 'ticker asset selection and back', 'period stats visible at all sizes', 'five KPI cards', 'contribution preview and full table', 'contribution dialog keyboard access', 'markets panel matches left column', 'market dialog responsive layout, search, watchlist, multi-add and keyboard access'] }, null, 2));
+    await writeFile(path.join(root, 'audit/dashboard-preview-results.json'), JSON.stringify({ scope: 'Isolated deterministic UI, no authenticated session', sizes: results, errors, checks: ['pause control', 'ticker auto-scroll, drag and trackpad scroll', 'reduced motion', 'ticker asset selection and back', 'period stats visible at all sizes', 'five KPI cards', 'contribution preview and full table', 'contribution dialog keyboard access', 'markets panel matches left column', 'market dialog responsive layout, search, watchlist, multi-add and keyboard access'] }, null, 2));
     console.log(JSON.stringify(results));
 } finally { await browser.close(); server.close(); }

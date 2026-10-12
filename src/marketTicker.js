@@ -2,6 +2,9 @@ import { marketCalendarEngine } from './MarketCalendarEngine.js';
 import { quoteSession } from './dashboardMarketData.js';
 
 const PAUSE_KEY = 'dashboard_ticker_paused_v1';
+const DRAG_THRESHOLD_PX = 5;
+// After a manual scroll or drag, wait before auto-scrolling again.
+const RESUME_DELAY_MS = 3000;
 const readPause = () => { try { return localStorage.getItem(PAUSE_KEY) === 'true'; } catch { return false; } };
 // Beyond this many positions, keep only the best and worst movers.
 const MOVERS_PER_SIDE = 6;
@@ -90,6 +93,8 @@ export class MarketTicker {
         this.paused = readPause();
         if (!root) return;
         this.track = root.querySelector('.market-ticker-track');
+        this.viewport = root.querySelector('.market-ticker-viewport');
+        this.setupScrolling();
         if (typeof ResizeObserver !== 'undefined') {
             this.resizeObserver = new ResizeObserver(() => this.updateOverflow());
             this.resizeObserver.observe(root);
@@ -101,11 +106,111 @@ export class MarketTicker {
             this.syncPause();
         });
         root.addEventListener('click', event => {
+            // The end of a click-and-drag is not a selection.
+            if (this.suppressClick) { this.suppressClick = false; event.preventDefault(); return; }
             const node = event.target.closest('[data-ticker]');
             const item = node && this.items.get(node.dataset.ticker);
             if (item) this.onSelect(item);
         });
         this.syncPause();
+    }
+
+    // Auto-scroll drives the viewport's own scrollLeft (not a CSS transform),
+    // so trackpad/touch scrolling and click-and-drag move the same position.
+    // Two identical groups make the loop seamless in both directions.
+    setupScrolling() {
+        const viewport = this.viewport;
+        if (!viewport) return;
+        this.position = 0;
+        this.lastInteraction = 0;
+        this.hovered = false;
+        const touch = () => { this.lastInteraction = Date.now(); };
+        viewport.addEventListener('scroll', () => {
+            // Ignore the scroll events produced by the animation itself.
+            if (Math.abs(viewport.scrollLeft - Math.round(this.position)) <= 1) return;
+            this.position = viewport.scrollLeft;
+            if (this.wrap()) viewport.scrollLeft = this.position;
+            touch();
+        }, { passive: true });
+        viewport.addEventListener('wheel', touch, { passive: true });
+        viewport.addEventListener('touchstart', touch, { passive: true });
+        this.root.addEventListener('pointerenter', event => { if (event.pointerType === 'mouse') this.hovered = true; });
+        this.root.addEventListener('pointerleave', event => { if (event.pointerType === 'mouse') this.hovered = false; });
+
+        let drag = null;
+        viewport.addEventListener('pointerdown', event => {
+            // A drag ending outside an item emits no click: never swallow a later one.
+            this.suppressClick = false;
+            if (event.pointerType !== 'mouse' || event.button !== 0) return;
+            drag = { x: event.clientX, start: viewport.scrollLeft, moved: false, id: event.pointerId };
+        });
+        viewport.addEventListener('pointermove', event => {
+            if (!drag || event.pointerId !== drag.id) return;
+            const dx = event.clientX - drag.x;
+            if (!drag.moved && Math.abs(dx) < DRAG_THRESHOLD_PX) return;
+            if (!drag.moved) {
+                drag.moved = true;
+                viewport.setPointerCapture?.(event.pointerId);
+                this.root.classList.add('is-dragging');
+            }
+            this.position = drag.start - dx;
+            // Wrapped: re-anchor the drag so the content keeps following the pointer.
+            if (this.wrap()) drag.start = this.position + dx;
+            viewport.scrollLeft = this.position;
+            touch();
+        });
+        const endDrag = event => {
+            if (!drag || event.pointerId !== drag.id) return;
+            if (drag.moved) this.suppressClick = true;
+            drag = null;
+            this.root.classList.remove('is-dragging');
+            touch();
+        };
+        viewport.addEventListener('pointerup', endDrag);
+        viewport.addEventListener('pointercancel', endDrag);
+        this.dragging = () => !!drag?.moved;
+
+        if (typeof requestAnimationFrame !== 'function') return;
+        let last = null;
+        const step = now => {
+            const dt = last === null ? 0 : Math.min(now - last, 100) / 1000;
+            last = now;
+            if (this.shouldAutoScroll()) {
+                this.position += this.speed * dt;
+                this.wrap();
+                viewport.scrollLeft = this.position;
+            }
+            requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+    }
+
+    get loopWidth() {
+        const copy = this.track?.querySelector('.market-ticker-copy');
+        const group = this.track?.querySelector('.market-ticker-group');
+        // Hidden copy (static list, mobile, reduced motion): plain scrolling.
+        return copy && group && copy.offsetWidth > 0 ? group.offsetWidth : 0;
+    }
+
+    get speed() {
+        return this.loopWidth / (this.durationSec || 45);
+    }
+
+    // Keeps the position inside the first group; true when it jumped.
+    wrap() {
+        const width = this.loopWidth;
+        if (!width) return false;
+        if (this.position >= width) { this.position -= width; return true; }
+        if (this.position < 0) { this.position += width; return true; }
+        return false;
+    }
+
+    shouldAutoScroll() {
+        if (this.paused || this.hovered || this.dragging?.() || !this.loopWidth) return false;
+        if (Date.now() - this.lastInteraction < RESUME_DELAY_MS) return false;
+        if (this.root.matches?.(':focus-within')) return false;
+        if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+        return true;
     }
 
     syncPause() {
@@ -150,7 +255,10 @@ export class MarketTicker {
                 }
                 this.track.append(group);
             }
-            this.track.style.setProperty('--ticker-duration', `${Math.max(45, items.length * 9)}s`);
+            // Same pace as the former CSS animation: one group per max(45 s, 9 s/item).
+            this.durationSec = Math.max(45, items.length * 9);
+            this.position = 0;
+            if (this.viewport) this.viewport.scrollLeft = 0;
         }
         this.root.classList.toggle('is-empty', items.length === 0);
         for (const node of this.track.querySelectorAll('[data-ticker]')) {
