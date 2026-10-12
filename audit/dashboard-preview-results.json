@@ -46,7 +46,7 @@
       "leftHeight": 799,
       "sparklines": 7,
       "animation": "none",
-      "main": 766.34375,
+      "main": 764.046875,
       "overflowingValues": 0
     },
     {
@@ -58,7 +58,7 @@
       "highlights": 3,
       "cardCount": 5,
       "cardRows": 5,
-      "panelHeight": 608,
+      "panelHeight": 655,
       "leftHeight": 856,
       "sparklines": 7,
       "animation": "none",
@@ -74,7 +74,7 @@
       "highlights": 3,
       "cardCount": 5,
       "cardRows": 5,
-      "panelHeight": 641,
+      "panelHeight": 703,
       "leftHeight": 856,
       "sparklines": 7,
       "animation": "none",
@@ -92,6 +92,6 @@
     "contribution preview and full table",
     "contribution dialog keyboard access",
     "markets panel matches left column",
-    "market settings"
+    "market dialog responsive layout, search, watchlist, multi-add and keyboard access"
   ]
 }

@@ -46,7 +46,8 @@ describe('Dashboard futures presentation', () => {
         vi.setSystemTime(new Date('2026-10-05T20:30:00Z'));
         const fetchQuote = vi.fn().mockResolvedValue({
             price: 7777.25, previousClose: 7700, lastTradingDayClose: 7650,
-            currency: 'USD', marketState: 'REGULAR', fetchedAt: Date.now()
+            currency: 'USD', marketState: 'REGULAR', fetchedAt: Date.now(), quoteAsOf: Date.now() - 5 * 60000,
+            exchangeTimezone: 'America/New_York', regularSession: { startMs: Date.now() - 2 * 3600000, endMs: Date.now() + 2 * 3600000 }
         });
         const app = makeApp(fetchQuote);
 
@@ -58,6 +59,8 @@ describe('Dashboard futures presentation', () => {
         expect(card.dataset.instrumentType).toBe('future');
         expect(card.classList.contains('market-card-future')).toBe(true);
         expect(card.textContent).toContain('FUTURE · ES');
+        expect(card.querySelector('.market-card-session').textContent).toBe('Futures');
+        expect(card.querySelector('.market-card-session').classList.contains('is-futures')).toBe(true);
         expect(card.style.border).toBe('');
         expect(card.classList.contains('stat-positive')).toBe(true);
     });
@@ -67,7 +70,8 @@ describe('Dashboard futures presentation', () => {
         vi.setSystemTime(new Date('2026-10-05T20:30:00Z'));
         const fetchQuote = vi.fn(async ticker => ticker === 'ES=F' ? null : {
             price: 7700, previousClose: 7650, lastTradingDayClose: 7600,
-            currency: 'USD', marketState: 'CLOSED', fetchedAt: Date.now()
+            currency: 'USD', marketState: 'CLOSED', fetchedAt: Date.now(), quoteAsOf: Date.now() - 5 * 60000,
+            exchangeTimezone: 'America/New_York', regularSession: { startMs: Date.now() - 8 * 3600000, endMs: Date.now() - 2 * 3600000 }
         });
         const app = makeApp(fetchQuote);
 
@@ -78,5 +82,22 @@ describe('Dashboard futures presentation', () => {
         expect(card.dataset.instrumentTicker).toBe('^GSPC');
         expect(card.dataset.instrumentType).toBe('cash');
         expect(card.textContent).not.toContain('FUTURE · ES');
+        expect(card.querySelector('.market-card-session').classList.contains('is-futures')).toBe(false);
+        expect(card.querySelector('.market-card-session').textContent).toBe('Dernière séance');
+    });
+
+    it('keeps a closed futures session visible instead of showing Futures', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-10-10T12:00:00Z'));
+        const app = makeApp(vi.fn().mockResolvedValue({
+            price: 2600, previousClose: 2590, currency: 'USD', marketState: 'CLOSED', fetchedAt: Date.now()
+        }));
+        app.getCustomIndices = () => [{ ticker: 'GC=F', name: 'Or', icon: 'Au', format: 'commodity' }];
+
+        await app.loadMarketIndices();
+
+        const session = document.querySelector('.market-card-session');
+        expect(session.textContent).toBe('Dernière séance');
+        expect(session.classList.contains('is-futures')).toBe(false);
     });
 });

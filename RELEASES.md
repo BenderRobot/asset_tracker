@@ -28,6 +28,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.1` | 2026-10-12 | Version déjà publiée en ligne (build 347) | — |
 | `1.17.2` | 2026-10-12 | fix: fiabiliser le versionnement des deploiements | — |
 | `1.17.3` | 2026-10-12 | fix modal add indices | — |
+| `1.17.4` | 2026-10-12 | fix modal futures badges | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les

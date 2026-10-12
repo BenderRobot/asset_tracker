@@ -1294,8 +1294,9 @@ export class DashboardApp {
             change.textContent = view.pctText;
             change.className = `market-card-change ${view.tone}`;
             const session = card.querySelector('.market-card-session');
-            session.textContent = view.status;
-            session.className = 'market-card-session';
+            const showFuturesLabel = isContract && view.status === 'Séance ouverte';
+            session.textContent = showFuturesLabel ? 'Futures' : view.status;
+            session.className = `market-card-session${showFuturesLabel ? ' is-futures' : ''}`;
             card.querySelector('.market-card-time').textContent = view.time;
             // Colour code: card edge follows the day's direction, the session
             // pill follows the market state (open / 24/7 / closed / stale).
