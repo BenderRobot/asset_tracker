@@ -60,7 +60,7 @@
 
         var versionElement = document.getElementById('app-version');
         if (versionElement && window.fetch) {
-            fetch('/version.json', { cache: 'no-store' })
+            fetch('/version.json?t=' + Date.now(), { cache: 'no-store' })
                 .then(function (response) {
                     if (!response.ok) throw new Error('Version indisponible');
                     return response.json();

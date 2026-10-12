@@ -44,7 +44,8 @@ function Invoke-TestGate($label) {
 Set-Location $PSScriptRoot
 
 $allTargets = $Target -contains 'All'
-$deployGitHub = $allTargets -or $Target -contains 'GitHub'
+# Hosting releases must also be committed and pushed, even for -Target Firebase.
+$deployGitHub = $allTargets -or $Target -contains 'GitHub' -or $Target -contains 'Firebase'
 $deployWorkers = $allTargets -or $Target -contains 'Worker'
 $deployFirebase = $allTargets -or $Target -contains 'Firebase'
 $selectedTargets = @()
@@ -69,19 +70,7 @@ if ($currentBranch -ne "main") {
     if ($LASTEXITCODE -ne 0) { Write-Err "git checkout main failed."; exit 1 }
 }
 
-# Prepare le numero du prochain commit (ou resynchronise le build courant si
-# aucun fichier n'a change). Le hook Git le verifiera de nouveau au commit.
-$pendingChanges = git status --porcelain --untracked-files=all
-if ($pendingChanges) {
-    & (Join-Path $PSScriptRoot 'scripts\sync-version.ps1') -NextCommit | Out-Null
-} else {
-    & (Join-Path $PSScriptRoot 'scripts\sync-version.ps1') | Out-Null
-}
-if ($LASTEXITCODE -ne 0) { Write-Err "Mise a jour de version.json impossible."; exit 1 }
-
-# Apres la bascule sur main : on teste le code qui sera reellement deploye
-# (arbre de travail inclus, il est commite plus bas), avant toute ecriture.
-Invoke-TestGate "code a deployer"
+if (-not $deployGitHub) { Invoke-TestGate "code a deployer" }
 
 if ($deployGitHub) {
 # --- COMMIT MESSAGE ---
@@ -99,27 +88,46 @@ $stashed = $false
 $status = git status --porcelain
 if ($status) {
     git stash -u
+    if ($LASTEXITCODE -ne 0) { Write-Err 'Sauvegarde temporaire des changements impossible.'; exit 1 }
     $stashed = $true
 }
 
 # Récupérer les dernières modifications du serveur
-$headBeforePull = git rev-parse HEAD
 git pull origin main --rebase
 if ($LASTEXITCODE -ne 0) { 
-    if ($stashed) { git stash pop }
+    if ($stashed) { git stash pop --index }
     Write-Err "git pull failed. Conflits potentiels à résoudre manuellement."; exit 1 
 }
 
 # Restaurer les modifications mises de côté
 if ($stashed) {
-    git stash pop
+    git stash pop --index
     if ($LASTEXITCODE -ne 0) { 
         Write-Err "Conflit lors du stash pop. Veuillez résoudre les conflits manuellement."; exit 1 
     }
 }
 
-# Des commits distants recuperes par le pull n'ont pas encore ete testes.
-if ((git rev-parse HEAD) -ne $headBeforePull) { Invoke-TestGate "apres synchronisation avec origin/main" }
+# Prepare la meme version que le hook de commit AVANT la barriere de tests.
+# La production en ligne sert de plancher : une copie locale ancienne ne peut
+# jamais remettre en ligne un numero deja publie.
+$needsRelease = $deployFirebase -or [bool](git status --porcelain --untracked-files=all)
+if ($needsRelease) {
+    $releaseArgs = @('scripts/prepare-release.mjs', '--message', $commitMsg)
+    if ($deployFirebase) {
+        try {
+            $liveUrl = "https://asset-tracker.fr/version.json?t=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+            $live = Invoke-RestMethod -Uri $liveUrl -TimeoutSec 15 -Headers @{ 'Cache-Control' = 'no-cache' }
+            if (-not $live.version -or $null -eq $live.build) { throw 'Manifeste en ligne invalide.' }
+            $releaseArgs += @('--published-version', [string]$live.version, '--published-build', [string]$live.build)
+        } catch {
+            Write-Err "Version de production illisible : $($_.Exception.Message)"
+            exit 1
+        }
+    }
+    node @releaseArgs
+    if ($LASTEXITCODE -ne 0) { Write-Err 'Preparation de version impossible.'; exit 1 }
+}
+Invoke-TestGate "version preparee, code final"
 
 git add .
 
@@ -127,6 +135,9 @@ $changed = git status --porcelain
 if ($changed) {
     git commit -m $commitMsg
     if ($LASTEXITCODE -ne 0) { Write-Err "git commit failed."; exit 1 }
+    node scripts/prepare-release.mjs --check --committed
+    if ($LASTEXITCODE -ne 0) { Write-Err 'Version du commit incoherente.'; exit 1 }
+    Invoke-TestGate "commit final"
 } else {
     Write-Warn "No changes to commit."
 }
@@ -242,6 +253,8 @@ if (-not (Test-Path $firebaseCli)) {
 # Evite le faux message d'erreur "firebase-tools update check failed" cause
 # par le cache update-notifier sous Windows. Cela ne desactive pas le deploy.
 $env:NO_UPDATE_NOTIFIER = '1'
+$releaseForDeploy = Get-Content (Join-Path $PSScriptRoot 'version.json') -Raw | ConvertFrom-Json
+$env:ASSET_TRACKER_RELEASE_ID = "$($releaseForDeploy.version):$($releaseForDeploy.build)"
 
 $firebaseProject = 'asset-tracker-479809-b80f1'
 $maxAttempts = $FirebaseRetries + 1
@@ -289,5 +302,7 @@ if (-not $firebaseSucceeded) {
     exit 1
 }
 
+& (Join-Path $PSScriptRoot 'scripts\check-live-version.ps1') -Exact
+if ($LASTEXITCODE -ne 0) { Write-Err 'Le site ne sert pas la version du commit deploye.'; exit 1 }
 Write-Ok "Deploy PROD complete -> https://asset-tracker.fr"
 }

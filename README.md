@@ -73,9 +73,9 @@ Multi-devises : **EUR** et **USD** avec conversion automatique.
 
 ### Version de l'application
 
-La version fonctionnelle suit le format `majeure.mineure.correctif`. La
-production reconstituée depuis l'historique Git est `v1.17.0` (`build 331`) :
-le build permet de retrouver le commit, mais ne constitue plus la version.
+La version fonctionnelle suit le format `majeure.mineure.correctif`. Le numéro
+effectivement servi par le site vient de `version.json` ; le build repère le
+commit Git, mais ne constitue pas la version fonctionnelle.
 
 - `feat: ...` ou `feature: ...` augmente la mineure (`1.17.0` → `1.18.0`).
 - `fix: ...` et les autres changements augmentent le correctif
@@ -90,11 +90,13 @@ dans ce clone ; après un nouveau clonage, exécuter une fois :
 npm run version:setup
 ```
 
-Le hook lit le message du commit, met `version.json` à jour et l'ajoute au
-commit. Les scripts `deploy.ps1` et `deploy-beta.ps1` synchronisent aussi le
-numéro de build. Le numéro visible en bas de la barre latérale permet de savoir
-immédiatement quelle version est servie par Firebase. La reconstruction des
-17 versions fonctionnelles figure dans `RELEASES.md`.
+Le hook lit le message du commit, prépare `version.json` et ajoute la version
+à `RELEASES.md`. Les scripts `deploy.ps1` et `deploy-beta.ps1` préparent la
+version **avant** les tests, créent un commit pour chaque publication Hosting,
+puis vérifient que le site sert exactement la version du commit. Même
+`.\deploy.ps1 firebase` crée et pousse ce commit sur `main`. Le numéro visible
+en bas de la barre latérale est lu depuis le manifeste en ligne. L'historique
+des versions fonctionnelles et correctives figure dans `RELEASES.md`.
 
 Pour comparer le dépôt local à la production depuis le terminal :
 
@@ -102,11 +104,15 @@ Pour comparer le dépôt local à la production depuis le terminal :
 npm run version:check
 ```
 
-L'application est déployée sur Firebase Hosting :
+Pour publier le site, utiliser les scripts qui préparent sa version :
 
-```bash
-firebase deploy
+```powershell
+.\deploy.ps1 firebase
+.\deploy-beta.ps1
 ```
+
+Un `firebase deploy` direct pour Hosting est bloqué par le hook de
+pré-déploiement, car il ne peut pas garantir l'incrémentation de version.
 
 Les workers Cloudflare sont déployés séparément via Wrangler :
 

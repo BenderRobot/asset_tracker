@@ -25,7 +25,10 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.15.0` | 2026-10-05 | Contexte intraday de l'assistant Gemini | `9bdb302` |
 | `1.16.0` | 2026-10-05 | Assistant vocal | `4b9e18a` |
 | `1.17.0` | 2026-10-05 | Graphique de performance bicolore | `b59dcf3` |
+| `1.17.1` | 2026-10-12 | Version déjà publiée en ligne (build 347) | — |
+| `1.17.2` | 2026-10-12 | fix: fiabiliser le versionnement des deploiements | — |
 
-À partir de `1.17.0`, les messages de commit pilotent automatiquement la
-version. Un tag Git pourra être créé à chaque déploiement de production afin
-de figer l'historique sans avoir à le recalculer.
+Les messages de commit pilotent les nouvelles versions. Les scripts de
+déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les
+tests ; un repère `—` désigne une version préparée avant la création de son
+commit. Un tag Git pourra être créé à chaque déploiement de production.

@@ -3,12 +3,14 @@
     {
       "target": "prod",
       "public": ".",
+      "predeploy": "node scripts/assert-hosting-release.mjs",
       "ignore": [
         "firebase.json",
         "**/.*",
         "**/.*/**",
         "**/node_modules/**",
         "audit/**",
+        "scripts/**",
         "tests/**",
         "functions/**",
         "cloudflare-workers/**",
@@ -46,12 +48,14 @@
     {
       "target": "beta",
       "public": ".",
+      "predeploy": "node scripts/assert-hosting-release.mjs",
       "ignore": [
         "firebase.json",
         "**/.*",
         "**/.*/**",
         "**/node_modules/**",
         "audit/**",
+        "scripts/**",
         "tests/**",
         "functions/**",
         "cloudflare-workers/**",
