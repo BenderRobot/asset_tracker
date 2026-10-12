@@ -1079,6 +1079,13 @@ export class RealEstateApp {
         const d = details[this.debtScenario.creditIndex];
         const params = d ? this.getScenarioParams(d.credit, today) : null;
         if (resetBtn) resetBtn.hidden = !params;
+        // Le choix durée / mensualité ne joue que sur un remboursement anticipé
+        const segmented = document.querySelector('#debt-scenario .re-segmented');
+        if (segmented) {
+            const inactive = !(toNumber(this.debtScenario.lumpSum) > 0);
+            segmented.classList.toggle('is-disabled', inactive);
+            segmented.title = inactive ? "S'applique au remboursement anticipé : saisissez un montant" : '';
+        }
 
         let scenarioSim = null;
         if (!params) {
