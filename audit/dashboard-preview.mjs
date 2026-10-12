@@ -152,14 +152,14 @@ try {
         assert.equal(picker.modalInside, true, `market dialog outside viewport at ${width}`);
         assert.equal(picker.gridOverflow, false, `market list overflows horizontally at ${width}`);
         assert.equal(picker.addedLabel, 'Ajouté', `followed markets unclear at ${width}`);
-        if (width === 1366 || width === 390) await page.screenshot({ path: path.join(root, `audit/dashboard-modal-preview-${width}.png`) });
+        if ([1920, 1366, 390].includes(width)) await page.screenshot({ path: path.join(root, `audit/dashboard-modal-preview-${width}.png`) });
         await page.locator('#add-index-search').fill('Dow');
         assert.equal(await page.locator('.add-index-item').count(), 1, `market search failed at ${width}`);
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('#add-index-modal').isVisible(), false, `market dialog did not close at ${width}`);
         assert.equal(await page.locator('body').evaluate(el => el.classList.contains('market-dialog-open')), false);
         results.push(size);
-        if (width === 1366 || width === 390) await page.screenshot({ path: path.join(root, `audit/dashboard-preview-${width}.png`), fullPage: true });
+        if ([1920, 1366, 390].includes(width)) await page.screenshot({ path: path.join(root, `audit/dashboard-preview-${width}.png`), fullPage: true });
     }
     await page.setViewportSize({ width: 1366, height: 1080 });
     await page.mouse.move(0, 0);

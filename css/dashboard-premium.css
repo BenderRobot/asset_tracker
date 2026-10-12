@@ -25,11 +25,29 @@
 .dashboard-premium .kpi-card[role="button"] .kpi-header .kpi-label { margin-right: auto; }
 .dashboard-premium .kpi-card[role="button"] .kpi-header::after { content: "↗"; margin-left: 7px; color: #8ab7ff; font-size: 12px; opacity: .75; }
 .dashboard-premium .kpi-label { color: #acb8d0; font-size: 11px; }
-.dashboard-premium .kpi-list-host { margin: 0; font-size: 13px; font-weight: 400; }
-.dashboard-premium .kpi-row-name { font-size: 12px; max-width: none; }
+/* KPI cards share the type scale of "Variation du jour": 14 px names,
+   15 px bold values, 12 px muted secondary values, 11 px uppercase labels. */
+.dashboard-premium .kpi-list-host { margin: 0; font-size: 14px; font-weight: 400; }
+.dashboard-premium .kpi-list-container { gap: 6px; margin-top: 4px; }
+.dashboard-premium .kpi-list-row { gap: 10px; padding: 6px 0; font-size: 14px; }
+.dashboard-premium .kpi-row-name { font-size: 14px; max-width: none; color: var(--text-primary); }
 .dashboard-premium .kpi-row-left { min-width: 0; }
-.dashboard-premium .kpi-row-right { font-size: 13px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.dashboard-premium .kpi-row-right .kpi-sub-value { font-size: 11px; color: var(--dashboard-muted); }
+.dashboard-premium .kpi-row-right { font-size: 15px; font-weight: 700; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.dashboard-premium .kpi-row-right .kpi-sub-value { margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--dashboard-muted); }
+.dashboard-premium .allocation-list { gap: 9px; }
+.dashboard-premium .alloc-row { gap: 8px; font-size: 14px; }
+.dashboard-premium .alloc-left { min-width: 0; }
+.dashboard-premium .alloc-pct { min-width: 54px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.dashboard-premium .alloc-label { font-size: 11px; color: var(--dashboard-muted); letter-spacing: .04em; }
+.dashboard-premium .alloc-right span { font-family: inherit; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Narrow cards (about 180 px at 1366 px): one step smaller, names stay readable. */
+.dashboard-premium .dashboard-kpi-grid-v2 > .kpi-card { container-type: inline-size; }
+@container (max-width: 220px) {
+    .dashboard-premium .kpi-row-name, .dashboard-premium .contribution-kpi-row { font-size: 13px; }
+    .dashboard-premium .kpi-row-right, .dashboard-premium .contribution-kpi-row strong { font-size: 14px; }
+    .dashboard-premium .kpi-row-right .kpi-sub-value { font-size: 11px; }
+    .dashboard-premium .kpi-list-row, .dashboard-premium .contribution-kpi-row { gap: 6px; }
+}
 .dashboard-premium .contribution-kpi-card { display: flex; flex-direction: column; }
 .contribution-highlights { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
 .contribution-kpi-group { min-width: 0; }
@@ -248,9 +266,9 @@
     .dashboard-premium .kpi-card { padding: 16px !important; }
     .dashboard-premium .feed-card { height: auto !important; }
     .dashboard-premium .kpi-label { font-size: 11px !important; }
-    .dashboard-premium .kpi-row-name { font-size: 13px !important; max-width: none !important; }
-    .dashboard-premium .kpi-row-right { font-size: 13px !important; }
-    .dashboard-premium .kpi-row-right .kpi-sub-value { font-size: 11px !important; }
+    .dashboard-premium .kpi-row-name { font-size: 14px !important; max-width: none !important; }
+    .dashboard-premium .kpi-row-right { font-size: 15px !important; }
+    .dashboard-premium .kpi-row-right .kpi-sub-value { font-size: 12px !important; }
     .dashboard-premium .kpi-list-row { padding: 8px 0 !important; }
     .dashboard-premium .indices-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .dashboard-premium .market-card-price { font-size: 14px; }
