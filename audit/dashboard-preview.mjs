@@ -47,7 +47,9 @@ try {
             exchangeTimezone: 'America/New_York', regularSession: { startMs: fixed - 5 * 3600000, endMs: fixed + 2 * 3600000 },
             fetchedAt: fixed, changeBasis: idx.format === 'crypto' ? 'Depuis 00:00 UTC' : 'Clôture de la séance précédente', source: 'Démonstration'
         }]));
-        app.storage = { currentData: {}, setCurrentPrice(t, q) { this.currentData[t] = q; } };
+        app.storage = { currentData: {}, setCurrentPrice(t, q) { this.currentData[t] = q; },
+            getWatchlistGroups: () => [{ name: 'Tech Europe', tickers: ['ASML.AS'] }, { name: 'Favoris', tickers: ['ASML.AS', 'MC.PA'] }],
+            getWatchlist: () => [{ ticker: 'ASML.AS', name: 'ASML' }, { ticker: 'MC.PA', name: 'LVMH' }] };
         app.getMarketStatus = () => 'MARKET_OPEN';
         app.api = { fetchIndexDataForDashboard: async ticker => quotes[ticker] };
         app.marketTicker = new MarketTicker(document.getElementById('market-ticker'), item => app.selectTickerAsset(item));
@@ -131,6 +133,27 @@ try {
             <= document.querySelector('.contributions-table-wrap').getBoundingClientRect().right + 1);
         assert.equal(impactVisible, true, `daily impact hidden at ${width}`);
         await page.locator('#close-contributions-modal').click();
+        await page.locator('#add-index-btn').click();
+        assert.equal(await page.locator('body').evaluate(el => el.classList.contains('market-dialog-open')), true);
+        const picker = await page.evaluate(() => {
+            const modal = document.querySelector('.add-index-modal').getBoundingClientRect();
+            const tabs = [...document.querySelectorAll('.index-tab')].map(el => el.getBoundingClientRect());
+            const grid = document.getElementById('add-index-grid');
+            return { tabsInside: tabs.every(tab => tab.left >= modal.left - 1 && tab.right <= modal.right + 1),
+                modalInside: modal.left >= 0 && modal.right <= innerWidth && modal.top >= 0 && modal.bottom <= innerHeight,
+                gridOverflow: grid.scrollWidth > grid.clientWidth + 1,
+                addedLabel: document.querySelector('.add-index-item.already-added .add-index-item-action')?.textContent.trim() };
+        });
+        assert.equal(picker.tabsInside, true, `market categories overflow at ${width}`);
+        assert.equal(picker.modalInside, true, `market dialog outside viewport at ${width}`);
+        assert.equal(picker.gridOverflow, false, `market list overflows horizontally at ${width}`);
+        assert.equal(picker.addedLabel, 'Ajouté', `followed markets unclear at ${width}`);
+        if (width === 1366 || width === 390) await page.screenshot({ path: path.join(root, `audit/dashboard-modal-preview-${width}.png`) });
+        await page.locator('#add-index-search').fill('Dow');
+        assert.equal(await page.locator('.add-index-item').count(), 1, `market search failed at ${width}`);
+        await page.keyboard.press('Escape');
+        assert.equal(await page.locator('#add-index-modal').isVisible(), false, `market dialog did not close at ${width}`);
+        assert.equal(await page.locator('body').evaluate(el => el.classList.contains('market-dialog-open')), false);
         results.push(size);
         if (width === 1366 || width === 390) await page.screenshot({ path: path.join(root, `audit/dashboard-preview-${width}.png`), fullPage: true });
     }
@@ -146,6 +169,15 @@ try {
     assert.equal(await page.locator('#chart-title-text').textContent(), 'Portefeuille global');
     await page.locator('#add-index-btn').click();
     assert.equal(await page.locator('#add-index-modal').isVisible(), true);
+    await page.locator('.index-tab[data-tab="Watchlist"]').click();
+    assert.equal(await page.locator('.add-index-item').count(), 2, 'watchlist duplicates in the market dialog');
+    assert.match(await page.locator('.add-index-item[data-ticker="ASML.AS"] .add-index-item-ticker').textContent(), /Tech Europe.*Favoris/);
+    await page.locator('.index-tab[data-tab="Indices"]').click();
+    await page.locator('#add-index-search').fill('Dow');
+    await page.locator('.add-index-item[data-ticker="^DJI"]').click();
+    assert.equal(await page.locator('#add-index-modal').isVisible(), true, 'market dialog closes after adding one asset');
+    assert.equal(await page.locator('.add-index-item[data-ticker="^DJI"]').isDisabled(), true);
+    assert.match(await page.locator('#add-index-count').textContent(), /1 déjà suivi/);
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#add-index-modal').isVisible(), false);
     assert.equal(await page.evaluate(() => document.activeElement.id), 'add-index-btn');
@@ -158,6 +190,6 @@ try {
     assert.equal(await page.locator('#contributions-modal').isVisible(), false);
     assert.equal(await page.evaluate(() => document.activeElement.classList.contains('contribution-kpi-card')), true);
     assert.deepEqual(errors, []);
-    await writeFile(path.join(root, 'audit/dashboard-preview-results.json'), JSON.stringify({ scope: 'Isolated deterministic UI, no authenticated session', sizes: results, errors, checks: ['pause control', 'reduced motion', 'ticker asset selection and back', 'period stats visible at all sizes', 'five KPI cards', 'contribution preview and full table', 'contribution dialog keyboard access', 'markets panel matches left column', 'market settings'] }, null, 2));
+    await writeFile(path.join(root, 'audit/dashboard-preview-results.json'), JSON.stringify({ scope: 'Isolated deterministic UI, no authenticated session', sizes: results, errors, checks: ['pause control', 'reduced motion', 'ticker asset selection and back', 'period stats visible at all sizes', 'five KPI cards', 'contribution preview and full table', 'contribution dialog keyboard access', 'markets panel matches left column', 'market dialog responsive layout, search, watchlist, multi-add and keyboard access'] }, null, 2));
     console.log(JSON.stringify(results));
 } finally { await browser.close(); server.close(); }

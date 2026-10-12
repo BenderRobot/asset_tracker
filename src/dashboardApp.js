@@ -1516,12 +1516,16 @@ export class DashboardApp {
         const close = document.getElementById('close-index-modal');
         this.closeIndicesModal = () => {
             if (modal) modal.style.display = 'none';
+            document.body.classList.remove('market-dialog-open');
             this._indicesTrigger?.focus();
         };
         document.getElementById('add-index-btn')?.addEventListener('click', () => {
             if (!modal) return;
             this._indicesTrigger = document.activeElement;
             modal.style.display = 'flex';
+            document.body.classList.add('market-dialog-open');
+            const search = document.getElementById('add-index-search');
+            if (search) search.value = '';
             this.renderIndexModal('Indices');
             close?.focus();
         });
@@ -1534,18 +1538,24 @@ export class DashboardApp {
         modal?.addEventListener('keydown', event => {
             if (event.key === 'Escape') { event.preventDefault(); this.closeIndicesModal(); }
             if (event.key !== 'Tab') return;
-            const buttons = [...modal.querySelectorAll('button:not(:disabled)')];
-            const first = buttons[0], last = buttons.at(-1);
+            const controls = [...modal.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
+            const first = controls[0], last = controls.at(-1);
             if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
             if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
         });
 
         document.querySelectorAll('.index-tab').forEach(btn => {
-            btn.addEventListener('click', () => this.renderIndexModal(btn.dataset.tab));
+            btn.addEventListener('click', () => {
+                const search = document.getElementById('add-index-search');
+                if (search) search.value = '';
+                this.renderIndexModal(btn.dataset.tab);
+            });
         });
+        document.getElementById('add-index-search')?.addEventListener('input', () => this.renderIndexModal(this.activeIndexTab || 'Indices'));
     }
 
     renderIndexModal(activeTab = 'Indices') {
+        this.activeIndexTab = activeTab;
         const catalogue = this.getIndicesCatalogue();
         const currentTickers = new Set(this.getCustomIndices().map(i => i.ticker));
 
@@ -1557,17 +1567,34 @@ export class DashboardApp {
         const grid = document.getElementById('add-index-grid');
         if (!grid) return;
 
-        const items = activeTab === 'Watchlist'
-            ? (this.storage.getWatchlistGroups?.() || []).flatMap(group => (Array.isArray(group.tickers) ? group.tickers : []).map(ticker => ({
-                ticker, name: (this.storage.getWatchlist?.() || []).find(asset => asset.ticker === ticker)?.name || ticker,
-                icon: '◉', groupName: group.name, format: 'asset'
-            })))
-            : catalogue[activeTab] || [];
-        if (activeTab === 'Watchlist' && !items.length) {
-            grid.textContent = 'Aucun actif dans les groupes de votre watchlist.';
+        const watchlistItems = new Map();
+        if (activeTab === 'Watchlist') {
+            const watchlistAssets = new Map((this.storage.getWatchlist?.() || []).map(asset => [asset.ticker, asset]));
+            for (const group of this.storage.getWatchlistGroups?.() || []) {
+                for (const ticker of Array.isArray(group.tickers) ? group.tickers : []) {
+                    const existing = watchlistItems.get(ticker);
+                    if (existing) { if (!existing.groups.includes(group.name)) existing.groups.push(group.name); continue; }
+                    watchlistItems.set(ticker, {
+                        ticker, name: watchlistAssets.get(ticker)?.name || ticker,
+                        icon: '◉', groups: [group.name], format: 'asset'
+                    });
+                }
+            }
+        }
+        const items = activeTab === 'Watchlist' ? [...watchlistItems.values()] : catalogue[activeTab] || [];
+        const normalizeSearch = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr');
+        const query = normalizeSearch((document.getElementById('add-index-search')?.value || '').trim());
+        const visibleItems = query ? items.filter(item => [item.name, item.ticker, ...(item.groups || [])]
+            .some(value => normalizeSearch(value).includes(query))) : items;
+        const available = visibleItems.filter(item => !currentTickers.has(item.ticker)).length;
+        const followed = visibleItems.length - available;
+        const count = document.getElementById('add-index-count');
+        if (count) count.textContent = `${available} disponible${available > 1 ? 's' : ''} · ${followed} déjà suivi${followed > 1 ? 's' : ''}`;
+        if (!visibleItems.length) {
+            grid.innerHTML = `<p class="add-index-empty">${query ? 'Aucun résultat pour cette recherche.' : activeTab === 'Watchlist' ? 'Aucun actif dans les groupes de votre watchlist.' : 'Aucun marché disponible dans cette catégorie.'}</p>`;
             return;
         }
-        grid.innerHTML = items.map(item => {
+        grid.innerHTML = visibleItems.map(item => {
             const isAdded = currentTickers.has(item.ticker);
             const iconHTML = item.icon.includes('http')
                 ? `<img src="${item.icon}" alt="" style="width:22px;height:22px;object-fit:contain;">`
@@ -1575,21 +1602,22 @@ export class DashboardApp {
             return `
                 <button type="button" class="add-index-item${isAdded ? ' already-added' : ''}" data-ticker="${escHtml(item.ticker)}" ${isAdded ? 'disabled' : ''}>
                     <div class="add-index-item-icon">${iconHTML}</div>
-                    <div>
+                    <div class="add-index-item-details">
                         <div class="add-index-item-name">${escHtml(item.name)}</div>
-                        <div class="add-index-item-ticker">${escHtml(item.ticker)}${item.groupName ? ` · ${escHtml(item.groupName)}` : ''}</div>
+                        <div class="add-index-item-ticker">${escHtml(item.ticker)}${item.groups?.length ? ` · ${escHtml(item.groups.join(', '))}` : ''}</div>
                     </div>
-                    <span class="add-index-item-action" style="color:${isAdded ? '#10b981' : '#818cf8'};"><i class="ph ${isAdded ? 'ph-check' : 'ph-plus'}" aria-hidden="true"></i></span>
+                    <span class="add-index-item-action"><i class="ph ${isAdded ? 'ph-check' : 'ph-plus'}" aria-hidden="true"></i><span>${isAdded ? 'Ajouté' : 'Ajouter'}</span></span>
                 </button>`;
         }).join('');
 
         grid.querySelectorAll('.add-index-item:not(.already-added)').forEach(el => {
             el.addEventListener('click', () => {
                 const ticker = el.dataset.ticker;
-                const item = items.find(i => i.ticker === ticker);
+                const item = visibleItems.find(i => i.ticker === ticker);
                 if (item) {
-                    this.addIndex(item);
-                    this.closeIndicesModal();
+                    this.addIndex({ ticker: item.ticker, name: item.name, icon: item.icon, format: item.format });
+                    this.renderIndexModal(activeTab);
+                    document.getElementById('add-index-search')?.focus();
                 }
             });
         });

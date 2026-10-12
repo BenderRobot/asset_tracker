@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="css/dashboard.css?v=102">
     <link rel="stylesheet" href="css/dashboard-mobile.css?v=6">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
-    <link rel="stylesheet" href="css/dashboard-premium.css?v=7">
+    <link rel="stylesheet" href="css/dashboard-premium.css?v=8">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -390,21 +390,28 @@
         </div>
     </div>
 
-    <!-- MODAL AJOUT INDICE -->
+    <!-- MODAL AJOUT MARCHÉ -->
     <div id="add-index-modal" class="add-index-modal-overlay" style="display:none;">
-        <div class="add-index-modal" role="dialog" aria-modal="true" aria-labelledby="add-index-title">
+        <div class="add-index-modal" role="dialog" aria-modal="true" aria-labelledby="add-index-title" aria-describedby="add-index-description">
             <div class="add-index-modal-header">
-                <h3 id="add-index-title">Ajouter un marché favori</h3>
-                <button id="close-index-modal" class="modal-close-btn" aria-label="Fermer les marchés favoris">×</button>
+                <div>
+                    <h3 id="add-index-title">Marchés favoris</h3>
+                    <p id="add-index-description">Choisissez les marchés et actifs à afficher dans la colonne de droite.</p>
+                </div>
+                <button id="close-index-modal" class="modal-close-btn" type="button" aria-label="Fermer les marchés favoris">×</button>
             </div>
             <div class="add-index-tabs">
-                <button class="index-tab active" data-tab="Indices">Indices</button>
-                <button class="index-tab" data-tab="Volatilité">Volatilité</button>
-                <button class="index-tab" data-tab="Taux">Taux</button>
-                <button class="index-tab" data-tab="Crypto">Crypto</button>
-                <button class="index-tab" data-tab="Métaux">Métaux</button>
-                <button class="index-tab" data-tab="Forex">Forex</button>
-                <button class="index-tab" data-tab="Watchlist">Watchlist</button>
+                <button class="index-tab active" type="button" data-tab="Indices">Indices</button>
+                <button class="index-tab" type="button" data-tab="Volatilité">Volatilité</button>
+                <button class="index-tab" type="button" data-tab="Taux">Taux</button>
+                <button class="index-tab" type="button" data-tab="Crypto">Crypto</button>
+                <button class="index-tab" type="button" data-tab="Métaux">Métaux</button>
+                <button class="index-tab" type="button" data-tab="Forex">Forex</button>
+                <button class="index-tab" type="button" data-tab="Watchlist">Watchlist</button>
+            </div>
+            <div class="add-index-toolbar">
+                <label class="add-index-search" for="add-index-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input id="add-index-search" type="search" autocomplete="off" placeholder="Rechercher un nom ou un symbole"></label>
+                <span id="add-index-count" class="add-index-count" role="status" aria-live="polite"></span>
             </div>
             <div id="add-index-grid" class="add-index-grid"></div>
         </div>

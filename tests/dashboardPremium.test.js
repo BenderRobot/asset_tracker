@@ -356,13 +356,27 @@ describe('Dashboard ticker and feeds', () => {
     });
     it('offers grouped watchlist assets in the market picker', () => {
         const app = Object.create(DashboardApp.prototype);
-        document.body.innerHTML = '<div id="add-index-grid"></div><button class="index-tab" data-tab="Watchlist"></button>';
-        Object.assign(app, { storage: { getWatchlistGroups: () => [{ id: 'g', name: 'Semi-conducteurs', tickers: ['ASML.AS'] }],
-            getWatchlist: () => [{ ticker: 'ASML.AS', name: 'ASML' }] }, getCustomIndices: () => [], addIndex: vi.fn(), closeIndicesModal: vi.fn() });
+        document.body.innerHTML = '<input id="add-index-search"><span id="add-index-count"></span><div id="add-index-grid"></div><button class="index-tab" data-tab="Watchlist"></button>';
+        const saved = [];
+        Object.assign(app, { storage: { getWatchlistGroups: () => [
+            { id: 'g', name: 'Semi-conducteurs', tickers: ['ASML.AS'] },
+            { id: 'g2', name: 'Europe', tickers: ['ASML.AS', 'MC.PA'] }
+        ], getWatchlist: () => [{ ticker: 'ASML.AS', name: 'ASML' }, { ticker: 'MC.PA', name: 'LVMH' }] },
+        getCustomIndices: () => saved, addIndex: vi.fn(item => saved.push(item)) });
         app.renderIndexModal('Watchlist');
         expect(document.getElementById('add-index-grid').textContent).toContain('Semi-conducteurs');
+        expect(document.querySelectorAll('.add-index-item')).toHaveLength(2);
+        document.getElementById('add-index-search').value = 'asml';
+        app.renderIndexModal('Watchlist');
+        expect(document.querySelectorAll('.add-index-item')).toHaveLength(1);
         document.querySelector('.add-index-item').click();
         expect(app.addIndex).toHaveBeenCalledWith(expect.objectContaining({ ticker: 'ASML.AS', name: 'ASML' }));
+        expect(document.querySelector('.add-index-item').disabled).toBe(true);
+        expect(document.querySelector('.add-index-item-action').textContent).toBe('Ajouté');
+        expect(document.getElementById('add-index-count').textContent).toContain('1 déjà suivi');
+        document.getElementById('add-index-search').value = 'introuvable';
+        app.renderIndexModal('Watchlist');
+        expect(document.querySelector('.add-index-empty').textContent).toContain('Aucun résultat');
     });
 });
 
