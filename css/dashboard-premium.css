@@ -199,7 +199,13 @@
 .market-ticker.is-static .market-ticker-copy { display: none; }
 .dashboard-premium :is(button, select, summary, [role="button"]):focus-visible { outline: 2px solid #8ab7ff; outline-offset: 3px; }
 
-@media (min-width: 1200px) { .dashboard-premium .dashboard-kpi-grid-v2 { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+/* Markets panel and the last KPI card share one column: a fifth of the row
+   (never under 280 px) and the same gap, so their edges line up. */
+@media (min-width: 1200px) {
+    .dashboard-premium { --dash-gap: 16px; --dash-side: max(280px, calc((100% - 4 * var(--dash-gap)) / 5)); }
+    .dashboard-premium .dashboard-top-section { grid-template-columns: minmax(0, 1fr) var(--dash-side); gap: var(--dash-gap); }
+    .dashboard-premium .dashboard-kpi-grid-v2 { grid-template-columns: repeat(4, minmax(0, 1fr)) var(--dash-side); gap: var(--dash-gap); }
+}
 @media (max-width: 690px) {
     .dashboard-premium .add-index-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }

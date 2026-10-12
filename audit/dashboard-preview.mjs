@@ -114,11 +114,14 @@ try {
             leftHeight: Math.round(document.querySelector('.dashboard-left-column').getBoundingClientRect().height),
             sparklines: document.querySelectorAll('.market-card-spark svg').length,
             loopCopy: getComputedStyle(document.querySelector('.market-ticker-copy')).display,
+            panelEdges: (r => [Math.round(r.left), Math.round(r.right)])(document.querySelector('.dashboard-indices-panel-full').getBoundingClientRect()),
+            lastCardEdges: (r => [Math.round(r.left), Math.round(r.right)])(document.querySelector('.dashboard-kpi-grid-v2 > .kpi-card:last-child').getBoundingClientRect()),
             main: document.querySelector('.main-content').getBoundingClientRect().width,
             overflowingValues: [...document.querySelectorAll('.summary-card-value')].filter(el => el.scrollWidth > el.clientWidth + 1).length
         }));
         assert.equal(size.scroll, width, `page overflow at ${width}`);
         assert.equal(size.overflowingValues, 0, `KPI overflow at ${width}`);
+        if (width >= 1200) assert.deepEqual(size.panelEdges, size.lastCardEdges, `markets panel not aligned with the last KPI card at ${width}`);
         // Small screens: manual swipe only, no looping copy.
         if (width <= 768) assert.equal(size.loopCopy, 'none');
         assert.equal(size.startVisible, true, `period stats hidden at ${width}`);

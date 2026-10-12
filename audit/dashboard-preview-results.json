@@ -14,6 +14,14 @@
       "leftHeight": 707,
       "sparklines": 7,
       "loopCopy": "flex",
+      "panelEdges": [
+        1582,
+        1896
+      ],
+      "lastCardEdges": [
+        1582,
+        1896
+      ],
       "main": 1680,
       "overflowingValues": 0
     },
@@ -30,6 +38,14 @@
       "leftHeight": 786,
       "sparklines": 7,
       "loopCopy": "flex",
+      "panelEdges": [
+        1062,
+        1342
+      ],
+      "lastCardEdges": [
+        1062,
+        1342
+      ],
       "main": 1126,
       "overflowingValues": 0
     },
@@ -46,7 +62,15 @@
       "leftHeight": 799,
       "sparklines": 7,
       "loopCopy": "none",
-      "main": 764.015625,
+      "panelEdges": [
+        20,
+        752
+      ],
+      "lastCardEdges": [
+        20,
+        752
+      ],
+      "main": 764.03125,
       "overflowingValues": 0
     },
     {
@@ -62,6 +86,14 @@
       "leftHeight": 856,
       "sparklines": 7,
       "loopCopy": "none",
+      "panelEdges": [
+        16,
+        374
+      ],
+      "lastCardEdges": [
+        16,
+        374
+      ],
       "main": 390,
       "overflowingValues": 0
     },
@@ -78,6 +110,14 @@
       "leftHeight": 856,
       "sparklines": 7,
       "loopCopy": "none",
+      "panelEdges": [
+        16,
+        344
+      ],
+      "lastCardEdges": [
+        16,
+        344
+      ],
       "main": 360,
       "overflowingValues": 0
     }
