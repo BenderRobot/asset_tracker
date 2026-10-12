@@ -417,8 +417,8 @@ export class InvestmentsPage {
                 </td>
                 <td>${escapeHtml(p.name)}</td>
                 <td>${formatQuantity(p.quantity)}</td>
-                <td>${formatCurrency(p.avgPrice, 'EUR')}</td>
-                <td>${formatCurrency(p.invested, 'EUR')}</td>
+                <td><span class="badge badge-pru" title="Prix de revient unitaire (PRU)">${formatCurrency(p.avgPrice, 'EUR')}</span></td>
+                <td><span class="badge badge-invested" title="Montant engagé dans la position (coût de revient)"><i class="ph ph-lock-simple" aria-hidden="true"></i>${formatCurrency(p.invested, 'EUR')}</span></td>
                 <td>${formatCurrency(p.currentPrice, 'EUR')}</td>
                 <td>${formatCurrency(p.currentValue, 'EUR')}</td>
                 <td class="${p.gainEUR > 0 ? 'positive' : p.gainEUR < 0 ? 'negative' : ''}">${formatCurrency(p.gainEUR, 'EUR')}</td>

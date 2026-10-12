@@ -65,6 +65,32 @@
     border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
+/* PRU: the orange of the chart's PRU line. */
+.badge-pru {
+    background: rgba(255, 159, 67, 0.13);
+    color: #ff9f43;
+    border: 1px solid rgba(255, 159, 67, 0.4);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Invested: the locked-in cost, greyed. */
+.badge-invested {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(148, 163, 184, 0.1);
+    color: #cbd5e1;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.badge-invested i {
+    font-size: 11px;
+    opacity: 0.7;
+}
+
 /* === FILTRE DE TICKER (dropdown) === */
 .filters-container {
     display: flex;
