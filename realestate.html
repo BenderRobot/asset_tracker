@@ -188,13 +188,23 @@
         .residence-name { font-size: 18px; font-weight: 600; color: var(--text-primary); }
         .residence-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
 
+        /* Titre sur sa propre ligne : les deux colonnes démarrent et finissent à la même hauteur */
         .residence-dashboard {
             display: grid;
             grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-            gap: 16px;
+            grid-template-areas:
+                "title ."
+                "main  side";
+            gap: 0 16px;
         }
 
-        .residence-side { display: flex; flex-direction: column; gap: 16px; }
+        .residence-dashboard-title { grid-area: title; }
+        .residence-main { grid-area: main; display: flex; flex-direction: column; min-width: 0; }
+        .residence-side { grid-area: side; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+        /* Le graphique absorbe la hauteur restante de la colonne */
+        .re-panel--grow { flex: 1; display: flex; flex-direction: column; }
+        .re-panel--grow .re-chart-small { flex: 1; min-height: 230px; }
 
         .re-subtitle {
             display: flex;
@@ -276,6 +286,9 @@
 
         .re-schedule-table {
             width: 100%;
+            border: 0;
+            border-radius: 0;
+            background: transparent;
             border-collapse: collapse;
             font-size: 13px;
             font-variant-numeric: tabular-nums;
@@ -287,8 +300,12 @@
             font-weight: 500;
             text-align: left;
             color: var(--text-muted);
+            text-transform: none;
+            cursor: default;
             border-bottom: 1px solid var(--border-color);
         }
+
+        .re-schedule-table thead { background: transparent; }
 
         .re-schedule-table td {
             padding: 10px 8px;
@@ -543,7 +560,12 @@
         }
 
         @media (max-width: 900px) {
-            .residence-dashboard { grid-template-columns: 1fr; }
+            .residence-dashboard {
+                grid-template-columns: minmax(0, 1fr);
+                grid-template-areas: "title" "main" "side";
+                gap: 0;
+            }
+            .residence-side { margin-top: 12px; }
             .credit-row-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .credit-field--name { grid-column: 1 / -1; }
             .credit-row-item .btn-icon-danger { grid-column: 1 / -1; width: 100%; }

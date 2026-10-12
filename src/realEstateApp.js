@@ -573,10 +573,10 @@ export class RealEstateApp {
             </div>
 
             <div class="residence-dashboard">
-                <div>
-                    <div class="re-subtitle">
-                        <span>Financement · ${creditCount} crédit${creditCount > 1 ? 's' : ''}</span>
-                    </div>
+                <div class="re-subtitle residence-dashboard-title">
+                    <span>Financement · ${creditCount} crédit${creditCount > 1 ? 's' : ''}</span>
+                </div>
+                <div class="residence-main">
                     <div class="credits-container">
                         ${details.map((d, i) => this.renderCreditCard(d, CREDIT_COLORS[i % CREDIT_COLORS.length])).join('') || '<div class="re-empty">Aucun crédit renseigné.</div>'}
                     </div>
@@ -597,7 +597,7 @@ export class RealEstateApp {
                     </div>
 
                     ${details.length ? `
-                    <div class="re-panel">
+                    <div class="re-panel re-panel--grow">
                         <div class="re-subtitle"><span>Évolution de la dette</span></div>
                         <div class="re-chart-small"><canvas id="debt-chart"></canvas></div>
                         <div class="re-chart-note">Valeur nette calculée à valeur du bien constante.</div>

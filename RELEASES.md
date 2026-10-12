@@ -57,6 +57,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.30` | 2026-10-12 | fix claude tab 4 | — |
 | `1.17.31` | 2026-10-12 | fix claude tab 5 | — |
 | `1.17.32` | 2026-10-12 | fix claude tab ammortissement | — |
+| `1.17.33` | 2026-10-12 | fix claude immo visuel | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les
