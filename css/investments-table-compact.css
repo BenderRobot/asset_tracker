@@ -248,11 +248,14 @@
     }
 
     /* Largeurs fixes des colonnes (sur le header) */
-    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(1) { width: 26% !important; }
-    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(2) { width: 18% !important; text-align: right !important; }
-    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(3) { width: 9% !important; text-align: center !important; }
-    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(4) { width: 22% !important; text-align: right !important; }
-    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(5) { width: 25% !important; text-align: right !important; padding-right: 6px !important; }
+    /* Six columns; the sub-table scrolls horizontally (see the hint above it). */
+    #investments-table tbody tr.purchases-row .purchases-sub-table { min-width: 560px !important; }
+    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(1) { width: 20% !important; }
+    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(2) { width: 15% !important; }
+    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(3) { width: 14% !important; text-align: right !important; }
+    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(4) { width: 9% !important; text-align: right !important; }
+    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(5) { width: 16% !important; text-align: right !important; }
+    #investments-table tbody tr.purchases-row .purchases-sub-table thead th:nth-child(6) { width: 26% !important; text-align: right !important; padding-right: 6px !important; }
 
     #investments-table tbody tr.purchases-row .purchases-sub-table tbody {
         display: table-row-group !important;
@@ -281,44 +284,36 @@
         border-bottom: none !important;
     }
 
-    /* DATE */
-    #investments-table tbody tr.purchase-detail-row td:nth-child(1) {
-        color: var(--text-muted) !important;
-    }
-
-    /* PRIX D'ACHAT */
+    /* TYPE · COURTIER, DATE */
+    #investments-table tbody tr.purchase-detail-row td:nth-child(1),
     #investments-table tbody tr.purchase-detail-row td:nth-child(2) {
-        text-align: right !important;
         color: var(--text-muted) !important;
     }
 
-    /* QUANTITÉ */
-    #investments-table tbody tr.purchase-detail-row td:nth-child(3) {
-        text-align: center !important;
-    }
-
-    /* GAIN : afficher uniquement le badge % */
-    #investments-table tbody tr.purchase-detail-row td:nth-child(4) {
+    /* PRIX UNITAIRE, QUANTITÉ, MONTANT BRUT */
+    #investments-table tbody tr.purchase-detail-row td:nth-child(3),
+    #investments-table tbody tr.purchase-detail-row td:nth-child(4),
+    #investments-table tbody tr.purchase-detail-row td:nth-child(5) {
         text-align: right !important;
     }
 
-    #investments-table tbody tr.purchase-detail-row td:nth-child(4) span:not(.badge) {
-        display: none !important;
-    }
-
-    #investments-table tbody tr.purchase-detail-row td:nth-child(4) .badge {
-        font-size: 9px !important;
-        padding: 2px 5px !important;
-        display: inline-block !important;
-    }
-
-    /* VALEUR */
-    #investments-table tbody tr.purchase-detail-row td:nth-child(5) {
+    /* +/- DEPUIS L'ACHAT : montant et badge % */
+    #investments-table tbody tr.purchase-detail-row td:nth-child(6) {
         text-align: right !important;
         font-weight: 600 !important;
         font-size: 11px !important;
-        color: var(--text-primary) !important;
         padding-right: 6px !important;
+    }
+
+    #investments-table tbody tr.purchase-detail-row td:nth-child(6) .purchase-gain-amount {
+        margin-right: 4px !important;
+    }
+
+    #investments-table tbody tr.purchase-detail-row td:nth-child(6) .badge {
+        font-size: 9px !important;
+        padding: 2px 5px !important;
+        min-width: 0 !important;
+        display: inline-block !important;
     }
 
     /* Annuler le ::after data-quantity du td global (ici = date) */

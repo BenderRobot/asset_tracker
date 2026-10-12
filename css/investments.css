@@ -616,6 +616,20 @@
     color: #10b981;
 }
 
+/* Gain since the purchase: amount then its % badge, on one line. */
+.purchases-sub-table td.purchase-gain {
+    white-space: nowrap;
+}
+
+.purchases-sub-table .purchase-gain-amount {
+    margin-right: 8px;
+    font-weight: 700;
+}
+
+.purchases-sub-table .purchase-gain-none {
+    color: var(--text-muted);
+}
+
 .purchases-sub-table .negative {
     color: #ef4444;
 }
@@ -709,7 +723,7 @@
    column stays in the DOM for the mobile layout), numbers right-aligned in
    fixed-width digits, position weight under the value. */
 @media (min-width: 769px) {
-    #investments-table thead th:nth-child(2),
+    #investments-table > thead > tr > th:nth-child(2),
     #investments-table tbody tr.asset-row > td:nth-child(2) { display: none; }
 
     #investments-table .investment-asset-text strong {
@@ -728,9 +742,15 @@
         letter-spacing: 0.04em;
     }
 
-    #investments-table thead th:nth-child(n+3),
+    #investments-table > thead > tr > th:nth-child(n+3),
     #investments-table tbody tr.asset-row > td.num {
         text-align: right;
+    }
+
+    /* Purchases sub-table: numbers right-aligned under their headings. */
+    #investments-table .purchases-sub-table :is(th, td).num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
     }
 
     #investments-table tbody tr.asset-row > td.num {

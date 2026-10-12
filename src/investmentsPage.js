@@ -6,6 +6,7 @@
 
 import { PAGE_SIZE } from './config.js';
 import { formatCurrency, formatQuantity } from './utils.js';
+import { resolveHistoricalUsdToEurRate } from './MarketUtils.js';
 import { renderCompanyLogo } from './logoUtils.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
 import { mountViewToggle } from './chartViewToggle.js';
@@ -366,13 +367,32 @@ export class InvestmentsPage {
         }).format(Number(purchase.price));
         const qty = purchase.quantity != null ? formatQuantity(Math.abs(Number(purchase.quantity))) : '—';
 
+        // Gain since this purchase (buys only): its cost at the USD→EUR rate of
+        // the purchase day (invariant 9), against the position's current EUR
+        // price. Fail-closed: no invented cost when that rate is unavailable.
+        let gainCell = '<span class="purchase-gain-none">—</span>';
+        if (!isSale && Number(purchase.quantity) > 0 && Number.isFinite(p.currentPrice) && purchase.price != null) {
+          const buyRate = buyCurrency === 'USD'
+            ? resolveHistoricalUsdToEurRate(purchase.date, this.dataManager.getCachedHistoricalFxMap?.(),
+                this.storage.getConversionRate?.('USD_TO_EUR'), { ticker: p.ticker, broker: purchase.broker })
+            : 1;
+          const costEUR = buyRate > 0 ? Number(purchase.price) * Number(purchase.quantity) * buyRate : null;
+          if (costEUR > 0) {
+            const gainEUR = settleZero(p.currentPrice * Number(purchase.quantity) - costEUR);
+            const gainPct = settleZero(gainEUR / costEUR * 100);
+            gainCell = `<span class="purchase-gain-amount ${toneClass(gainEUR, 'positive', 'negative', 'neutral-value')}">${gainEUR > 0 ? '+' : ''}${formatCurrency(gainEUR, 'EUR')}</span>`
+              + `<span class="badge ${toneClass(gainPct, 'badge-positive', 'badge-negative', 'badge-neutral')}">${formatInvestmentPercent(gainPct)}</span>`;
+          }
+        }
+
         return `
           <tr class="purchase-detail-row">
             <td>${isSale ? 'Vente' : 'Achat'} · ${escapeHtml(purchase.broker || 'Courtier inconnu')}</td>
             <td>${dateStr}</td>
-            <td>${unitPrice}</td>
-            <td>${qty}</td>
-            <td>${formatMovementAmount(purchase.price, purchase.quantity, buyCurrency)}</td>
+            <td class="num">${unitPrice}</td>
+            <td class="num">${qty}</td>
+            <td class="num">${formatMovementAmount(purchase.price, purchase.quantity, buyCurrency)}</td>
+            <td class="num purchase-gain">${gainCell}</td>
           </tr>
         `;
       }).join('');
@@ -396,9 +416,10 @@ export class InvestmentsPage {
                   <tr>
                     <th>TYPE · COURTIER</th>
                     <th>DATE</th>
-                    <th>PRIX UNITAIRE</th>
-                    <th>QUANTITÉ</th>
-                    <th>MONTANT BRUT</th>
+                    <th class="num">PRIX UNITAIRE</th>
+                    <th class="num">QUANTITÉ</th>
+                    <th class="num">MONTANT BRUT</th>
+                    <th class="num" title="Évolution du cours depuis chaque achat, appliquée à la quantité achetée (taux de change du jour de l'achat). Non calculé pour les ventes.">+/- DEPUIS L'ACHAT</th>
                   </tr>
                 </thead>
                 <tbody>

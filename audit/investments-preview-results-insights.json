@@ -915,7 +915,7 @@
       "width": 768,
       "documentWidth": 768,
       "firstPositionY": 2256,
-      "tableWidth": 729,
+      "tableWidth": 734,
       "visibleFirstRowCells": [
         "Apple\nAAPL\n30 titres",
         "6 300,00 €",
@@ -954,7 +954,7 @@
         20,
         20
       ],
-      "primaryGridWidth": 729,
+      "primaryGridWidth": 734,
       "secondaryCardTops": [
         299,
         537,
@@ -963,11 +963,11 @@
         1249
       ],
       "secondaryCardWidths": [
-        729,
-        729,
-        729,
-        729,
-        729
+        734,
+        734,
+        734,
+        734,
+        734
       ],
       "secondaryCardHeights": [
         226,
@@ -979,16 +979,16 @@
       "cashCardContentHeight": 229,
       "rankingCardContentHeight": 209,
       "primaryGridEdges": [
-        23,
+        18,
         752
       ],
       "secondaryGridEdges": [
-        23,
+        18,
         752
       ],
       "chartTop": 1520,
       "cashInInsightsGrid": true,
-      "summaryGridWidth": 729,
+      "summaryGridWidth": 734,
       "rowFocusable": false,
       "sortableHeadersFocusable": false,
       "clearButtonSize": [
@@ -1210,14 +1210,16 @@
             "1 janv. 2025",
             "100,00 €",
             "10",
-            "1 000,00 €"
+            "1 000,00 €",
+            "+1 000,00 €+100,00 %"
           ],
           [
             "Vente · TR",
             "1 févr. 2025",
             "150,00 €",
             "5",
-            "750,00 €"
+            "750,00 €",
+            "—"
           ]
         ]
       },
