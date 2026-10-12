@@ -49,6 +49,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.22` | 2026-10-12 | fix claude style investments kpi 5 | — |
 | `1.17.23` | 2026-10-12 | fix claude visuel chart | — |
 | `1.17.24` | 2026-10-12 | fix claude visuel chart 1 | — |
+| `1.17.25` | 2026-10-12 | fix claude nom kpi main | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les
