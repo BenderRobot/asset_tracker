@@ -21,7 +21,7 @@ import { getAuthHeader } from './authFetchHeaders.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
 import { marketDataMetrics } from './marketDataMetrics.js';
 import { mountPerformerTable } from './performerTable.js';
-import { FUTURE_ACCENT_COLOR, selectIndexDisplayInstrument } from './indexFutures.js';
+import { selectIndexDisplayInstrument } from './indexFutures.js';
 import { ALLOCATION_TYPES, buildAllocationTimeline, calculateCurrentAllocation } from './allocation.js';
 import { buildNewsHoldingDetails, getHeldAssetNames } from './newsHoldingMatcher.js';
 import { buildWatchlistContext } from './watchlistContext.js';
@@ -135,6 +135,7 @@ export class DashboardApp {
 
         // Portfolio movers ticker: fed by each snapshot, no network timer of its own.
         this.marketTicker = new MarketTicker(document.getElementById('market-ticker'), item => this.selectTickerAsset(item));
+        this.setupTickerSource();
 
         // === CRITICAL: Subscribe to centralized KPIs ===
         this.subscribeToKPIs();
@@ -167,6 +168,7 @@ export class DashboardApp {
         this.loadPortfolioNews();
         this.loadGlobalNews();
         await this.loadMarketIndices();
+        await this.refreshSelectedTicker();
 
         //Auto-refresh every 30 seconds to keep KPIs (Top Asset, Asset Allocation) in sync with Index prices
         if (this._refreshInterval) clearInterval(this._refreshInterval);
@@ -312,12 +314,13 @@ export class DashboardApp {
         this.lastHoldings = holdings;
         const portfolio = snapshot.portfolioSnapshot;
         const staleInstruments = [...new Set([...(portfolio.staleInstruments || []), ...(result.staleInstruments || [])])];
-        this.marketTicker?.update(selectPortfolioMovers(holdings, {
+        this._portfolioTickerItems = selectPortfolioMovers(holdings, {
             priceQuotes: snapshot._engine.todayGraphData?.resolvedPrices,
             lastSessionPerformance: snapshot._engine.todayGraphData?.perTickerLastSessionPerformance,
             staleInstruments,
             staleAll: !!(stale || degraded) && staleInstruments.length === 0
-        }));
+        });
+        if (this.tickerSource?.type === 'portfolio') this.marketTicker?.update(this._portfolioTickerItems);
         this.renderDailyContributions(portfolio, { previousSession, stale: !!(stale || degraded),
             reconciliation: auditDashboardSnapshot(snapshot) });
         this.lastCashTotal = cashReserve.total;
@@ -353,6 +356,110 @@ export class DashboardApp {
         if (!stale && !degraded && snapshot.portfolioSnapshot.status === 'valid' && this._notifiedSnapshotId !== snapshot.snapshotId) {
             this._notifiedSnapshotId = snapshot.snapshotId;
             this.notificationManager?.checkAll(this.storage.currentData, engineSummary);
+        }
+    }
+
+    setupTickerSource() {
+        try { this.tickerSource = JSON.parse(localStorage.getItem('dashboard_ticker_source_v1')) || { type: 'portfolio' }; }
+        catch { this.tickerSource = { type: 'portfolio' }; }
+        if (!['portfolio', 'indices', 'group'].includes(this.tickerSource.type)) this.tickerSource = { type: 'portfolio' };
+        const button = document.getElementById('ticker-source-button');
+        const menu = document.getElementById('ticker-source-menu');
+        if (!button || !menu) return;
+        const close = () => { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); };
+        button.addEventListener('click', () => {
+            if (!menu.hidden) { close(); return; }
+            this.renderTickerSourceMenu();
+            menu.hidden = false;
+            button.setAttribute('aria-expanded', 'true');
+            menu.querySelector('button')?.focus();
+        });
+        menu.addEventListener('click', event => {
+            const option = event.target.closest('[data-source-type]');
+            if (!option) return;
+            this.tickerSource = { type: option.dataset.sourceType, id: option.dataset.groupId || undefined };
+            try { localStorage.setItem('dashboard_ticker_source_v1', JSON.stringify(this.tickerSource)); } catch { /* storage optional */ }
+            close();
+            button.focus();
+            this.renderTickerSourceMenu();
+            this.refreshSelectedTicker();
+        });
+        document.addEventListener('click', event => {
+            if (!button.contains(event.target) && !menu.contains(event.target)) close();
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !menu.hidden) { close(); button.focus(); }
+        });
+        menu.addEventListener('keydown', event => {
+            const options = [...menu.querySelectorAll('button')];
+            const current = options.indexOf(document.activeElement);
+            if (event.key === 'Tab') { close(); return; }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
+                : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+            options[next]?.focus();
+        });
+        const groupsChanged = () => { this.renderTickerSourceMenu(); this.refreshSelectedTicker(); };
+        window.addEventListener('watchlist-groups-updated', groupsChanged);
+        window.addEventListener('watchlist-updated', groupsChanged);
+        this.renderTickerSourceMenu();
+    }
+
+    renderTickerSourceMenu() {
+        const menu = document.getElementById('ticker-source-menu');
+        const label = document.getElementById('ticker-source-name');
+        if (!menu || !label) return;
+        const groups = this.storage.getWatchlistGroups?.() || [];
+        if (this.tickerSource.type === 'group' && !groups.some(group => String(group.id) === String(this.tickerSource.id))) {
+            this.tickerSource = { type: 'portfolio' };
+            try { localStorage.setItem('dashboard_ticker_source_v1', JSON.stringify(this.tickerSource)); } catch { /* storage optional */ }
+        }
+        const current = this.tickerSource;
+        label.textContent = current.type === 'indices' ? 'Indices' : current.type === 'group'
+            ? groups.find(group => String(group.id) === String(current.id))?.name || 'Watchlist' : 'Mes actifs';
+        menu.replaceChildren();
+        const options = [{ type: 'portfolio', name: 'Mes actifs' }, { type: 'indices', name: 'Indices' },
+            ...groups.map(group => ({ type: 'group', id: String(group.id), name: group.name }))];
+        for (const option of options) {
+            const node = document.createElement('button');
+            node.type = 'button';
+            node.setAttribute('role', 'menuitemradio');
+            node.setAttribute('aria-checked', String(current.type === option.type && (option.type !== 'group' || String(current.id) === option.id)));
+            node.dataset.sourceType = option.type;
+            if (option.id) node.dataset.groupId = option.id;
+            node.textContent = option.type === 'group' ? `Watchlist · ${option.name}` : option.name;
+            menu.append(node);
+        }
+    }
+
+    quoteTickerItem(ticker, name, quote) {
+        const view = presentDashboardQuote(ticker, quote);
+        return { ticker, name, pct: view.pct, pctText: view.pctText, priceText: view.priceText,
+            amountText: '', state: view.session === 'OPEN' ? 'open' : view.session === 'CLOSED' ? 'closed'
+                : view.session === 'CONTINUOUS' ? 'continuous' : 'unknown',
+            stateLabel: view.status, freshnessLabel: view.time, stale: !!quote?.stale, detail: view.detail };
+    }
+
+    async refreshSelectedTicker() {
+        const generation = this._tickerSourceGeneration = (this._tickerSourceGeneration || 0) + 1;
+        const source = this.tickerSource || { type: 'portfolio' };
+        const empty = document.querySelector('#market-ticker .ticker-empty-label');
+        if (empty) empty.textContent = source.type === 'portfolio' ? 'Aucune position cotée à afficher.' : 'Aucun actif à afficher dans cette sélection.';
+        if (source.type === 'portfolio') {
+            this.marketTicker?.update(this._portfolioTickerItems || []);
+        } else if (source.type === 'indices') {
+            this.marketTicker?.update((this._lastMarketRows || []).map(row => this.quoteTickerItem(row.targetTicker, row.idx.name, row.quote)));
+        } else {
+            const group = (this.storage.getWatchlistGroups?.() || []).find(item => String(item.id) === String(source.id));
+            if (!group) { this.tickerSource = { type: 'portfolio' }; this.renderTickerSourceMenu(); this.marketTicker?.update(this._portfolioTickerItems || []); return; }
+            const watchlist = this.storage.getWatchlist?.() || [];
+            const tickers = [...new Set((Array.isArray(group.tickers) ? group.tickers : []).filter(ticker => typeof ticker === 'string' && ticker))];
+            if (!tickers.length) { this.marketTicker?.update([]); return; }
+            const quotes = await Promise.all(tickers.map(ticker => this.api.fetchIndexDataForDashboard(ticker).catch(() => null)));
+            if (generation !== this._tickerSourceGeneration) return;
+            this.marketTicker?.update(tickers.map((ticker, index) => this.quoteTickerItem(ticker,
+                watchlist.find(item => item.ticker === ticker)?.name || ticker, quotes[index])));
         }
     }
 
@@ -410,7 +517,7 @@ export class DashboardApp {
             }
         }
         if (state) {
-            state.textContent = data.status === 'partial' ? 'Décomposition partielle' : data.status === 'mismatch' ? 'Écart à vérifier' : stale && !['previous-session', 'unavailable'].includes(data.status) ? 'Dernier état connu' : 'Voir le détail';
+            state.textContent = data.status === 'partial' ? 'Décomposition partielle' : data.status === 'mismatch' ? 'Écart à vérifier' : stale && !['previous-session', 'unavailable'].includes(data.status) ? 'Dernier état connu' : '';
         }
         if (!panel) return;
         const summary = panel.querySelector('.contributions-summary');
@@ -1165,14 +1272,19 @@ export class DashboardApp {
                     <span class="market-card-title"></span><span class="market-source-badge market-source-future"></span>
                     <span class="market-card-price"></span><span class="market-card-change"></span>
                     <span class="market-card-session"></span><span class="market-card-time"></span>
-                </button><button type="button" class="market-card-delete"><i class="ph ph-x" aria-hidden="true"></i></button>`;
+                </button><div class="market-card-actions">
+                    <button type="button" class="market-card-move-up" title="Monter" aria-label="Monter dans la liste"><i class="ph ph-arrow-up" aria-hidden="true"></i></button>
+                    <button type="button" class="market-card-move-down" title="Descendre" aria-label="Descendre dans la liste"><i class="ph ph-arrow-down" aria-hidden="true"></i></button>
+                    <button type="button" class="market-card-delete"><i class="ph ph-x" aria-hidden="true"></i></button>
+                </div>`;
                 container.append(card);
             }
+            // Re-append existing nodes in the saved order, including after a refresh.
+            container.append(card);
             card.dataset.instrumentTicker = targetTicker;
             const isContract = targetTicker.endsWith('=F');
             card.dataset.instrumentType = isContract ? 'future' : 'cash';
             card.classList.toggle('market-card-future', isFuturesSwap);
-            card.style.border = isFuturesSwap ? `1px solid ${FUTURE_ACCENT_COLOR}` : '';
             card.querySelector('.market-card-title').textContent = idx.name;
             const futureBadge = card.querySelector('.market-source-future');
             futureBadge.hidden = !isContract;
@@ -1198,6 +1310,15 @@ export class DashboardApp {
             remove.setAttribute('aria-label', `Retirer ${idx.name} des marchés favoris`);
             remove.title = `Retirer ${idx.name}`;
             remove.onclick = () => this.removeIndex(idx.ticker);
+            const position = rows.indexOf(row);
+            const up = card.querySelector('.market-card-move-up');
+            const down = card.querySelector('.market-card-move-down');
+            up.disabled = position === 0;
+            down.disabled = position === rows.length - 1;
+            up.setAttribute('aria-label', `Monter ${idx.name} dans la liste`);
+            down.setAttribute('aria-label', `Descendre ${idx.name} dans la liste`);
+            up.onclick = () => this.moveIndex(idx.ticker, -1);
+            down.onclick = () => this.moveIndex(idx.ticker, 1);
         }
         let empty = container.querySelector('.markets-empty');
         if (!rows.length && !empty) {
@@ -1207,6 +1328,7 @@ export class DashboardApp {
             container.append(empty);
         } else if (rows.length) empty?.remove();
         if (Object.keys(notificationQuotes).length) this.notificationManager?.checkAll(notificationQuotes);
+        if (this.tickerSource?.type === 'indices') this.refreshSelectedTicker();
         this.renderMarketSparklines(rows, generation);
     }
 
@@ -1306,6 +1428,16 @@ export class DashboardApp {
         this.saveCustomIndices(updated);
         const cardId = `market-card-${ticker.replace(/[^a-zA-Z0-9]/g, '-')}`;
         document.getElementById(cardId)?.remove();
+        this.loadMarketIndices();
+    }
+
+    moveIndex(ticker, direction) {
+        const current = this.getCustomIndices();
+        const from = current.findIndex(item => item.ticker === ticker);
+        const to = from + direction;
+        if (from < 0 || to < 0 || to >= current.length) return;
+        [current[from], current[to]] = [current[to], current[from]];
+        this.saveCustomIndices(current);
         this.loadMarketIndices();
     }
 
@@ -1425,7 +1557,16 @@ export class DashboardApp {
         const grid = document.getElementById('add-index-grid');
         if (!grid) return;
 
-        const items = catalogue[activeTab] || [];
+        const items = activeTab === 'Watchlist'
+            ? (this.storage.getWatchlistGroups?.() || []).flatMap(group => (Array.isArray(group.tickers) ? group.tickers : []).map(ticker => ({
+                ticker, name: (this.storage.getWatchlist?.() || []).find(asset => asset.ticker === ticker)?.name || ticker,
+                icon: '◉', groupName: group.name, format: 'asset'
+            })))
+            : catalogue[activeTab] || [];
+        if (activeTab === 'Watchlist' && !items.length) {
+            grid.textContent = 'Aucun actif dans les groupes de votre watchlist.';
+            return;
+        }
         grid.innerHTML = items.map(item => {
             const isAdded = currentTickers.has(item.ticker);
             const iconHTML = item.icon.includes('http')
@@ -1436,7 +1577,7 @@ export class DashboardApp {
                     <div class="add-index-item-icon">${iconHTML}</div>
                     <div>
                         <div class="add-index-item-name">${escHtml(item.name)}</div>
-                        <div class="add-index-item-ticker">${escHtml(item.ticker)}</div>
+                        <div class="add-index-item-ticker">${escHtml(item.ticker)}${item.groupName ? ` · ${escHtml(item.groupName)}` : ''}</div>
                     </div>
                     <span class="add-index-item-action" style="color:${isAdded ? '#10b981' : '#818cf8'};"><i class="ph ${isAdded ? 'ph-check' : 'ph-plus'}" aria-hidden="true"></i></span>
                 </button>`;
@@ -1771,6 +1912,7 @@ export class DashboardApp {
             // désynchroniser les KPI du haut par rapport au graphique.
             if (document.hidden) return;
             await Promise.all([this.loadPortfolioData(), this.loadMarketIndices()]);
+            if (this.tickerSource?.type === 'group') this.refreshSelectedTicker();
             if (this.chart) await this.chart.update(false, false);
         } finally {
             this._refreshing = false;

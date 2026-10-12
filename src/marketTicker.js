@@ -156,9 +156,11 @@ export class MarketTicker {
         for (const node of this.track.querySelectorAll('[data-ticker]')) {
             const item = this.items.get(node.dataset.ticker);
             const tone = item.pct > 0 ? 'stat-positive' : item.pct < 0 ? 'stat-negative' : 'stat-neutral';
-            const pctText = `${item.pct > 0 ? '▲ +' : item.pct < 0 ? '▼ ' : ''}${pctFormat.format(item.pct)} %`;
-            const priceText = Number.isFinite(item.price) ? eurFormat.format(item.price) : '—';
-            const amountText = item.change === null ? '' : `${item.change > 0 ? '+' : ''}${eurFormat.format(item.change)}`;
+            const pctText = item.pctText ?? (Number.isFinite(item.pct)
+                ? `${item.pct > 0 ? '▲ +' : item.pct < 0 ? '▼ ' : ''}${pctFormat.format(item.pct)} %` : '—');
+            const priceText = item.priceText ?? (Number.isFinite(item.price) ? eurFormat.format(item.price) : '—');
+            const amountText = item.amountText ?? (Number.isFinite(item.change)
+                ? `${item.change > 0 ? '+' : ''}${eurFormat.format(item.change)}` : '');
             node.classList.remove('is-open', 'is-closed', 'is-continuous', 'is-unknown', 'is-stale');
             node.classList.add(`is-${item.state}`);
             node.classList.toggle('is-stale', !!item.stale);

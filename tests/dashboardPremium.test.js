@@ -323,6 +323,47 @@ describe('Dashboard ticker and feeds', () => {
         expect(document.body.textContent).toContain('Indisponible');
         expect(document.querySelector('.market-card').classList.contains('stat-neutral')).toBe(true);
     });
+    it('keeps the saved market order and moves an asset from first to second position', async () => {
+        const app = Object.create(DashboardApp.prototype);
+        document.body.innerHTML = '<div id="market-overview-container"></div>';
+        let saved = [{ ticker: 'ASML.AS', name: 'ASML' }, { ticker: '^NDX', name: 'Nasdaq 100' }];
+        Object.assign(app, { getCustomIndices: () => saved, saveCustomIndices: next => { saved = next; },
+            getMarketStatus: () => 'MARKET_OPEN', api: { fetchIndexDataForDashboard: vi.fn().mockResolvedValue(null) },
+            storage: { currentData: {}, setCurrentPrice: vi.fn() } });
+        await app.loadMarketIndices();
+        expect([...document.querySelectorAll('.market-card-title')].map(node => node.textContent)).toEqual(['ASML', 'Nasdaq 100']);
+        app.moveIndex('ASML.AS', 1);
+        await vi.waitFor(() => expect([...document.querySelectorAll('.market-card-title')].map(node => node.textContent))
+            .toEqual(['Nasdaq 100', 'ASML']));
+        expect(saved.map(item => item.ticker)).toEqual(['^NDX', 'ASML.AS']);
+    });
+    it('lists watchlist groups and uses native quotes for a selected group', async () => {
+        const app = Object.create(DashboardApp.prototype);
+        document.body.innerHTML = `<section id="market-ticker"><button id="ticker-source-button" aria-expanded="false"><span id="ticker-source-name"></span></button>
+            <div id="ticker-source-menu" hidden></div><span class="ticker-empty-label"></span><div class="market-ticker-viewport"><div class="market-ticker-track"></div></div></section>`;
+        const quote = normalizeDashboardQuote('ASML.AS', chart({ currency: 'EUR', regularMarketPrice: 900 }), NOW);
+        Object.assign(app, { storage: { getWatchlistGroups: () => [{ id: 'tech', name: 'Tech Europe', tickers: ['ASML.AS'] }],
+            getWatchlist: () => [{ ticker: 'ASML.AS', name: 'ASML' }] },
+            api: { fetchIndexDataForDashboard: vi.fn().mockResolvedValue(quote) } });
+        app.marketTicker = new MarketTicker(document.getElementById('market-ticker'), vi.fn());
+        app.setupTickerSource();
+        document.getElementById('ticker-source-button').click();
+        expect(document.getElementById('ticker-source-menu').textContent).toContain('Watchlist · Tech Europe');
+        document.querySelector('[data-group-id="tech"]').click();
+        await vi.waitFor(() => expect(document.querySelector('.ticker-name')?.textContent).toBe('ASML'));
+        expect(document.querySelector('.ticker-price').textContent).toContain('EUR');
+        expect(document.getElementById('ticker-source-name').textContent).toBe('Tech Europe');
+    });
+    it('offers grouped watchlist assets in the market picker', () => {
+        const app = Object.create(DashboardApp.prototype);
+        document.body.innerHTML = '<div id="add-index-grid"></div><button class="index-tab" data-tab="Watchlist"></button>';
+        Object.assign(app, { storage: { getWatchlistGroups: () => [{ id: 'g', name: 'Semi-conducteurs', tickers: ['ASML.AS'] }],
+            getWatchlist: () => [{ ticker: 'ASML.AS', name: 'ASML' }] }, getCustomIndices: () => [], addIndex: vi.fn(), closeIndicesModal: vi.fn() });
+        app.renderIndexModal('Watchlist');
+        expect(document.getElementById('add-index-grid').textContent).toContain('Semi-conducteurs');
+        document.querySelector('.add-index-item').click();
+        expect(app.addIndex).toHaveBeenCalledWith(expect.objectContaining({ ticker: 'ASML.AS', name: 'ASML' }));
+    });
 });
 
 describe('Daily portfolio contributions', () => {

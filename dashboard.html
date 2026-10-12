@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="css/dashboard.css?v=102">
     <link rel="stylesheet" href="css/dashboard-mobile.css?v=6">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=7">
-    <link rel="stylesheet" href="css/dashboard-premium.css?v=6">
+    <link rel="stylesheet" href="css/dashboard-premium.css?v=7">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -55,7 +55,8 @@
     <main class="main-content">
         <div class="container">
             <section id="market-ticker" class="market-ticker" aria-label="Cotations et variations de vos positions, selon la dernière séance disponible">
-                <span class="market-ticker-label"><i class="ph ph-briefcase" aria-hidden="true"></i> Mes actifs</span>
+                <button type="button" id="ticker-source-button" class="market-ticker-label" aria-haspopup="true" aria-expanded="false" aria-controls="ticker-source-menu"><i class="ph ph-briefcase" aria-hidden="true"></i><span id="ticker-source-name">Mes actifs</span><i class="ph ph-caret-down" aria-hidden="true"></i></button>
+                <div id="ticker-source-menu" class="ticker-source-menu" role="menu" hidden></div>
                 <div class="market-ticker-viewport"><div class="market-ticker-track"><span class="ticker-loading">Chargement des positions…</span></div></div>
                 <span class="ticker-empty-label">Aucune position cotée à afficher.</span>
                 <span class="ticker-legend" aria-hidden="true"><span class="legend-dot is-open"></span>Confirmée<span class="legend-dot is-continuous"></span>24/7<span class="legend-dot is-closed"></span>Fermé<span class="legend-dot is-unknown"></span>À confirmer</span>
@@ -277,7 +278,7 @@
                 <div class="kpi-card contribution-kpi-card" data-kpi-type="contributions" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="contributions-modal" aria-label="Variation du jour : voir toutes les contributions" aria-describedby="dashboard-contribution-highlights dashboard-contribution-state">
                     <div class="kpi-header"><span class="kpi-label">Variation du jour</span><i class="ph ph-chart-bar kpi-icon" aria-hidden="true"></i></div>
                     <div id="dashboard-contribution-highlights" class="contribution-highlights" aria-live="polite"></div>
-                    <div id="dashboard-contribution-state" class="contribution-kpi-state"></div>
+                    <div id="dashboard-contribution-state" class="contribution-kpi-state" aria-live="polite"></div>
                 </div>
                 <div class="kpi-card" data-kpi-type="gainer" role="button" tabindex="0">
                     <div class="kpi-header"><span class="kpi-label">Meilleures performances</span><i
@@ -403,6 +404,7 @@
                 <button class="index-tab" data-tab="Crypto">Crypto</button>
                 <button class="index-tab" data-tab="Métaux">Métaux</button>
                 <button class="index-tab" data-tab="Forex">Forex</button>
+                <button class="index-tab" data-tab="Watchlist">Watchlist</button>
             </div>
             <div id="add-index-grid" class="add-index-grid"></div>
         </div>

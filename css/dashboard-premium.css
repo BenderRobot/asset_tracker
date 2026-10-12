@@ -21,6 +21,9 @@
 .dashboard-premium .dashboard-kpi-grid-v2 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .dashboard-premium .kpi-card { min-width: 0; padding: 18px; }
 .dashboard-premium .kpi-header { margin-bottom: 7px; }
+.dashboard-premium .kpi-card[role="button"] .kpi-header { justify-content: flex-start; }
+.dashboard-premium .kpi-card[role="button"] .kpi-header .kpi-label { margin-right: auto; }
+.dashboard-premium .kpi-card[role="button"] .kpi-header::after { content: "↗"; margin-left: 7px; color: #8ab7ff; font-size: 12px; opacity: .75; }
 .dashboard-premium .kpi-label { color: #acb8d0; font-size: 11px; }
 .dashboard-premium .kpi-list-host { margin: 0; font-size: 13px; font-weight: 400; }
 .dashboard-premium .kpi-row-name { font-size: 12px; max-width: none; }
@@ -37,6 +40,7 @@
 .contribution-kpi-placeholder, .contribution-kpi-empty { color: var(--dashboard-muted); font-size: 11px; }
 .contribution-kpi-empty { margin: 18px 0 0; }
 .contribution-kpi-state { margin-top: 6px; color: #8ab7ff; font-size: 10px; }
+.contribution-kpi-state:empty { display: none; }
 .contribution-kpi-card[data-status="partial"] .contribution-kpi-state,
 .contribution-kpi-card[data-status="mismatch"] .contribution-kpi-state { color: #fbbf24; }
 .dashboard-contributions { min-width: 0; padding: 17px 19px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card); }
@@ -74,6 +78,11 @@
 .dashboard-premium .market-card.stat-positive { border-color: rgba(16, 185, 129, .45); border-left-color: #10b981; box-shadow: 0 0 12px rgba(16, 185, 129, .1); }
 .dashboard-premium .market-card.stat-negative { border-color: rgba(239, 68, 68, .45); border-left-color: #ef4444; box-shadow: 0 0 12px rgba(239, 68, 68, .1); }
 .dashboard-premium .market-card:hover { transform: none; border-color: var(--accent-blue); }
+.dashboard-premium .market-card.market-card-future,
+.dashboard-premium .market-card.market-card-future.active-index { background: #0f172a !important; border-color: var(--border-color) !important; border-left-color: #64748b !important; box-shadow: none !important; }
+.dashboard-premium .market-card.market-card-future.stat-positive { border-color: rgba(16, 185, 129, .45) !important; border-left-color: #10b981 !important; box-shadow: 0 0 12px rgba(16, 185, 129, .1) !important; }
+.dashboard-premium .market-card.market-card-future.stat-negative { border-color: rgba(239, 68, 68, .45) !important; border-left-color: #ef4444 !important; box-shadow: 0 0 12px rgba(239, 68, 68, .1) !important; }
+.dashboard-premium .market-card.market-card-future.active-index { outline: 2px solid #60a5fa; outline-offset: 1px; }
 .market-card-spark { position: absolute; inset: 0; pointer-events: none; }
 .dashboard-premium .market-card-open {
     position: relative; z-index: 1; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto;
@@ -81,7 +90,7 @@
     gap: 4px 8px; padding: 10px 12px; border: none; color: var(--text-primary); background: transparent;
     text-align: left; cursor: pointer; font-family: inherit;
 }
-.dashboard-premium .market-card-title { padding-right: 20px; grid-area: title; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+.dashboard-premium .market-card-title { padding-right: 65px; grid-area: title; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
 .dashboard-premium .market-card-price { grid-area: price; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .dashboard-premium .market-card-change { grid-area: change; font-size: 12px; font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dashboard-premium .market-card-session {
@@ -98,9 +107,11 @@
 .dashboard-premium .market-card-time { grid-area: time; align-self: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--dashboard-muted); }
 .dashboard-premium .market-source-badge { grid-area: badge; justify-self: start; font-size: 9px; }
 .dashboard-premium .market-source-badge[hidden] { display: none; }
-.dashboard-premium .market-card-delete { position: absolute; top: 5px; right: 5px; opacity: 0; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: transparent; border: none; border-radius: 6px; color: #a6b2ca; cursor: pointer; z-index: 2; }
-.dashboard-premium .market-card:hover .market-card-delete, .dashboard-premium .market-card-delete:focus-visible { opacity: 1; }
-.dashboard-premium .market-card-delete:hover { color: #fff; background: #263653; }
+.dashboard-premium .market-card-actions { position: absolute; top: 5px; right: 5px; z-index: 2; display: flex; gap: 1px; opacity: 0; }
+.dashboard-premium .market-card:hover .market-card-actions, .dashboard-premium .market-card:focus-within .market-card-actions { opacity: 1; }
+.dashboard-premium .market-card-actions button { width: 22px; height: 24px; padding: 0; display: grid; place-items: center; background: #17243b; border: none; border-radius: 5px; color: #b8c5dc; cursor: pointer; }
+.dashboard-premium .market-card-actions button:hover { color: #fff; background: #263653; }
+.dashboard-premium .market-card-actions button:disabled { opacity: .35; cursor: default; }
 .stat-neutral { color: var(--dashboard-muted); }
 .news-feed-state { padding: 16px; font-size: 13px; color: var(--dashboard-muted); display: flex; align-items: center; gap: 12px; justify-content: space-between; }
 .dashboard-premium .dashboard-feeds-grid { height: auto; align-items: start; }
@@ -111,8 +122,14 @@
 .dashboard-premium button.add-index-item { font: inherit; text-align: left; color: var(--text-primary); min-width: 0; }
 
 /* One translated track, two equal groups. Price updates never replace it. */
-.market-ticker { display: flex; align-items: center; min-width: 0; border: 1px solid #273955; background: #101b30; border-radius: 10px; height: 56px; overflow: hidden; }
-.market-ticker-label { align-self: stretch; display: flex; align-items: center; gap: 7px; padding: 0 16px; border-right: 1px solid #273955; font-size: 11px; font-weight: 650; color: #a5c4f5; background: #13213a; z-index: 1; }
+.market-ticker { position: relative; z-index: 5; display: flex; align-items: center; min-width: 0; border: 1px solid #273955; background: #101b30; border-radius: 10px; height: 56px; }
+.market-ticker-label { align-self: stretch; display: flex; align-items: center; gap: 7px; max-width: min(220px, 45vw); padding: 0 16px; border: 0; border-right: 1px solid #273955; border-radius: 10px 0 0 10px; font: inherit; font-size: 11px; font-weight: 650; color: #a5c4f5; background: #13213a; z-index: 1; cursor: pointer; white-space: nowrap; }
+.market-ticker-label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.market-ticker-label:hover, .market-ticker-label[aria-expanded="true"] { background: #213352; }
+.ticker-source-menu { position: absolute; left: 0; top: calc(100% + 6px); z-index: 50; width: min(285px, 90vw); max-height: 300px; overflow-y: auto; padding: 5px; border: 1px solid #334b71; border-radius: 9px; background: #17243b; box-shadow: 0 12px 30px #0008; }
+.ticker-source-menu[hidden] { display: none; }
+.ticker-source-menu button { display: block; width: 100%; padding: 9px 10px; border: 0; border-radius: 6px; background: transparent; color: #dbeafe; text-align: left; cursor: pointer; font: inherit; font-size: 12px; }
+.ticker-source-menu button:hover, .ticker-source-menu button[aria-checked="true"] { background: #28436d; }
 .market-ticker-viewport { flex: 1; min-width: 0; overflow: hidden; }
 .market-ticker-track { display: flex; width: max-content; animation: market-ticker-scroll var(--ticker-duration, 90s) linear infinite; }
 .market-ticker-group { display: flex; flex-shrink: 0; }
@@ -192,6 +209,7 @@
     .dashboard-premium .kpi-list-row { padding: 8px 0 !important; }
     .dashboard-premium .indices-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .dashboard-premium .market-card-price { font-size: 14px; }
+    .dashboard-premium .market-card-actions { opacity: 1; }
     .dashboard-premium .market-card-open { grid-template-areas: "title title" "badge badge" "price price" "change change" "time time" "session session"; }
     .dashboard-premium .market-card-session { justify-self: start; }
     .market-ticker { height: 60px; }

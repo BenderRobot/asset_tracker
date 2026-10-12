@@ -41,7 +41,7 @@ function makeApp(fetchQuote) {
 }
 
 describe('Dashboard futures presentation', () => {
-    it('shows the followed index through its future with a purple label outside cash hours', async () => {
+    it('shows the followed index through its future with the same directional card style', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(new Date('2026-10-05T20:30:00Z'));
         const fetchQuote = vi.fn().mockResolvedValue({
@@ -58,7 +58,8 @@ describe('Dashboard futures presentation', () => {
         expect(card.dataset.instrumentType).toBe('future');
         expect(card.classList.contains('market-card-future')).toBe(true);
         expect(card.textContent).toContain('FUTURE · ES');
-        expect(card.style.border).toContain('168, 85, 247');
+        expect(card.style.border).toBe('');
+        expect(card.classList.contains('stat-positive')).toBe(true);
     });
 
     it('falls back to the cash index when the futures quote is unavailable', async () => {

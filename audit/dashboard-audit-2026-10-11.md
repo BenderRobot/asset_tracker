@@ -2,6 +2,14 @@
 
 Date : 11 octobre 2026 · mis à jour le 12 octobre 2026 (lot 2).
 
+## Suivi — personnalisation du bandeau et des marchés favoris (12 octobre 2026)
+
+- Le libellé « Mes actifs » du bandeau est maintenant un bouton : il permet de choisir les positions du portefeuille, les indices/marchés favoris de droite ou un groupe existant de la watchlist. Le choix est conservé localement. Les cotations des groupes et des indices gardent leur unité native et leur état de séance ; une cotation indisponible reste affichée comme telle.
+- L'ajout aux marchés favoris propose aussi les actifs des groupes de watchlist. Chaque carte possède des boutons Monter/Descendre pour fixer sa position ; l'ordre enregistré est réappliqué après chaque actualisation. Un actif comme ASML peut ainsi occuper la première place. Les futures gardent leur étiquette de contrat, mais leur bordure et leur fond suivent les mêmes règles de variation et d'état que les autres cartes.
+- La carte « Variation du jour » n'affiche plus « Voir le détail ». Elle reste entièrement ouvrable comme les quatre autres cartes secondaires.
+
+Validation : tests ciblés du sélecteur, de l'ajout depuis la watchlist, de l'ordre sauvegardé et des futures ; contrôle navigateur à 360, 390, 768, 1 366 et 1 920 px sans débordement. Suite complète : 729 tests réussis sur 730 ; seul le décalage préexistant `version.json` 1.17.1 / `RELEASES.md` 1.17.0 échoue. Le portefeuille connecté n'était pas accessible depuis cet environnement.
+
 Périmètre de l'audit initial : capture fournie et lecture du code local du dashboard, de son adaptateur de cotations, de ses styles et de composants partagés. Audit de présentation, d'usage et de contrats de données ; aucun parcours authentifié exécuté, aucun cours actuel vérifié, aucun audit exhaustif des calculs de portefeuille. Les références de lignes décrivent le code avant les changements décrits dans le suivi ci-dessous.
 
 ## Suivi — rapprochement et calendrier de marché (12 octobre 2026)
