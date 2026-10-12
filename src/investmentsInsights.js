@@ -25,7 +25,7 @@ function makeText(tag, className, value) {
 function ensureInsightMarkup() {
     cardDefinitions.forEach(({ id, labelId, title, icon }) => {
         const host = document.getElementById(id);
-        const card = host?.closest('.stat-item');
+        const card = host?.closest('.investment-insight, .stat-item');
         if (!card) return;
         card.classList.add('investment-insight', 'kpi-card');
         if (id === 'cash-reserve') card.classList.add('investment-cash-insight');
@@ -64,6 +64,12 @@ function ensureInsightMarkup() {
             card.setAttribute('aria-describedby', contextId);
         }
         if (id === 'cash-reserve') {
+            const summaryGrid = document.querySelector('.portfolio-summary-enhanced .summary-grid');
+            if (summaryGrid) {
+                card.classList.remove('stat-item');
+                card.classList.add('summary-card');
+                if (card.parentElement !== summaryGrid) summaryGrid.append(card);
+            }
             host.classList.remove('stat-value', 'stat-positive', 'stat-negative');
             host.classList.add('cash-insight-total');
             if (!document.getElementById('cash-wallets')) {

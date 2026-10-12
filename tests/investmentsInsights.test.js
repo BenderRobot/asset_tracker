@@ -70,6 +70,24 @@ describe('Investment mini-classements', () => {
             .toBe('Meilleures performances');
     });
 
+    it('moves a legacy cash card beside the three primary KPIs when their grid exists', () => {
+        document.body.innerHTML = `<div class="portfolio-summary-enhanced">
+            <div class="summary-grid"><div class="summary-card"></div><div class="summary-card"></div><div class="summary-card"></div></div>
+            <div class="summary-stats">
+                <div class="stat-item"><div id="best-day-asset"></div></div>
+                <div class="stat-item"><div id="worst-day-asset"></div></div>
+                <div class="stat-item"><div id="best-asset"></div></div>
+                <div class="stat-item"><div id="worst-asset"></div></div>
+                <div class="stat-item"><div id="cash-reserve"></div></div>
+            </div>
+        </div>`;
+        renderInvestmentInsights([], { total: 300, byBroker: { TR: 200, BOURSO: 100 } });
+        expect(document.querySelectorAll('.summary-grid > .summary-card')).toHaveLength(4);
+        expect(document.querySelector('.summary-grid > .investment-cash-insight')).not.toBeNull();
+        expect(document.querySelectorAll('.summary-stats > .investment-insight')).toHaveLength(4);
+        expect(document.querySelectorAll('#cash-wallets tbody tr')).toHaveLength(2);
+    });
+
     it('recovers a legacy cash breakdown only when it reconciles with the snapshot total', () => {
         const page = Object.create(InvestmentsPage.prototype);
         page.storage = { getPurchases: () => [] };

@@ -2,11 +2,11 @@
 
 Date : 12 octobre 2026. Page : `investments.html`, intitulée « Assets » dans la navigation.
 
-## Suivi — cinq cartes sur une ligne
+## Suivi — deux rangées de quatre cartes
 
-Les quatre classements (meilleures et moins bonnes variations du jour, meilleures et moins bonnes performances depuis achat) **et la carte Cash occupent une seule ligne sur bureau**. Cash conserve son total, sa barre de répartition et le détail de chaque wallet. De 1 251 à 1 600 px, les données des cartes se lisent sur plusieurs lignes pour rester complètes malgré leur largeur réduite. À 1 250 px et en dessous, les cartes passent sur deux colonnes, puis sur une colonne sur mobile. Les trois KPI principaux, puis le graphique et le tableau, gardent leur ordre.
+Le choix final est **deux rangées de quatre cartes sur bureau** : Total Value, Total Return, Var Today et Cash par wallet sur la première ; les quatre classements sur la seconde. Cash conserve son total, sa barre de répartition et le détail de chaque wallet. L'espacement de ses lignes est resserré pour limiter la hauteur de la première rangée. À 1 300 px et en dessous, chaque groupe passe sur deux colonnes ; sur mobile, Cash s'affiche sous les trois KPI principaux et les classements se suivent sur une colonne. Le graphique reste au-dessus du tableau.
 
-Vérification dans Chrome isolé à onze largeurs de 360 à 1 920 px, dont les seuils 1 251, 1 600 et 1 601 px : les cinq cartes partagent une rangée au-dessus de 1 250 px, aucune valeur de classement, aucun nom ni solde de wallet du jeu d'essai n’est coupé ; le rendu mobile à 390 px reste lisible. Le jeu d'essai comprend trois wallets. Captures : [bureau 1 366 px](investments-preview-1366-insights.png), [grand bureau](investments-preview-1920-insights.png), [mobile](investments-preview-390-insights.png). Ces captures utilisent des données fictives.
+Vérification : **755 tests réussis sur 755, 94 fichiers sur 94** ; Chrome isolé à douze largeurs de 360 à 1 920 px, dont 1 300 et 1 301 px. Au-dessus de 1 300 px, les quatre KPI principaux partagent une rangée et les quatre classements la suivante. Aucun montant de classement, nom ou solde de wallet du jeu d'essai n'est coupé ; le rendu mobile à 390 px reste lisible. Le jeu d'essai comprend trois wallets. Le composant de rendu replace aussi une ancienne carte Cash dans la première rangée quand la page gardait l'ancien HTML en mémoire. Captures : [bureau 1 366 px](investments-preview-1366-insights.png), [grand bureau](investments-preview-1920-insights.png), [mobile](investments-preview-390-insights.png). Ces captures utilisent des données fictives.
 
 ## Suivi — style Dashboard et détail des wallets
 

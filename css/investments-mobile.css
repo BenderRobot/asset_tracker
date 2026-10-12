@@ -24,7 +24,7 @@
     }
 
     /* --- MOBILE KPI GRID (Total Value Left / Others Right) --- */
-    .summary-grid {
+    .portfolio-summary-enhanced .summary-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
         grid-template-rows: auto auto;
@@ -69,6 +69,11 @@
         justify-content: center;
     }
 
+    .summary-grid > .investment-cash-insight {
+        grid-column: 1 / -1;
+        grid-row: 3;
+    }
+
     /* Adjust font sizes for compact 2-col view */
     .summary-card-value {
         font-size: 20px !important;
@@ -105,11 +110,6 @@
         min-width: 0 !important;
         width: auto !important;
         overflow: hidden;
-    }
-
-    /* Cash Reserve (Last Item) - SPAN FULL WIDTH */
-    .summary-stats .stat-item:last-child {
-        grid-column: 1 / -1 !important;
     }
 
     .investment-insights .investment-insight {

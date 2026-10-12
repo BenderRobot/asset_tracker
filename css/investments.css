@@ -842,14 +842,32 @@
 .investment-filter-context[hidden] { display: none; }
 
 /* Mini-classements et cash, spécifiques à la page Investment. */
+.portfolio-summary-enhanced .summary-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.portfolio-summary-enhanced .summary-grid > .summary-card { min-width: 0; }
+
 .investment-insights {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 16px;
     align-items: stretch;
 }
 
-.investment-cash-insight { grid-column: auto; }
+.summary-grid > .investment-cash-insight { text-align: left; }
+.summary-grid > .investment-cash-insight .stat-label {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+.summary-grid > .investment-cash-insight .cash-insight-total { font-size: 28px; }
+.summary-grid > .investment-cash-insight .wallet-table th,
+.summary-grid > .investment-cash-insight .wallet-table td {
+    height: 42px;
+    padding: 4px 0;
+}
 
 .investment-insights .investment-insight {
     min-width: 0;
@@ -1023,25 +1041,7 @@
 .wallet-color-3 { background: #f59e0b; }
 .wallet-color-4 { background: #f472b6; }
 
-@media (min-width: 1251px) and (max-width: 1600px) {
-    .investment-insights .investment-insight { padding: 16px; }
-    .investment-insight .kpi-header { min-height: 54px; }
-    .investment-insight .insight-table th,
-    .investment-insight .insight-table td {
-        display: block;
-        width: 100%;
-        height: auto;
-        padding: 0;
-        text-align: left;
-    }
-    .investment-insight .insight-table tr { display: block; padding: 8px 0; }
-    .investment-insight .insight-table th { font-size: 12px; }
-    .investment-insight .insight-table td { font-size: 16px; }
-    .investment-insight .insight-sub-value { display: block; margin-left: 0; }
-    .investment-cash-insight .wallet-table .insight-identity { max-width: calc(100% - 18px); }
-}
-
-@media (max-width: 1250px) {
+@media (max-width: 1300px) {
+    .portfolio-summary-enhanced .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .investment-insights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .investment-cash-insight { grid-column: 1 / -1; }
 }
