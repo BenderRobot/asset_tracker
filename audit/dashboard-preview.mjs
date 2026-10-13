@@ -82,6 +82,10 @@ try {
             date: Date.now() + 7 * 86400000, estimated: true }];
         app._earningsLoadStatus = 'ready';
         app.renderPortfolioRadar(); app.renderEarningsRadar();
+        app._radarAnalysis = { text: 'Le portefeuille gagne 142,80 €, principalement grâce à Alphabet (+72,30 €). Riber perd 20 € ; l’article récent à son sujet ne prouve pas la cause de cette baisse.',
+            sources: [{ title: 'Source de démonstration', url: 'https://example.org/riber' }],
+            reason: 'point régulier', createdAt: Date.now() };
+        app.renderPortfolioRadarAnalysis();
         const ui = new UIComponents(app.storage, {});
         ui._updateTotalValueModal = () => {};
         ui.updateTopKPIs({ totalCurrentEUR: 37865, totalInvestedEUR: 28000, gainTotal: 9865, gainPct: 35.23, totalDayChangeEUR: 142.8, dayChangePct: .38 }, 389, null);
@@ -144,6 +148,8 @@ try {
         }));
         assert.match(await page.locator('#dashboard-radar-news').textContent(), /Riber annonce une mise à jour/);
         assert.match(await page.locator('#dashboard-radar-earnings').textContent(), /Applied Materials/);
+        assert.match(await page.locator('#dashboard-radar-ai-text').textContent(), /Alphabet/);
+        assert.equal(await page.locator('#dashboard-radar-ai-sources a').count(), 1);
         assert.equal(await page.locator('.dashboard-radar-jump').getAttribute('href'), '#dashboard-radar-title');
         assert.equal(size.scroll, width, `page overflow at ${width}`);
         assert.equal(size.overflowingValues, 0, `KPI overflow at ${width}`);

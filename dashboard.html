@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="css/dashboard.css?v=103">
     <link rel="stylesheet" href="css/dashboard-mobile.css?v=7">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=11">
-    <link rel="stylesheet" href="css/dashboard-premium.css?v=18">
+    <link rel="stylesheet" href="css/dashboard-premium.css?v=19">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -275,6 +275,15 @@
                         <div id="dashboard-radar-earnings" aria-live="polite">Chargement du calendrier…</div>
                         <p class="dashboard-radar-source">Dates Yahoo Finance, parfois estimées. Consultez les bilans publiés dans le Screener selon leur disponibilité.</p>
                     </div>
+                </div>
+                <div class="dashboard-radar-ai" aria-labelledby="dashboard-radar-ai-title">
+                    <div class="dashboard-radar-ai-header">
+                        <h3 id="dashboard-radar-ai-title"><i class="ph ph-sparkle" aria-hidden="true"></i> Lecture IA du mouvement</h3>
+                        <button id="dashboard-radar-analyze" class="dashboard-text-button" type="button">Analyser maintenant</button>
+                    </div>
+                    <div id="dashboard-radar-ai-status" class="dashboard-radar-state" role="status">L’analyse se lancera quand les données du portefeuille et les actualités seront prêtes.</div>
+                    <p id="dashboard-radar-ai-text" class="dashboard-radar-ai-text" hidden></p>
+                    <div id="dashboard-radar-ai-sources" class="dashboard-radar-ai-sources"></div>
                 </div>
             </section>
 

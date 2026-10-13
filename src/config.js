@@ -8,7 +8,7 @@ export const PRICE_PROXY_URL = 'https://asset-tracker-prices.blaurens31.workers.
 export const GEMINI_PROXY_URL = 'https://asset-tracker-gemini.blaurens31.workers.dev';
 export const ENABLE_BANKING_PROXY_URL = 'https://asset-tracker-enable-banking.blaurens31.workers.dev';
 
-export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 
 // CACHE : Durées différentes selon type d'actif
 export const CACHE_EXPIRY_STOCKS_MARKET_OPEN = 60 * 1000; // 60 seconds

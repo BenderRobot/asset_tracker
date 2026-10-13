@@ -14,7 +14,7 @@ import worker from '../cloudflare-workers/gemini-worker/worker.js';
 
 const PROJECT_ID = 'asset-tracker-479809-b80f1';
 const JWKS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
-const GEMINI_URL_PREFIX = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_URL_PREFIX = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 
 function base64url(buf) {
     return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -166,6 +166,7 @@ describe('Gemini Worker — authentification et quotas (P0)', () => {
         expect(payload.contents.map(item => item.role)).toEqual(['user', 'model', 'user']);
         expect(payload.contents[2].parts[0].text).toBe('Actualise');
         expect(payload.tools).toEqual([{ google_search: {} }]);
+        expect(payload.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'low' });
         expect(payload.contents.some(item => item.parts?.[0]?.text?.startsWith('Compris'))).toBe(false);
     });
 
@@ -182,6 +183,28 @@ describe('Gemini Worker — authentification et quotas (P0)', () => {
         const geminiCall = vi.mocked(fetch).mock.calls.find(([url]) => String(url).startsWith(GEMINI_URL_PREFIX));
         const payload = JSON.parse(geminiCall[1].body);
         expect(payload.tools).toEqual([{ google_search: {} }]);
+    });
+
+    it('borne et source les scans du radar sans révéler les pensées internes', async () => {
+        stubFetch({ geminiData: { candidates: [{ content: { parts: [
+            { text: 'raisonnement interne', thought: true }, { text: 'Analyse sourcée.' }
+        ] } }] } });
+        const token = await makeToken({ uid: 'radar-user' });
+        const env = makeEnv();
+        let last;
+        for (let i = 0; i < 9; i++) {
+            last = await worker.fetch(postRequest({ purpose: 'portfolio_radar', system: 'Positions datées', message: 'Analyse la baisse' },
+                { Authorization: `Bearer ${token}` }), env);
+            if (i < 8) expect(last.status).toBe(200);
+            if (i === 0) expect((await last.clone().json()).text).toBe('Analyse sourcée.');
+        }
+        expect(last.status).toBe(429);
+        const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url).startsWith(GEMINI_URL_PREFIX));
+        const payload = JSON.parse(call[1].body);
+        expect(payload.systemInstruction.parts[0].text).toContain('Une corrélation temporelle ne prouve jamais');
+        expect(payload.tools).toEqual([{ google_search: {} }]);
+        expect(payload.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'medium' });
+        expect(payload.generationConfig.maxOutputTokens).toBe(2048);
     });
 
     it('input trop volumineux (prompt > limite) → 400, jamais transmis à Gemini', async () => {
@@ -246,6 +269,14 @@ describe('Gemini Worker — authentification et quotas (P0)', () => {
         expect(rBob1.status).toBe(200);
         expect(rBob2.status).toBe(429);
         expect(rAlice1.status).toBe(200);
+    });
+
+    it('refuse le radar si le quota KV ne peut pas être appliqué', async () => {
+        stubFetch();
+        const token = await makeToken();
+        const res = await worker.fetch(postRequest({ purpose: 'portfolio_radar', message: 'Analyse' },
+            { Authorization: `Bearer ${token}` }), makeEnv({ RATE_LIMIT: undefined }));
+        expect(res.status).toBe(503);
     });
 
     it('une erreur upstream Gemini ne fuit jamais son texte brut au client', async () => {

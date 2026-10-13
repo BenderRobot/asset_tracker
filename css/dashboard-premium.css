@@ -34,6 +34,14 @@
 .dashboard-radar-row-date { flex: none; color: #c5d7f6; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .dashboard-radar-state { margin: 8px 0; color: var(--dashboard-muted); font-size: 12px; }
 .dashboard-radar-source { margin-top: 9px; }
+.dashboard-radar-ai { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--border-color); }
+.dashboard-radar-ai-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dashboard-radar-ai-header h3 { display: flex; align-items: center; gap: 7px; margin: 0; color: #c4d5f5; font-size: 13px; font-weight: 700; }
+.dashboard-radar-ai-header h3 i { color: #a78bfa; }
+.dashboard-radar-ai-text { margin: 9px 0 0; color: var(--text-primary); font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+.dashboard-radar-ai-sources { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
+.dashboard-radar-ai-sources a { max-width: 230px; overflow: hidden; color: #8ab7ff; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-radar-ai-sources a:hover { text-decoration: underline; }
 .dashboard-premium .dashboard-chart-section { min-width: 0; overflow: hidden; }
 .dashboard-premium .chart-wrapper.tall { flex: none; height: 340px; min-height: 340px; }
 /* Chart header, status badge, period bar and stats bar: css/chart-toolbar.css (shared with Investments). */

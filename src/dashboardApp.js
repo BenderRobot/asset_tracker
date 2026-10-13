@@ -30,6 +30,7 @@ import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus
 import { MarketTicker, selectPortfolioMovers } from './marketTicker.js';
 import { selectDailyContributions, selectContributionHighlights, auditDashboardSnapshot } from './dashboardContributions.js';
 import { companyCalendarCandidates, parseUpcomingEarnings, selectPortfolioNewsSignals } from './dashboardPortfolioRadar.js';
+import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, radarAutoTrigger } from './dashboardRadarAnalysis.js';
 
 const SPARKLINE_TTL_MS = 5 * 60 * 1000;
 const marketCardStateClass = view => {
@@ -153,6 +154,8 @@ export class DashboardApp {
         this._radarNewsLoaded = false;
         this._earningsEvents = [];
         this._earningsLoadStatus = 'loading';
+        this._radarAnalysis = null;
+        this._radarAnalysisRunning = false;
         this.lastHoldings = [];
         this.lastPortfolioSnapshot = null;
 
@@ -211,6 +214,7 @@ export class DashboardApp {
         this.setupEventListeners();
         this.setupChartControls();
         this.setupNewsControls();
+        document.getElementById('dashboard-radar-analyze')?.addEventListener('click', () => this.analyzePortfolioRadar(true));
         document.getElementById('dashboard-radar-refresh')?.addEventListener('click', () => {
             this.loadPortfolioNews();
             this.loadEarningsCalendar(true);
@@ -394,6 +398,8 @@ export class DashboardApp {
         };
         this._radarPreviousSession = !!previousSession;
         this.renderPortfolioRadar();
+        this.restorePortfolioRadarAnalysis();
+        this.analyzePortfolioRadar();
         this.loadEarningsCalendar();
         this.lastCashTransactions = this.dataManager.splitCanonicalPurchases(this.storage.getPurchases?.() || []).cash;
         // Le sélecteur d'actualités représente lui aussi le portefeuille
@@ -991,6 +997,128 @@ export class DashboardApp {
         }
     }
 
+    radarAnalysisSignature() {
+        return (this.lastPortfolioSnapshot?.positions || [])
+            .filter(position => position.quantity > 0)
+            .map(position => `${String(position.ticker || '').toUpperCase()}:${Number(position.quantity)}`)
+            .sort().join('|');
+    }
+
+    radarAnalysisStorageKey() {
+        const uid = auth.currentUser?.uid;
+        return uid ? `dashboard_radar_analysis_v1:${uid}` : null;
+    }
+
+    restorePortfolioRadarAnalysis() {
+        const key = this.radarAnalysisStorageKey();
+        const signature = this.radarAnalysisSignature();
+        if (!key || !signature || this._radarRestoredKey === `${key}:${signature}`) return;
+        this._radarRestoredKey = `${key}:${signature}`;
+        this._radarAnalysis = null;
+        this._radarLastSuccessAt = 0;
+        this._radarLastAttemptAt = 0;
+        this._radarLastAnalyzedPct = null;
+        try {
+            const saved = JSON.parse(localStorage.getItem(key) || 'null');
+            if (saved?.signature === signature && Date.now() - saved.savedAt < DAY_MS) {
+                this._radarAnalysis = saved.analysis || null;
+                this._radarLastSuccessAt = Number(saved.lastSuccessAt) || 0;
+                this._radarLastAttemptAt = Number(saved.lastAttemptAt) || 0;
+                this._radarLastAnalyzedPct = Number.isFinite(saved.lastAnalyzedPct) ? saved.lastAnalyzedPct : null;
+            }
+        } catch { /* local cache optional */ }
+        this.renderPortfolioRadarAnalysis();
+    }
+
+    renderPortfolioRadarAnalysis(status = '') {
+        const state = document.getElementById('dashboard-radar-ai-status');
+        const text = document.getElementById('dashboard-radar-ai-text');
+        const sources = document.getElementById('dashboard-radar-ai-sources');
+        const button = document.getElementById('dashboard-radar-analyze');
+        if (!state || !text || !sources) return;
+        if (button) button.disabled = !!this._radarAnalysisRunning;
+        sources.replaceChildren();
+        const analysis = this._radarAnalysis;
+        if (analysis?.text) {
+            text.hidden = false;
+            text.textContent = analysis.text;
+            for (const source of analysis.sources || []) {
+                let safeUrl;
+                try { safeUrl = new URL(source.url); } catch { continue; }
+                if (!['http:', 'https:'].includes(safeUrl.protocol)) continue;
+                const link = document.createElement('a');
+                link.href = safeUrl.href;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.textContent = source.title || safeUrl.hostname;
+                sources.append(link);
+            }
+        } else {
+            text.hidden = true;
+            text.textContent = '';
+        }
+        const outdated = analysis && (Date.now() - analysis.createdAt > 60 * 60 * 1000
+            || this.lastPortfolioSnapshot?.sourceStale || this._radarPreviousSession);
+        state.textContent = status || (analysis
+            ? `Analyse du ${this.formatFullDateTime(analysis.createdAt)} · ${analysis.reason}${outdated ? ' · à actualiser' : ''}${analysis.sources?.length ? '' : ' · Aucune source vérifiable renvoyée'}`
+            : 'L’analyse se lancera quand les données du portefeuille et les actualités seront prêtes.');
+    }
+
+    async analyzePortfolioRadar(manual = false) {
+        const snapshot = this.lastPortfolioSnapshot;
+        const now = Date.now();
+        if (this._radarAnalysisRunning) return;
+        if (!auth.currentUser) {
+            if (manual) this.renderPortfolioRadarAnalysis('Connexion requise pour lancer l’analyse.');
+            return;
+        }
+        if (snapshot?.status !== 'valid' || snapshot.sourceStale || this._radarPreviousSession) {
+            if (manual) this.renderPortfolioRadarAnalysis('Analyse indisponible : variation du jour ou cotations fiables absentes.');
+            return;
+        }
+        const reason = manual ? 'analyse manuelle' : radarAutoTrigger({ snapshot,
+            previousSession: this._radarPreviousSession, newsReady: this._radarNewsLoaded,
+            visible: !document.hidden, previousPct: this._radarLastAnalyzedPct, lastAttemptAt: this._radarLastAttemptAt,
+            lastSuccessAt: this._radarLastSuccessAt, now });
+        if (!reason) return;
+        const userId = auth.currentUser.uid;
+        const dayKey = new Date(now).toISOString().slice(0, 10);
+        const countKey = `dashboard_radar_auto_v1:${userId}:${dayKey}`;
+        let autoCount = 0;
+        try { autoCount = Number(localStorage.getItem(countKey)) || 0; } catch { /* optional cache */ }
+        if (!manual && autoCount >= 5) return;
+        const payload = buildRadarAnalysisPayload(snapshot, this._radarNews || [], this.globalNews || [], now);
+        if (!payload) return;
+        const signature = this.radarAnalysisSignature();
+        this._radarAnalysisRunning = true;
+        this._radarLastAttemptAt = now;
+        if (!manual) {
+            try { localStorage.setItem(countKey, String(autoCount + 1)); } catch { /* optional cache */ }
+        }
+        this.renderPortfolioRadarAnalysis(`Recherche des informations pour ${reason}…`);
+        try {
+            const result = await fetchPortfolioRadarAnalysis(payload, reason);
+            if (userId !== auth.currentUser?.uid || signature !== this.radarAnalysisSignature()) return;
+            this._radarAnalysis = { ...result, reason, createdAt: Date.now() };
+            this._radarLastSuccessAt = this._radarAnalysis.createdAt;
+            this._radarLastAnalyzedPct = snapshot.dayPnlPct;
+            const key = this.radarAnalysisStorageKey();
+            if (key) {
+                try { localStorage.setItem(key, JSON.stringify({ signature, savedAt: Date.now(),
+                    lastAttemptAt: this._radarLastAttemptAt, lastSuccessAt: this._radarLastSuccessAt,
+                    lastAnalyzedPct: this._radarLastAnalyzedPct,
+                    analysis: this._radarAnalysis })); } catch { /* optional cache */ }
+            }
+            this.renderPortfolioRadarAnalysis();
+        } catch (error) {
+            if (userId === auth.currentUser?.uid && signature === this.radarAnalysisSignature()) this.renderPortfolioRadarAnalysis(error.message);
+        } finally {
+            this._radarAnalysisRunning = false;
+            const button = document.getElementById('dashboard-radar-analyze');
+            if (button) button.disabled = false;
+        }
+    }
+
     async loadEarningsCalendar(force = false) {
         const holdings = companyCalendarCandidates(this.lastHoldings || []);
         const selection = holdings.map(holding => holding.ticker).sort().join('|');
@@ -1163,6 +1291,7 @@ export class DashboardApp {
             this._radarNewsLoaded = true;
             this._radarNewsFailures = failures;
             this.renderPortfolioRadar();
+            this.analyzePortfolioRadar();
         }
         container.setAttribute('aria-busy', 'false');
         if (failures) {
