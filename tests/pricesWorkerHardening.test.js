@@ -489,6 +489,19 @@ describe('Prices Worker Yahoo authenticated session', () => {
         expect(quoteUrl).not.toContain('cashflowStatementHistory');
     });
 
+    it('demande uniquement le calendrier pour le radar du portefeuille', async () => {
+        stubAuthenticatedYahoo();
+        const res = await worker.fetch(
+            getRequest('symbol=AAPL&type=EARNINGS_CALENDAR'),
+            makeEnv({ PRICE_RATE_LIMIT_PER_MINUTE: '100' }),
+        );
+        expect(res.status).toBe(200);
+        const calendarUrl = vi.mocked(fetch).mock.calls
+            .map(([url]) => String(url))
+            .find(url => url.includes('/v10/finance/quoteSummary/AAPL'));
+        expect(new URL(calendarUrl).searchParams.get('modules')).toBe('calendarEvents');
+    });
+
     it('renouvelle réellement cookie + crumb après un 401 avant de réessayer', async () => {
         const stub = stubAuthenticatedYahoo({ rejectFirstQuote: true });
         const res = await worker.fetch(

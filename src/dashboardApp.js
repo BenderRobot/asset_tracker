@@ -15,7 +15,7 @@ import { UIComponents } from './ui.js';
 import { NotificationManager } from './NotificationManager.js';
 import { FCMManager } from './fcmManager.js'; // NEW: FCM for Android notifications
 
-import { GEMINI_PROXY_URL } from './config.js';
+import { GEMINI_PROXY_URL, PRICE_PROXY_URL } from './config.js';
 import { auth } from './firebaseConfig.js';
 import { getAuthHeader } from './authFetchHeaders.js';
 import { portfolioKPIs } from './portfolioKPIs.js'; // NEW: Centralized KPI management
@@ -29,6 +29,7 @@ import { DEFAULT_DASHBOARD_INDICES } from './appDataContext.js';
 import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus } from './dashboardMarketData.js';
 import { MarketTicker, selectPortfolioMovers } from './marketTicker.js';
 import { selectDailyContributions, selectContributionHighlights, auditDashboardSnapshot } from './dashboardContributions.js';
+import { companyCalendarCandidates, parseUpcomingEarnings, selectPortfolioNewsSignals } from './dashboardPortfolioRadar.js';
 
 const SPARKLINE_TTL_MS = 5 * 60 * 1000;
 const marketCardStateClass = view => {
@@ -43,6 +44,8 @@ const NEWS_BATCH_SIZE = 3;
 const NEWS_MAX_CONCURRENT = 3;
 const NEWS_STORAGE_PREFIX = 'dashboard_news_v1:';
 const NEWS_STORAGE_MAX_AGE_MS = 48 * 3600 * 1000;
+const EARNINGS_STORAGE_MAX_AGE_MS = 12 * 3600 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const chunk = (list, size) => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
 
 // Promise.allSettled with at most `limit` requests in flight.
@@ -146,6 +149,10 @@ export class DashboardApp {
         this._newsContextAbortController = null;
         this.portfolioNews = [];
         this.globalNews = [];
+        this._radarNews = [];
+        this._radarNewsLoaded = false;
+        this._earningsEvents = [];
+        this._earningsLoadStatus = 'loading';
         this.lastHoldings = [];
         this.lastPortfolioSnapshot = null;
 
@@ -204,6 +211,10 @@ export class DashboardApp {
         this.setupEventListeners();
         this.setupChartControls();
         this.setupNewsControls();
+        document.getElementById('dashboard-radar-refresh')?.addEventListener('click', () => {
+            this.loadPortfolioNews();
+            this.loadEarningsCalendar(true);
+        });
         this.setupIndicesModal();
         this.setupKPIModals();
 
@@ -381,6 +392,9 @@ export class DashboardApp {
             ])],
             refreshError: result.lastRefreshFailure || null
         };
+        this._radarPreviousSession = !!previousSession;
+        this.renderPortfolioRadar();
+        this.loadEarningsCalendar();
         this.lastCashTransactions = this.dataManager.splitCanonicalPurchases(this.storage.getPurchases?.() || []).cash;
         // Le sélecteur d'actualités représente lui aussi le portefeuille
         // courant : le reconstruire depuis les positions canoniques empêche un
@@ -911,6 +925,168 @@ export class DashboardApp {
         return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
     }
 
+    renderPortfolioRadar() {
+        const container = document.getElementById('dashboard-radar-news');
+        if (!container) return;
+        container.replaceChildren();
+        const snapshot = this.lastPortfolioSnapshot;
+        if (!snapshot) {
+            container.textContent = 'Chargement des positions…';
+            return;
+        }
+        const signals = selectPortfolioNewsSignals(snapshot, this._radarNews || [], Date.now(), { previousSession: this._radarPreviousSession });
+        if (signals.status === 'unavailable') {
+            container.textContent = 'Contribution des positions indisponible.';
+            return;
+        }
+        if (signals.status === 'previous-session') {
+            container.textContent = 'Pas de variation du jour disponible ; la dernière séance est consultable dans les contributions.';
+            return;
+        }
+        if (!signals.rows.length) {
+            container.textContent = 'Aucune position en baisse dans les données du jour.';
+            return;
+        }
+        const list = document.createElement('div');
+        list.className = 'dashboard-radar-list';
+        const money = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
+        for (const signal of signals.rows) {
+            const article = signal.article;
+            const row = document.createElement(article ? 'button' : 'div');
+            row.className = 'dashboard-radar-row';
+            if (article) {
+                row.type = 'button';
+                row.title = 'Lire l’actualité associée';
+                row.addEventListener('click', () => this.openNewsModal(article));
+            }
+            const main = document.createElement('span');
+            main.className = 'dashboard-radar-row-main';
+            const title = document.createElement('span');
+            title.className = 'dashboard-radar-row-title';
+            title.textContent = signal.name;
+            const subtitle = document.createElement('span');
+            subtitle.className = 'dashboard-radar-row-sub';
+            subtitle.textContent = article
+                ? `${article.title} · ${article.source} · ${this.formatFullDateTime(article.datetime * 1000)}`
+                : this._radarNewsLoaded ? 'Aucun article récent relié à cette position' : 'Recherche des actualités…';
+            main.append(title, subtitle);
+            const impact = document.createElement('strong');
+            impact.className = 'dashboard-radar-row-value';
+            impact.textContent = money.format(signal.impact);
+            row.append(main, impact);
+            list.append(row);
+        }
+        container.append(list);
+        if (snapshot.sourceStale || signals.status !== 'complete') {
+            const note = document.createElement('p');
+            note.className = 'dashboard-radar-state';
+            note.textContent = snapshot.sourceStale ? 'Cotations anciennes : vérifiez la date des prix.' : 'Contribution partielle : certaines positions n’ont pas de variation fiable.';
+            container.append(note);
+        }
+        if (this._radarNewsFailures) {
+            const note = document.createElement('p');
+            note.className = 'dashboard-radar-state';
+            note.textContent = 'Certaines sources d’actualités sont indisponibles ; vérifiez la date des articles affichés.';
+            container.append(note);
+        }
+    }
+
+    async loadEarningsCalendar(force = false) {
+        const holdings = companyCalendarCandidates(this.lastHoldings || []);
+        const selection = holdings.map(holding => holding.ticker).sort().join('|');
+        if (!force && this._earningsSelection === selection) return;
+        this._earningsSelection = selection;
+        const ticket = this._earningsGeneration = (this._earningsGeneration || 0) + 1;
+        if (!holdings.length) {
+            this._earningsEvents = [];
+            this._earningsLoadStatus = 'empty';
+            this.renderEarningsRadar();
+            return;
+        }
+        this._earningsLoadStatus = 'loading';
+        this.renderEarningsRadar();
+        const requests = holdings.map(holding => async () => {
+            const key = `dashboard_earnings_v1:${holding.providerSymbol}`;
+            let stored = null;
+            try { stored = JSON.parse(localStorage.getItem(key) || 'null'); } catch { /* optional cache */ }
+            if (!force && stored && Date.now() - stored.savedAt < EARNINGS_STORAGE_MAX_AGE_MS) {
+                return { event: stored.event, stale: false };
+            }
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 12000);
+            try {
+                const url = `${PRICE_PROXY_URL}?symbol=${encodeURIComponent(holding.providerSymbol)}&type=EARNINGS_CALENDAR`;
+                const response = await fetch(url, { signal: controller.signal });
+                if (!response.ok) throw new Error(`Calendar HTTP ${response.status}`);
+                const data = await response.json();
+                const summary = data?.quoteSummary?.result?.[0];
+                if (!summary?.calendarEvents) throw new Error('Calendrier absent');
+                const event = parseUpcomingEarnings(holding, summary);
+                try { localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), event })); } catch { /* optional cache */ }
+                return { event, stale: false };
+            } catch (error) {
+                if (stored) return { event: stored.event, stale: true };
+                throw error;
+            } finally { clearTimeout(timeout); }
+        });
+        const results = await runLimited(requests, 3);
+        if (ticket !== this._earningsGeneration) return;
+        this._earningsEvents = results.filter(result => result.status === 'fulfilled' && result.value.event)
+            .map(result => result.value.event)
+            .filter(event => event.date >= Date.now() - DAY_MS)
+            .sort((a, b) => a.date - b.date);
+        const failures = results.filter(result => result.status === 'rejected' || result.value?.stale).length;
+        this._earningsLoadStatus = failures === results.length ? 'unavailable' : failures ? 'partial' : 'ready';
+        this.renderEarningsRadar();
+    }
+
+    renderEarningsRadar() {
+        const container = document.getElementById('dashboard-radar-earnings');
+        if (!container) return;
+        container.replaceChildren();
+        if (this._earningsLoadStatus === 'loading') {
+            container.textContent = 'Recherche des prochaines publications…';
+            return;
+        }
+        const events = (this._earningsEvents || []).slice(0, 3);
+        if (!events.length) {
+            container.textContent = this._earningsLoadStatus === 'unavailable'
+                ? 'Calendrier indisponible pour le moment.'
+                : 'Aucune date de résultats confirmée parmi les positions détenues.';
+        } else {
+            const list = document.createElement('div');
+            list.className = 'dashboard-radar-list';
+            for (const event of events) {
+                const row = document.createElement('a');
+                row.className = 'dashboard-radar-row';
+                row.href = `screener.html?ticker=${encodeURIComponent(event.providerSymbol)}`;
+                const main = document.createElement('span');
+                main.className = 'dashboard-radar-row-main';
+                const title = document.createElement('span');
+                title.className = 'dashboard-radar-row-title';
+                title.textContent = event.name;
+                const subtitle = document.createElement('span');
+                subtitle.className = 'dashboard-radar-row-sub';
+                subtitle.textContent = `${event.ticker} · Voir les données financières${event.estimated || event.endDate ? ' · Date indicative' : ''}`;
+                main.append(title, subtitle);
+                const date = document.createElement('span');
+                date.className = 'dashboard-radar-row-date';
+                const formatDate = value => new Date(value).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' });
+                date.textContent = event.endDate && new Date(event.endDate).toDateString() !== new Date(event.date).toDateString()
+                    ? `${formatDate(event.date)} – ${formatDate(event.endDate)}` : formatDate(event.date);
+                row.append(main, date);
+                list.append(row);
+            }
+            container.append(list);
+        }
+        if (this._earningsLoadStatus === 'partial' || this._earningsLoadStatus === 'unavailable') {
+            const note = document.createElement('p');
+            note.className = 'dashboard-radar-state';
+            note.textContent = 'Certaines dates n’ont pas pu être actualisées.';
+            container.append(note);
+        }
+    }
+
     async loadPortfolioNews() {
         // ETFs and real estate are almost never named in headlines: searching
         // them by name only took room from the stocks.
@@ -962,6 +1138,10 @@ export class DashboardApp {
                 cache.set('stored', stored);
                 this[`${type}News`] = stored;
                 this.renderNewsList(container, stored, type);
+                if (type === 'portfolio' && !this.selectedAssetFilter) {
+                    this._radarNews = stored;
+                    this.renderPortfolioRadar();
+                }
             }
         }
         container.setAttribute('aria-busy', 'true');
@@ -973,10 +1153,17 @@ export class DashboardApp {
         results.forEach((result, i) => { if (result.status === 'fulfilled') cache.set(i, result.value); });
         const failures = results.filter(result => result.status === 'rejected').length;
         if (!failures) cache.delete('stored');
-        const articles = this.deduplicateNews([...cache.values()].flat()).sort((a, b) => b.datetime - a.datetime).slice(0, 15);
+        const allArticles = this.deduplicateNews([...cache.values()].flat()).sort((a, b) => b.datetime - a.datetime);
+        const articles = allArticles.slice(0, 15);
         if (failures < requests.length && articles.length) writeStoredNews(storageKey, articles);
         this[`${type}News`] = articles;
         this.renderNewsList(container, articles, type);
+        if (type === 'portfolio' && !this.selectedAssetFilter) {
+            this._radarNews = allArticles;
+            this._radarNewsLoaded = true;
+            this._radarNewsFailures = failures;
+            this.renderPortfolioRadar();
+        }
         container.setAttribute('aria-busy', 'false');
         if (failures) {
             const message = failures === requests.length ? 'Actualités indisponibles.' : 'Certaines sources sont indisponibles.';

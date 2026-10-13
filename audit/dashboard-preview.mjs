@@ -73,6 +73,15 @@ try {
         app.renderDailyContributions({ status: 'valid', totalValue: 37865, dayPnl: 142.8,
             positions: holdings.map((h, i) => ({ ...h, dayPnl: impacts[i], dayPnlPct: h.displayDayPct })) });
         app.renderKPIs({}, 389, holdings); app.renderAllocation(holdings, 389);
+        app.lastPortfolioSnapshot = { status: 'valid', totalValue: 37865, dayPnl: 142.8,
+            positions: holdings.map((holding, index) => ({ ...holding, dayPnl: impacts[index], dayPnlPct: holding.displayDayPct })) };
+        app._radarNews = [{ title: 'Riber annonce une mise à jour de ses activités', assetName: 'Riber',
+            source: 'Source de démonstration', datetime: Date.now() / 1000 }];
+        app._radarNewsLoaded = true;
+        app._earningsEvents = [{ ticker: 'AMAT', name: 'Applied Materials', providerSymbol: 'AMAT',
+            date: Date.now() + 7 * 86400000, estimated: true }];
+        app._earningsLoadStatus = 'ready';
+        app.renderPortfolioRadar(); app.renderEarningsRadar();
         const ui = new UIComponents(app.storage, {});
         ui._updateTotalValueModal = () => {};
         ui.updateTopKPIs({ totalCurrentEUR: 37865, totalInvestedEUR: 28000, gainTotal: 9865, gainPct: 35.23, totalDayChangeEUR: 142.8, dayChangePct: .38 }, 389, null);
@@ -133,6 +142,9 @@ try {
             main: document.querySelector('.main-content').getBoundingClientRect().width,
             overflowingValues: [...document.querySelectorAll('.summary-card-value')].filter(el => el.scrollWidth > el.clientWidth + 1).length
         }));
+        assert.match(await page.locator('#dashboard-radar-news').textContent(), /Riber annonce une mise à jour/);
+        assert.match(await page.locator('#dashboard-radar-earnings').textContent(), /Applied Materials/);
+        assert.equal(await page.locator('.dashboard-radar-jump').getAttribute('href'), '#dashboard-radar-title');
         assert.equal(size.scroll, width, `page overflow at ${width}`);
         assert.equal(size.overflowingValues, 0, `KPI overflow at ${width}`);
         if (width >= 1200) assert.deepEqual(size.panelEdges, size.lastCardEdges, `markets panel not aligned with the last KPI card at ${width}`);

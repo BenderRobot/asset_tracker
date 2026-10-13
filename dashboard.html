@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="css/dashboard.css?v=103">
     <link rel="stylesheet" href="css/dashboard-mobile.css?v=7">
     <link rel="stylesheet" href="css/chart-toolbar.css?v=11">
-    <link rel="stylesheet" href="css/dashboard-premium.css?v=17">
+    <link rel="stylesheet" href="css/dashboard-premium.css?v=18">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -147,6 +147,7 @@
                             <div class="summary-card-meta">
                                 <span id="avg-cost-per-share" class="meta-info">0.00%</span>
                             </div>
+                            <a class="dashboard-radar-jump" href="#dashboard-radar-title">Voir les actualités liées <span aria-hidden="true">↗</span></a>
                         </div>
                     </div>
 
@@ -255,6 +256,27 @@
                     </div>
                 </div>
             </div>
+
+            <section class="dashboard-radar" aria-labelledby="dashboard-radar-title">
+                <div class="dashboard-radar-header">
+                    <div>
+                        <h2 id="dashboard-radar-title"><i class="ph ph-radar" aria-hidden="true"></i> Radar de mon portefeuille</h2>
+                        <p>Baisses du jour, actualités liées aux positions et prochaines publications. Un article ne prouve pas la cause d'une variation.</p>
+                    </div>
+                    <button id="dashboard-radar-refresh" class="dashboard-text-button" type="button" aria-label="Actualiser les actualités et dates de résultats">Actualiser</button>
+                </div>
+                <div class="dashboard-radar-grid">
+                    <div class="dashboard-radar-column">
+                        <h3>À surveiller aujourd'hui</h3>
+                        <div id="dashboard-radar-news" aria-live="polite">Chargement des positions et actualités…</div>
+                    </div>
+                    <div class="dashboard-radar-column">
+                        <h3>Prochains résultats</h3>
+                        <div id="dashboard-radar-earnings" aria-live="polite">Chargement du calendrier…</div>
+                        <p class="dashboard-radar-source">Dates Yahoo Finance, parfois estimées. Consultez les bilans publiés dans le Screener selon leur disponibilité.</p>
+                    </div>
+                </div>
+            </section>
 
             <div class="dashboard-kpi-grid-v2">
                 <div class="kpi-card contribution-kpi-card" data-kpi-type="contributions" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="contributions-modal" aria-label="Variation du jour : voir toutes les contributions" aria-describedby="dashboard-contribution-highlights dashboard-contribution-state">

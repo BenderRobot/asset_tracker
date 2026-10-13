@@ -3,6 +3,7 @@
  * Supports:
  *   - type=STOCK/CRYPTO (default): historical chart via /v8/finance/chart
  *   - type=QUOTE_SUMMARY: fundamental data via /v10/finance/quoteSummary
+ *   - type=EARNINGS_CALENDAR: upcoming company reports via calendarEvents only
  *   - type=FUNDAMENTALS: multi-year annual financial statements via /ws/fundamentals-timeseries
  *   - type=DIVIDENDS: compact ten-year dividend events extracted from /v8/finance/chart
  *   - type=SEARCH: ticker search via /v1/finance/search
@@ -516,6 +517,19 @@ export default {
           return jsonResponse(json, 200, origin, { attempts, finalStatus });
         } catch (err) {
           try { console.error(`[PricesProxy][QUOTE_SUMMARY] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
+          return jsonResponse({ error: 'Upstream provider error' }, 502, origin, { attempts: err.attempts, finalStatus: err.finalStatus });
+        }
+      }
+
+      // Lightweight request for the portfolio radar: no financial statements or profile.
+      if (type === 'EARNINGS_CALENDAR') {
+        if (!symbol) return jsonResponse({ error: 'symbol required' }, 400, origin);
+        try {
+          const calendarUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=calendarEvents&lang=en-US&region=US`;
+          const { json, attempts, finalStatus } = await fetchYahoo(calendarUrl, origin, env, { useCrumb: true });
+          return jsonResponse(json, 200, origin, { attempts, finalStatus });
+        } catch (err) {
+          try { console.error(`[PricesProxy][EARNINGS_CALENDAR] Error for ${symbol}.`, err.stack || err.message); } catch(e) { console.error(e); }
           return jsonResponse({ error: 'Upstream provider error' }, 502, origin, { attempts: err.attempts, finalStatus: err.finalStatus });
         }
       }

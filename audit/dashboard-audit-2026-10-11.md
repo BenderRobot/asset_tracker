@@ -1,6 +1,14 @@
 # Audit du dashboard — évolution vers un suivi boursier premium
 
-Date : 11 octobre 2026 · mis à jour le 12 octobre 2026 (lot 2).
+Date : 11 octobre 2026 · mis à jour le 13 octobre 2026.
+
+## Suivi — radar du portefeuille et prochaines publications (13 octobre 2026)
+
+Un panneau « Radar de mon portefeuille » est ajouté juste sous le graphique : les trois plus fortes contributions négatives du snapshot canonique, chacune rapprochée d'un article de moins de 48 heures explicitement relié à la position détenue. Le titre, la source et l'heure de l'article sont visibles ; un clic ouvre le détail déjà utilisé par le Dashboard. En l'absence d'article, le panneau le dit clairement. Cette proximité ne constitue **pas une preuve de causalité** ; un avertissement permanent le rappelle. Les prix anciens et contributions partielles sont signalés.
+
+La seconde colonne montre les prochaines dates de résultats des sociétés détenues, issues du module `calendarEvents` de Yahoo Finance via une nouvelle requête légère `EARNINGS_CALENDAR` du Worker Prices. Les dates estimées et les fenêtres de dates sont indiquées ; une absence de date ou une panne du fournisseur n'est jamais remplacée par une estimation fabriquée. Chaque ligne mène au Screener pour consulter les données financières et bilans publiés lorsqu'ils sont disponibles. Le calendrier est mis en cache 12 heures par symbole, limité à trois requêtes simultanées, et peut être actualisé manuellement. [Schéma du fournisseur pour `calendarEvents`](https://github.com/gadicc/yahoo-finance2/blob/dev/src/modules/quoteSummary.schema.json).
+
+Validation locale : **762 tests réussis sur 762, 95 fichiers sur 95** ; contrôle Chrome isolé à 360, 390, 768, 1 366 et 1 920 px sans débordement. [Aperçu bureau](dashboard-preview-1366.png), [aperçu mobile](dashboard-preview-390.png). Les données de ces captures sont fictives. Aucun portefeuille authentifié ni calendrier réel n'a été testé. La nouvelle route du Worker est modifiée localement ; elle doit être déployée avec la page pour rendre les dates disponibles en production.
 
 ## Suivi — personnalisation du bandeau et des marchés favoris (12 octobre 2026)
 
