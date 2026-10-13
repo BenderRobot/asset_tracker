@@ -30,7 +30,7 @@ import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus
 import { MarketTicker, selectPortfolioMovers } from './marketTicker.js';
 import { selectDailyContributions, selectContributionHighlights, auditDashboardSnapshot } from './dashboardContributions.js';
 import { companyCalendarCandidates, parseUpcomingEarnings, selectPortfolioNewsSignals } from './dashboardPortfolioRadar.js';
-import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, radarAutoTrigger } from './dashboardRadarAnalysis.js';
+import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, radarAutoTrigger, radarPreviewText, selectRadarMacroArticles } from './dashboardRadarAnalysis.js';
 
 const SPARKLINE_TTL_MS = 5 * 60 * 1000;
 const marketCardStateClass = view => {
@@ -152,6 +152,7 @@ export class DashboardApp {
         this.globalNews = [];
         this._radarNews = [];
         this._radarNewsLoaded = false;
+        this._radarMacroLoaded = false;
         this._earningsEvents = [];
         this._earningsLoadStatus = 'loading';
         this._radarAnalysis = null;
@@ -217,6 +218,7 @@ export class DashboardApp {
         document.getElementById('dashboard-radar-analyze')?.addEventListener('click', () => this.analyzePortfolioRadar(true));
         document.getElementById('dashboard-radar-refresh')?.addEventListener('click', () => {
             this.loadPortfolioNews();
+            this.loadGlobalNews();
             this.loadEarningsCalendar(true);
         });
         this.setupIndicesModal();
@@ -934,6 +936,7 @@ export class DashboardApp {
     renderPortfolioRadar() {
         const container = document.getElementById('dashboard-radar-news');
         if (!container) return;
+        this.renderRadarPreview();
         container.replaceChildren();
         const snapshot = this.lastPortfolioSnapshot;
         if (!snapshot) {
@@ -963,19 +966,23 @@ export class DashboardApp {
             if (article) {
                 row.type = 'button';
                 row.title = 'Lire l’actualité associée';
-                row.addEventListener('click', () => this.openNewsModal(article));
+                row.addEventListener('click', () => {
+                    this.closeRadarModal();
+                    this.openNewsModal(article);
+                });
             }
             const main = document.createElement('span');
             main.className = 'dashboard-radar-row-main';
             const title = document.createElement('span');
             title.className = 'dashboard-radar-row-title';
             title.textContent = signal.name;
-            const subtitle = document.createElement('span');
-            subtitle.className = 'dashboard-radar-row-sub';
-            subtitle.textContent = article
-                ? `${article.title} · ${article.source} · ${this.formatFullDateTime(article.datetime * 1000)}`
-                : this._radarNewsLoaded ? 'Aucun article récent relié à cette position' : 'Recherche des actualités…';
-            main.append(title, subtitle);
+            main.append(title);
+            if (article) {
+                const subtitle = document.createElement('span');
+                subtitle.className = 'dashboard-radar-row-sub';
+                subtitle.textContent = `${article.title} · ${article.source} · ${this.formatFullDateTime(article.datetime * 1000)}`;
+                main.append(subtitle);
+            }
             const impact = document.createElement('strong');
             impact.className = 'dashboard-radar-row-value';
             impact.textContent = money.format(signal.impact);
@@ -993,6 +1000,79 @@ export class DashboardApp {
             const note = document.createElement('p');
             note.className = 'dashboard-radar-state';
             note.textContent = 'Certaines sources d’actualités sont indisponibles ; vérifiez la date des articles affichés.';
+            container.append(note);
+        }
+    }
+
+    renderMacroRadar() {
+        const container = document.getElementById('dashboard-radar-macro');
+        if (!container) return;
+        container.replaceChildren();
+        const articles = selectRadarMacroArticles(this.globalNews || []);
+        if (!articles.length) {
+            container.textContent = this._radarMacroLoaded
+                ? 'Aucune actualité macro récente disponible. La recherche IA peut fournir du contexte supplémentaire.'
+                : 'Recherche des actualités de marché…';
+            this.renderRadarPreview();
+            return;
+        }
+        const list = document.createElement('div');
+        list.className = 'dashboard-radar-list';
+        for (const article of articles.slice(0, 3)) {
+            const url = /^https?:\/\//i.test(article.url || '') ? article.url : null;
+            const row = document.createElement(url ? 'a' : 'div');
+            row.className = 'dashboard-radar-row dashboard-radar-macro-row';
+            if (url) { row.href = url; row.target = '_blank'; row.rel = 'noopener noreferrer'; }
+            const main = document.createElement('span');
+            main.className = 'dashboard-radar-row-main';
+            const title = document.createElement('span');
+            title.className = 'dashboard-radar-row-title';
+            title.textContent = article.title;
+            const subtitle = document.createElement('span');
+            subtitle.className = 'dashboard-radar-row-sub';
+            subtitle.textContent = `${article.source || 'Source inconnue'} · ${this.formatFullDateTime(article.datetime * 1000)}`;
+            main.append(title, subtitle);
+            row.append(main);
+            list.append(row);
+        }
+        container.append(list);
+        this.renderRadarPreview();
+    }
+
+    renderRadarPreview() {
+        const container = document.getElementById('dashboard-radar-preview');
+        if (!container) return;
+        container.replaceChildren();
+        const snapshot = this.lastPortfolioSnapshot;
+        const analysis = this._radarAnalysis;
+        const contributions = selectDailyContributions(snapshot, { previousSession: this._radarPreviousSession });
+        const firstImpact = contributions.rows.find(row => Number.isFinite(row.impact));
+        const main = document.createElement('div');
+        main.className = 'dashboard-radar-preview-main';
+        main.textContent = analysis?.text ? radarPreviewText(analysis.text)
+            : firstImpact ? `Mouvement principal : ${firstImpact.name} (${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', signDisplay: 'always' }).format(firstImpact.impact)}). Analyse en attente.`
+                : 'Analyse en attente des variations fiables du portefeuille.';
+        container.append(main);
+        const addMeta = (label, value) => {
+            const line = document.createElement('div');
+            line.className = 'dashboard-radar-preview-meta';
+            const name = document.createElement('span');
+            name.textContent = label;
+            const detail = document.createElement('strong');
+            detail.textContent = value;
+            line.append(name, detail);
+            container.append(line);
+        };
+        const macro = selectRadarMacroArticles(this.globalNews || [])[0];
+        addMeta('Contexte macro', macro?.title || (this._radarMacroLoaded ? 'Aucun titre récent' : 'Chargement…'));
+        const earnings = (this._earningsEvents || []).find(event => event.date >= Date.now() - DAY_MS);
+        addMeta('Prochains résultats', earnings
+            ? `${earnings.name} · ${new Date(earnings.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}`
+            : this._earningsLoadStatus === 'loading' ? 'Chargement…' : 'Aucune date connue');
+        if (analysis?.createdAt) {
+            const note = document.createElement('div');
+            note.className = 'dashboard-radar-preview-note';
+            note.textContent = `Lecture IA du ${this.formatFullDateTime(analysis.createdAt)}${Date.now() - analysis.createdAt > 60 * 60 * 1000 ? ' · à actualiser' : ''}`;
             container.append(note);
         }
     }
@@ -1041,7 +1121,7 @@ export class DashboardApp {
         const analysis = this._radarAnalysis;
         if (analysis?.text) {
             text.hidden = false;
-            text.textContent = analysis.text;
+            this.renderRadarAnalysisText(text, analysis.text);
             for (const source of analysis.sources || []) {
                 let safeUrl;
                 try { safeUrl = new URL(source.url); } catch { continue; }
@@ -1055,13 +1135,51 @@ export class DashboardApp {
             }
         } else {
             text.hidden = true;
-            text.textContent = '';
+            text.replaceChildren();
         }
         const outdated = analysis && (Date.now() - analysis.createdAt > 60 * 60 * 1000
             || this.lastPortfolioSnapshot?.sourceStale || this._radarPreviousSession);
         state.textContent = status || (analysis
             ? `Analyse du ${this.formatFullDateTime(analysis.createdAt)} · ${analysis.reason}${outdated ? ' · à actualiser' : ''}${analysis.sources?.length ? '' : ' · Aucune source vérifiable renvoyée'}`
             : 'L’analyse se lancera quand les données du portefeuille et les actualités seront prêtes.');
+        this.renderRadarPreview();
+    }
+
+    renderRadarAnalysisText(container, value) {
+        container.replaceChildren();
+        let paragraph = [];
+        let list = null;
+        const flush = () => {
+            if (!paragraph.length) return;
+            const node = document.createElement('p');
+            node.textContent = paragraph.join(' ').replace(/\*\*/g, '');
+            container.append(node);
+            paragraph = [];
+        };
+        for (const rawLine of String(value).split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || /^[-*_]{3,}$/.test(line)) { flush(); list = null; continue; }
+            const heading = line.match(/^#{1,6}\s+(.+)$/);
+            if (heading) {
+                flush(); list = null;
+                const node = document.createElement('h4');
+                node.textContent = heading[1].replace(/\*\*/g, '');
+                container.append(node);
+                continue;
+            }
+            const bullet = line.match(/^[*+-]\s+(.+)$/);
+            if (bullet) {
+                flush();
+                if (!list) { list = document.createElement('ul'); container.append(list); }
+                const item = document.createElement('li');
+                item.textContent = bullet[1].replace(/\*\*/g, '');
+                list.append(item);
+                continue;
+            }
+            list = null;
+            paragraph.push(line);
+        }
+        flush();
     }
 
     async analyzePortfolioRadar(manual = false) {
@@ -1077,7 +1195,7 @@ export class DashboardApp {
             return;
         }
         const reason = manual ? 'analyse manuelle' : radarAutoTrigger({ snapshot,
-            previousSession: this._radarPreviousSession, newsReady: this._radarNewsLoaded,
+            previousSession: this._radarPreviousSession, newsReady: this._radarNewsLoaded && this._radarMacroLoaded,
             visible: !document.hidden, previousPct: this._radarLastAnalyzedPct, lastAttemptAt: this._radarLastAttemptAt,
             lastSuccessAt: this._radarLastSuccessAt, now });
         if (!reason) return;
@@ -1171,6 +1289,7 @@ export class DashboardApp {
     renderEarningsRadar() {
         const container = document.getElementById('dashboard-radar-earnings');
         if (!container) return;
+        this.renderRadarPreview();
         container.replaceChildren();
         if (this._earningsLoadStatus === 'loading') {
             container.textContent = 'Recherche des prochaines publications…';
@@ -1291,6 +1410,10 @@ export class DashboardApp {
             this._radarNewsLoaded = true;
             this._radarNewsFailures = failures;
             this.renderPortfolioRadar();
+            this.analyzePortfolioRadar();
+        } else if (type === 'global') {
+            this._radarMacroLoaded = true;
+            this.renderMacroRadar();
             this.analyzePortfolioRadar();
         }
         container.setAttribute('aria-busy', 'false');
@@ -2051,6 +2174,7 @@ export class DashboardApp {
             const open = () => {
                 if (type === 'contributions') this.openContributionsModal();
                 else if (type === 'allocation') this.openAllocationModal();
+                else if (type === 'radar') this.openRadarModal();
                 else this.openKPIModal(type);
             };
             card.addEventListener('click', open);
@@ -2059,6 +2183,23 @@ export class DashboardApp {
                 event.preventDefault();
                 open();
             });
+        });
+
+        document.getElementById('dashboard-radar-jump')?.addEventListener('click', () => this.openRadarModal());
+        document.getElementById('close-dashboard-radar-modal')?.addEventListener('click', () => this.closeRadarModal());
+        document.getElementById('dashboard-radar-modal')?.addEventListener('click', event => {
+            if (event.target === event.currentTarget) this.closeRadarModal();
+        });
+        document.getElementById('dashboard-radar-modal')?.addEventListener('keydown', event => {
+            if (event.key === 'Escape') { event.preventDefault(); this.closeRadarModal(); }
+            if (event.key !== 'Tab') return;
+            const modal = event.currentTarget;
+            const focusable = [...modal.querySelectorAll('button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])')]
+                .filter(element => element.getClientRects().length);
+            if (!focusable.length) return;
+            const first = focusable[0], last = focusable.at(-1);
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
         });
 
         document.getElementById('close-contributions-modal')?.addEventListener('click', () => this.closeContributionsModal());
@@ -2099,6 +2240,23 @@ export class DashboardApp {
         if (!modal) return;
         modal.style.display = 'none';
         this._contributionsReturnFocus?.focus?.();
+    }
+
+    openRadarModal() {
+        const modal = document.getElementById('dashboard-radar-modal');
+        if (!modal) return;
+        this._radarReturnFocus = document.activeElement;
+        modal.style.display = 'flex';
+        document.body.classList.add('radar-dialog-open');
+        document.getElementById('close-dashboard-radar-modal')?.focus();
+    }
+
+    closeRadarModal() {
+        const modal = document.getElementById('dashboard-radar-modal');
+        if (!modal) return;
+        modal.style.display = 'none';
+        document.body.classList.remove('radar-dialog-open');
+        this._radarReturnFocus?.focus?.();
     }
 
     openKPIModal(type) {

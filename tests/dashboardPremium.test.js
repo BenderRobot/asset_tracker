@@ -535,4 +535,40 @@ describe('Daily portfolio contributions', () => {
         expect(document.querySelector('.contributions-table').hidden).toBe(true);
         expect(document.querySelector('#dashboard-contribution-highlights').textContent).toContain('indisponible');
     });
+
+    it('opens the compact radar card as a dialog and restores keyboard focus', () => {
+        document.body.innerHTML = `<div class="dashboard-kpi-grid-v2"><div class="kpi-card dashboard-radar-card" data-kpi-type="radar" tabindex="0"></div></div>
+            <div id="dashboard-radar-modal" style="display:none"><button id="close-dashboard-radar-modal">Fermer</button></div>`;
+        const app = Object.create(DashboardApp.prototype);
+        app.setupKPIModals();
+        const card = document.querySelector('.dashboard-radar-card');
+        card.focus();
+        card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(document.getElementById('dashboard-radar-modal').style.display).toBe('flex');
+        expect(document.activeElement.id).toBe('close-dashboard-radar-modal');
+        document.getElementById('dashboard-radar-modal').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        expect(document.getElementById('dashboard-radar-modal').style.display).toBe('none');
+        expect(document.activeElement).toBe(card);
+    });
+
+    it('renders Gemini headings and bullets as text without interpreting supplied HTML', () => {
+        const container = document.createElement('div');
+        const app = Object.create(DashboardApp.prototype);
+        app.renderRadarAnalysisText(container, '### Contexte macro\n\n* **Fait :** taux en hausse\n* <img src=x onerror=alert(1)>');
+        expect(container.querySelector('h4')?.textContent).toBe('Contexte macro');
+        expect(container.querySelectorAll('li')).toHaveLength(2);
+        expect(container.querySelector('img')).toBeNull();
+        expect(container.textContent).toContain('<img src=x');
+    });
+
+    it('shows losing positions without repeating irrelevant no-article messages', () => {
+        document.body.innerHTML = '<div id="dashboard-radar-news"></div><div id="dashboard-radar-preview"></div>';
+        const app = Object.create(DashboardApp.prototype);
+        app.lastPortfolioSnapshot = snapshot([position('AAA', -20), position('BBB', -15)]);
+        app._radarNews = [];
+        app._radarNewsLoaded = true;
+        app.renderPortfolioRadar();
+        expect(document.querySelectorAll('#dashboard-radar-news .dashboard-radar-row')).toHaveLength(2);
+        expect(document.getElementById('dashboard-radar-news').textContent).not.toContain('Aucun article');
+    });
 });

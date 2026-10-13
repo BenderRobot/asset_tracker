@@ -6,6 +6,21 @@ import { getAuthHeader } from './authFetchHeaders.js';
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
+export function selectRadarMacroArticles(articles = [], now = Date.now(), limit = 4) {
+    return articles.filter(article => {
+        const publishedAt = Number(article?.datetime) * 1000;
+        return Number.isFinite(publishedAt) && publishedAt <= now && now - publishedAt <= 2 * DAY_MS
+            && typeof article.title === 'string' && article.title.trim();
+    }).sort((a, b) => b.datetime - a.datetime).slice(0, limit);
+}
+
+export function radarPreviewText(value) {
+    const lines = String(value || '').split(/\r?\n/).map(line => line.trim())
+        .filter(line => line && !/^#{1,6}\s|^[-*_]{3,}$/.test(line));
+    const first = lines.find(line => !/^[*+-]\s/.test(line)) || lines[0] || '';
+    return first.replace(/\*\*/g, '').replace(/^[*+-]\s*/, '').slice(0, 320);
+}
+
 export function radarAutoTrigger({ snapshot, previousSession = false, newsReady = false, visible = true,
     previousPct = null, lastAttemptAt = 0, lastSuccessAt = 0, now = Date.now() } = {}) {
     if (!visible || !newsReady || previousSession || snapshot?.status !== 'valid' || snapshot.sourceStale
@@ -36,7 +51,7 @@ export function buildRadarAnalysisPayload(snapshot, articles = [], macroArticles
             source: String(item.source || '').slice(0, 80), publishedAt: new Date(item.datetime * 1000).toISOString(),
             url: /^https?:\/\//i.test(item.url || '') ? String(item.url).slice(0, 400) : null }));
     const relevant = selectPortfolioNewsSignals(snapshot, articles, now).rows.map(row => row.article).filter(Boolean);
-    const prioritized = [...relevant, ...articles].filter((item, index, list) =>
+    const prioritized = relevant.filter((item, index, list) =>
         item && list.findIndex(candidate => candidate?.title === item.title) === index);
     return {
         observedAt: new Date(now).toISOString(),
@@ -44,8 +59,8 @@ export function buildRadarAnalysisPayload(snapshot, articles = [], macroArticles
         portfolio: { dayPnlEUR: snapshot.dayPnl, dayPnlPct: snapshot.dayPnlPct,
             totalValueEUR: Number.isFinite(snapshot.totalValue) ? snapshot.totalValue : null,
             positions, quality: contributions.status },
-        articles: articleRows(prioritized, 6),
-        macroArticles: articleRows(macroArticles, 2)
+        articles: articleRows(prioritized, 3),
+        macroArticles: articleRows(selectRadarMacroArticles(macroArticles, now), 4)
     };
 }
 
@@ -68,10 +83,10 @@ function sourceLinks(groundingMetadata) {
 
 export async function fetchPortfolioRadarAnalysis(payload, reason, { signal } = {}) {
     const bounded = { ...payload, articles: [...(payload.articles || [])], macroArticles: [...(payload.macroArticles || [])] };
-    const messageFor = data => `Déclencheur : ${reason}. Explique en 3 à 5 phrases ce qui est observé, puis les actualités vérifiées qui pourraient l'éclairer. Sépare ce qui est inconnu. N'attribue jamais une baisse à un article sans preuve. Données : ${JSON.stringify(data)}`;
+    const messageFor = data => `Déclencheur : ${reason}. Explique brièvement les contributions observées, puis cherche les nouvelles macroéconomiques ou sectorielles récentes susceptibles d'éclairer la direction du marché. Les titres d'actifs fournis ne sont que des pistes : si aucun événement propre à une société n'est pertinent et vérifié, dis-le sans en inventer. Distingue fait sourcé, hypothèse et inconnu ; ne déduis jamais une cause de la seule simultanéité. Réponds en français, en trois sections courtes avec titres, 250 mots maximum, dates et sources. Données : ${JSON.stringify(data)}`;
     while (messageFor(bounded).length > 6500 && (bounded.macroArticles.length || bounded.articles.length)) {
-        if (bounded.macroArticles.length) bounded.macroArticles.pop();
-        else bounded.articles.pop();
+        if (bounded.articles.length) bounded.articles.pop();
+        else bounded.macroArticles.pop();
     }
     const message = messageFor(bounded);
     if (message.length > 7000) throw new Error('Contexte trop volumineux pour l’analyse.');

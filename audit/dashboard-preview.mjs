@@ -78,10 +78,13 @@ try {
         app._radarNews = [{ title: 'Riber annonce une mise à jour de ses activités', assetName: 'Riber',
             source: 'Source de démonstration', datetime: Date.now() / 1000 }];
         app._radarNewsLoaded = true;
+        app.globalNews = [{ title: 'Les marchés européens réagissent aux perspectives de taux',
+            source: 'Source macro de démonstration', datetime: Date.now() / 1000, url: 'https://example.org/macro' }];
+        app._radarMacroLoaded = true;
         app._earningsEvents = [{ ticker: 'AMAT', name: 'Applied Materials', providerSymbol: 'AMAT',
             date: Date.now() + 7 * 86400000, estimated: true }];
         app._earningsLoadStatus = 'ready';
-        app.renderPortfolioRadar(); app.renderEarningsRadar();
+        app.renderPortfolioRadar(); app.renderMacroRadar(); app.renderEarningsRadar();
         app._radarAnalysis = { text: 'Le portefeuille gagne 142,80 €, principalement grâce à Alphabet (+72,30 €). Riber perd 20 € ; l’article récent à son sujet ne prouve pas la cause de cette baisse.',
             sources: [{ title: 'Source de démonstration', url: 'https://example.org/riber' }],
             reason: 'point régulier', createdAt: Date.now() };
@@ -150,10 +153,11 @@ try {
         assert.match(await page.locator('#dashboard-radar-earnings').textContent(), /Applied Materials/);
         assert.match(await page.locator('#dashboard-radar-ai-text').textContent(), /Alphabet/);
         assert.equal(await page.locator('#dashboard-radar-ai-sources a').count(), 1);
-        assert.equal(await page.locator('.dashboard-radar-jump').getAttribute('href'), '#dashboard-radar-title');
+        assert.match(await page.locator('#dashboard-radar-preview').textContent(), /marchés européens/);
+        assert.match(await page.locator('#dashboard-radar-macro').textContent(), /perspectives de taux/);
         assert.equal(size.scroll, width, `page overflow at ${width}`);
         assert.equal(size.overflowingValues, 0, `KPI overflow at ${width}`);
-        if (width >= 1200) assert.deepEqual(size.panelEdges, size.lastCardEdges, `markets panel not aligned with the last KPI card at ${width}`);
+        if (width >= 1200) assert.equal(size.panelEdges[1], size.lastCardEdges[1], `markets panel right edge not aligned with the KPI grid at ${width}`);
         // Small screens: manual swipe only, no looping copy.
         if (width <= 768) assert.equal(size.loopCopy, 'none');
         assert.equal(size.startVisible, true, `period stats hidden at ${width}`);
@@ -164,8 +168,8 @@ try {
         assert.equal(size.contributionsVisible, true, `daily contributions hidden at ${width}`);
         assert.equal(size.contributionsStatus, 'complete', `daily contributions do not reconcile at ${width}`);
         assert.equal(size.highlights, 3, `daily top/worst preview missing at ${width}`);
-        assert.equal(size.cardCount, 5, `five cards missing at ${width}`);
-        if (width >= 1200) assert.equal(size.cardRows, 1, `five cards do not fit one row at ${width}`);
+        assert.equal(size.cardCount, 6, `six cards missing at ${width}`);
+        if (width >= 900) assert.equal(size.cardRows, 2, `six cards do not fit two rows at ${width}`);
         if (width > 1200) assert.ok(Math.abs(size.panelHeight - size.leftHeight) <= 2, `markets panel height ${size.panelHeight} vs ${size.leftHeight} at ${width}`);
         await page.locator('.contribution-kpi-card').click();
         assert.equal(await page.locator('#contributions-modal').isVisible(), true, `contribution detail closed at ${width}`);
@@ -173,6 +177,17 @@ try {
             <= document.querySelector('.contributions-table-wrap').getBoundingClientRect().right + 1);
         assert.equal(impactVisible, true, `daily impact hidden at ${width}`);
         await page.locator('#close-contributions-modal').click();
+        await page.locator('.dashboard-radar-card').click();
+        assert.equal(await page.locator('#dashboard-radar-modal').isVisible(), true, `radar detail closed at ${width}`);
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'close-dashboard-radar-modal');
+        const radarBox = await page.locator('.dashboard-radar-modal .kpi-modal-box').evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, width: rect.width, innerHeight };
+        });
+        assert.ok(radarBox.top >= 0 && radarBox.bottom <= radarBox.innerHeight + 1, `radar dialog outside viewport at ${width}: ${JSON.stringify(radarBox)}`);
+        if ([1366, 390].includes(width)) await page.screenshot({ path: path.join(root, `audit/dashboard-radar-modal-${width}.png`) });
+        await page.keyboard.press('Escape');
+        assert.equal(await page.locator('#dashboard-radar-modal').isVisible(), false);
         await page.locator('#add-index-btn').click();
         assert.equal(await page.locator('body').evaluate(el => el.classList.contains('market-dialog-open')), true);
         const picker = await page.evaluate(() => {

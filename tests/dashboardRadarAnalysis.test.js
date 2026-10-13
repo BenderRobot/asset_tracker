@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, radarAutoTrigger } from '../src/dashboardRadarAnalysis.js';
+import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, radarAutoTrigger, radarPreviewText, selectRadarMacroArticles } from '../src/dashboardRadarAnalysis.js';
 
 vi.mock('../src/authFetchHeaders.js', () => ({ getAuthHeader: async () => ({ Authorization: 'Bearer test' }) }));
 
@@ -44,6 +44,22 @@ describe('Dashboard AI radar', () => {
         expect(payload.articles).toHaveLength(1);
         expect(payload.articles[0].title).toBe(recent.title);
         expect(JSON.stringify(payload)).not.toContain('SECRET');
+    });
+
+    it('keeps only matched company news, includes recent macro context, and makes a readable preview', () => {
+        const matched = { title: 'Applied Materials publie ses résultats', assetName: 'Applied Materials',
+            datetime: (now - 3600_000) / 1000, url: 'https://example.org/company' };
+        const unrelated = { title: 'SpaceX prépare un lancement', assetName: 'SpaceX',
+            datetime: (now - 1800_000) / 1000, url: 'https://example.org/unrelated' };
+        const macro = { title: 'La Fed précise sa trajectoire de taux',
+            datetime: (now - 900_000) / 1000, url: 'https://example.org/macro' };
+        const oldMacro = { title: 'Ancienne dépêche', datetime: (now - 3 * 86400_000) / 1000 };
+        const payload = buildRadarAnalysisPayload(snapshot, [unrelated, matched], [oldMacro, macro], now);
+        expect(payload.articles.map(article => article.title)).toEqual([matched.title]);
+        expect(payload.macroArticles.map(article => article.title)).toEqual([macro.title]);
+        expect(selectRadarMacroArticles([oldMacro, macro], now)).toEqual([macro]);
+        expect(radarPreviewText('### Ce qui est observé\n\n**Applied Materials** baisse.\n\n### Contexte'))
+            .toBe('Applied Materials baisse.');
     });
 
     it('lists only sources returned by Google Search grounding, not article leads', async () => {
