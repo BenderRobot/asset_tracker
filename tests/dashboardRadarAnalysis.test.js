@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, radarAutoTrigger, radarPreviewText, selectRadarMacroArticles } from '../src/dashboardRadarAnalysis.js';
+import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, morningRadarTrigger, parisRadarDay, radarAutoTrigger, radarPreviewText, selectRadarMacroArticles } from '../src/dashboardRadarAnalysis.js';
+import { verifiedPortfolioReleases } from '../src/dashboardEarningsReleases.js';
 
 vi.mock('../src/authFetchHeaders.js', () => ({ getAuthHeader: async () => ({ Authorization: 'Bearer test' }) }));
 
@@ -13,6 +14,52 @@ const snapshot = {
 };
 
 describe('Dashboard AI radar', () => {
+    it('starts a Paris morning briefing at 08:30 across summer and winter time, once per day', () => {
+        const base = { snapshot: { ...snapshot, sourceStale: true, dayPnl: null }, newsReady: true };
+        const summer = Date.parse('2026-10-14T06:30:00Z');
+        const winter = Date.parse('2026-11-02T07:30:00Z');
+        expect(parisRadarDay(summer)).toEqual({ day: '2026-10-14', minutes: 510 });
+        expect(parisRadarDay(winter)).toEqual({ day: '2026-11-02', minutes: 510 });
+        expect(morningRadarTrigger({ ...base, now: summer - 60_000 })).toBeNull();
+        expect(morningRadarTrigger({ ...base, now: summer })).toBe('briefing de 8 h 30');
+        expect(morningRadarTrigger({ ...base, now: summer, lastMorningDay: '2026-10-14' })).toBeNull();
+        expect(morningRadarTrigger({ ...base, now: summer, visible: false })).toBeNull();
+    });
+
+    it('keeps yesterday’s performance out of the morning prompt and includes verified ASML results', () => {
+        const morning = Date.parse('2026-10-14T06:30:00Z');
+        const releases = verifiedPortfolioReleases([{ ticker: 'ASML', providerSymbol: 'ASML.AS', quantity: 1 }], morning);
+        const payload = buildRadarAnalysisPayload({ ...snapshot, sourceStale: true,
+            pricesTimestamp: morning - 15 * 3600_000, positions: [...snapshot.positions,
+                { ticker: 'ASML', name: 'ASML Holding', quantity: 1, currentValue: 1500, dayPnl: -999 }] },
+        [], [], morning, { morning: true, releases });
+        expect(payload.mode).toBe('morning');
+        expect(payload.portfolio).not.toHaveProperty('dayPnlEUR');
+        expect(payload.portfolio.positions[0]).not.toHaveProperty('dayImpactEUR');
+        expect(payload.earningsReleases[0].period).toBe('T3 2026');
+        expect(payload.earningsReleases[0].highlights[0]).toContain('11,7 Md€');
+        expect(JSON.stringify(payload)).not.toContain('-999');
+        expect(releases[0].isNew).toBe(true);
+        expect(verifiedPortfolioReleases([{ ticker: 'ASML', quantity: 1 }], morning - 2 * 3600_000)).toEqual([]);
+        expect(verifiedPortfolioReleases([{ ticker: 'AAPL', quantity: 1 }], morning)).toEqual([]);
+    });
+
+    it('asks Gemini for a morning report, with the issuer release linked even without search grounding', async () => {
+        const morning = Date.parse('2026-10-14T06:30:00Z');
+        const releases = verifiedPortfolioReleases([{ ticker: 'ASML', quantity: 1 }], morning);
+        const payload = buildRadarAnalysisPayload(snapshot, [], [], morning, { morning: true, releases });
+        vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+            const request = JSON.parse(options.body);
+            expect(request.message).toContain('briefing de 8 h 30');
+            expect(request.message).toContain('11,7 Md€');
+            expect(request.message).not.toContain('dayPnlEUR');
+            return { ok: true, json: async () => ({ text: 'ASML : résultats publiés.', groundingMetadata: {} }) };
+        }));
+        try {
+            const result = await fetchPortfolioRadarAnalysis(payload, 'briefing de 8 h 30');
+            expect(result.sources[0].url).toBe(releases[0].sourceUrl);
+        } finally { vi.unstubAllGlobals(); }
+    });
     it('scans after news is ready, reacts to a meaningful move, and throttles repeats', () => {
         const base = { snapshot, newsReady: true, visible: true, now };
         expect(radarAutoTrigger(base)).toBe('baisse marquée');

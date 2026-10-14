@@ -30,6 +30,13 @@
 .dashboard-radar-column { min-width: 0; }
 .dashboard-radar-column + .dashboard-radar-column { padding-left: 18px; border-left: 1px solid var(--border-color); }
 .dashboard-radar-column h3 { margin: 0 0 8px; color: #a7c7ff; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.dashboard-radar-subheading { margin: 13px 0 7px; color: #a7c7ff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.dashboard-radar-release { padding: 10px 11px; border: 1px solid #365b87; border-radius: 9px; background: #14223e; }
+.dashboard-radar-release-head { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; font-size: 13px; }
+.dashboard-radar-new-badge { display: inline-block; padding: 2px 6px; border-radius: 5px; color: #061b18; background: #22d3a0; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.dashboard-radar-release ul { margin: 7px 0; padding-left: 17px; color: #d4e2f8; font-size: 12px; line-height: 1.45; }
+.dashboard-radar-release li + li { margin-top: 5px; }
+.dashboard-radar-release a { color: #8ab7ff; font-size: 11px; }
 .dashboard-radar-list { display: grid; gap: 5px; }
 .dashboard-radar-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; color: var(--text-primary); background: #14203a; text-align: left; text-decoration: none; font: inherit; }
 .dashboard-radar-row:is(button, a) { cursor: pointer; }

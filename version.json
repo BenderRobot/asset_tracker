@@ -1,8 +1,8 @@
 {
-  "version": "1.17.41",
+  "version": "1.17.42",
   "major": 1,
   "minor": 17,
-  "patch": 41,
-  "build": 387,
+  "patch": 42,
+  "build": 388,
   "source": "feature-semver"
 }

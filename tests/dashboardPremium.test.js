@@ -9,6 +9,7 @@ import { marketCalendarEngine } from '../src/MarketCalendarEngine.js';
 import { clearMarketTransportCache } from '../src/marketDataTransport.js';
 import { portfolioKPIs } from '../src/portfolioKPIs.js';
 import { assignNewsToNames, newsSearchTerm } from '../src/newsHoldingMatcher.js';
+import { verifiedPortfolioReleases } from '../src/dashboardEarningsReleases.js';
 
 let DashboardApp;
 beforeAll(async () => {
@@ -559,6 +560,24 @@ describe('Daily portfolio contributions', () => {
         expect(container.querySelectorAll('li')).toHaveLength(2);
         expect(container.querySelector('img')).toBeNull();
         expect(container.textContent).toContain('<img src=x');
+    });
+
+    it('shows the verified ASML publication with a new badge and removes its calendar duplicate', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-10-14T07:30:00Z'));
+        document.body.innerHTML = '<div id="dashboard-radar-releases"></div><div id="dashboard-radar-earnings"></div>';
+        const app = Object.create(DashboardApp.prototype);
+        app._verifiedReleases = verifiedPortfolioReleases([{ ticker: 'ASML', quantity: 1 }]);
+        app._earningsEvents = [
+            { ticker: 'ASML', name: 'ASML Holding', providerSymbol: 'ASML.AS', date: Date.now() },
+            { ticker: 'TSLA', name: 'Tesla', providerSymbol: 'TSLA', date: Date.now() + 7 * 86400_000 }
+        ];
+        app._earningsLoadStatus = 'ready';
+        app.renderEarningsRadar();
+        expect(document.querySelector('.dashboard-radar-new-badge')?.textContent).toBe('Nouveau');
+        expect(document.getElementById('dashboard-radar-releases').textContent).toContain('11,7 Md€');
+        expect(document.getElementById('dashboard-radar-earnings').textContent).not.toContain('ASML');
+        expect(document.getElementById('dashboard-radar-earnings').textContent).toContain('Tesla');
     });
 
     it('shows losing positions without repeating irrelevant no-article messages', () => {

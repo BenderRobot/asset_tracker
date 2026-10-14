@@ -433,7 +433,7 @@
             </div>
             <section class="dashboard-radar kpi-modal-body" aria-label="Détail du radar">
                 <div class="dashboard-radar-header">
-                    <p>Contributions du jour, contexte de marché et prochaines publications. Une actualité ne prouve pas la cause d'une variation.</p>
+                    <p>Briefing de 8 h 30, contributions du jour, contexte de marché et publications. Une actualité ne prouve pas la cause d'une variation.</p>
                     <button id="dashboard-radar-refresh" class="dashboard-text-button" type="button" aria-label="Actualiser les actualités et les résultats">Actualiser</button>
                 </div>
                 <div class="dashboard-radar-grid">
@@ -446,14 +446,16 @@
                         <div id="dashboard-radar-macro" aria-live="polite">Recherche des actualités de marché…</div>
                     </div>
                     <div class="dashboard-radar-column">
-                        <h3>Prochains résultats</h3>
+                        <h3>Résultats et publications</h3>
+                        <div id="dashboard-radar-releases" aria-live="polite"></div>
+                        <h4 class="dashboard-radar-subheading">À venir</h4>
                         <div id="dashboard-radar-earnings" aria-live="polite">Chargement du calendrier…</div>
-                        <p class="dashboard-radar-source">Dates Yahoo Finance, parfois estimées. Bilans disponibles dans le Screener selon leur publication.</p>
+                        <p class="dashboard-radar-source">Publications sourcées séparées des dates Yahoo Finance, parfois estimées. Les états financiers du Screener peuvent être mis à jour plus tard.</p>
                     </div>
                 </div>
                 <div class="dashboard-radar-ai" aria-labelledby="dashboard-radar-ai-title">
                     <div class="dashboard-radar-ai-header">
-                        <h3 id="dashboard-radar-ai-title"><i class="ph ph-sparkle" aria-hidden="true"></i> Lecture IA du mouvement</h3>
+                        <h3 id="dashboard-radar-ai-title"><i class="ph ph-sparkle" aria-hidden="true"></i> Lecture IA du marché</h3>
                         <button id="dashboard-radar-analyze" class="dashboard-text-button" type="button">Relancer l’analyse</button>
                     </div>
                     <div id="dashboard-radar-ai-status" class="dashboard-radar-state" role="status">L’analyse se lancera quand les données du portefeuille et les actualités seront prêtes.</div>

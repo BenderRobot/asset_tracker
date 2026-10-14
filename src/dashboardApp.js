@@ -30,7 +30,8 @@ import { normalizeDashboardIndices, presentDashboardQuote, scheduledMarketStatus
 import { MarketTicker, selectPortfolioMovers } from './marketTicker.js';
 import { selectDailyContributions, selectContributionHighlights, auditDashboardSnapshot } from './dashboardContributions.js';
 import { companyCalendarCandidates, parseUpcomingEarnings, selectPortfolioNewsSignals } from './dashboardPortfolioRadar.js';
-import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, radarAutoTrigger, radarPreviewText, selectRadarMacroArticles } from './dashboardRadarAnalysis.js';
+import { verifiedPortfolioReleases } from './dashboardEarningsReleases.js';
+import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, morningRadarTrigger, parisRadarDay, radarAutoTrigger, radarPreviewText, selectRadarMacroArticles } from './dashboardRadarAnalysis.js';
 
 const SPARKLINE_TTL_MS = 5 * 60 * 1000;
 const marketCardStateClass = view => {
@@ -234,6 +235,9 @@ export class DashboardApp {
         //Auto-refresh every 30 seconds to keep KPIs (Top Asset, Asset Allocation) in sync with Index prices
         if (this._refreshInterval) clearInterval(this._refreshInterval);
         this._refreshInterval = setInterval(() => this.refreshDashboard(), 30 * 1000);
+        this._morningRadarInterval = setInterval(() => this.checkMorningRadar(), 30 * 1000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) this.checkMorningRadar(); });
+        this.checkMorningRadar();
 
     }
 
@@ -399,6 +403,8 @@ export class DashboardApp {
             refreshError: result.lastRefreshFailure || null
         };
         this._radarPreviousSession = !!previousSession;
+        this._verifiedReleases = verifiedPortfolioReleases(companyCalendarCandidates(holdings));
+        this.renderVerifiedReleases();
         this.renderPortfolioRadar();
         this.restorePortfolioRadarAnalysis();
         this.analyzePortfolioRadar();
@@ -1065,8 +1071,12 @@ export class DashboardApp {
         };
         const macro = selectRadarMacroArticles(this.globalNews || [])[0];
         addMeta('Contexte macro', macro?.title || (this._radarMacroLoaded ? 'Aucun titre récent' : 'Chargement…'));
-        const earnings = (this._earningsEvents || []).find(event => event.date >= Date.now() - DAY_MS);
-        addMeta('Prochains résultats', earnings
+        const release = (this._verifiedReleases || [])[0];
+        const earnings = (this._earningsEvents || []).find(event => event.date >= Date.now() - DAY_MS
+            && !(this._verifiedReleases || []).some(item => item.ticker === event.ticker));
+        if (release) addMeta(release.isNew ? 'Nouveau résultat publié' : 'Résultats publiés',
+            `${release.ticker} ${release.period} · ${release.highlights[0]}`);
+        else addMeta('Prochains résultats', earnings
             ? `${earnings.name} · ${new Date(earnings.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}`
             : this._earningsLoadStatus === 'loading' ? 'Chargement…' : 'Aucune date connue');
         if (analysis?.createdAt) {
@@ -1098,6 +1108,7 @@ export class DashboardApp {
         this._radarLastSuccessAt = 0;
         this._radarLastAttemptAt = 0;
         this._radarLastAnalyzedPct = null;
+        this._radarLastMorningDay = null;
         try {
             const saved = JSON.parse(localStorage.getItem(key) || 'null');
             if (saved?.signature === signature && Date.now() - saved.savedAt < DAY_MS) {
@@ -1105,6 +1116,7 @@ export class DashboardApp {
                 this._radarLastSuccessAt = Number(saved.lastSuccessAt) || 0;
                 this._radarLastAttemptAt = Number(saved.lastAttemptAt) || 0;
                 this._radarLastAnalyzedPct = Number.isFinite(saved.lastAnalyzedPct) ? saved.lastAnalyzedPct : null;
+                this._radarLastMorningDay = saved.lastMorningDay || null;
             }
         } catch { /* local cache optional */ }
         this.renderPortfolioRadarAnalysis();
@@ -1138,7 +1150,7 @@ export class DashboardApp {
             text.replaceChildren();
         }
         const outdated = analysis && (Date.now() - analysis.createdAt > 60 * 60 * 1000
-            || this.lastPortfolioSnapshot?.sourceStale || this._radarPreviousSession);
+            || (analysis.mode !== 'morning' && (this.lastPortfolioSnapshot?.sourceStale || this._radarPreviousSession)));
         state.textContent = status || (analysis
             ? `Analyse du ${this.formatFullDateTime(analysis.createdAt)} · ${analysis.reason}${outdated ? ' · à actualiser' : ''}${analysis.sources?.length ? '' : ' · Aucune source vérifiable renvoyée'}`
             : 'L’analyse se lancera quand les données du portefeuille et les actualités seront prêtes.');
@@ -1182,30 +1194,54 @@ export class DashboardApp {
         flush();
     }
 
+    async checkMorningRadar() {
+        if (document.hidden || this._morningRefreshing) return;
+        const paris = parisRadarDay();
+        if (paris.minutes < 8 * 60 + 30 || paris.minutes >= 12 * 60
+            || this._morningRefreshDay === paris.day || this._radarLastMorningDay === paris.day) return;
+        this._morningRefreshDay = paris.day;
+        this._morningRefreshing = true;
+        try {
+            await Promise.allSettled([this.loadPortfolioNews(), this.loadGlobalNews()]);
+        } finally {
+            this._morningRefreshing = false;
+            this.analyzePortfolioRadar();
+        }
+    }
+
     async analyzePortfolioRadar(manual = false) {
         const snapshot = this.lastPortfolioSnapshot;
         const now = Date.now();
         if (this._radarAnalysisRunning) return;
+        if (this._morningRefreshing && !manual) return;
         if (!auth.currentUser) {
             if (manual) this.renderPortfolioRadarAnalysis('Connexion requise pour lancer l’analyse.');
             return;
         }
-        if (snapshot?.status !== 'valid' || snapshot.sourceStale || this._radarPreviousSession) {
+        const newsReady = this._radarNewsLoaded && this._radarMacroLoaded;
+        const morningReason = !this._morningRefreshing && morningRadarTrigger({ snapshot, newsReady,
+            visible: !document.hidden, lastMorningDay: this._radarLastMorningDay,
+            lastAttemptAt: this._radarLastAttemptAt, now });
+        const manualMorning = manual && parisRadarDay(now).minutes >= 8 * 60 + 30
+            && parisRadarDay(now).minutes < 12 * 60 && (snapshot?.sourceStale || this._radarPreviousSession);
+        const morning = !!morningReason || manualMorning;
+        if (snapshot?.status !== 'valid' || (!morning && (snapshot.sourceStale || this._radarPreviousSession))) {
             if (manual) this.renderPortfolioRadarAnalysis('Analyse indisponible : variation du jour ou cotations fiables absentes.');
             return;
         }
-        const reason = manual ? 'analyse manuelle' : radarAutoTrigger({ snapshot,
-            previousSession: this._radarPreviousSession, newsReady: this._radarNewsLoaded && this._radarMacroLoaded,
+        const reason = manual ? (morning ? 'briefing manuel du matin' : 'analyse manuelle') : morningReason || radarAutoTrigger({ snapshot,
+            previousSession: this._radarPreviousSession, newsReady,
             visible: !document.hidden, previousPct: this._radarLastAnalyzedPct, lastAttemptAt: this._radarLastAttemptAt,
             lastSuccessAt: this._radarLastSuccessAt, now });
         if (!reason) return;
         const userId = auth.currentUser.uid;
-        const dayKey = new Date(now).toISOString().slice(0, 10);
+        const dayKey = parisRadarDay(now).day;
         const countKey = `dashboard_radar_auto_v1:${userId}:${dayKey}`;
         let autoCount = 0;
         try { autoCount = Number(localStorage.getItem(countKey)) || 0; } catch { /* optional cache */ }
         if (!manual && autoCount >= 5) return;
-        const payload = buildRadarAnalysisPayload(snapshot, this._radarNews || [], this.globalNews || [], now);
+        const payload = buildRadarAnalysisPayload(snapshot, this._radarNews || [], this.globalNews || [], now,
+            { morning, releases: this._verifiedReleases || [] });
         if (!payload) return;
         const signature = this.radarAnalysisSignature();
         this._radarAnalysisRunning = true;
@@ -1217,14 +1253,15 @@ export class DashboardApp {
         try {
             const result = await fetchPortfolioRadarAnalysis(payload, reason);
             if (userId !== auth.currentUser?.uid || signature !== this.radarAnalysisSignature()) return;
-            this._radarAnalysis = { ...result, reason, createdAt: Date.now() };
+            this._radarAnalysis = { ...result, reason, mode: payload.mode, createdAt: Date.now() };
             this._radarLastSuccessAt = this._radarAnalysis.createdAt;
-            this._radarLastAnalyzedPct = snapshot.dayPnlPct;
+            if (morning) this._radarLastMorningDay = parisRadarDay(now).day;
+            else this._radarLastAnalyzedPct = snapshot.dayPnlPct;
             const key = this.radarAnalysisStorageKey();
             if (key) {
                 try { localStorage.setItem(key, JSON.stringify({ signature, savedAt: Date.now(),
                     lastAttemptAt: this._radarLastAttemptAt, lastSuccessAt: this._radarLastSuccessAt,
-                    lastAnalyzedPct: this._radarLastAnalyzedPct,
+                    lastAnalyzedPct: this._radarLastAnalyzedPct, lastMorningDay: this._radarLastMorningDay,
                     analysis: this._radarAnalysis })); } catch { /* optional cache */ }
             }
             this.renderPortfolioRadarAnalysis();
@@ -1289,13 +1326,15 @@ export class DashboardApp {
     renderEarningsRadar() {
         const container = document.getElementById('dashboard-radar-earnings');
         if (!container) return;
+        this.renderVerifiedReleases();
         this.renderRadarPreview();
         container.replaceChildren();
         if (this._earningsLoadStatus === 'loading') {
             container.textContent = 'Recherche des prochaines publications…';
             return;
         }
-        const events = (this._earningsEvents || []).slice(0, 3);
+        const events = (this._earningsEvents || []).filter(event =>
+            !(this._verifiedReleases || []).some(release => release.ticker === event.ticker)).slice(0, 3);
         if (!events.length) {
             container.textContent = this._earningsLoadStatus === 'unavailable'
                 ? 'Calendrier indisponible pour le moment.'
@@ -1331,6 +1370,47 @@ export class DashboardApp {
             note.className = 'dashboard-radar-state';
             note.textContent = 'Certaines dates n’ont pas pu être actualisées.';
             container.append(note);
+        }
+    }
+
+    renderVerifiedReleases() {
+        const container = document.getElementById('dashboard-radar-releases');
+        if (!container) return;
+        container.replaceChildren();
+        const releases = this._verifiedReleases || [];
+        if (!releases.length) {
+            container.textContent = 'Aucune publication récente vérifiée pour les positions détenues.';
+            container.classList.add('dashboard-radar-state');
+            return;
+        }
+        container.classList.remove('dashboard-radar-state');
+        for (const release of releases) {
+            const card = document.createElement('article');
+            card.className = 'dashboard-radar-release';
+            const head = document.createElement('div');
+            head.className = 'dashboard-radar-release-head';
+            const title = document.createElement('strong');
+            title.textContent = `${release.ticker} · ${release.period}`;
+            head.append(title);
+            if (release.isNew) {
+                const badge = document.createElement('span');
+                badge.className = 'dashboard-radar-new-badge';
+                badge.textContent = 'Nouveau';
+                head.append(badge);
+            }
+            const facts = document.createElement('ul');
+            for (const highlight of release.highlights) {
+                const item = document.createElement('li');
+                item.textContent = highlight;
+                facts.append(item);
+            }
+            const source = document.createElement('a');
+            source.href = release.sourceUrl;
+            source.target = '_blank';
+            source.rel = 'noopener noreferrer';
+            source.textContent = `${release.source} · ${new Date(release.publishedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}`;
+            card.append(head, facts, source);
+            container.append(card);
         }
     }
 
