@@ -552,6 +552,35 @@ describe('Daily portfolio contributions', () => {
         expect(document.activeElement).toBe(card);
     });
 
+    it('badges an unread radar analysis, clears it on opening, and remembers the read state', () => {
+        document.body.innerHTML = `<div class="kpi-card dashboard-radar-card" aria-labelledby="dashboard-radar-card-title">
+            <span id="dashboard-radar-card-title">Radar du portefeuille</span>
+            <span id="dashboard-radar-unread" hidden>Analyse à lire</span></div>
+            <div id="dashboard-radar-modal" style="display:none"><button id="close-dashboard-radar-modal">Fermer</button></div>`;
+        const createdAt = Date.parse('2026-10-14T08:00:00Z');
+        const makeApp = at => {
+            const app = Object.create(DashboardApp.prototype);
+            app._radarAnalysis = { text: 'Analyse disponible', createdAt: at };
+            app._verifiedReleases = [];
+            app.radarReadStorageKey = () => 'radar-read-test';
+            app.radarAnalysisSignature = () => 'ASML:1';
+            return app;
+        };
+        const app = makeApp(createdAt);
+        app.renderRadarUnreadBadge();
+        expect(document.getElementById('dashboard-radar-unread').hidden).toBe(false);
+        expect(document.querySelector('.dashboard-radar-card').getAttribute('aria-labelledby')).toContain('dashboard-radar-unread');
+        app.openRadarModal();
+        expect(document.getElementById('dashboard-radar-unread').hidden).toBe(true);
+        expect(JSON.parse(localStorage.getItem('radar-read-test')).at).toBe(createdAt);
+        const reloaded = makeApp(createdAt);
+        reloaded.renderRadarUnreadBadge();
+        expect(document.getElementById('dashboard-radar-unread').hidden).toBe(true);
+        reloaded._radarAnalysis.createdAt += 1000;
+        reloaded.renderRadarUnreadBadge();
+        expect(document.getElementById('dashboard-radar-unread').hidden).toBe(false);
+    });
+
     it('renders Gemini headings and bullets as text without interpreting supplied HTML', () => {
         const container = document.createElement('div');
         const app = Object.create(DashboardApp.prototype);

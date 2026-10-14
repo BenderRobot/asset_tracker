@@ -18,6 +18,9 @@
 .dashboard-radar-modal .kpi-modal-box { max-width: 1120px; max-height: min(90dvh, 900px); }
 .dashboard-radar-modal .kpi-modal-header h3 i { margin-right: 8px; color: #8ab7ff; }
 .dashboard-radar-card { gap: 10px; }
+.dashboard-radar-card .kpi-header { gap: 6px; }
+.dashboard-radar-unread { display: inline-flex; flex: none; align-items: center; padding: 3px 7px; border: 1px solid #8865e9; border-radius: 999px; background: #342456; color: #e6d9ff; font-size: 10px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+.dashboard-radar-unread[hidden] { display: none; }
 .dashboard-radar-preview { display: grid; align-content: start; gap: 9px; min-width: 0; flex: 1; }
 .dashboard-radar-preview-main { color: var(--text-primary); font-size: 13px; line-height: 1.45; font-weight: 600; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .dashboard-radar-preview-meta { display: block; min-width: 0; color: var(--dashboard-muted); font-size: 10px; }

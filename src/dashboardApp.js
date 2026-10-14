@@ -1047,6 +1047,7 @@ export class DashboardApp {
     }
 
     renderRadarPreview() {
+        this.renderRadarUnreadBadge();
         const container = document.getElementById('dashboard-radar-preview');
         if (!container) return;
         container.replaceChildren();
@@ -1101,6 +1102,52 @@ export class DashboardApp {
     radarAnalysisStorageKey() {
         const uid = auth.currentUser?.uid;
         return uid ? `dashboard_radar_analysis_v1:${uid}` : null;
+    }
+
+    radarReadStorageKey() {
+        const uid = auth.currentUser?.uid;
+        return uid ? `dashboard_radar_read_v1:${uid}` : null;
+    }
+
+    radarReadAt() {
+        const key = this.radarReadStorageKey();
+        const signature = this.radarAnalysisSignature();
+        const identity = `${key || 'session'}:${signature}`;
+        if (this._radarRead?.identity === identity) return this._radarRead.at;
+        let at = 0;
+        if (key) {
+            try {
+                const saved = JSON.parse(localStorage.getItem(key) || 'null');
+                if (saved?.signature === signature) at = Number(saved.at) || 0;
+            } catch { /* optional cache */ }
+        }
+        this._radarRead = { identity, at };
+        return at;
+    }
+
+    renderRadarUnreadBadge() {
+        const badge = document.getElementById('dashboard-radar-unread');
+        const card = document.querySelector('.dashboard-radar-card');
+        if (!badge || !card) return;
+        const pendingRelease = (this._verifiedReleases || []).some(release =>
+            !this._radarAnalysis?.releaseIds?.includes(release.id));
+        const unread = !pendingRelease && !!this._radarAnalysis?.text
+            && Number(this._radarAnalysis.createdAt) > this.radarReadAt();
+        badge.hidden = !unread;
+        card.setAttribute('aria-labelledby', unread
+            ? 'dashboard-radar-card-title dashboard-radar-unread' : 'dashboard-radar-card-title');
+    }
+
+    markRadarAnalysisRead() {
+        if (!this._radarAnalysis?.text) return;
+        const key = this.radarReadStorageKey();
+        const signature = this.radarAnalysisSignature();
+        const at = Number(this._radarAnalysis.createdAt) || 0;
+        this._radarRead = { identity: `${key || 'session'}:${signature}`, at };
+        if (key) {
+            try { localStorage.setItem(key, JSON.stringify({ signature, at })); } catch { /* optional cache */ }
+        }
+        this.renderRadarUnreadBadge();
     }
 
     restorePortfolioRadarAnalysis() {
@@ -1284,6 +1331,7 @@ export class DashboardApp {
                     analysis: this._radarAnalysis })); } catch { /* optional cache */ }
             }
             this.renderPortfolioRadarAnalysis();
+            if (document.getElementById('dashboard-radar-modal')?.style.display === 'flex') this.markRadarAnalysisRead();
         } catch (error) {
             if (userId === auth.currentUser?.uid && signature === this.radarAnalysisSignature()) this.renderPortfolioRadarAnalysis(error.message);
         } finally {
@@ -2347,6 +2395,7 @@ export class DashboardApp {
         this._radarReturnFocus = document.activeElement;
         modal.style.display = 'flex';
         document.body.classList.add('radar-dialog-open');
+        this.markRadarAnalysisRead();
         document.getElementById('close-dashboard-radar-modal')?.focus();
     }
 
