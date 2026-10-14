@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, morningRadarTrigger, parisRadarDay, radarAutoTrigger, radarPreviewText, selectRadarMacroArticles } from '../src/dashboardRadarAnalysis.js';
+import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, morningRadarTrigger, parisRadarDay, radarAutoTrigger, radarPreviewText, radarReleaseTrigger, selectRadarMacroArticles } from '../src/dashboardRadarAnalysis.js';
 import { verifiedPortfolioReleases } from '../src/dashboardEarningsReleases.js';
 
 vi.mock('../src/authFetchHeaders.js', () => ({ getAuthHeader: async () => ({ Authorization: 'Bearer test' }) }));
@@ -26,6 +26,16 @@ describe('Dashboard AI radar', () => {
         expect(morningRadarTrigger({ ...base, now: summer, visible: false })).toBeNull();
     });
 
+    it('requests a fresh reading when a verified report appears after the morning briefing', () => {
+        const releases = [{ id: 'asml-q3-2026' }];
+        const base = { releases, snapshot, newsReady: true, visible: true, now };
+        expect(radarReleaseTrigger(base)).toEqual({ reason: 'nouveau résultat publié', pendingId: 'asml-q3-2026' });
+        expect(radarReleaseTrigger({ ...base, analysisReleaseIds: ['asml-q3-2026'] })).toBeNull();
+        expect(radarReleaseTrigger({ ...base, lastAttemptId: 'asml-q3-2026', lastAttemptAt: now - 60_000 })).toBeNull();
+        expect(radarReleaseTrigger({ ...base, lastAttemptId: 'asml-q3-2026', lastAttemptAt: now - 16 * 60_000 }))
+            .not.toBeNull();
+    });
+
     it('keeps yesterday’s performance out of the morning prompt and includes verified ASML results', () => {
         const morning = Date.parse('2026-10-14T06:30:00Z');
         const releases = verifiedPortfolioReleases([{ ticker: 'ASML', providerSymbol: 'ASML.AS', quantity: 1 }], morning);
@@ -41,6 +51,7 @@ describe('Dashboard AI radar', () => {
         expect(JSON.stringify(payload)).not.toContain('-999');
         expect(releases[0].isNew).toBe(true);
         expect(verifiedPortfolioReleases([{ ticker: 'ASML', quantity: 1 }], morning - 2 * 3600_000)).toEqual([]);
+        expect(verifiedPortfolioReleases([{ ticker: 'ASML.AS', quantity: 1 }], morning)).toHaveLength(1);
         expect(verifiedPortfolioReleases([{ ticker: 'AAPL', quantity: 1 }], morning)).toEqual([]);
     });
 

@@ -31,7 +31,7 @@ import { MarketTicker, selectPortfolioMovers } from './marketTicker.js';
 import { selectDailyContributions, selectContributionHighlights, auditDashboardSnapshot } from './dashboardContributions.js';
 import { companyCalendarCandidates, parseUpcomingEarnings, selectPortfolioNewsSignals } from './dashboardPortfolioRadar.js';
 import { verifiedPortfolioReleases } from './dashboardEarningsReleases.js';
-import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, morningRadarTrigger, parisRadarDay, radarAutoTrigger, radarPreviewText, selectRadarMacroArticles } from './dashboardRadarAnalysis.js';
+import { buildRadarAnalysisPayload, fetchPortfolioRadarAnalysis, morningRadarTrigger, parisRadarDay, radarAutoTrigger, radarPreviewText, radarReleaseTrigger, selectRadarMacroArticles } from './dashboardRadarAnalysis.js';
 
 const SPARKLINE_TTL_MS = 5 * 60 * 1000;
 const marketCardStateClass = view => {
@@ -403,10 +403,11 @@ export class DashboardApp {
             refreshError: result.lastRefreshFailure || null
         };
         this._radarPreviousSession = !!previousSession;
-        this._verifiedReleases = verifiedPortfolioReleases(companyCalendarCandidates(holdings));
-        this.renderVerifiedReleases();
+        this._verifiedReleases = verifiedPortfolioReleases(holdings);
+        this.renderEarningsRadar();
         this.renderPortfolioRadar();
         this.restorePortfolioRadarAnalysis();
+        this.renderPortfolioRadarAnalysis();
         this.analyzePortfolioRadar();
         this.loadEarningsCalendar();
         this.lastCashTransactions = this.dataManager.splitCanonicalPurchases(this.storage.getPurchases?.() || []).cash;
@@ -1050,12 +1051,15 @@ export class DashboardApp {
         if (!container) return;
         container.replaceChildren();
         const snapshot = this.lastPortfolioSnapshot;
-        const analysis = this._radarAnalysis;
+        const releases = this._verifiedReleases || [];
+        const pendingRelease = releases.find(release => !this._radarAnalysis?.releaseIds?.includes(release.id));
+        const analysis = pendingRelease ? null : this._radarAnalysis;
         const contributions = selectDailyContributions(snapshot, { previousSession: this._radarPreviousSession });
         const firstImpact = contributions.rows.find(row => Number.isFinite(row.impact));
         const main = document.createElement('div');
         main.className = 'dashboard-radar-preview-main';
-        main.textContent = analysis?.text ? radarPreviewText(analysis.text)
+        main.textContent = pendingRelease ? `${pendingRelease.ticker} ${pendingRelease.period} publié · ${pendingRelease.highlights[0]}`
+            : analysis?.text ? radarPreviewText(analysis.text)
             : firstImpact ? `Mouvement principal : ${firstImpact.name} (${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', signDisplay: 'always' }).format(firstImpact.impact)}). Analyse en attente.`
                 : 'Analyse en attente des variations fiables du portefeuille.';
         container.append(main);
@@ -1130,7 +1134,9 @@ export class DashboardApp {
         if (!state || !text || !sources) return;
         if (button) button.disabled = !!this._radarAnalysisRunning;
         sources.replaceChildren();
-        const analysis = this._radarAnalysis;
+        const pendingRelease = (this._verifiedReleases || []).find(release =>
+            !this._radarAnalysis?.releaseIds?.includes(release.id));
+        const analysis = pendingRelease ? null : this._radarAnalysis;
         if (analysis?.text) {
             text.hidden = false;
             this.renderRadarAnalysisText(text, analysis.text);
@@ -1151,7 +1157,9 @@ export class DashboardApp {
         }
         const outdated = analysis && (Date.now() - analysis.createdAt > 60 * 60 * 1000
             || (analysis.mode !== 'morning' && (this.lastPortfolioSnapshot?.sourceStale || this._radarPreviousSession)));
-        state.textContent = status || (analysis
+        state.textContent = status || (pendingRelease
+            ? `${pendingRelease.ticker} ${pendingRelease.period} publié · nouvelle lecture IA en attente.`
+            : analysis
             ? `Analyse du ${this.formatFullDateTime(analysis.createdAt)} · ${analysis.reason}${outdated ? ' · à actualiser' : ''}${analysis.sources?.length ? '' : ' · Aucune source vérifiable renvoyée'}`
             : 'L’analyse se lancera quand les données du portefeuille et les actualités seront prêtes.');
         this.renderRadarPreview();
@@ -1222,14 +1230,20 @@ export class DashboardApp {
         const morningReason = !this._morningRefreshing && morningRadarTrigger({ snapshot, newsReady,
             visible: !document.hidden, lastMorningDay: this._radarLastMorningDay,
             lastAttemptAt: this._radarLastAttemptAt, now });
+        const releaseTrigger = radarReleaseTrigger({ releases: this._verifiedReleases || [],
+            analysisReleaseIds: this._radarAnalysis?.releaseIds || [], snapshot, newsReady,
+            visible: !document.hidden, lastAttemptId: this._radarLastReleaseAttemptId,
+            lastAttemptAt: this._radarLastReleaseAttemptAt, now });
         const manualMorning = manual && parisRadarDay(now).minutes >= 8 * 60 + 30
             && parisRadarDay(now).minutes < 12 * 60 && (snapshot?.sourceStale || this._radarPreviousSession);
-        const morning = !!morningReason || manualMorning;
+        const morning = !!morningReason || manualMorning
+            || (!!releaseTrigger && (snapshot?.sourceStale || this._radarPreviousSession));
         if (snapshot?.status !== 'valid' || (!morning && (snapshot.sourceStale || this._radarPreviousSession))) {
             if (manual) this.renderPortfolioRadarAnalysis('Analyse indisponible : variation du jour ou cotations fiables absentes.');
             return;
         }
-        const reason = manual ? (morning ? 'briefing manuel du matin' : 'analyse manuelle') : morningReason || radarAutoTrigger({ snapshot,
+        const reason = manual ? (morning ? 'briefing manuel du matin' : 'analyse manuelle')
+            : morningReason || releaseTrigger?.reason || radarAutoTrigger({ snapshot,
             previousSession: this._radarPreviousSession, newsReady,
             visible: !document.hidden, previousPct: this._radarLastAnalyzedPct, lastAttemptAt: this._radarLastAttemptAt,
             lastSuccessAt: this._radarLastSuccessAt, now });
@@ -1246,6 +1260,10 @@ export class DashboardApp {
         const signature = this.radarAnalysisSignature();
         this._radarAnalysisRunning = true;
         this._radarLastAttemptAt = now;
+        if (releaseTrigger) {
+            this._radarLastReleaseAttemptId = releaseTrigger.pendingId;
+            this._radarLastReleaseAttemptAt = now;
+        }
         if (!manual) {
             try { localStorage.setItem(countKey, String(autoCount + 1)); } catch { /* optional cache */ }
         }
@@ -1253,7 +1271,8 @@ export class DashboardApp {
         try {
             const result = await fetchPortfolioRadarAnalysis(payload, reason);
             if (userId !== auth.currentUser?.uid || signature !== this.radarAnalysisSignature()) return;
-            this._radarAnalysis = { ...result, reason, mode: payload.mode, createdAt: Date.now() };
+            this._radarAnalysis = { ...result, reason, mode: payload.mode,
+                releaseIds: (this._verifiedReleases || []).map(release => release.id), createdAt: Date.now() };
             this._radarLastSuccessAt = this._radarAnalysis.createdAt;
             if (morning) this._radarLastMorningDay = parisRadarDay(now).day;
             else this._radarLastAnalyzedPct = snapshot.dayPnlPct;

@@ -67,6 +67,7 @@ sont pas assimilés à de nouvelles fonctionnalités.
 | `1.17.40` | 2026-10-13 | add radar with gemini cdex | — |
 | `1.17.41` | 2026-10-13 | add radar with gemini cdex 1 | — |
 | `1.17.42` | 2026-10-14 | add radar with gemini resultat fin | — |
+| `1.17.43` | 2026-10-14 | add radar with gemini resultat fin 1 | — |
 
 Les messages de commit pilotent les nouvelles versions. Les scripts de
 déploiement ajoutent désormais aussi chaque correctif à ce tableau avant les

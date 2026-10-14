@@ -23,6 +23,16 @@ export function morningRadarTrigger({ snapshot, newsReady = false, visible = tru
     return 'briefing de 8 h 30';
 }
 
+export function radarReleaseTrigger({ releases = [], analysisReleaseIds = [], snapshot, newsReady = false,
+    visible = true, lastAttemptId = '', lastAttemptAt = 0, now = Date.now() } = {}) {
+    if (!visible || !newsReady || snapshot?.status !== 'valid' || !releases.length) return null;
+    const pending = releases.filter(release => !analysisReleaseIds.includes(release.id));
+    if (!pending.length) return null;
+    const pendingId = pending.map(release => release.id).sort().join('|');
+    if (lastAttemptId === pendingId && now - lastAttemptAt < 15 * 60_000) return null;
+    return { reason: 'nouveau résultat publié', pendingId };
+}
+
 export function selectRadarMacroArticles(articles = [], now = Date.now(), limit = 4) {
     return articles.filter(article => {
         const publishedAt = Number(article?.datetime) * 1000;
@@ -114,7 +124,7 @@ function sourceLinks(groundingMetadata) {
 export async function fetchPortfolioRadarAnalysis(payload, reason, { signal } = {}) {
     const bounded = { ...payload, articles: [...(payload.articles || [])], macroArticles: [...(payload.macroArticles || [])] };
     const messageFor = data => data.mode === 'morning'
-        ? `Déclencheur : ${reason}. Prépare le briefing de 8 h 30, heure de Paris. Les cours du portefeuille sont les derniers connus : ne présente aucune variation de la veille comme une variation d'aujourd'hui. Résume d'abord en 2-3 points les résultats publiés dans earningsReleases, avec chiffres, période, date et source ; distingue résultats constatés et prévisions. Puis explique les nouvelles macroéconomiques récentes et la tendance possible de la journée, sans prédire avec certitude. Vérifie les faits via la recherche. Distingue fait sourcé, hypothèse et inconnu. Réponds en français, 250 mots maximum. Données : ${JSON.stringify(data)}`
+        ? `Déclencheur : ${reason}. Prépare un point de marché daté de observedAt (briefing matinal si le déclencheur l'indique). Les cours du portefeuille sont les derniers connus : ne présente aucune variation de la veille comme une variation d'aujourd'hui. Résume d'abord en 2-3 points les résultats publiés dans earningsReleases, avec chiffres, période, date et source ; distingue résultats constatés et prévisions. Puis explique les nouvelles macroéconomiques récentes et la tendance possible de la journée, sans prédire avec certitude. Vérifie les faits via la recherche. Distingue fait sourcé, hypothèse et inconnu. Réponds en français, 250 mots maximum. Données : ${JSON.stringify(data)}`
         : `Déclencheur : ${reason}. Résume d'abord toute publication vérifiée dans earningsReleases, puis explique brièvement les contributions observées et cherche les nouvelles macroéconomiques ou sectorielles récentes susceptibles d'éclairer la direction du marché. Les titres d'actifs fournis ne sont que des pistes : si aucun événement propre à une société n'est pertinent et vérifié, dis-le sans en inventer. Distingue fait sourcé, hypothèse et inconnu ; ne déduis jamais une cause de la seule simultanéité. Réponds en français, en trois sections courtes avec titres, 250 mots maximum, dates et sources. Données : ${JSON.stringify(data)}`;
     while (messageFor(bounded).length > 6500 && (bounded.macroArticles.length || bounded.articles.length)) {
         if (bounded.articles.length) bounded.articles.pop();

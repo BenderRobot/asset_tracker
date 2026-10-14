@@ -18,6 +18,7 @@ export function verifiedPortfolioReleases(holdings = [], now = Date.now()) {
     return RELEASES.filter(release => release.publishedAt <= now && now - release.publishedAt < 7 * 24 * HOUR_MS
         && holdings.some(holding => Number(holding?.quantity) > 0
             && (String(holding.ticker || '').toUpperCase() === release.ticker
+                || release.providerSymbols.includes(String(holding.ticker || '').toUpperCase())
                 || release.providerSymbols.includes(String(holding.providerSymbol || '').toUpperCase()))))
         .map(release => ({ ...release, isNew: now - release.publishedAt < 48 * HOUR_MS }));
 }

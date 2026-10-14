@@ -580,6 +580,39 @@ describe('Daily portfolio contributions', () => {
         expect(document.getElementById('dashboard-radar-earnings').textContent).toContain('Tesla');
     });
 
+    it('passes real held positions to the release matcher during snapshot rendering', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-10-14T07:30:00Z'));
+        document.body.innerHTML = '<div id="dashboard-radar-releases"></div><div id="dashboard-radar-earnings"></div>';
+        const app = Object.create(DashboardApp.prototype);
+        app._earningsEvents = [{ ticker: 'ASML', name: 'ASML Holding', providerSymbol: 'ASML.AS', date: Date.now() }];
+        app._earningsLoadStatus = 'ready';
+        app.dataManager = { splitCanonicalPurchases: () => ({ cash: [] }) };
+        app.storage = { getPurchases: () => [] };
+        app.ui = { updatePortfolioSummary: () => {} };
+        for (const name of ['renderDailyContributions', 'renderPortfolioRadar', 'restorePortfolioRadarAnalysis',
+            'renderPortfolioRadarAnalysis', 'analyzePortfolioRadar', 'loadEarningsCalendar', 'renderAssetSelect',
+            'renderKPIs', 'renderAllocation', 'hideCacheBadge']) app[name] = vi.fn();
+        app.renderSnapshot({ snapshot: { snapshotId: 'asml', portfolioSnapshot: { status: 'unavailable', positions: [],
+            staleInstruments: [] }, _engine: { holdings: [{ ticker: 'ASML', name: 'ASML Holding', quantity: 1 }],
+            cashReserve: { total: 0 }, summary: {} } }, stale: false, degraded: false, previousSession: true });
+        expect(document.querySelector('.dashboard-radar-new-badge')?.textContent).toBe('Nouveau');
+        expect(document.getElementById('dashboard-radar-earnings').textContent).not.toContain('ASML');
+        expect(app._verifiedReleases[0].id).toBe('asml-q3-2026');
+    });
+
+    it('does not display a cached AI claim that no result exists after a verified release appears', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-10-14T07:30:00Z'));
+        document.body.innerHTML = '<div id="dashboard-radar-ai-status"></div><div id="dashboard-radar-ai-text"></div><div id="dashboard-radar-ai-sources"></div>';
+        const app = Object.create(DashboardApp.prototype);
+        app._verifiedReleases = verifiedPortfolioReleases([{ ticker: 'ASML', quantity: 1 }]);
+        app._radarAnalysis = { text: 'Aucun résultat communiqué pour ASML.', releaseIds: [], createdAt: Date.now() };
+        app.renderPortfolioRadarAnalysis();
+        expect(document.getElementById('dashboard-radar-ai-text').hidden).toBe(true);
+        expect(document.getElementById('dashboard-radar-ai-status').textContent).toContain('nouvelle lecture IA en attente');
+    });
+
     it('shows losing positions without repeating irrelevant no-article messages', () => {
         document.body.innerHTML = '<div id="dashboard-radar-news"></div><div id="dashboard-radar-preview"></div>';
         const app = Object.create(DashboardApp.prototype);
